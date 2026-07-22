@@ -1,0 +1,65 @@
+# Example .handoff.toml, annotated.
+#
+# Copy to your repository root as `.handoff.toml`. Every key is optional and
+# falls back to a default. The installer normally writes this file for you by
+# inspecting your repository; this example exists to document the shape and to
+# show a non-Python project.
+#
+# QUOTING: regex values must use SINGLE quotes. TOML processes escapes inside
+# "double quoted" strings, and \d and \s are not valid ones, so a regex written
+# that way makes the ENTIRE file fail to parse, not just that key.
+
+[handoff]
+
+# --- documents ---------------------------------------------------------------
+handoff_doc   = "STATUS.md"            # the document sessions read as truth
+archive_doc   = "docs/status-archive.md"
+retain_entries = 3                     # entries kept in the live document
+trunk         = "main"                 # branch that merge claims are checked against
+
+# --- structure ---------------------------------------------------------------
+# entry_prefix identifies an ENTRY. It must not match reference sections that
+# sit among your entries, or archiving will move reference material out of the
+# live document.
+entry_prefix  = "## Release "
+# base_header marks where per-entry history stops and permanent reference
+# begins. Nothing below it is ever archived.
+base_header   = '^## \d+[a-z]?\. '
+
+# --- running your test suite -------------------------------------------------
+# {python} is replaced with the resolved interpreter. A command that does not
+# mention it needs no Python at all, which is how a JS, Rust or .NET project
+# uses this. Or omit all of it and feed a result in with --suite-json.
+suite_command  = ["npm", "test"]
+suite_passed   = '(\d+) passed'
+suite_failed   = '(\d+) failed'
+suite_duration = '\bin ([\d.]+)s'
+
+# --- the rules ---------------------------------------------------------------
+# DERIVE THESE FROM YOUR REAL DOCUMENT. Do not copy them. A pattern that matches
+# nothing makes the validator exit 0 forever while appearing healthy, which is
+# worse than having no validator. See references/porting.md.
+
+# How merge claims are phrased here. {trunk} is substituted with the value above.
+merge_claim = '(?:merged|shipped|released)\s+(?:to|into)\s+`?{trunk}`?\s+at\s+`([0-9a-f]{7,40})`'
+
+# How branch names appear in prose.
+branch_token = '`((?:feature|fix|hotfix)/[^`]+)`'
+
+# Present-tense "not done yet" claims. Keep this set SMALL and closed. Widening
+# it to anything that sounds like a status claim reintroduces false positives,
+# and a validator that cries wolf stops being read.
+live_phrases = 'not yet released|awaiting review|still open|pending merge'
+
+# Paths introduced by an operative marker. Keyed on what a reference is FOR,
+# never on what it looks like: a shape-keyed version of this rule would have
+# produced 23 false positives on the corpus it was designed against.
+path_pointer = '(?:\*\*(?:Plan|Design|Spec)s?:?\*\*|\bsee\b|\bread\b)[^`\n]{0,40}`([\w:./-]+\.(?:md|txt|json|toml))`'
+
+# --- switching features off --------------------------------------------------
+# These three accept an empty value to mean DISABLED rather than defaulted.
+# Left unset, a repository with no phase cadence silently inherits a phase regex
+# and every commit is labelled unknown.
+phase_task = ''
+phase_bare = ''
+plans_dir  = ''

@@ -1,0 +1,97 @@
+#!/bin/sh
+# Install the handoff-verify hook into .git/hooks.
+#
+#     sh tools/hooks/install
+#
+# .git/hooks is not version-controlled, so the real logic lives in the tracked
+# script beside this one and the installed hooks are one-line shims that call
+# it. Re-running is safe: existing shims are detected and left alone, and any
+# other hook content (the graphify rebuild, for instance) is appended to, never
+# replaced.
+
+set -eu
+
+COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
+MAIN_TREE=$(dirname "$COMMON_DIR")
+HOOK_DIR="$COMMON_DIR/hooks"
+MARKER="# handoff-verify-hook"
+
+mkdir -p "$HOOK_DIR"
+
+install_shim() {
+    name="$1"
+    script="$2"
+    marker="$3"
+    target="$HOOK_DIR/$name"
+
+    if [ -f "$target" ] && grep -q "$marker" "$target"; then
+        echo "already installed: $name"
+        return 0
+    fi
+    [ -f "$target" ] || printf '#!/bin/sh\n' > "$target"
+
+    cat >> "$target" <<EOF
+
+$marker
+_hk="\$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/$script"
+[ -f "\$_hk" ] && sh "\$_hk" || true
+EOF
+    chmod +x "$target"
+    echo "installed: $name -> $script"
+}
+
+# pre-commit is a BLOCKING guard, so it must propagate its exit status rather
+# than being swallowed by the `|| true` the advisory shims use.
+guard_target="$HOOK_DIR/pre-commit"
+if [ -f "$guard_target" ] && grep -q "# main-tree-guard-hook" "$guard_target"; then
+    echo "already installed: pre-commit"
+else
+    [ -f "$guard_target" ] || printf '#!/bin/sh\n' > "$guard_target"
+    cat >> "$guard_target" <<'EOF'
+
+# main-tree-guard-hook
+_g="$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/main-tree-guard"
+if [ -f "$_g" ]; then
+    sh "$_g" || exit 1
+else
+    # Say so. A `[ -f ]` that silently skips is how this hook spent its whole
+    # life installed-but-inert: the installer printed a success line and the
+    # guard file was never shipped, so every commit passed a check that had
+    # never run. "Did not run" must not look like "found nothing".
+    echo "[main-tree-guard] NOT RUNNING: no guard at $_g" >&2
+fi
+EOF
+    chmod +x "$guard_target"
+    echo "installed: pre-commit -> main-tree-guard"
+fi
+
+for name in post-commit post-merge; do
+    target="$HOOK_DIR/$name"
+
+    if [ -f "$target" ] && grep -q "$MARKER" "$target"; then
+        echo "already installed: $name"
+        continue
+    fi
+
+    if [ ! -f "$target" ]; then
+        printf '#!/bin/sh\n' > "$target"
+    fi
+
+    # Resolve from the CURRENT checkout, and guard existence: a worktree (or the
+    # main tree itself) may sit on a branch that predates this script, and a
+    # bare `sh <missing>` would print a confusing error on every commit.
+    cat >> "$target" <<'EOF'
+
+# handoff-verify-hook
+_hv="$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/handoff-verify"
+[ -f "$_hv" ] && sh "$_hv"
+EOF
+
+    chmod +x "$target"
+    echo "installed: $name"
+done
+
+echo
+echo "post-commit catches ordinary commits; post-merge catches merges, which"
+echo "git does NOT route through post-commit - that is the case that went"
+echo "unnoticed on 2026-07-21."

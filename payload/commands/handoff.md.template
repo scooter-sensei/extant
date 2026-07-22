@@ -1,0 +1,110 @@
+---
+description: Draft, validate, and commit the end-of-phase session handoff
+---
+
+Produce the end-of-phase handoff for this repository.
+
+## Step 1 - Friction summary (you, not the subagent)
+
+From your own context in THIS session, write a short friction summary: denied
+or reverted actions, retry loops, dependency problems, anything that cost time
+or nearly went wrong. Be specific and honest; include things that reflect badly
+on the session. If nothing notable happened, say so explicitly.
+
+You are the only party with this information - the subagent cannot recover it.
+
+## Step 2 - Dispatch
+
+Spawn a general-purpose subagent. Give it, verbatim: the friction summary from
+Step 1, and these instructions.
+
+---
+
+You are producing the end-of-phase handoff for {{PROJECT}}.
+
+0. Resolve the interpreter FIRST and use it for every command below. If work
+   happens in git worktrees, note that a virtualenv is usually gitignored and
+   exists only in the main working tree, so a relative path will not resolve
+   there. This finds it from either location, on any platform:
+
+   ```sh
+   MAIN="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+   PY=""
+   for c in "$MAIN/.venv/Scripts/python.exe" "$MAIN/.venv/bin/python" \
+            "$MAIN/.venv/bin/python3"; do
+       [ -x "$c" ] && PY="$c" && break
+   done
+   [ -n "$PY" ] || PY="$(command -v python3 || command -v python)"
+   ```
+
+   Substitute `$PY` wherever the commands below say `$PY`.
+
+1. Run the collector:
+   `$PY tools/handoff_collect.py --collect --out handoff_bundle.json`
+
+   **If the suite cannot run here, pass `--suite-json <path>`** with an
+   already-captured result rather than repeating a long run. The collector stops
+   with a RuntimeError naming that flag when it cannot find an interpreter for
+   the configured suite command.
+
+   The bundle records whether the suite figure was `measured` or `supplied`.
+   Say which in the entry you draft - a reused count is not a fresh measurement.
+
+   If `handoff_bundle.json` reports `nothing_to_hand_off` true, there are no
+   commits since the last handoff: report that plainly and stop. Do not draft
+   an entry, run `--archive`, or commit.
+
+2. Read `handoff_bundle.json`. Prepend ONE new entry to `{{DOC}}`, above the
+   existing entries and below the title. The entry's header must be EXACTLY of
+   the form `{{ENTRY_PREFIX}}<n> - <title> (<status>, <date>)`. Any other header
+   silently disables archiving and live-claim validation for that entry.
+   Sections, in order:
+   **Status**, **What Shipped**, **Known Issues**, **Next Tasks**, **Gotchas**.
+   Fold the friction summary into Known Issues and Gotchas.
+
+   You may only write claims the bundle supports. Do not estimate, infer a
+   merge that the bundle does not show, or describe work you cannot see. If the
+   suite is red, say so plainly in Status - a handoff that only describes green
+   states lies exactly when the truth matters.
+
+   If `plan.checkbox_tracking` is false, the plan's `remaining` list reflects
+   an unmaintained file, not outstanding work - it MUST NOT be reported as
+   such. Derive Next Tasks from the plan's prose and from `commits` instead.
+
+3. Run the archiver, AFTER drafting: `$PY tools/handoff_collect.py --archive`
+
+   Order matters. Archiving before the new entry exists means the entry does
+   not count toward the retention cap, so the document is left holding one more
+   entry than the cap allows and the archive is permanently one cycle behind.
+   Drafting first makes the new entry the newest, so the oldest is rotated out
+   in the same run and the document holds exactly the retained count.
+
+4. Validate:
+   `$PY tools/handoff_collect.py --validate {{DOC}}`
+   Non-zero exit means fix the reported claims and re-run. **At most 2 attempts.**
+
+   Fix claims by CORRECTING them, never by deleting them to pass. Report the
+   findings from your FIRST validation run even if a later attempt cleared them.
+
+5. If and only if validation exits 0, commit - and ONLY these paths:
+   `{{DOC}}`, `{{ARCHIVE}}`, and any spec or plan doc you updated. Never source
+   files. Never `--amend`. Never push.
+   Message: `docs: handoff - <phase> complete at top of {{DOC}}`
+
+   A RED SUITE DOES NOT BLOCK THIS COMMIT. Validation checks whether claims are
+   true, not whether tests pass. A handoff that accurately records a failing
+   suite is exactly what the next session needs; refusing to write one would
+   withhold the truth at the moment it is most useful.
+
+6. Report back: the commit SHA, retained/archived counts, suite result, and
+   your first-run validation findings.
+
+If validation still fails after 2 attempts, do NOT commit. Report the
+outstanding findings and stop.
+
+---
+
+## Step 3 - Relay
+
+Relay the subagent's report in 2-3 lines, including the first-run validation
+findings even if they were later fixed.

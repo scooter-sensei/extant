@@ -1,0 +1,73 @@
+#!/bin/sh
+# Refuse a commit made in the MAIN working tree while it is not on the trunk.
+#
+#     tools/hooks/main-tree-guard        (installed as pre-commit)
+#
+# Why this is a hard block rather than a warning: on 2026-07-21 the same
+# confusion - treating "the main working tree" as if it were "the trunk branch"
+# - caused five separate incidents in one day.
+#
+#   1. `git merge --no-ff` landed a finished branch on an unrelated topic branch.
+#   2. A doc was edited against a base 180 commits stale; committing it would
+#      have silently reverted rules the project depends on.
+#   3. A git hook validated a different branch's handoff document than the one
+#      being committed.
+#   4. A recorded suite baseline pointed at a commit the suite never ran on.
+#   5. A test-count measurement reported the stale branch's number.
+#
+# Every one was recoverable, and every one cost time that a two-line check
+# would have saved. Detection alone was not enough: a --preflight report already
+# named the condition and it still happened, because a report only helps when
+# somebody runs it.
+#
+# The rule this enforces: the main working tree stays on the trunk. Do feature
+# work in a linked worktree. Nothing here blocks worktree commits at all.
+
+set -u
+
+TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
+MAIN_TREE=$(dirname "$COMMON_DIR")
+
+# Linked worktrees are exactly where work is supposed to happen. Allow freely.
+[ "$TOPLEVEL" = "$MAIN_TREE" ] || exit 0
+
+# The trunk is per-project. Hardcoding `main` here made this guard block every
+# commit on a `master` or `develop` repo - including one whose .handoff.toml
+# correctly said `trunk = "master"`, which this script simply never read. That
+# is the "config key nothing reads" failure the handoff system exists to catch,
+# so it must not live in the handoff system's own guard.
+#
+# Parsed with sed rather than a Python call: this runs on every commit, and the
+# handoff system deliberately supports repos with no Python at all (a JS or Rust
+# project sets suite_command = ["npm", "test"]). A pre-commit hook that needs an
+# interpreter those repos do not have would be worse than the bug it fixes.
+TRUNK=main
+CONFIG="$MAIN_TREE/.handoff.toml"
+if [ -f "$CONFIG" ]; then
+    _t=$(sed -n "s/^[[:space:]]*trunk[[:space:]]*=[[:space:]]*[\"']\\([^\"']*\\).*/\\1/p" \
+         "$CONFIG" | head -n 1)
+    [ -n "$_t" ] && TRUNK="$_t"
+fi
+# No trunk key means the loader's own default applies, which is also `main`.
+# The two must agree; if the loader's default ever changes, change it here too.
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+[ "$BRANCH" = "$TRUNK" ] && exit 0
+
+cat >&2 <<EOF
+
+[main-tree-guard] BLOCKED: committing in the MAIN working tree while it is on
+'$BRANCH', not '$TRUNK'.
+
+  Files here are '$BRANCH''s versions, so this commit is based on that branch's
+  content. If it is behind '$TRUNK', committing can silently revert work.
+
+  Do the work in a worktree instead:
+      git worktree add .claude/worktrees/<name> -b <name> $TRUNK
+
+  Or, if this really is intended, re-run with:
+      git commit --no-verify
+
+EOF
+exit 1
