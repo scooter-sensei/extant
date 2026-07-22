@@ -1,0 +1,60 @@
+name: tests
+
+# NOTE: this is expected to be RED until the placeholder copyright holder in
+# LICENSE is replaced. That failure is deliberate (see PUBLISHING.md); a green
+# badge over an unpublishable license would be the exact kind of reassuring,
+# false signal this project exists to prevent.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    # Both platforms, because the git hooks are shell scripts and the tests run
+    # them through a real `sh`. Line-ending and interpreter-resolution bugs in
+    # those hooks only appear on one platform at a time, which is how one of
+    # them survived undetected on POSIX for its entire existence.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show versions
+        run: |
+          python --version
+          git --version
+
+      # No dependencies to install: standard library only, 3.11+ for tomllib.
+      - name: Run the suite
+        run: python -m pytest
+
+  self-check:
+    # The tool validating its own handoff document. Restricted to pushes on
+    # main because the ancestry checks need a local `main` ref to resolve
+    # against, and fetch-depth 0 because a shallow clone cannot answer "is this
+    # commit an ancestor of trunk" at all -- it would report dead references
+    # for commits that exist perfectly well.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Validate this repository's own handoff document
+        run: python payload/handoff_collect.py --verify --repo .

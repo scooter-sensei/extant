@@ -40,10 +40,19 @@ no repository paths, hostnames, or credentials appear.
 
 - A short GIF or transcript of `--verify` catching a real false claim does more
   than the README does.
-- GitHub Actions running `python -m pytest` on push. There is no workflow file
-  yet; the suite needs only Python 3.11 or newer and git.
 - Topics on the repository: `git`, `documentation`, `validation`,
   `claude-code`, `ai-agents`.
+
+## 6. Expect the first CI run to be red
+
+`.github/workflows/tests.yml` runs the suite on Linux and Windows across Python
+3.11 to 3.13, and separately has the tool validate this repository's own handoff
+document on pushes to `main`.
+
+It will fail until item 1 is done, because the LICENSE test is part of the
+suite. That is the intended behaviour rather than an oversight: a green badge
+sitting over an unpublishable license is precisely the reassuring, false signal
+this project exists to prevent.
 
 ## What is deliberately not here
 
@@ -51,6 +60,7 @@ no repository paths, hostnames, or credentials appear.
   repository, not by `pip install`, because the hooks and the slash command have
   to live in the target repo anyway.
 - **No version pinning or dependencies.** Standard library only, Python 3.11+
-  for `tomllib`.
-- **No CI configuration.** Added deliberately as a choice for you rather than a
-  default, since it depends on where you host.
+  for `tomllib`. The 3.11 floor is asserted by the CI matrix rather than only
+  claimed in prose.
+- **No release automation or tagging.** Version numbers live in `CHANGELOG.md`
+  and nowhere else, so there is nothing to keep in sync.
