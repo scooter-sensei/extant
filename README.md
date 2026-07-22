@@ -277,7 +277,17 @@ status file at all, still gets something useful out of this.
 - Expects consistent headings for each entry. A heading that does not match gets
   skipped silently.
 - Assumes one main branch. More elaborate branching is not handled.
-- Does not use the internet, so links to issues and pull requests go unchecked.
+- **Checks links to your own files, not links to the web.** Nothing here uses
+  the internet. Checking external links would make a passing run depend on
+  someone else's uptime and rate limits, turning a definite answer into a
+  coin flip. Issue and pull request links go unchecked for the same reason.
+- **Does not complain about a branch that was merged and then deleted.** That
+  is normal tidying, not a mistake, and the branch is still named in the merge
+  commit. Only a name git has never seen at all is reported.
+- **Settings are read next to the tool, not next to the folder you point it
+  at.** That is right once it is installed in your project, and wrong if you
+  run it from somewhere else, where your settings would be skipped. It tells
+  you when that happens rather than quietly using the wrong ones.
 - If the settings are wrong it checks nothing while appearing to work.
 
 ## Works with any language
