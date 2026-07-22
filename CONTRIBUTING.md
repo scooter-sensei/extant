@@ -12,7 +12,7 @@ handoff document.
 
 ## Adding a validation rule
 
-Rules live in a registry in `payload/handoff_collect.py`. Each one declares its
+Rules live in a registry in `plugin/skills/handoff/payload/handoff_collect.py`. Each one declares its
 scope, whether it survives archiving, and, required, the exact yes-or-no
 question it asks:
 
@@ -32,7 +32,7 @@ Rule(
    every rule states its `falsifiable` question, so a rule that inspects numbers
    or dates cannot be added quietly.
 2. It produces **zero** false positives on a real corpus. This half is on you.
-   Measure before you write the pattern. `references/design.md` records the time
+   Measure before you write the pattern. `plugin/skills/handoff/references/design.md` records the time
    this was skipped: a rule keyed on what a path looked like would have emitted
    23 findings on its first run, every one of them wrong.
 
@@ -58,7 +58,7 @@ means nothing either.
 
 - ASCII only in string literals. Non-ASCII in printed output raises
   `UnicodeEncodeError` on a cp437 console and terminates the process. A test
-  enforces this for `payload/`, scoped to string literals, since comments never
+  enforces this for the payload, scoped to string literals, since comments never
   reach a console.
 - `from __future__ import annotations` at the top of every module.
 - Narrow exception handlers. Bare `except:` and `except Exception:` hide the

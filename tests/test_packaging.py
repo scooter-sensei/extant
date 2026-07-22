@@ -11,21 +11,42 @@ import tokenize
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
 
 
-def test_license_names_a_real_copyright_holder() -> None:
-    """Fails while LICENSE carries the shipped placeholder.
+def test_no_publication_placeholders_remain() -> None:
+    """Fails while any shipped file still carries the owner placeholder.
 
-    A copyright line reading `<GITHUB-USERNAME>` is not a legal notice, and it
-    is exactly the sort of thing that survives to a public repository because
-    nothing complains. See PUBLISHING.md.
+    It appears in LICENSE as a copyright holder, and in both plugin manifests
+    as an owner, author, and homepage URL. A placeholder in a legal notice is
+    not a legal notice, and a marketplace entry pointing at a homepage that does
+    not exist is worse than one with no homepage at all.
+
+    Swept rather than checked file by file, because the placeholder spread from
+    one file to three the moment the plugin manifests were added, and a
+    per-file assertion would have kept passing on the two new ones.
     """
-    text = PACKAGE_ROOT.joinpath("LICENSE").read_text(encoding="utf-8")
+    # Split so this file is not its own match.
+    placeholder = "<GITHUB-" + "USERNAME>"
 
-    assert "MIT License" in text, "LICENSE is not the file it is supposed to be"
-    assert "<GITHUB-USERNAME>" not in text, (
-        "LICENSE still has its placeholder copyright holder. Replace it with a "
-        "real name or handle before publishing (see PUBLISHING.md)."
+    offenders: list[str] = []
+    checked = 0
+    for path in sorted(PACKAGE_ROOT.rglob("*")):
+        parts = path.relative_to(PACKAGE_ROOT).parts
+        if not path.is_file() or {".git", "__pycache__", ".pytest_cache"} & set(parts):
+            continue
+        if path.name == "test_packaging.py":
+            continue
+        checked += 1
+        if placeholder in path.read_text(encoding="utf-8", errors="replace"):
+            offenders.append(path.relative_to(PACKAGE_ROOT).as_posix())
+
+    assert checked > 15, f"only {checked} files scanned; the skip list is wrong"
+    assert "MIT License" in PACKAGE_ROOT.joinpath("LICENSE").read_text(encoding="utf-8")
+    assert not offenders, (
+        f"{len(offenders)} file(s) still carry the {placeholder} placeholder. "
+        f"Replace it with a real name or handle before publishing, see "
+        f"PUBLISHING.md:\n  " + "\n  ".join(offenders)
     )
 
 
@@ -78,7 +99,7 @@ def test_payload_string_literals_are_ascii() -> None:
 def test_shipped_shell_hooks_are_ascii() -> None:
     """The hooks echo to a terminal too, and are not Python, so tokenize cannot
     see them. Whole-file check: they carry no diagrams to preserve."""
-    hooks = sorted((PACKAGE_ROOT / "payload" / "hooks").iterdir())
+    hooks = sorted((SKILL_ROOT / "payload" / "hooks").iterdir())
     offenders = [
         f"{h.name}: U+{ord(c):04X}"
         for h in hooks if h.is_file()
@@ -95,7 +116,7 @@ def test_installer_ships_every_hook_it_wires() -> None:
     """
     import re
 
-    hooks = PACKAGE_ROOT / "payload" / "hooks"
+    hooks = SKILL_ROOT / "payload" / "hooks"
     text = hooks.joinpath("install").read_text(encoding="utf-8")
     referenced = sorted(set(re.findall(r"tools/hooks/([A-Za-z0-9_-]+)", text)))
 
@@ -116,10 +137,10 @@ def test_command_template_placeholders_are_all_rendered() -> None:
     """
     import sys
 
-    sys.path.insert(0, str(PACKAGE_ROOT))
+    sys.path.insert(0, str(SKILL_ROOT))
     import install as installer  # noqa: E402
 
-    template = PACKAGE_ROOT / "payload" / "commands" / "handoff.md.template"
+    template = SKILL_ROOT / "payload" / "commands" / "handoff.md.template"
     found = set(__import__("re").findall(r"\{\{[A-Z_]+\}\}", template.read_text(encoding="utf-8")))
 
     assert found, "template contains no placeholders; the renderer would be a no-op"

@@ -57,4 +57,4 @@ jobs:
           python-version: "3.13"
 
       - name: Validate this repository's own handoff document
-        run: python payload/handoff_collect.py --verify --repo .
+        run: python plugin/skills/handoff/payload/handoff_collect.py --verify --repo .

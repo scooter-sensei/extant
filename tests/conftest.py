@@ -14,7 +14,8 @@ from typing import Callable
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PACKAGE_ROOT / "payload"))
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+sys.path.insert(0, str(SKILL_ROOT / "payload"))
 
 
 def _run(repo: Path, *args: str) -> str:

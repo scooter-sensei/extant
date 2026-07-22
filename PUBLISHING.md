@@ -3,20 +3,40 @@
 A short checklist. The first item is enforced by a test, so the suite is red
 until it is done.
 
-## 1. Put a real name on the LICENSE
+## 1. Replace the owner placeholder everywhere
 
-`LICENSE` currently reads `Copyright (c) 2026 <GITHUB-USERNAME>`. Replace the
-placeholder with the name or handle you want publicly attached to this code.
+`<GITHUB-USERNAME>` currently appears in five files: the LICENSE copyright
+line, both plugin manifests (as owner, author, and homepage URL), the README
+install commands, and this file.
 
-`tests/test_packaging.py::test_license_names_a_real_copyright_holder` fails
-while the placeholder is present. That is deliberate: a placeholder in a legal
-notice is exactly the kind of thing that ships unnoticed, and the whole premise
-of this project is that unnoticed is the dangerous state.
+```sh
+grep -rl "GITHUB-USERNAME" . --exclude-dir=.git
+```
+
+`tests/test_packaging.py::test_no_publication_placeholders_remain` fails while
+any of them remain, and names each file. That is deliberate: a placeholder in a
+legal notice is not a legal notice, and a marketplace entry pointing at a
+homepage that does not exist is worse than one with no homepage. The whole
+premise of this project is that unnoticed is the dangerous state.
 
 ## 2. Decide what the repository is called
 
-The directory is `handoff-validator`. If you rename it, nothing in the code
-depends on the name.
+The directory is `handoff-validator`, and the marketplace takes its name from
+`.claude-plugin/marketplace.json`. If you rename the repository, update the
+`homepage` fields in both manifests and the install commands in the README.
+Nothing in the code depends on the name.
+
+Users will install it with:
+
+```
+/plugin marketplace add <your-handle>/handoff-validator
+/plugin install handoff@handoff-validator
+```
+
+Both manifests were written against the schema used by the installed plugins on
+the machine this was built on, including the official Anthropic marketplace:
+`name`, `description`, and `source` appear in all 258 of its plugin entries, and
+`category`, `homepage`, and `author` in most. They are not guesses.
 
 ## 3. Check the suite passes on a clean clone
 

@@ -6,6 +6,10 @@ First public release, extracted from the project it was built and proven on.
 
 ### Features
 
+- Installable as a Claude Code plugin: the repository is its own marketplace,
+  so `/plugin marketplace add <handle>/handoff-validator` followed by
+  `/plugin install handoff@handoff-validator` is the whole setup. The validator,
+  the hooks, and the CLI still work standalone with no Claude Code involved.
 - Five validation rules, each falsifiable against git or the filesystem: dead
   commit references (backticked and bare), stale live claims, false merge
   claims, dead path pointers, and credential shapes.

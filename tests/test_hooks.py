@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-HOOKS_DIR = PACKAGE_ROOT / "payload" / "hooks"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+HOOKS_DIR = SKILL_ROOT / "payload" / "hooks"
 GUARD = HOOKS_DIR / "main-tree-guard"
 
 # `sh` ships with Git for Windows, so this is present wherever git is. The skip

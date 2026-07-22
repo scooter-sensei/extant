@@ -50,18 +50,19 @@ document, which is this file.
 **Gotchas.**
 
 - Accepting the default configuration without deriving it gives a validator that
-  checks nothing, convincingly. Read `references/porting.md` first.
+  checks nothing, convincingly. Read `plugin/skills/handoff/references/porting.md` first.
 - A rule reporting zero examined is inert, not clean. The exit code cannot tell
   you which, and that distinction is most of the point of this tool.
 
 ## 1. Layout
 
-**Design:** `references/design.md` records why each rule is scoped as it is,
+**Design:** `plugin/skills/handoff/references/design.md` records why each rule is scoped as it is,
 with the failure that forced each decision. For every configuration key, see
-`references/config.md`.
+`plugin/skills/handoff/references/config.md`.
 
-`payload/` holds the files installed into a target repository as `tools/`.
-`install.py` and `detect.py` stay in this repository and are never copied.
+The skill lives at `plugin/skills/handoff/`. Inside it, `payload/` holds the
+files installed into a target repository as `tools/`, while `install.py` and
+`detect.py` stay put and are never copied.
 
 ## 2. Conventions
 

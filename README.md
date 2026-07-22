@@ -37,11 +37,31 @@ looks helpful and reintroduces exactly that failure.
 
 ## Install
 
+### As a Claude Code plugin
+
+```
+/plugin marketplace add <GITHUB-USERNAME>/handoff-validator
+/plugin install handoff@handoff-validator
+```
+
+That makes the `handoff` skill available. Ask Claude to set it up in a
+repository and it will run the installer, derive the configuration, wire the
+hooks, and render the `/handoff` command for that repo.
+
+### Standalone, without Claude Code
+
+The validator, the hooks, and the CLI have no dependency on Claude Code.
+
 ```sh
-python install.py --repo /path/to/your/repo
+git clone https://github.com/<GITHUB-USERNAME>/handoff-validator
+python handoff-validator/plugin/skills/handoff/install.py --repo /path/to/your/repo
 cd /path/to/your/repo
 sh tools/hooks/install
 ```
+
+Either route copies the same files into your repository: `tools/`, the git
+hooks, and a `.handoff.toml` derived from your repo rather than copied from
+someone else's.
 
 The installer does not copy another project's configuration. It **inspects your
 repository** and derives one: trunk branch from `origin/HEAD`, branch naming
@@ -134,12 +154,33 @@ cannot run instead of skipping quietly.
 
 ## Documentation
 
+All under `plugin/skills/handoff/`:
+
 | File | What is in it |
 |---|---|
 | `references/porting.md` | How to derive the configuration for a new repo. **Read before installing.** |
 | `references/config.md` | Every configuration key. |
 | `references/design.md` | Why each rule is scoped as it is, with the failure that forced it. |
 | `SKILL.md` | The agent-facing entry point. |
+
+## Repository layout
+
+```
+.claude-plugin/marketplace.json   makes this repo installable as a marketplace
+plugin/
+  .claude-plugin/plugin.json      the plugin manifest
+  skills/handoff/
+    SKILL.md                      what Claude reads
+    install.py, detect.py         installer and repo inspection; never copied
+    payload/                      what gets copied into your repo as tools/
+    references/                   the documentation above
+tests/                            115 tests, no network, no dependencies
+NEXT_SESSION.md                   this project's own handoff document
+```
+
+`NEXT_SESSION.md` is not decoration. It is the corpus the test suite validates
+against, and CI runs the tool on it, so the thing is exercised against a real
+document rather than only against fixtures.
 
 ## Limitations, stated plainly
 

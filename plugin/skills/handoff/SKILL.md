@@ -1,7 +1,10 @@
 ---
 name: handoff
 description: "Use when a project needs its session-handoff or status document to stay TRUE - a doc that says what shipped, what is merged, what is next, and that a fresh session reads as ground truth. Installs a validator that machine-checks every falsifiable claim against git before a commit is allowed, plus a /handoff command that drafts the entry and git hooks that re-check after every commit and merge. Also use when asked to port, install, or configure the handoff system in another repo."
-trigger: /handoff-install
+version: 0.1.0
+license: MIT
+user-invocable: true
+argument-hint: "[install|verify|port] [path to repo]"
 ---
 
 # Handoff system

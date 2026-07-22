@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-TOOL = PACKAGE_ROOT / "payload" / "handoff_collect.py"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+TOOL = SKILL_ROOT / "payload" / "handoff_collect.py"
 
 
 def test_fixture_builds_a_repo_with_commits(git_repo):

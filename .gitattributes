@@ -5,8 +5,8 @@
 # interpreter named "/bin/sh\r", which fails with an error naming a path that
 # looks perfectly correct. Without this file the hooks are LF only by accident
 # of whatever the cloner's git happens to be configured to do.
-payload/hooks/* text eol=lf
+plugin/skills/handoff/payload/hooks/* text eol=lf
 *.sh text eol=lf
 
 # The command template is written into a target repo verbatim; keep it stable.
-payload/commands/*.template text eol=lf
+plugin/skills/handoff/payload/commands/*.template text eol=lf
