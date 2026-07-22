@@ -30,7 +30,8 @@ def test_every_pattern_compiles_and_matches_something_real():
     the design exists to prevent, so assert against the real corpus."""
     from handoff_config import load_config
     cfg = load_config(PACKAGE_ROOT)
-    doc = (PACKAGE_ROOT / cfg.handoff_doc).read_text(encoding="utf-8", newline="")
+    with open(PACKAGE_ROOT / cfg.handoff_doc, encoding="utf-8", newline="") as fh:
+        doc = fh.read()
 
     assert cfg.merge_claim.findall(doc), "merge_claim matches nothing on the real document"
     assert cfg.branch_token.findall(doc), "branch_token matches nothing"

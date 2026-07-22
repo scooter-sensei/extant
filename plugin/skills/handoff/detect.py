@@ -213,7 +213,12 @@ _MERGEISH = re.compile(
 
 def inspect_document(path: Path) -> dict[str, object]:
     """Measure one document: entry headers, merge phrasing, size."""
-    text = path.read_text(encoding="utf-8", errors="replace", newline="")
+    # open() rather than Path.read_text(newline=""): read_text did not accept a
+    # newline argument until Python 3.13, so this line raised TypeError on 3.11
+    # and 3.12 and took the whole installer down with it. write_text has taken
+    # newline since 3.10, which is why only the read side broke.
+    with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+        text = fh.read()
 
     # An ENTRY header repeats AND tends to carry a date or version. A reference
     # header repeats too ("## Notes"), so repetition alone picks the wrong one.

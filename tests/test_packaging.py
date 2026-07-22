@@ -50,6 +50,49 @@ def test_no_publication_placeholders_remain() -> None:
     )
 
 
+def test_no_read_text_newline_argument() -> None:
+    """`Path.read_text(newline=...)` requires Python 3.13 and breaks below it.
+
+    pathlib gained that argument in 3.13. On 3.11 and 3.12 it raises
+    TypeError, and it shipped: `detect.py` used it, so `install.py` crashed
+    outright on the two oldest versions this project claims to support. The test
+    suite ran on both in CI and stayed green on that file, because nothing
+    called into it.
+
+    `write_text` took the same argument back in 3.10, which is why only the read
+    side broke, and why this is easy to write without noticing.
+
+    Parsed rather than grepped, so a call split across lines cannot slip past.
+    """
+    import ast
+
+    offenders: list[str] = []
+    files = 0
+    read_text_calls = 0
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        parts = path.relative_to(PACKAGE_ROOT).parts
+        if {"__pycache__", ".venv", ".pytest_cache"} & set(parts):
+            continue
+        files += 1
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "read_text":
+                read_text_calls += 1
+                if any(kw.arg == "newline" for kw in node.keywords):
+                    offenders.append(
+                        f"{path.relative_to(PACKAGE_ROOT).as_posix()}:{node.lineno}"
+                    )
+
+    assert files > 3, f"only {files} Python files parsed"
+    assert read_text_calls > 0, "no read_text calls found at all; this proves nothing"
+    assert not offenders, (
+        "read_text(newline=...) needs Python 3.13. Use "
+        "open(path, encoding=..., newline=...) instead:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_payload_string_literals_are_ascii() -> None:
     """Non-ASCII in printed output crashes a cp437 console.
 

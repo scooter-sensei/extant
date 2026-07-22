@@ -15,7 +15,12 @@ import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+# payload/ holds what is installed into a target repo; SKILL_ROOT holds the
+# installer and the detection module, which stay here. Both are importable so
+# that install-time code is testable, not only the copied part. It was the
+# untested half that shipped a crash on Python 3.11 and 3.12.
 sys.path.insert(0, str(SKILL_ROOT / "payload"))
+sys.path.insert(0, str(SKILL_ROOT))
 
 
 def _run(repo: Path, *args: str) -> str:
