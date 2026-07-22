@@ -67,6 +67,40 @@ def test_external_links_are_never_checked(git_repo) -> None:
     assert validate_md_links(repo, text) == []
 
 
+def test_example_links_in_inline_code_are_ignored(git_repo) -> None:
+    """The false positive this project's own README actually produced.
+
+    The table row documenting this very rule contains a backticked example
+    link, and the rule reported it as dead. Documentation ABOUT links is where
+    example links live, so this is the predictable case rather than an exotic
+    one, and it was found by running the rule against our own front page.
+    """
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    text = "| `[a link](to/a/file.md)` whose file is gone | checks it |\n"
+
+    assert validate_md_links(repo, text) == []
+
+
+def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
+    """The other half: stripping inline code must not swallow the whole line.
+
+    Without this, the fix above could be 'ignore any line containing a
+    backtick', which would blind the rule wherever prose mixes the two.
+    """
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    text = "Example `[x](never-real.md)` but see [the plan](docs/gone.md).\n"
+
+    findings = validate_md_links(repo, text)
+
+    assert len(findings) == 1, [f.detail for f in findings]
+    assert "docs/gone.md" in findings[0].detail
+    assert "never-real.md" not in findings[0].detail
+
+
 def test_links_inside_code_fences_are_ignored(git_repo) -> None:
     """A README demonstrating link syntax is showing an example, not making a
     promise. Catches a scanner that reads fenced blocks as prose."""

@@ -940,12 +940,21 @@ _FENCE = re.compile(r"^\s*(```|~~~)")
 _LINK_BASE: Path | None = None
 
 
-def _strip_code_fences(text: str) -> str:
-    """Blank out fenced code, preserving line numbers.
+_INLINE_CODE = re.compile(r"`[^`\n]*`")
 
-    A README demonstrating link syntax inside a code block is showing an
-    example, not making a promise, and checking it would produce exactly the
-    kind of false positive that gets a validator ignored.
+
+def _strip_code(text: str) -> str:
+    """Blank out fenced blocks AND inline code spans, preserving line numbers.
+
+    A README demonstrating link syntax is showing an example, not making a
+    promise, and checking it produces exactly the kind of false positive that
+    gets a validator ignored.
+
+    Inline spans were missed at first, and this project's own README caught it:
+    the table row documenting this very rule contains a backticked example
+    link, and the rule reported it as dead. Documentation ABOUT links is the
+    most predictable place for example links to appear, which makes it the last
+    place a link checker can afford to be naive.
     """
     out: list[str] = []
     inside = False
@@ -954,7 +963,8 @@ def _strip_code_fences(text: str) -> str:
             inside = not inside
             out.append("")
             continue
-        out.append("" if inside else line)
+        out.append("" if inside else _INLINE_CODE.sub(
+            lambda m: " " * len(m.group(0)), line))
     return "\n".join(out)
 
 
@@ -987,7 +997,7 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
     """
     base = _LINK_BASE or repo
     findings: list[Finding] = []
-    for number, line in enumerate(_strip_code_fences(text).splitlines(), start=1):
+    for number, line in enumerate(_strip_code(text).splitlines(), start=1):
         for raw in _MD_LINK.findall(line):
             if _EXTERNAL.match(raw) or raw.startswith("#"):
                 continue
@@ -1015,7 +1025,7 @@ def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
     """
     available = _anchors(text)
     findings: list[Finding] = []
-    for number, line in enumerate(_strip_code_fences(text).splitlines(), start=1):
+    for number, line in enumerate(_strip_code(text).splitlines(), start=1):
         for raw in _MD_LINK.findall(line):
             if not raw.startswith("#") or len(raw) < 2:
                 continue
@@ -1179,7 +1189,7 @@ def _probe_tag(repo: Path, text: str) -> str | None:
 
 
 def _probe_md_link(repo: Path, text: str) -> str | None:
-    for match in _MD_LINK.finditer(_strip_code_fences(text)):
+    for match in _MD_LINK.finditer(_strip_code(text)):
         raw = match.group(1)
         if _EXTERNAL.match(raw) or raw.startswith("#"):
             continue
@@ -1189,7 +1199,7 @@ def _probe_md_link(repo: Path, text: str) -> str | None:
 
 
 def _probe_md_anchor(repo: Path, text: str) -> str | None:
-    for match in _MD_LINK.finditer(_strip_code_fences(text)):
+    for match in _MD_LINK.finditer(_strip_code(text)):
         if not match.group(1).startswith("#"):
             continue
         start, end = match.span(1)
@@ -1278,7 +1288,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     _, segments, _ = split_entries(text)
     newest = next((s for kind, s in segments if kind == "phase"), "")
     branches_in_newest = len(_BRANCH_TOKEN.findall(newest)) if newest else 0
-    links = [raw for line in _strip_code_fences(text).splitlines()
+    links = [raw for line in _strip_code(text).splitlines()
              for raw in _MD_LINK.findall(line)]
     return {
         "dead-sha": backticked + bare,
