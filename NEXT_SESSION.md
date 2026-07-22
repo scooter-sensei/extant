@@ -9,8 +9,10 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 1 - Extraction and first public release (shipped, 2026-07-22)
 
 **Status.** Extracted from the project this was built and proven on, and made
-repository-agnostic. Suite green at 110 tests. The package validates its own
-handoff document, which is this file.
+repository-agnostic. Suite is 115 tests, of which 114 pass and one fails
+deliberately: a test refuses to let the placeholder copyright holder in
+LICENSE reach a public repository. The package validates its own handoff
+document, which is this file.
 
 **What Shipped.**
 
