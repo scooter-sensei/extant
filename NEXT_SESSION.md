@@ -28,7 +28,7 @@ handoff document, which is this file.
   actually shipped, and reads the trunk from configuration. String literals are
   ASCII only, because an em dash in printed output killed the installer on a
   cp437 console.
-- The extraction work was merged to `main` at `0000000`.
+- The extraction work was merged to `main` at `5577bec`.
 
 **Known Issues.**
 
