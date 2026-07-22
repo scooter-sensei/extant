@@ -3,21 +3,22 @@
 A short checklist. The first item is enforced by a test, so the suite is red
 until it is done.
 
-## 1. Replace the owner placeholder everywhere
+## 1. The owner placeholder (done)
 
-`<GITHUB-USERNAME>` currently appears in five files: the LICENSE copyright
-line, both plugin manifests (as owner, author, and homepage URL), the README
-install commands, and this file.
+The owner is set to `scooter-sensei` in the LICENSE copyright line, both plugin
+manifests, and the README install commands. Nothing further is needed here.
 
-```sh
-grep -rl "GITHUB-USERNAME" . --exclude-dir=.git
-```
+The gate that enforced it stays in place for anyone who forks this repository:
+`tests/test_packaging.py::test_no_publication_placeholders_remain` sweeps every
+tracked file and fails if the placeholder reappears, naming each offender. It
+is a repository-wide sweep rather than a check on the LICENSE alone, because
+the placeholder spread from one file to five the moment the plugin manifests
+were added, and a per-file assertion would have kept passing on the four new
+ones.
 
-`tests/test_packaging.py::test_no_publication_placeholders_remain` fails while
-any of them remain, and names each file. That is deliberate: a placeholder in a
-legal notice is not a legal notice, and a marketplace entry pointing at a
-homepage that does not exist is worse than one with no homepage. The whole
-premise of this project is that unnoticed is the dangerous state.
+The reasoning generalises: a placeholder in a legal notice is not a legal
+notice, and a marketplace entry pointing at a homepage that does not resolve is
+worse than one with no homepage at all.
 
 ## 2. Decide what the repository is called
 
@@ -29,7 +30,7 @@ Nothing in the code depends on the name.
 Users will install it with:
 
 ```
-/plugin marketplace add <your-handle>/handoff-validator
+/plugin marketplace add scooter-sensei/handoff-validator
 /plugin install handoff@handoff-validator
 ```
 

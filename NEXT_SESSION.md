@@ -8,11 +8,12 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 1 - Extraction and first public release (shipped, 2026-07-22)
 
-**Status.** Extracted from the project this was built and proven on, and made
-repository-agnostic. Suite is 115 tests, of which 114 pass and one fails
-deliberately: a test refuses to let the placeholder copyright holder in
-LICENSE reach a public repository. The package validates its own handoff
-document, which is this file.
+**Status.** Extracted from the project this was built and proven on, made
+repository-agnostic, and packaged as an installable Claude Code plugin. Suite
+is 115 tests, all passing. The package validates its own handoff document,
+which is this file, and CI repeats that check on every push to the trunk.
+
+Ready to publish. Nothing is outstanding for the initial release.
 
 **What Shipped.**
 
@@ -30,22 +31,29 @@ document, which is this file.
   actually shipped, and reads the trunk from configuration. String literals are
   ASCII only, because an em dash in printed output killed the installer on a
   cp437 console.
+- Packaging as a plugin marketplace, so installation is two commands rather than
+  a clone and a manual copy. The manifest schema was derived by reading the
+  plugin manifests installed on the machine this was built on rather than from
+  memory, which also corrected the skill frontmatter: it declared a key used by
+  2 of 134 installed skills where the conventional one is used by 32.
+- Continuous integration across two operating systems and three Python
+  versions, plus a job that runs the validator against this document.
 - The extraction work was merged to `main` at `5577bec`.
 
 **Known Issues.**
 
-- `LICENSE` still carries a placeholder copyright holder. A test fails while it
-  is present, deliberately. Read `PUBLISHING.md` before publishing.
-- No continuous integration configuration ships, by choice rather than omission.
 - Repositories using a gitflow-style release branch are not modelled. The
   ancestry checks assume a single trunk.
+- The suite runs the shell hooks through a real `sh`, so those tests skip on a
+  machine without one. The skip is reported rather than silent, and the
+  non-shell checks still cover the same installer defect.
 
 **Next Tasks.**
 
-- Replace the LICENSE placeholder with a real copyright holder.
-- Add a workflow running the suite on push.
 - Consider a release-tag rule. The admission test it must pass is in
   `CONTRIBUTING.md`.
+- Consider whether the archive document should be created on first use rather
+  than on first archive run, so a fresh install has both files present.
 
 **Gotchas.**
 

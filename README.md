@@ -40,7 +40,7 @@ looks helpful and reintroduces exactly that failure.
 ### As a Claude Code plugin
 
 ```
-/plugin marketplace add <GITHUB-USERNAME>/handoff-validator
+/plugin marketplace add scooter-sensei/handoff-validator
 /plugin install handoff@handoff-validator
 ```
 
@@ -53,7 +53,7 @@ hooks, and render the `/handoff` command for that repo.
 The validator, the hooks, and the CLI have no dependency on Claude Code.
 
 ```sh
-git clone https://github.com/<GITHUB-USERNAME>/handoff-validator
+git clone https://github.com/scooter-sensei/handoff-validator
 python handoff-validator/plugin/skills/handoff/install.py --repo /path/to/your/repo
 cd /path/to/your/repo
 sh tools/hooks/install
