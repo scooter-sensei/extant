@@ -1,212 +1,272 @@
 # handoff-validator
 
-Machine-check the claims in your project's status document against git, before
-they go stale and someone acts on one.
+Keeps your project's status notes honest, by checking them against what actually
+happened.
 
-Long-lived status documents rot. A line that said "not yet merged" was true when
-it was written and is a lie three days later. Nothing notices, because nothing
-can: the file is prose. This tool makes the rot impossible to ignore by checking
-every falsifiable claim in it against git and the filesystem, and refusing the
-commit when one is false.
+## The problem, in plain words
 
-It was built for handoff documents that AI coding agents read as ground truth
-(`NEXT_SESSION.md`, `AGENTS.md`, `STATUS.md`, `CLAUDE.md`), which is where the
-cost of a false claim is highest: an agent has no independent way to know the
-document is wrong, so it plans against fiction.
+Most projects keep a notes file that says where things stand. Something like
+"the login feature is finished but not merged yet", or "see the design doc at
+this path", or "this was released in commit abc1234".
 
-## What it checks
+Every one of those sentences was true on the day it was written. Weeks later,
+some of them quietly are not. The login feature did get merged. The design doc
+was renamed. The commit was rewritten and no longer exists.
 
-| Rule | The question it asks | Where |
-|---|---|---|
-| Dead commit references | does `git cat-file -e <sha>` succeed? | whole file, backticked and bare |
-| Stale live claims | is the branch an ancestor of trunk, or gone? | newest entry only |
-| False merge claims | is the claimed commit an ancestor of trunk? | whole file, archive included |
-| Dead path pointers | does the referenced file exist? | operative references only |
-| Secret shapes | does this look like a credential? | whole file |
+Nothing complains, because the file is just writing. A person reading it has no
+way to tell the true sentences from the expired ones without checking each by
+hand, which nobody does.
 
-### The core guarantee
+This matters more than it used to, because AI coding assistants read these files
+and treat them as fact. An assistant has no way to know a line is out of date,
+so it plans around something that is not true, and you get confidently wrong
+work.
 
-**No rule inspects numbers or dates.** "The suite was 2238 at release 3" is a
-historical fact: true when written, and never re-checked. This is structural
-rather than a heuristic, and it is deliberate. Every rule must be answerable
-yes or no by git or the filesystem.
+## What this tool does
 
-The reason matters more than the rule: **a validator that cries wolf stops being
-read**, which costs more than having no validator at all. A numeric cross-check
-looks helpful and reintroduces exactly that failure.
+It reads your notes file, finds the sentences that can be checked, and checks
+them. If a sentence is no longer true, it tells you, and it can stop the change
+from being saved until you fix it.
 
-## Install
+In plain terms, it can answer questions like:
 
-### As a Claude Code plugin
+| It notices when you wrote | Because it checks |
+|---|---|
+| "released in commit abc1234" but that commit does not exist | whether the commit is really there |
+| "merged into the main version" but it never was | whether it actually got merged |
+| "not merged yet" about something that merged last week | whether it is still waiting |
+| "see the file at this path" but the file is gone | whether the file exists |
+| a password or key pasted in by accident | whether anything looks like a secret |
+
+### What it deliberately does not check
+
+It never checks numbers or dates. A line like "we had 2238 tests in March" was
+true in March and is not wrong now, it is just old news. Flagging that sort of
+thing would produce constant false alarms.
+
+That restraint is the whole point. **A tool that cries wolf gets ignored**, and
+an ignored tool is worse than no tool. So it only reports things it can prove
+are wrong.
+
+## Is this for you?
+
+**Probably yes if:** you keep a running notes, status, or handoff file in your
+project, you use Git, and especially if an AI assistant reads that file.
+
+**Probably not if:** you track everything in a task tracker like Jira or Linear
+and keep no notes file, or your project does not use Git.
+
+## Before you start
+
+You need two things installed. To check, open a terminal (Command Prompt or
+PowerShell on Windows, Terminal on Mac or Linux) and type these, one at a time:
+
+```
+git --version
+python --version
+```
+
+Each should print a version number.
+
+- If Git is missing, get it from https://git-scm.com
+- If Python is missing or below 3.11, get it from https://www.python.org
+  (on Mac or Linux you may need to type `python3` instead of `python`)
+
+You do not need to know how to program. You do need to be comfortable typing a
+few commands.
+
+## How to install
+
+### Option A: through Claude Code (easiest)
+
+If you use Claude Code, type these two lines into it:
 
 ```
 /plugin marketplace add scooter-sensei/handoff-validator
 /plugin install handoff@handoff-validator
 ```
 
-That makes the `handoff` skill available. Ask Claude to set it up in a
-repository and it will run the installer, derive the configuration, wire the
-hooks, and render the `/handoff` command for that repo.
+That is the whole installation. Now open the project you want to protect and
+ask Claude something like:
 
-### Standalone, without Claude Code
+> Set up the handoff validator in this project.
 
-The validator, the hooks, and the CLI have no dependency on Claude Code.
+It will run the setup, look at your project to work out the right settings, and
+tell you what it found.
 
-```sh
+### Option B: download it yourself
+
+This works with or without Claude Code.
+
+**Step 1. Get the files.** Either download the ZIP from
+https://github.com/scooter-sensei/handoff-validator (click the green "Code"
+button, then "Download ZIP", then unzip it), or if you know Git:
+
+```
 git clone https://github.com/scooter-sensei/handoff-validator
-python handoff-validator/plugin/skills/handoff/install.py --repo /path/to/your/repo
-cd /path/to/your/repo
+```
+
+**Step 2. Preview what it would do.** Nothing is changed by this step. Replace
+the example path with the folder of the project you want to protect:
+
+```
+python handoff-validator/plugin/skills/handoff/install.py --repo /path/to/your/project --dry-run
+```
+
+Read what it prints. If it looks wrong, stop here and nothing has happened.
+
+**Step 3. Run it for real.** Same command, without `--dry-run`:
+
+```
+python handoff-validator/plugin/skills/handoff/install.py --repo /path/to/your/project
+```
+
+**Step 4. Turn on the automatic checks.** Go into your project folder and run:
+
+```
+cd /path/to/your/project
 sh tools/hooks/install
 ```
 
-Either route copies the same files into your repository: `tools/`, the git
-hooks, and a `.handoff.toml` derived from your repo rather than copied from
-someone else's.
+From now on it re-checks your notes file every time you save a change.
 
-The installer does not copy another project's configuration. It **inspects your
-repository** and derives one: trunk branch from `origin/HEAD`, branch naming
-from a sample of up to 400 branches, commit grouping from up to 500 subjects,
-and the document's own structure from its headers. Every value is reported with
-its confidence:
+## What it puts in your project
+
+- A `tools/` folder holding the checker itself.
+- A `.handoff.toml` settings file, written by looking at **your** project rather
+  than copied from someone else's.
+- Automatic checks that run when you save changes.
+- If you use Claude Code, a `/handoff` command written for your project.
+
+## Important: check the settings
+
+The setup tries to work out your project's habits by reading it: which branch is
+your main one, how you name things, how your notes file is laid out. It prints
+what it found and how confident it is:
 
 ```
   trunk         [derived ] origin/HEAD -> main
-  branch_token  [derived ] 128 branches sampled; slash prefixes: feature/ x81
+  branch_token  [derived ] 128 branches sampled
   entry_prefix  [guessed ] highest-scoring header '## Release'
-  merge_claim   [unknown ] no 'verb ... target at <sha>' phrasing found
+  merge_claim   [unknown ] no matching phrasing found
 ```
 
-Anything it could not determine is written **commented out** rather than
-guessed, because a pattern that matches nothing makes the validator exit 0
-forever while looking healthy. That failure is the one this project is most
-concerned with, and `references/porting.md` walks through deriving the rest by
-hand.
+Anything it could not work out is left switched **off** rather than guessed,
+and it tells you so.
 
-## Usage
+**This part matters.** If a setting is wrong, that check quietly does nothing,
+and you get a tool that reports "all clear" forever without looking at anything.
+That is the one way this tool fails badly. Read what the setup prints, and see
+`plugin/skills/handoff/references/porting.md` for how to fill in the gaps.
 
-```sh
-python tools/handoff_collect.py --verify              # check the committed doc
-python tools/handoff_collect.py --validate DOC.md     # check a specific file
-python tools/handoff_collect.py --collect --out b.json # gather facts, no prose
-python tools/handoff_collect.py --archive             # rotate old entries out
+## Using it day to day
+
+Most of the time you do not have to do anything: the checks run by themselves
+when you save changes.
+
+To check on demand, from inside your project folder:
+
+```
+python tools/handoff_collect.py --verify
 ```
 
-`--verify` reports its **denominator**, not just its verdict:
+You will see something like:
 
 ```
 checked STATUS.md: dead-sha 36, stale-live-claim 1, false-merge-claim 2,
   dead-path-pointer 5 (907 lines scanned for secrets)
 ```
 
-A rule showing `0` examined is named explicitly. Read that as *investigate*,
-never as *fine*: it means the pattern found nothing to check, so the rule is
-inert whatever the exit code says. Distinguishing "found no problems" from
-"never ran" is most of what this tool is for.
+Those numbers are **how many things it looked at**, not problems found. If it
+finds a problem it says so separately.
+
+**Read those numbers.** If one says `0`, that check found nothing to look at,
+which usually means a setting is wrong rather than that your file is perfect.
+The tool points this out, because "found no problems" and "did not look" are
+easy to confuse and only one is good news.
+
+## What it cannot do
+
+Stated plainly, so there are no surprises:
+
+- It only catches sentences that can be proven wrong. Vague writing like "nearly
+  finished" is beyond it, on purpose.
+- It cannot tell whether your summary of the work is a *good* summary.
+- It expects your notes file to use consistent headings for each entry. A heading
+  that does not match the pattern gets skipped silently.
+- It assumes one main branch. More complicated branching setups are not handled.
+- It does not use the internet, so links to issues or pull requests are not
+  checked.
+- If the settings are wrong, it checks nothing while appearing to work. See the
+  section above.
 
 ## Works with any language
 
-The document validator is language-agnostic. Only the optional suite-collection
-step runs your tests, and it takes a command:
+The checking part does not care what your project is written in. Only the
+optional "run the tests" step does, and you tell it what command to use:
 
 ```toml
-suite_command = ["npm", "test"]     # jest, vitest
+suite_command = ["npm", "test"]
 suite_command = ["cargo", "test"]
 ```
 
-If the command does not mention `{python}`, no Python interpreter is needed for
-it at all. Or skip running tests entirely and feed a result in from CI with
-`--suite-json`.
+## If something goes wrong
 
-## Claude Code integration (optional)
+**"python is not recognised"** on Windows, or **"command not found"** on Mac and
+Linux: try `python3` instead of `python`, or reinstall Python and tick the "add
+to PATH" box.
 
-If you use Claude Code, the installer also renders a `/handoff` slash command
-for your repo. It has a parent session write a friction summary from its own
-context, then dispatches a subagent to collect facts, draft the entry, archive
-old ones, validate, and **commit only if validation passes**.
+**The checks never seem to run.** Make sure you did Step 4. You can confirm by
+running the `--verify` command above by hand.
 
-Three deliberate constraints, each with a reason:
+**It reports problems you think are fine.** Do not silence it by deleting the
+sentence it complained about. Either the sentence is genuinely out of date, or a
+setting needs adjusting. Both are worth knowing.
 
-- **At most 2 validation attempts, and first-run findings must be reported**
-  even if a later attempt cleared them. Otherwise the cheapest way to pass a
-  validator is to delete the offending claim.
-- **A red test suite does not block the commit.** A handoff that can only
-  describe green states withholds the truth exactly when it matters most.
-- **The archive is validated too.** Otherwise the tool could pass its own gate
-  by relocating a false claim.
+**Everything reports 0.** A setting is almost certainly wrong. See the settings
+section above.
 
-Everything except the drafting step is deterministic Python. The tool does not
-need Claude Code: the validator, the hooks, and the CLI all work standalone.
+## More detail
 
-## Git hooks
-
-```sh
-sh tools/hooks/install
-```
-
-- `post-commit` and `post-merge` re-check the document. **Both** are needed:
-  git routes merges through `post-merge`, not `post-commit`, and a merge is
-  precisely the event that turns "not yet merged" into a lie.
-- `pre-commit` blocks commits made in the main working tree while it sits on a
-  non-trunk branch. Optional, and worth reading before you accept it.
-
-The hooks are advisory except the pre-commit guard, and they announce when they
-cannot run instead of skipping quietly.
-
-## Documentation
-
-All under `plugin/skills/handoff/`:
+For anyone who wants it, all under `plugin/skills/handoff/`:
 
 | File | What is in it |
 |---|---|
-| `references/porting.md` | How to derive the configuration for a new repo. **Read before installing.** |
-| `references/config.md` | Every configuration key. |
-| `references/design.md` | Why each rule is scoped as it is, with the failure that forced it. |
-| `SKILL.md` | The agent-facing entry point. |
+| `references/porting.md` | How to get the settings right for your project. Read this first. |
+| `references/config.md` | Every setting explained. |
+| `references/design.md` | Why each check works the way it does, and the real mistake behind each decision. |
+| `SKILL.md` | What Claude reads. |
 
-## Repository layout
+## What is in this repository
 
 ```
-.claude-plugin/marketplace.json   makes this repo installable as a marketplace
+.claude-plugin/marketplace.json   lets Claude Code install this
 plugin/
-  .claude-plugin/plugin.json      the plugin manifest
+  .claude-plugin/plugin.json      plugin details
   skills/handoff/
     SKILL.md                      what Claude reads
-    install.py, detect.py         installer and repo inspection; never copied
-    payload/                      what gets copied into your repo as tools/
-    references/                   the documentation above
-tests/                            115 tests, no network, no dependencies
-NEXT_SESSION.md                   this project's own handoff document
+    install.py, detect.py         the setup program
+    payload/                      what gets copied into your project
+    references/                   the documents listed above
+tests/                            115 tests
+NEXT_SESSION.md                   this project's own notes file
 ```
 
-`NEXT_SESSION.md` is not decoration. It is the corpus the test suite validates
-against, and CI runs the tool on it, so the thing is exercised against a real
-document rather than only against fixtures.
+That last one is not decoration. This project uses its own tool on its own notes
+file, and the automatic checks run it on every change. If it did not work, this
+repository would be the first to know.
 
-## Limitations, stated plainly
+## A note for the curious
 
-- It checks **falsifiable** claims. "Nearly finished" is unreachable by design.
-- It assumes a **single trunk**. Gitflow with release branches is not modelled.
-- It needs your document to have **consistent entry headers**. A wrong header
-  silently excludes that entry from archiving and live-claim checking.
-- It imposes two authoring rules: paraphrase past statuses rather than quoting
-  them (the rules cannot tell a quotation from a claim), and write commit ranges
-  as two separate backticked tokens.
-- **The configuration must be derived for your repo.** Accept the defaults
-  blindly and you get a validator that checks nothing, convincingly.
-- No network access, so issue and pull-request links are not verified.
+The one idea here worth taking somewhere else: when you write a rule that checks
+something, **look at your real data first and write the rule to fit it**, rather
+than writing what the rule ought to look like and hoping. Doing it the second way
+produced 23 false alarms on the first project this ran against. Doing it the
+first way produced none, and still caught the real problem.
 
-## The idea worth stealing
-
-If you take nothing else: **derive validation patterns by measuring your real
-corpus, never from what the wording ought to look like.** Applied three times
-here, it gave a different answer than reasoning did every time. A path rule
-keyed on what a path *looks like* would have produced 23 findings on the source
-repository, every one of them a false positive. Keyed on what the reference is
-*for*, it produced none and still caught the real defect.
-
-And always print the denominator. "0 findings" and "0 examined" print
-identically, and only one of them is good news.
+And always report how many things you looked at. "Found no problems" and "did not
+look" print exactly the same otherwise.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT, which means you can use it freely, including commercially. See `LICENSE`.
