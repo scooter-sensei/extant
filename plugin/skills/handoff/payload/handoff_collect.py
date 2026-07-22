@@ -15,6 +15,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -821,10 +822,11 @@ def validate_path_pointers(repo: Path, text: str) -> list[Finding]:
         for raw in _PATH_POINTER.findall(line):
             target = Path(raw) if _ABSOLUTE.match(raw) else repo / raw
             if not target.exists():
-                findings.append(Finding(
-                    number, "dead-path-pointer",
-                    f"points at `{raw}`, which does not exist",
-                ))
+                detail = f"points at `{raw}`, which does not exist"
+                moved = _renamed_to(repo, raw)
+                if moved:
+                    detail += f"; git shows it renamed to `{moved}`"
+                findings.append(Finding(number, "dead-path-pointer", detail))
     return findings
 
 
@@ -872,6 +874,242 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
     return findings
 
 
+# Cached per repository, because the query below cannot be narrowed with a
+# pathspec and so is the expensive one here. Keyed by path, and only ever read
+# after a pointer has already been found dead.
+_RENAMES: dict[str, dict[str, str]] = {}
+
+
+def _rename_map(repo: Path) -> dict[str, str]:
+    """Recent renames, old path to new.
+
+    NOT narrowed with a pathspec, and that is deliberate rather than sloppy.
+    `git log --diff-filter=R -- <old path>` returns NOTHING: once rename
+    detection has run, history simplification no longer considers that commit
+    to touch the old name. Measured directly, since the pathspec version looked
+    obviously correct and silently found nothing on a repository where the
+    rename was two commits old.
+    """
+    key = str(repo)
+    if key in _RENAMES:
+        return _RENAMES[key]
+    mapping: dict[str, str] = {}
+    try:
+        out = _git(repo, "log", "--diff-filter=R", "--name-status",
+                   "--format=", "-n", "200")
+    except (subprocess.CalledProcessError, OSError):
+        out = ""
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].startswith("R"):
+            mapping.setdefault(parts[1], parts[2])
+    _RENAMES[key] = mapping
+    return mapping
+
+
+def _renamed_to(repo: Path, missing: str) -> str | None:
+    """Where git says a now-missing path ended up, or None.
+
+    Reporting a pointer as dead is correct but unhelpful when the file was
+    merely renamed and git knows exactly where it went. Rename chains are
+    followed, so a file moved twice still resolves to where it actually is.
+    """
+    mapping = _rename_map(repo)
+    current = missing.replace("\\", "/")
+    seen = {current}
+    while current in mapping:
+        current = mapping[current]
+        if current in seen:  # a rename cycle; report the last honest step
+            break
+        seen.add(current)
+    return None if current == missing.replace("\\", "/") else current
+
+
+# Markdown link syntax is fixed by the format, not by any project's habits, so
+# unlike the prose patterns this one is not configurable. There is no corpus to
+# measure: `[text](target)` means the same thing everywhere.
+_MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
+_EXTERNAL = re.compile(r"^(?:https?:|mailto:|ftp:|tel:|data:|//)", re.I)
+_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
+_EXPLICIT_ANCHOR = re.compile(r"""(?:name|id)\s*=\s*["']([^"']+)["']""")
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+# A relative link resolves against the FILE that contains it, not the repository
+# root, and the rule signature (repo, text) carries no path. main() sets this
+# before validating each document. Single-threaded CLI code, set in one place.
+_LINK_BASE: Path | None = None
+
+
+def _strip_code_fences(text: str) -> str:
+    """Blank out fenced code, preserving line numbers.
+
+    A README demonstrating link syntax inside a code block is showing an
+    example, not making a promise, and checking it would produce exactly the
+    kind of false positive that gets a validator ignored.
+    """
+    out: list[str] = []
+    inside = False
+    for line in text.splitlines():
+        if _FENCE.match(line):
+            inside = not inside
+            out.append("")
+            continue
+        out.append("" if inside else line)
+    return "\n".join(out)
+
+
+def _slug(title: str) -> str:
+    """Approximate the heading-to-anchor conversion used by common renderers."""
+    text = re.sub(r"`([^`]*)`", r"\1", title.strip().lower())
+    text = re.sub(r"[^\w\s-]", "", text)
+    return re.sub(r"\s+", "-", text).strip("-")
+
+
+def _anchors(text: str) -> set[str]:
+    """Every fragment this document offers, from headings and explicit anchors."""
+    found = {_slug(m.group(1)) for line in text.splitlines()
+             if (m := _HEADING.match(line))}
+    found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}
+    return found - {""}
+
+
+def validate_md_links(repo: Path, text: str) -> list[Finding]:
+    """Relative markdown links whose target file is gone.
+
+    Distinct from `dead-path-pointer`, which needs a backticked path introduced
+    by an operative marker. A markdown link needs no such hedging: linking to a
+    file IS the operative use, so there is no false-positive class here of the
+    kind that forced the path rule to be keyed on markers.
+
+    External links are skipped deliberately. Checking them needs the network,
+    which would break the deterministic-local guarantee and make a green run
+    depend on someone else's uptime.
+    """
+    base = _LINK_BASE or repo
+    findings: list[Finding] = []
+    for number, line in enumerate(_strip_code_fences(text).splitlines(), start=1):
+        for raw in _MD_LINK.findall(line):
+            if _EXTERNAL.match(raw) or raw.startswith("#"):
+                continue
+            target = raw.split("#", 1)[0]
+            if not target:
+                continue
+            resolved = Path(target) if _ABSOLUTE.match(target) else base / target
+            if resolved.exists():
+                continue
+            detail = f"links to `{target}`, which does not exist"
+            moved = _renamed_to(repo, target)
+            if moved:
+                detail += f"; git shows it renamed to `{moved}`"
+            findings.append(Finding(number, "dead-md-link", detail))
+    return findings
+
+
+def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
+    """Same-document `#fragment` links pointing at no such heading.
+
+    Checked only for fragments with no file part, so the answer lives entirely
+    in the text being validated. A fragment on another file would require
+    reading that file and reproducing its renderer's slug rules, which is a
+    guess rather than a fact.
+    """
+    available = _anchors(text)
+    findings: list[Finding] = []
+    for number, line in enumerate(_strip_code_fences(text).splitlines(), start=1):
+        for raw in _MD_LINK.findall(line):
+            if not raw.startswith("#") or len(raw) < 2:
+                continue
+            fragment = raw[1:].lower()
+            if fragment in available:
+                continue
+            findings.append(Finding(
+                number, "dead-md-anchor",
+                f"links to `{raw}`, but this document has no such heading",
+            ))
+    return findings
+
+
+def _named_in_merge_history(repo: Path, branch: str) -> bool:
+    """Did a merge commit ever mention this branch?
+
+    THE MEASUREMENT THAT MADE THIS RULE POSSIBLE. Every one of the four branches
+    named in the source project's current document had already been deleted, so
+    a plain "does this branch exist" check would have produced four findings and
+    four false positives on its first run: the same shape as the path rule that
+    was nearly shipped keyed on appearance.
+
+    All four were still named in merge commits. That is what separates "merged
+    and cleaned up", which is ordinary hygiene, from "never existed", which is
+    a typo or an invented name and worth reporting.
+    """
+    try:
+        out = _git(repo, "log", "--merges", "--fixed-strings", "--grep", branch,
+                   "--format=%H", "-n", "1")
+    except (subprocess.CalledProcessError, OSError):
+        return True  # cannot tell: stay silent rather than accuse
+    return bool(out.strip())
+
+
+def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
+    """A branch named in the newest entry that git has never heard of.
+
+    Newest entry only, for the same reason live claims are: older entries name
+    branches that were correct when written. Deletion after merge is normal and
+    is never reported, because the merge commit still names the branch.
+    """
+    findings: list[Finding] = []
+    _, segments, _ = split_entries(text)
+    cursor = 0
+    newest_checked = False
+    for kind, entry in segments:
+        start = text.index(entry, cursor)
+        cursor = start + len(entry)
+        if kind != "phase" or newest_checked:
+            continue
+        newest_checked = True
+        for match in _BRANCH_TOKEN.finditer(entry):
+            branch = match.group(1)
+            if _branch_exists(repo, branch) or _named_in_merge_history(repo, branch):
+                continue
+            line = text.count("\n", 0, start + match.start()) + 1
+            findings.append(Finding(
+                line, "unknown-branch",
+                f"names `{branch}`, which does not exist and appears in no "
+                f"merge commit (a typo, or work that was never integrated)",
+            ))
+    return findings
+
+
+_RELEASE_TAG = CONFIG.release_tag
+
+
+def validate_release_tags(repo: Path, text: str) -> list[Finding]:
+    """"Released in v2.1" where no such tag exists, or it is not on trunk.
+
+    Measured as absent from the corpus this was built against, so its
+    denominator honestly reports 0 here. It is included for projects that keep
+    a CHANGELOG, where this is the usual way a release is claimed, and it is
+    falsifiable in exactly the way a merge claim is.
+    """
+    findings: list[Finding] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        for tag in _RELEASE_TAG.findall(line):
+            try:
+                _git(repo, "rev-parse", "--verify", f"refs/tags/{tag}")
+            except (subprocess.CalledProcessError, OSError):
+                findings.append(Finding(
+                    number, "dead-release-tag",
+                    f"claims release `{tag}`, but no such tag exists",
+                ))
+                continue
+            if not _is_merged(repo, f"refs/tags/{tag}"):
+                findings.append(Finding(
+                    number, "dead-release-tag",
+                    f"tag `{tag}` exists but is not an ancestor of {TRUNK}",
+                ))
+    return findings
+
+
 _SECRET_SHAPES = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
@@ -895,6 +1133,105 @@ def scan_secrets(text: str) -> list[Finding]:
     return findings
 
 
+_DEAD_SHA = "0" * 40
+_MISSING_PATH = "__handoff_selftest_missing__.md"
+_FAKE_BRANCH_LEAF = "handoff-selftest-no-such-branch"
+
+
+def _sub_group(text: str, pattern: re.Pattern[str], group: int, value: str) -> str | None:
+    """Replace one capture of the first match, or None if nothing matched."""
+    match = pattern.search(text)
+    if not match:
+        return None
+    start, end = match.span(group)
+    return text[:start] + value + text[end:]
+
+
+def _probe_sha(repo: Path, text: str) -> str | None:
+    return _sub_group(text, re.compile(r"`([0-9a-f]{7,40})`"), 1, _DEAD_SHA)
+
+
+def _probe_merge(repo: Path, text: str) -> str | None:
+    """Repoint a real merge claim at a commit that is NOT an ancestor of trunk.
+
+    A nonexistent SHA will not do. The rule deliberately skips claims whose
+    commit does not resolve, leaving those to `dead-sha`, so probing with zeros
+    proves nothing and reports a working rule as broken. Found by running the
+    selftest and watching this rule stay silent, which is the entire point of
+    having one.
+    """
+    try:
+        out = _git(repo, "rev-list", "--all", "--not", TRUNK, "-n", "1")
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    other = out.strip().splitlines()
+    if not other:
+        return None  # nothing off-trunk exists here to probe with
+    return _sub_group(text, _MERGE_CLAIM, 1, other[0])
+
+
+def _probe_pointer(repo: Path, text: str) -> str | None:
+    return _sub_group(text, _PATH_POINTER, 1, _MISSING_PATH)
+
+
+def _probe_tag(repo: Path, text: str) -> str | None:
+    return _sub_group(text, _RELEASE_TAG, 1, "v0.0.0-handoff-selftest")
+
+
+def _probe_md_link(repo: Path, text: str) -> str | None:
+    for match in _MD_LINK.finditer(_strip_code_fences(text)):
+        raw = match.group(1)
+        if _EXTERNAL.match(raw) or raw.startswith("#"):
+            continue
+        start, end = match.span(1)
+        return text[:start] + _MISSING_PATH + text[end:]
+    return None
+
+
+def _probe_md_anchor(repo: Path, text: str) -> str | None:
+    for match in _MD_LINK.finditer(_strip_code_fences(text)):
+        if not match.group(1).startswith("#"):
+            continue
+        start, end = match.span(1)
+        return text[:start] + "#handoff-selftest-no-such-heading" + text[end:]
+    return None
+
+
+def _probe_branch_in_newest(repo: Path, text: str) -> str | None:
+    """Point the first branch token of the newest entry at a name git never saw."""
+    _, segments, _ = split_entries(text)
+    for kind, entry in segments:
+        if kind != "phase":
+            continue
+        match = _BRANCH_TOKEN.search(entry)
+        if not match:
+            return None
+        leaf = match.group(1).split("/", 1)
+        fake = f"{leaf[0]}/{_FAKE_BRANCH_LEAF}" if len(leaf) > 1 else _FAKE_BRANCH_LEAF
+        start, end = match.span(1)
+        return text.replace(entry, entry[:start] + fake + entry[end:], 1)
+    return None
+
+
+def _probe_live_claim(repo: Path, text: str) -> str | None:
+    """Only probeable if the document actually makes a live claim.
+
+    A synthetic phrase would be written in THIS project's default vocabulary
+    and would tell an adopter with different wording nothing except that the
+    default matches the default.
+    """
+    _, segments, _ = split_entries(text)
+    newest = next((s for kind, s in segments if kind == "phase"), "")
+    if not newest or not _LIVE_PHRASES.search(newest):
+        return None
+    return _probe_branch_in_newest(repo, text)
+
+
+def _probe_secret(repo: Path, text: str) -> str | None:
+    """Shape-based and universal, so a synthetic probe is honest here."""
+    return text + "\n\nsk-" + "A1b2C3d4E5f6G7h8I9j0K1l2" + "\n"
+
+
 @dataclass(frozen=True)
 class Rule:
     """One validation rule and the properties that decide where it applies.
@@ -911,6 +1248,10 @@ class Rule:
     scope: str         # "whole-file" | "newest-entry"
     in_archive: bool   # does it still hold once an entry is retired?
     falsifiable: str   # the exact git/filesystem question asked. REQUIRED.
+    # (repo, text) -> text with one deliberate falsehood, or None when the
+    # document offers nothing to corrupt. REQUIRED, and why --selftest exists:
+    # a rule that cannot state how to make itself fire cannot be shown to work.
+    probe: object
 
 
 def _secret_rule(repo: Path, text: str) -> list[Finding]:
@@ -936,11 +1277,19 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     bare = len(find_bare_sha_candidates(text))
     _, segments, _ = split_entries(text)
     newest = next((s for kind, s in segments if kind == "phase"), "")
+    branches_in_newest = len(_BRANCH_TOKEN.findall(newest)) if newest else 0
+    links = [raw for line in _strip_code_fences(text).splitlines()
+             for raw in _MD_LINK.findall(line)]
     return {
         "dead-sha": backticked + bare,
-        "stale-live-claim": len(_BRANCH_TOKEN.findall(newest)) if newest else 0,
+        "stale-live-claim": branches_in_newest,
+        "unknown-branch": branches_in_newest,
         "false-merge-claim": len(_MERGE_CLAIM.findall(text)),
+        "dead-release-tag": len(_RELEASE_TAG.findall(text)),
         "dead-path-pointer": len(_PATH_POINTER.findall(text)),
+        "dead-md-link": sum(1 for raw in links
+                            if not _EXTERNAL.match(raw) and not raw.startswith("#")),
+        "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),
         "possible-secret": len(text.splitlines()),
     }
 
@@ -957,6 +1306,7 @@ RULES: tuple[Rule, ...] = (
         scope="whole-file",
         in_archive=True,
         falsifiable="does `git cat-file -e <sha>^{commit}` succeed?",
+        probe=_probe_sha,
     ),
     Rule(
         kind="stale-live-claim",
@@ -964,6 +1314,15 @@ RULES: tuple[Rule, ...] = (
         scope="newest-entry",
         in_archive=False,
         falsifiable="is the named branch an ancestor of trunk, or gone entirely?",
+        probe=_probe_live_claim,
+    ),
+    Rule(
+        kind="unknown-branch",
+        check=validate_branch_mentions,
+        scope="newest-entry",
+        in_archive=False,
+        falsifiable="does the branch exist, or appear in any merge commit?",
+        probe=_probe_branch_in_newest,
     ),
     Rule(
         kind="false-merge-claim",
@@ -971,6 +1330,15 @@ RULES: tuple[Rule, ...] = (
         scope="whole-file",
         in_archive=True,
         falsifiable="is the claimed commit an ancestor of trunk?",
+        probe=_probe_merge,
+    ),
+    Rule(
+        kind="dead-release-tag",
+        check=validate_release_tags,
+        scope="whole-file",
+        in_archive=True,
+        falsifiable="does the tag exist, and is it an ancestor of trunk?",
+        probe=_probe_tag,
     ),
     Rule(
         kind="dead-path-pointer",
@@ -978,6 +1346,23 @@ RULES: tuple[Rule, ...] = (
         scope="whole-file",
         in_archive=True,
         falsifiable="does the referenced path exist on disk?",
+        probe=_probe_pointer,
+    ),
+    Rule(
+        kind="dead-md-link",
+        check=validate_md_links,
+        scope="whole-file",
+        in_archive=True,
+        falsifiable="does the linked file exist on disk?",
+        probe=_probe_md_link,
+    ),
+    Rule(
+        kind="dead-md-anchor",
+        check=validate_md_anchors,
+        scope="whole-file",
+        in_archive=True,
+        falsifiable="does this document contain a heading with that anchor?",
+        probe=_probe_md_anchor,
     ),
     Rule(
         kind="possible-secret",
@@ -985,11 +1370,47 @@ RULES: tuple[Rule, ...] = (
         scope="whole-file",
         in_archive=True,
         falsifiable="does the text match a known credential shape?",
+        probe=_probe_secret,
     ),
 )
 
 
-def validate(repo: Path, text: str, *, in_archive: bool = False) -> list[Finding]:
+def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
+    """Corrupt one real claim per rule and confirm the rule notices.
+
+    The question this answers is the one --verify cannot: not "is the document
+    clean" but "would these rules see a problem if there were one". A pattern
+    that matches nothing exits 0 forever and looks healthy, and the denominator
+    only reports that it examined nothing. This proves the rest.
+
+    Probes mutate an ACTUAL match rather than injecting invented prose, so what
+    is exercised is this project's configuration against this project's writing.
+    A synthetic probe written in the default vocabulary would only ever prove
+    that the defaults match the defaults.
+    """
+    lines: list[str] = []
+    fired = unprobeable = 0
+    for rule in RULES:
+        probed = rule.probe(repo, text)  # type: ignore[operator]
+        if probed is None:
+            unprobeable += 1
+            lines.append(f"  {rule.kind:<20} NO PROBE       nothing to corrupt "
+                         f"(no such claim here, or the repository offers "
+                         f"nothing to corrupt it with)")
+            continue
+        findings = [f for f in rule.check(repo, probed)  # type: ignore[operator]
+                    if f.kind == rule.kind]
+        if findings:
+            fired += 1
+            lines.append(f"  {rule.kind:<20} FIRED")
+        else:
+            lines.append(f"  {rule.kind:<20} DID NOT FIRE   corrupted a real "
+                         f"match and the rule stayed silent")
+    return lines, fired, unprobeable
+
+
+def validate(repo: Path, text: str, *, in_archive: bool = False,
+             has_entries: bool = True) -> list[Finding]:
     """Run every rule that applies to this KIND of document.
 
     The caller says what the document IS; the registry decides which rules
@@ -1007,10 +1428,15 @@ def validate(repo: Path, text: str, *, in_archive: bool = False) -> list[Finding
     Every other rule still applies to the archive. A dead reference is worthless
     to a reader regardless of age, a false merge claim does not become true by
     being retired, and a leaked credential does not become safe.
+
+    `has_entries` is the same idea reached from the other side. An extra
+    document such as a README or CLAUDE.md has no dated entries at all, so
+    "the newest entry" names nothing and the entry-scoped rules would be
+    reasoning about an empty string. They are skipped for the same reason.
     """
     findings: list[Finding] = []
     for rule in RULES:
-        if in_archive and not rule.in_archive:
+        if (in_archive or not has_entries) and not rule.in_archive:
             continue
         findings += rule.check(repo, text)  # type: ignore[operator]
     return findings
@@ -1025,6 +1451,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--archive", action="store_true", help="split old entries out")
     mode.add_argument("--validate", metavar="FILE", help="validate a handoff document")
     mode.add_argument("--verify", action="store_true", help="validate the committed doc")
+    mode.add_argument("--selftest", action="store_true",
+                      help="corrupt one real claim per rule and confirm each fires")
     parser.add_argument("--out", metavar="PATH", help="bundle output path")
     parser.add_argument("--suite-json", metavar="PATH", help="reuse a completed suite run")
     parser.add_argument("--sha-map", metavar="PATH", help="filter-repo commit-map")
@@ -1033,9 +1461,51 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _LINK_BASE
     parser = build_parser()
     args = parser.parse_args(argv)
     repo = Path(args.repo)
+    # Configuration is read once at import, relative to THIS FILE, which is
+    # correct when the tool sits at tools/ inside the repository it checks. Run
+    # from anywhere else with --repo, git operations follow --repo while the
+    # config does not, so .handoff.toml in the target is silently ignored. Say
+    # so on stderr rather than let the two disagree quietly.
+    # Narrowed to the case where a real config file is actually being ignored.
+    # Warning whenever the paths merely differ would fire on every run against a
+    # repository that has no config at all, where nothing is lost and the
+    # defaults are what was wanted. A validator that cries wolf stops being read
+    # applies to its own diagnostics too.
+    ignored_config = repo / ".handoff.toml"
+    if (repo.resolve() != REPO_ROOT.resolve() and ignored_config.is_file()
+            and str(ignored_config) != CONFIG.source):
+        print(f"NOTE: settings came from {CONFIG.source}, so {ignored_config} was "
+              f"NOT read. Configuration loads relative to this script; install it "
+              f"into that repository as tools/ for its own settings to apply.",
+              file=sys.stderr)
+    if args.selftest:
+        target = repo / HANDOFF_DOC
+        if not target.is_file():
+            print(f"no such document: {target}")
+            print(f"  handoff_doc is '{CONFIG.handoff_doc}', from {CONFIG.source}")
+            return 1
+        with open(target, encoding="utf-8", newline="") as fh:
+            text = fh.read()
+        _LINK_BASE = target.parent
+        lines, fired, unprobeable = selftest(repo, text)
+        print(f"selftest: probing {len(RULES)} rules against {HANDOFF_DOC}\n")
+        for line in lines:
+            print(line)
+        silent = len(RULES) - fired - unprobeable
+        print(f"\n  {fired} fired, {unprobeable} had nothing to corrupt, "
+              f"{silent} stayed silent")
+        if silent:
+            print("  A rule that stays silent after a real match is corrupted is "
+                  "not working. Check its pattern against this document.")
+        if unprobeable:
+            print("  'No probe' is not a failure by itself, but a rule that "
+                  "cannot be exercised is also not known to work.")
+        _LINK_BASE = None
+        return 1 if silent else 0
     if args.collect:
         bundle = collect(repo, suite_json=args.suite_json)
         out = Path(args.out) if args.out else repo / "handoff_bundle.json"
@@ -1071,6 +1541,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         with open(target, encoding="utf-8", newline="") as fh:
             text = fh.read()
+        # Relative links resolve against the document, not the repo root.
+        _LINK_BASE = target.parent
         mapping = load_sha_map(args.sha_map) if args.sha_map else None
         if mapping is not None:
             text, changed = translate_shas(text, mapping)
@@ -1116,6 +1588,32 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{ARCHIVE_DOC}: {finding.render()}")
             if archive_findings:
                 exit_code = 1
+
+        # Extra documents: CLAUDE.md, AGENTS.md, a README. They carry the same
+        # kinds of checkable claim and rot the same way, but have no dated
+        # entries, so the entry-scoped rules are skipped exactly as they are for
+        # the archive. A project whose status lives in a tracker rather than a
+        # document still gets these checked, which is most of the reason the
+        # setting exists.
+        for relative in CONFIG.extra_docs:
+            extra = repo / relative
+            if not extra.is_file():
+                print(f"{relative}: listed in extra_docs but does not exist")
+                exit_code = 1
+                continue
+            with open(extra, encoding="utf-8", newline="") as fh:
+                extra_text = fh.read()
+            _LINK_BASE = extra.parent
+            extra_findings = validate(repo, extra_text, has_entries=False)
+            for finding in extra_findings:
+                print(f"{relative}: {finding.render()}")
+            examined_extra = count_examined(repo, extra_text)
+            checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
+                                if kind != "possible-secret" and n)
+            print(f"checked {relative}: {checked or 'nothing applicable'}")
+            if extra_findings:
+                exit_code = 1
+        _LINK_BASE = None
 
         return exit_code
     # M-a: unreachable. The mutually-exclusive group is required, and every

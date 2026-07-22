@@ -1262,13 +1262,26 @@ def test_registry_covers_every_kind_the_validator_can_emit():
     assert emitted <= declared, f"undeclared kinds: {emitted - declared}"
 
 
-def test_only_the_live_claim_rule_is_archive_exempt():
+def test_only_newest_entry_rules_are_archive_exempt():
     """Pins the asymmetry deliberately. A merge claim or dead reference does not
-    become acceptable by being retired; only a present-tense status stops being
-    meaningful once an entry is history."""
+    become acceptable by being retired; only a claim about the CURRENT state
+    stops being meaningful once an entry is history.
+
+    Both exempt rules are the newest-entry ones, and that is not a coincidence:
+    in the archive "the newest entry" means the most recently retired one, so a
+    present-tense reading of it is wrong by construction. Any future rule scoped
+    to the newest entry belongs here too, and any whole-file rule does not.
+    """
     from handoff_collect import RULES
     exempt = {r.kind for r in RULES if not r.in_archive}
-    assert exempt == {"stale-live-claim"}, f"unexpected archive exemptions: {exempt}"
+    newest = {r.kind for r in RULES if r.scope == "newest-entry"}
+    assert exempt == {"stale-live-claim", "unknown-branch"}, (
+        f"unexpected archive exemptions: {exempt}"
+    )
+    assert exempt == newest, (
+        f"archive exemption and newest-entry scope must agree; "
+        f"exempt={exempt} newest-entry={newest}"
+    )
 
 
 def test_archive_mode_skips_exactly_the_exempt_rules(git_repo):
@@ -1380,5 +1393,12 @@ def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(git_repo):
     assert counts["dead-sha"] == 0
     assert counts["false-merge-claim"] == 0
     assert counts["dead-path-pointer"] == 0
-    assert set(counts) == {"dead-sha", "stale-live-claim", "false-merge-claim",
-                           "dead-path-pointer", "possible-secret"}
+    # Pinned against the registry rather than a hardcoded list, so a rule added
+    # WITHOUT a denominator fails here. A silent rule is invisible in exactly
+    # the way this whole tool exists to prevent, and a literal set would have to
+    # be edited by the same person who forgot.
+    from handoff_collect import RULES
+    assert set(counts) == {rule.kind for rule in RULES}, (
+        "every rule must report a denominator; missing: "
+        f"{ {r.kind for r in RULES} - set(counts) }"
+    )

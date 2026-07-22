@@ -24,6 +24,7 @@ nothing.
 | `retain_entries` | `3` | Entries kept in the live document. |
 | `plans_dir` | `docs/superpowers/plans` | Scanned for the current plan's checkboxes. |
 | `venv_python` | `.venv/Scripts/python.exe` | Interpreter, relative to the main working tree. |
+| `extra_docs` | *(empty)* | Further documents to check: `CLAUDE.md`, `AGENTS.md`, a README. They get every whole-file rule. The entry-scoped rules are skipped, because these have no dated entries and "the newest entry" would name nothing. |
 
 ## Running the suite - any ecosystem
 
@@ -106,7 +107,12 @@ Each was measured against one project's real prose. See `porting.md`.
 | `branch_token` | How branch names appear in prose. |
 | `merge_claim` | "merged to `{trunk}` at `<sha>`". Requires the SHA to FOLLOW the phrase, so a SHA belonging to a neighbouring clause is not misread. |
 | `path_pointer` | Paths introduced by `Plan:`, `Design:`, `see`, `read`. Keyed on operative use, never on path shape. |
+| `release_tag` | "released in v2.1". Checks the tag exists AND is an ancestor of trunk. Measured as ABSENT from the corpus this was built on, so its denominator reads 0 here; it is the common shape in CHANGELOG-keeping projects. |
 | `todo_markers` | `TODO`/`FIXME`/`XXX`. |
+
+Markdown links and heading anchors are checked too, and have no setting. Link
+syntax is fixed by the format rather than by any project's habits, so there is
+no corpus to measure and nothing to configure.
 | `code_suffixes` | Extensions scanned for TODOs. Excludes docs deliberately - a spec discussing TODO is not a TODO. |
 | `todo_exclude_files` / `todo_exclude_dirs` | Paths exempt from the TODO scan, so the tool does not report its own source. |
 
@@ -127,8 +133,21 @@ is inert regardless of the exit code. Zero is not automatically a bug - a
 project may genuinely never phrase a merge claim - but you must know which it
 is, and only the denominator tells you.
 
-Then prove a rule fires: repoint a merge claim at a commit that is not an
-ancestor of trunk and confirm it is reported. **A rule never observed failing
-has not been tested** - this exact gap shipped once, where the config held the
+Then prove the rules fire, which `--selftest` now does for you:
+
+```
+python tools/handoff_collect.py --selftest
+```
+
+It corrupts one REAL match per rule and reports which rules noticed. Probes
+mutate your actual prose rather than injecting invented text, so what gets
+exercised is your configuration against your writing; a synthetic probe written
+in the default vocabulary would only prove that the defaults match the defaults.
+A rule reported as DID NOT FIRE has a pattern that does not match what it claims
+to check.
+
+The manual version of the same idea: repoint a merge claim at a commit that is
+not an ancestor of trunk and confirm it is reported. **A rule never observed
+failing has not been tested** - this exact gap shipped once, where the config held the
 right values and three rules never read them, so a foreign project got a clean
 run against another project's vocabulary.

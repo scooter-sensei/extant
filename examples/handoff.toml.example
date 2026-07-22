@@ -14,6 +14,11 @@
 # --- documents ---------------------------------------------------------------
 handoff_doc   = "STATUS.md"            # the document sessions read as truth
 archive_doc   = "docs/status-archive.md"
+# Other documents that rot the same way. They get every whole-file rule; the
+# entry-scoped ones are skipped because these have no dated entries. This is
+# also how a project that tracks work in a ticket system, and keeps no status
+# document at all, still gets something checked.
+extra_docs    = ["CLAUDE.md", "AGENTS.md", "README.md"]
 retain_entries = 3                     # entries kept in the live document
 trunk         = "main"                 # branch that merge claims are checked against
 
@@ -43,8 +48,13 @@ suite_duration = '\bin ([\d.]+)s'
 # How merge claims are phrased here. {trunk} is substituted with the value above.
 merge_claim = '(?:merged|shipped|released)\s+(?:to|into)\s+`?{trunk}`?\s+at\s+`([0-9a-f]{7,40})`'
 
-# How branch names appear in prose.
+# How branch names appear in prose. Used by two rules: the stale-status check,
+# and the one that reports a branch git has never heard of.
 branch_token = '`((?:feature|fix|hotfix)/[^`]+)`'
+
+# Release claims, checked against tags. The tag must exist AND be an ancestor of
+# trunk, exactly as a merge claim must be.
+release_tag = '(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+[\w.-]*)`?'
 
 # Present-tense "not done yet" claims. Keep this set SMALL and closed. Widening
 # it to anything that sounds like a status claim reintroduces false positives,

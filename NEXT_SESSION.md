@@ -6,6 +6,50 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 2 - Four more rules, and a way to prove rules work (shipped, 2026-07-22)
+
+**Status.** Nine rules now, up from five. Suite is 136 tests, all passing. CI
+runs both self-checks on every push to the trunk: one asking whether this
+document is clean, one asking whether the rules would notice if it were not.
+
+**What Shipped.**
+
+- Markdown link and heading-anchor checking, which needs no configuration
+  because link syntax is fixed by the format rather than by a project's habits.
+- A rule for branches git has never seen, in refs or in any merge commit.
+- A rule for release-tag claims, aimed at projects that keep a CHANGELOG.
+- `extra_docs`, so a CLAUDE.md or a README gets every whole-file rule. The
+  entry-scoped rules are skipped there, having no entries to scope to.
+- Rename hints: a dead pointer now says where git shows the file went.
+- `--selftest`, which corrupts one real claim per rule and reports which rules
+  noticed.
+
+**Known Issues.**
+
+- Settings load relative to the script rather than to `--repo`. Correct when the
+  tool is installed into a repository, wrong when run from outside one, and it
+  now says so on stderr instead of disagreeing quietly.
+- Repositories using a gitflow-style release branch are still not modelled.
+
+**Next Tasks.**
+
+- Consider whether the archive document should exist from first install rather
+  than first archive run.
+- A `.pre-commit-hooks.yaml`, so projects already using that framework can adopt
+  this by adding three lines to a file they have.
+
+**Gotchas.**
+
+- Measuring first changed what got built, twice. A branch rule keyed on mere
+  existence would have emitted four findings and four false positives on the
+  first real corpus, because merged branches get deleted. Markdown links and
+  release phrases turned out to be entirely absent from the handoff documents
+  available, and are shipped for the general documents `extra_docs` reaches.
+- The `--selftest` probe for merge claims first replaced a commit with zeros,
+  and reported a working rule as broken: that rule deliberately ignores claims
+  whose commit does not resolve, leaving those to the reference check. A probe
+  has to corrupt the thing the rule actually inspects.
+
 ## Phase 1 - Extraction and first public release (shipped, 2026-07-22)
 
 **Status.** Extracted from the project this was built and proven on, made

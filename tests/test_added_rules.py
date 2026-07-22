@@ -1,0 +1,271 @@
+"""The rules added after the first release, and the selftest that probes them.
+
+Each test names the wrong implementation it would catch. The false-positive
+guards matter more than the positive cases here: the branch rule in particular
+was nearly shipped in a form that produced four findings and four false
+positives on the first corpus it was measured against.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+TOOL = SKILL_ROOT / "payload" / "handoff_collect.py"
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True,
+                          text=True, encoding="utf-8", check=True).stdout
+
+
+def run_tool(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, str(TOOL), "--repo", str(repo), *args],
+                          cwd=repo, capture_output=True, text=True, encoding="utf-8")
+
+
+# --- markdown links ----------------------------------------------------------
+
+def test_md_link_to_a_missing_file_is_flagged(git_repo) -> None:
+    """Catches the gap that motivated this rule: a plain markdown link was
+    invisible, because the path rule only sees backticked paths after an
+    operative marker."""
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+
+    findings = validate_md_links(repo, "See [the plan](docs/gone.md) for detail.\n")
+
+    assert [f.kind for f in findings] == ["dead-md-link"]
+    assert "docs/gone.md" in findings[0].detail
+
+
+def test_md_link_to_an_existing_file_is_silent(git_repo) -> None:
+    """The false-positive guard. A rule that flags working links is worse than
+    no rule, because it trains people to ignore the output."""
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+
+    assert validate_md_links(repo, "See [the plan](docs/plan.md).\n") == []
+
+
+def test_external_links_are_never_checked(git_repo) -> None:
+    """Catches a rule that reaches the network.
+
+    Checking external links would make a green run depend on someone else's
+    uptime and rate limits, turning a deterministic check into a coin flip.
+    """
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    text = ("[docs](https://example.invalid/nope)\n"
+            "[mail](mailto:nobody@example.invalid)\n")
+
+    assert validate_md_links(repo, text) == []
+
+
+def test_links_inside_code_fences_are_ignored(git_repo) -> None:
+    """A README demonstrating link syntax is showing an example, not making a
+    promise. Catches a scanner that reads fenced blocks as prose."""
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    text = "Example:\n\n```markdown\n[label](docs/not-real.md)\n```\n"
+
+    assert validate_md_links(repo, text) == []
+
+
+# --- anchors -----------------------------------------------------------------
+
+def test_anchor_matching_a_heading_is_silent(git_repo) -> None:
+    """Catches a slug function that disagrees with how headings render.
+
+    Punctuation and backticks are dropped and spaces become hyphens, so
+    "## 1. Layout `here`" has to resolve for `#1-layout-here`.
+    """
+    from handoff_collect import validate_md_anchors
+    repo, _ = git_repo
+
+    text = "## 1. Layout `here`\n\nJump to [it](#1-layout-here).\n"
+    assert validate_md_anchors(repo, text) == []
+
+
+def test_anchor_with_no_matching_heading_is_flagged(git_repo) -> None:
+    from handoff_collect import validate_md_anchors
+    repo, _ = git_repo
+
+    findings = validate_md_anchors(repo, "## Layout\n\nSee [x](#nonexistent).\n")
+
+    assert [f.kind for f in findings] == ["dead-md-anchor"]
+
+
+# --- branches ----------------------------------------------------------------
+
+def _entry(body: str) -> str:
+    return f"# Status\n\n## Phase 1 - work (in progress, 2026-01-01)\n\n{body}\n\n## 1. Layout\n"
+
+
+def test_merged_then_deleted_branch_is_not_flagged(git_repo) -> None:
+    """THE false-positive guard, and the reason this rule exists in this shape.
+
+    Every one of the four branches named in the corpus this was measured
+    against had already been deleted after merging. A rule that only asked
+    "does this branch exist" would have produced four findings, all wrong, on
+    its first run. Deleting a merged branch is ordinary hygiene.
+    """
+    from handoff_collect import validate_branch_mentions
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "checkout", "-q", "-b", "feature/done")
+    commit("b.py", "b = 1\n", "feat: b")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "feature/done", "-m",
+        "Merge branch 'feature/done'")
+    git(repo, "branch", "-qD", "feature/done")
+
+    assert validate_branch_mentions(repo, _entry("Shipped on `feature/done`.")) == []
+
+
+def test_branch_git_never_saw_is_flagged(git_repo) -> None:
+    """The positive case: a name that exists in neither refs nor merge history
+    is a typo or work that was never integrated."""
+    from handoff_collect import validate_branch_mentions
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+
+    findings = validate_branch_mentions(repo, _entry("Work is on `feature/never`."))
+
+    assert [f.kind for f in findings] == ["unknown-branch"]
+
+
+def test_branch_rule_ignores_older_entries(git_repo) -> None:
+    """Scoped to the newest entry, like live claims. Older entries name branches
+    that were correct when written, and flagging them is noise."""
+    from handoff_collect import validate_branch_mentions
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    text = ("# Status\n\n## Phase 2 - now (in progress, 2026-02-01)\n\nNothing.\n\n"
+            "## Phase 1 - then (shipped, 2026-01-01)\n\nWas on `feature/never`.\n")
+
+    assert validate_branch_mentions(repo, text) == []
+
+
+# --- release tags ------------------------------------------------------------
+
+def test_missing_release_tag_is_flagged(git_repo) -> None:
+    from handoff_collect import validate_release_tags
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+
+    findings = validate_release_tags(repo, "Released in v9.9.9 last week.\n")
+
+    assert [f.kind for f in findings] == ["dead-release-tag"]
+
+
+def test_existing_tag_on_trunk_is_silent(git_repo) -> None:
+    """Catches a rule that flags real releases, which would make it unusable for
+    the CHANGELOG-keeping projects it exists to serve."""
+    from handoff_collect import validate_release_tags
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v1.0")
+
+    assert validate_release_tags(repo, "Released in v1.0 last week.\n") == []
+
+
+# --- rename hints ------------------------------------------------------------
+
+def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
+    """Catches the pathspec bug this was first written with.
+
+    `git log --diff-filter=R -- <old path>` returns NOTHING once rename
+    detection has run, so the first version looked correct and silently found
+    nothing. Dropping the pathspec is what makes it work.
+    """
+    import handoff_collect
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("docs/old.md", "# old\n", "docs: add")
+    git(repo, "mv", "docs/old.md", "docs/new.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    handoff_collect._RENAMES.clear()
+
+    findings = validate_md_links(repo, "See [it](docs/old.md).\n")
+
+    assert len(findings) == 1
+    assert "renamed to `docs/new.md`" in findings[0].detail
+
+
+# --- the registry and the selftest -------------------------------------------
+
+def test_every_rule_declares_a_probe() -> None:
+    """A rule that cannot say how to make itself fire cannot be shown to work.
+
+    The same reasoning as the existing `falsifiable` requirement: declaring it
+    in the registry is what stops a rule being added that nothing can exercise.
+    """
+    from handoff_collect import RULES
+
+    assert RULES, "the registry is empty; this test would pass vacuously"
+    missing = [r.kind for r in RULES if not callable(r.probe)]
+    assert not missing, f"rules with no usable probe: {missing}"
+
+
+def test_selftest_fires_every_probeable_rule(git_repo) -> None:
+    """The end-to-end check that the probes actually corrupt what they claim to.
+
+    Written after the merge-claim probe was found to be wrong: it replaced a
+    SHA with zeros, but the rule skips claims whose commit does not resolve, so
+    a working rule was reported as silent.
+    """
+    from handoff_collect import selftest
+    repo, commit = git_repo
+    base = commit("docs/plan.md", "# plan\n", "feat: base").strip()[:9]
+    git(repo, "checkout", "-q", "-b", "feature/open")
+    commit("w.py", "w = 1\n", "feat: off trunk")
+    git(repo, "checkout", "-q", "main")
+    text = (
+        "# Status\n\n## Phase 1 - work (in progress, 2026-01-01)\n\n"
+        "**Design:** `docs/plan.md`\n\n"
+        "NOT yet merged; on `feature/open`.\n\n"
+        f"Earlier work merged to `main` at `{base}`.\n\n"
+        "See [plan](docs/plan.md) and [layout](#1-layout).\n\n## 1. Layout\n"
+    )
+
+    lines, fired, unprobeable = selftest(repo, text)
+
+    silent = len(lines) - fired - unprobeable
+    assert silent == 0, "a rule stayed silent after its probe:\n" + "\n".join(lines)
+    assert fired >= 7, f"only {fired} rules could be exercised:\n" + "\n".join(lines)
+
+
+def test_extra_docs_are_validated(git_repo) -> None:
+    """Catches an extra_docs setting that nothing reads, which is the exact
+    class of defect this project exists to surface.
+
+    The payload is copied into the repository first, because that is how it is
+    actually used and the only arrangement in which its configuration is read.
+    Settings load relative to the tool's own location, so running it from
+    outside a repository reads that repository's .handoff.toml not at all. The
+    tool says so on stderr; this test exercises the real installation instead.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n\n## Phase 1 - x (done, 2026-01-01)\n\nNothing.\n",
+           "docs: status")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+    (repo / ".handoff.toml").write_text('extra_docs = ["CLAUDE.md"]\n', encoding="utf-8")
+    (repo / "CLAUDE.md").write_text("See [design](docs/absent.md).\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(repo / "tools" / "handoff_collect.py"),
+         "--repo", str(repo), "--validate", "NEXT_SESSION.md"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+    )
+
+    assert "CLAUDE.md" in result.stdout, result.stdout
+    assert "dead-md-link" in result.stdout, result.stdout
+    assert result.returncode == 1

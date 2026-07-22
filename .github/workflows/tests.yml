@@ -64,3 +64,9 @@ jobs:
 
       - name: Validate this repository's own handoff document
         run: python plugin/skills/handoff/payload/handoff_collect.py --verify --repo .
+
+      # --verify answers "is the document clean". This answers the harder
+      # question: "would these rules notice if it were not". It corrupts one
+      # real claim per rule and fails if any rule stays silent.
+      - name: Probe every rule against that document
+        run: python plugin/skills/handoff/payload/handoff_collect.py --selftest --repo .

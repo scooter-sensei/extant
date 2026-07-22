@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.2.0 (2026-07-22)
+
+Four new rules, a way to prove any rule actually works, and checking that
+reaches beyond the one status document.
+
+### Added
+
+- **Markdown link and anchor checking.** `[text](docs/gone.md)` and
+  `[jump](#no-such-heading)` were both invisible: the path rule only sees
+  backticked paths after an operative marker. Link syntax is fixed by the
+  format, so unlike the prose patterns these need no configuration.
+- **`unknown-branch`.** A branch named in the newest entry that git has never
+  seen, in refs or in any merge commit.
+- **`dead-release-tag`.** "Released in v2.1" where no such tag exists, or it is
+  not an ancestor of trunk. For CHANGELOG-keeping projects.
+- **`extra_docs`.** Further documents get every whole-file rule: `CLAUDE.md`,
+  `AGENTS.md`, a README. Entry-scoped rules are skipped, because those files
+  have no dated entries.
+- **Rename hints.** A dead pointer now says where git shows the file went.
+- **`--selftest`.** Corrupts one real claim per rule and reports which rules
+  noticed. Probes mutate actual prose rather than injecting invented text, so
+  what is exercised is your configuration against your writing. CI runs it here
+  on every push, so the rules are watched failing rather than assumed to work.
+
+### Measured before building, and it changed the plan
+
+- A branch-existence rule keyed on "does this branch exist" would have produced
+  **four findings and four false positives** on the first corpus it was measured
+  against: every branch named there had been merged and then deleted, which is
+  ordinary hygiene. All four were still named in merge commits, and that is what
+  the shipped rule keys on.
+- Markdown links and release phrases were measured as **entirely absent** from
+  the handoff documents available. They are shipped because they are common in
+  the general documentation `extra_docs` now reaches, and their denominators
+  report 0 honestly where they do not apply.
+
+### Fixed
+
+- `--repo` now warns when it is pointed at a repository whose `.handoff.toml`
+  is being ignored. Configuration loads relative to the script, which is right
+  when installed but silently wrong when run from elsewhere.
+
 ## 0.1.0 (2026-07-22)
 
 First public release, extracted from the project it was built and proven on.

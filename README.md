@@ -70,7 +70,18 @@ More on that below.
 | "merged into main" when it never was | whether it actually got merged |
 | "not merged yet" about something merged last week | whether it is still waiting |
 | "see the file at this path" but the file moved | whether the file is there |
+| `[a link](to/a/file.md)` whose file is gone | whether the linked file is there |
+| a `#jump-to-section` link with no such section | whether the heading exists |
+| "work is on branch X" and there is no such branch | whether git has ever seen it |
+| "released in v2.1" and there is no such tag | whether the tag exists and shipped |
 | a password or key pasted in by accident | whether anything looks like a secret |
+
+When a file has simply moved, it tells you where it went:
+
+```
+line 5: [dead-md-link] links to `docs/old-name.md`, which does not exist;
+        git shows it renamed to `docs/new-name.md`
+```
 
 ### What it deliberately ignores
 
@@ -217,6 +228,44 @@ If one of those reads `0`, that check found nothing to examine, which usually
 means a setting is wrong rather than that your file is spotless. The tool says
 so out loud, because "found no problems" and "did not look" are easy to confuse
 and only one is good news.
+
+### Prove the checks actually work
+
+The worry above deserves more than a warning, so there is a command for it:
+
+```console
+$ python tools/handoff_collect.py --selftest
+```
+
+It takes a real claim from your document, deliberately breaks it, and confirms
+the matching check notices. Then it puts everything back. Nothing is written.
+
+```console
+  dead-sha             FIRED
+  stale-live-claim     FIRED
+  dead-path-pointer    FIRED
+  dead-release-tag     NO PROBE       nothing to corrupt
+  possible-secret      FIRED
+
+  4 fired, 1 had nothing to corrupt, 0 stayed silent
+```
+
+**A check that stays silent after you break something it should catch is
+broken.** That is the one line worth reading. This runs in CI here on every
+change, so the tool is not merely tested, it is watched failing.
+
+### Check your other files too
+
+Your status file is not the only one that rots. A `CLAUDE.md`, an `AGENTS.md`,
+a `README` all make the same kinds of claim. Add them:
+
+```toml
+extra_docs = ["CLAUDE.md", "AGENTS.md", "README.md"]
+```
+
+They get every check that does not depend on dated entries, which is most of
+them. This is also how a team that tracks work in Jira or Linear, and keeps no
+status file at all, still gets something useful out of this.
 
 ---
 

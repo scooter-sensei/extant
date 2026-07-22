@@ -67,6 +67,16 @@ DEFAULTS: dict[str, object] = {
         r"(?:\*\*(?:Plan|Design|Spec|Authority|Source)s?:?\*\*|\bsee\b|\bread\b)"
         r"[^`\n]{0,40}`([\w:.\\/-]+\.(?:py|qml|md|txt|json|toml|cfg|ini))`"
     ),
+    # Release-tag claims: "released in v2.1", "shipped as v2.1.0". Measured as
+    # ABSENT from the corpus this was built on, which is why the denominator
+    # will honestly report 0 for projects that never phrase things this way. It
+    # is here for CHANGELOG-keeping projects, where it is the common shape.
+    "release_tag": r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+[\w.-]*)`?",
+    # Additional documents that get the whole-file rules. They have no entry
+    # structure, so the newest-entry rules are skipped for them exactly as they
+    # are for the archive. This is how a project whose state lives in a tracker
+    # still gets its CLAUDE.md, AGENTS.md and README checked.
+    "extra_docs": [],
     "todo_markers": r"\b(TODO|FIXME|XXX)\b",
     "code_suffixes": [".py", ".qml"],
     "todo_exclude_files": ["tools/handoff_collect.py"],
@@ -114,6 +124,8 @@ class HandoffConfig:
     code_suffixes: tuple[str, ...]
     todo_exclude_files: tuple[str, ...]
     todo_exclude_dirs: tuple[str, ...]
+    extra_docs: tuple[str, ...]
+    release_tag: re.Pattern[str]
     base_header: re.Pattern[str]
     # None means the feature is switched off for this project, not that a
     # default applies. See DISABLEABLE.
@@ -212,6 +224,8 @@ def load_config(repo: Path) -> HandoffConfig:
         code_suffixes=tuple(values["code_suffixes"]),          # type: ignore[arg-type]
         todo_exclude_files=tuple(values["todo_exclude_files"]),  # type: ignore[arg-type]
         todo_exclude_dirs=tuple(values["todo_exclude_dirs"]),    # type: ignore[arg-type]
+        extra_docs=tuple(values["extra_docs"]),                  # type: ignore[arg-type]
+        release_tag=re.compile(str(values["release_tag"]), re.IGNORECASE),
         base_header=re.compile(str(values["base_header"]), re.MULTILINE),
         phase_task=optional("phase_task"),
         phase_bare=optional("phase_bare"),
