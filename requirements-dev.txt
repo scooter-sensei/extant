@@ -1,0 +1,8 @@
+# Development only. The tool itself has NO third-party dependencies: everything
+# installed into your repository runs on the standard library alone.
+#
+# This file exists because the test suite is a different question from the tool,
+# and conflating the two put a comment reading "no dependencies to install" above
+# a CI step that ran `python -m pytest` on a runner with no pytest. All six jobs
+# failed identically before a single test ran.
+pytest>=8

@@ -3,12 +3,20 @@
 ## Running the tests
 
 ```sh
+python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Python 3.11 or newer (for `tomllib`) and git. No third-party dependencies, no
-network access, no fixtures outside `tmp_path` apart from this repository's own
-handoff document.
+Python 3.11 or newer (for `tomllib`) and git.
+
+**The tool has no third-party dependencies**, and nothing installed into your
+repository needs any. The test suite is a separate question: it needs pytest.
+Conflating those two is what put a comment reading "no dependencies to install"
+above a CI step that ran `python -m pytest` on a runner without it, and all six
+jobs failed identically before a single test ran.
+
+Beyond that the suite touches no network and writes nothing outside `tmp_path`,
+apart from reading this repository's own handoff document.
 
 ## Adding a validation rule
 
