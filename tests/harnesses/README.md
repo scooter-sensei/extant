@@ -1,8 +1,16 @@
 # Harnesses
 
-Three tools that audit the test suite and the installed product, rather than
-the code paths a unit test can reach. They are **not** run by pytest: each takes
+Five tools that audit the test suite and the installed product, rather than the
+code paths a unit test can reach. They are **not** run by pytest: each takes
 minutes, and each answers a question `python -m pytest` structurally cannot.
+
+| Tool | Asks |
+|---|---|
+| `mutate.py` | does the suite pin anything? |
+| `scenarios.py` | does it work on projects unlike this one? |
+| `smoke.py` | what happens when someone abuses it? |
+| `perf.py` | is it fast enough to leave installed? |
+| `stress.py` | where does it fall over? |
 
 Between them they found every defect fixed in 0.3.0. The unit suite found none
 of those, because the unit suite was the thing being audited.
@@ -123,7 +131,13 @@ missed rather than a number someone has to judge by eye.
 
 ## Reading the output
 
-All three print a denominator: how many mutations, scenarios, or probes ran.
-A run that examined nothing prints the same reassuring nothing as a run that
-found nothing wrong, which is the failure this whole project exists to make
-visible. If a count looks low, the harness is broken, not the code.
+All of them print a denominator: how many mutations, scenarios, probes, cases or
+measurements ran. A run that examined nothing prints the same reassuring nothing
+as a run that found nothing wrong, which is the failure this whole project
+exists to make visible. If a count looks low, the harness is broken, not the
+code.
+
+This file said "Three tools" for two commits after the fourth and fifth were
+added, and nothing noticed - the count is prose, and no rule here inspects
+numbers. That is the documented limit of the validator working exactly as
+designed, on its own repository, which is as good a demonstration of it as any.
