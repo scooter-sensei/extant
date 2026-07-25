@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: "Use when a project needs its session-handoff or status document to stay TRUE - a doc that says what shipped, what is merged, what is next, and that a fresh session reads as ground truth. Installs a validator that machine-checks every falsifiable claim against git before a commit is allowed, plus a /handoff command that drafts the entry and git hooks that re-check after every commit and merge. Also use when asked to port, install, or configure the handoff system in another repo."
-version: 0.1.0
+version: 0.3.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -23,12 +23,17 @@ read end to end.
 
 | File | Role |
 |---|---|
-| `tools/handoff_collect.py` | Collector + validator. Four modes: `--collect`, `--archive`, `--validate`, `--verify` |
+| `tools/handoff_collect.py` | Collector + validator. Five modes: `--collect`, `--archive`, `--validate`, `--verify`, `--selftest` |
 | `tools/handoff_config.py` | All project-specific values; reads `.handoff.toml` |
 | `tools/hooks/handoff-verify` | Re-checks the document after every commit and merge |
+| `tools/hooks/main-tree-guard` | Optional pre-commit guard: refuses a commit in the main working tree while it is off trunk |
 | `tools/hooks/install` | Installs the git hooks |
-| `.claude/commands/handoff.md` | The `/handoff` slash command |
+| `.claude/commands/handoff.md` | The `/handoff` slash command, rendered for this repo |
 | `.handoff.toml` | Project configuration |
+
+`--validate` and `--verify` take `--format=text` (default), `--format=github`
+for Actions annotations, or `--format=sarif`. SARIF puts nothing but JSON on
+stdout; every human diagnostic moves to stderr.
 
 ## Installing into a repo
 
@@ -41,7 +46,7 @@ Then **derive the configuration from the real document - do not accept the
 defaults blindly.** See `references/porting.md`. This is the step that decides
 whether the tool works or silently does nothing.
 
-## The five validation rules
+## The nine validation rules
 
 Each checks a different KIND of statement, and each is scoped differently. The
 scoping is not stylistic - getting it wrong produces either silence or noise,
@@ -49,11 +54,46 @@ and both destroy the tool's value.
 
 | Rule | What it checks | Scope |
 |---|---|---|
-| Dead SHA references | every referenced commit still resolves | whole file, backticked **and** bare |
-| Stale live claims | "not yet merged" about work that merged | **newest entry only** |
-| False merge claims | "merged at X" where X is not an ancestor of trunk | whole file, **including the archive** |
-| Dead path pointers | "Plan: X" / "see X" where X does not exist | operative references only |
-| Secret shapes | credential-shaped tokens before they are committed | whole file |
+| `dead-sha` | every referenced commit still resolves | whole file, backticked **and** bare |
+| `stale-live-claim` | "not yet merged" about work that merged | **newest entry only** |
+| `unknown-branch` | a branch git has never seen, in refs or any merge commit | **newest entry only** |
+| `false-merge-claim` | "merged at X" where X is not an ancestor of trunk | whole file, **including the archive** |
+| `dead-release-tag` | "released in v2.1" where the tag is missing or never reached trunk | whole file |
+| `dead-path-pointer` | "Plan: X" / "see X" where X does not exist | operative references only |
+| `dead-md-link` | `[text](path)` whose file is gone | whole file |
+| `dead-md-anchor` | `[text](#fragment)` with no such heading | same document only |
+| `possible-secret` | credential-shaped tokens before they are committed | whole file |
+
+Three cross-cutting behaviours worth knowing:
+
+- **Fenced code is exempt from claim rules, never from the secret scan.** An
+  example in a fence is not a promise; a credential in one is still committed.
+  Inline backticks are kept for claim rules, because claims are written inside
+  them, and blanked for link rules, because example links are too.
+- **Wrong-case paths are reported** even on Windows and macOS, by comparing
+  against the real directory entry. Otherwise a document passes on a laptop and
+  fails on Linux CI.
+- **A dead pointer says where the file went**, when git recorded a rename.
+
+`extra_docs` extends the whole-file rules to a `CLAUDE.md`, `AGENTS.md` or
+README. The entry-scoped rules are skipped there, since those files have no
+dated entries.
+
+## Proving the rules actually work
+
+```
+python tools/handoff_collect.py --selftest
+```
+
+Corrupts one REAL claim per rule and reports which rules noticed. A rule that
+stays silent after its own probe is not working. Probes mutate the project's
+actual prose rather than injecting invented text, so what is exercised is this
+configuration against this writing; a synthetic probe written in the default
+vocabulary would only prove the defaults match the defaults.
+
+This is the answer to the failure the whole design fears: a pattern that matches
+nothing exits 0 forever and looks healthy. `--verify` reports a denominator per
+rule; `--selftest` proves the rules fire.
 
 ## The core guarantee, and the discipline that protects it
 

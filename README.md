@@ -74,7 +74,18 @@ More on that below.
 | a `#jump-to-section` link with no such section | whether the heading exists |
 | "work is on branch X" and there is no such branch | whether git has ever seen it |
 | "released in v2.1" and there is no such tag | whether the tag exists and shipped |
+| a path spelled `Docs/Plan.md` when the file is `docs/plan.md` | whether the spelling matches the real file |
 | a password or key pasted in by accident | whether anything looks like a secret |
+
+That fifth-from-last row is not fussiness. Windows and macOS open
+`docs/PLAN.md` quite happily when the file is `docs/plan.md`; Linux does not.
+Without the check, a document passes on your laptop and fails on the server, or
+worse, passes everywhere while misleading every Linux reader.
+
+Examples inside code blocks and backticks are left alone, so a README showing
+what a claim looks like is not read as making one. A password inside a code
+block is still reported, because that one is about what the file **contains**
+rather than what it promises.
 
 When a file has simply moved, it tells you where it went:
 
@@ -394,12 +405,20 @@ plugin/
     payload/                      what gets copied into your project
     references/                   the deeper documentation
 tests/                            the test suite
+tests/harnesses/                  five slow audits, run by hand
 NEXT_SESSION.md                   this project's own notes file
 ```
 
 That last one is not decoration. This project runs its own tool on its own notes
 file, on every change, in CI. If it stopped working, this repository would be
 the first to find out.
+
+`tests/harnesses/` holds the checks pytest cannot perform: one that breaks the
+code on purpose to see whether any test notices, one that installs into a dozen
+unlike projects, one that tries to abuse the tool, and two that measure speed
+and load. They found every bug fixed in the most recent release. The unit suite
+found none of them, because the unit suite was the thing being audited. See
+`tests/harnesses/README.md`.
 
 </details>
 

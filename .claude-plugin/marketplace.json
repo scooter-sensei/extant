@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "handoff",
-      "description": "Installs a validator that checks every falsifiable claim in your handoff or status document against git and the filesystem, plus git hooks that re-check after each commit and merge, and a /handoff command rendered for your repository. Catches dead commit references, false merge claims, stale 'not yet merged' statements, dead file pointers, and committed secrets. Configuration is derived by inspecting your repo rather than copied.",
-      "version": "0.1.0",
+      "description": "Installs a validator that checks every falsifiable claim in your handoff or status document against git and the filesystem, plus git hooks that re-check after each commit and merge, and a /handoff command rendered for your repository. Nine rules: dead commit references, false merge claims, stale 'not yet merged' statements, branches git never saw, release tags that never shipped, dead file pointers, broken markdown links and heading anchors, and committed secrets. Findings render as text, GitHub annotations or SARIF. Configuration is derived by inspecting your repo rather than copied.",
+      "version": "0.3.0",
       "author": {
         "name": "scooter-sensei"
       },
