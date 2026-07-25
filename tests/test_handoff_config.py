@@ -6,13 +6,20 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_defaults_reproduce_this_projects_behaviour():
+def test_defaults_reproduce_this_projects_behaviour(tmp_path):
     """A repo with no .handoff.toml must behave exactly as before the config
     layer existed. If this drifts, every existing test is silently testing a
-    different configuration than the tool ships with."""
+    different configuration than the tool ships with.
+
+    Checked against an EMPTY directory rather than the package root, which now
+    carries a `.handoff.toml` of its own. The `.git` marker bounds the upward
+    search, so this cannot accidentally pick up a config from some parent
+    directory on the machine running it.
+    """
     from handoff_config import load_config
     import handoff_collect as h
-    cfg = load_config(PACKAGE_ROOT)
+    (tmp_path / ".git").mkdir()
+    cfg = load_config(tmp_path)
     assert cfg.source == "defaults"
     assert cfg.handoff_doc == h.HANDOFF_DOC
     assert cfg.archive_doc == h.ARCHIVE_DOC

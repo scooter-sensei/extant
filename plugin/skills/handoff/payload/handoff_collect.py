@@ -1421,6 +1421,87 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
     return findings
 
 
+def _consistency_for(repo: Path) -> dict[str, tuple[tuple[str, object], ...]]:
+    """The consistency block belonging to the repository being checked."""
+    try:
+        return load_config(repo).consistency
+    except ValueError:
+        return {}
+
+
+def validate_consistency(repo: Path, text: str) -> list[Finding]:
+    """Named values that must agree across several files in the repository.
+
+    THE RULE THAT CAME FROM THIS PROJECT'S OWN FAILURE. Three manifests
+    advertised version 0.1.0 while the CHANGELOG documented 0.3.0. Anyone
+    installing was told they were getting the first release. Nothing here could
+    catch it, because no rule inspects numbers.
+
+    That restriction still stands, and this does not weaken it. The forbidden
+    question is whether a number is CORRECT - "the suite was 2238" has nothing
+    to be checked against, so a rule that tried would cry wolf. Asking whether
+    two files CONTRADICT EACH OTHER is a different question with a definite
+    answer, needing nothing but the filesystem. Every value here is compared to
+    another value in the same repository, never to a judgement about the world.
+
+    `text` is ignored: this is about the repository, not the document. It runs
+    once per validation, on the primary pass only, or the same disagreement
+    would be reported once per document checked.
+    """
+    # Configuration comes from the REPOSITORY BEING CHECKED, not from the
+    # module-level CONFIG every other rule uses. This rule reads files by path,
+    # so pointing it at one repository while holding another's file list is
+    # meaningless - and it happened immediately: every temporary repository in
+    # the test suite inherited this project's own version-consistency block and
+    # was told four files were missing.
+    #
+    # Cheap, because it is one small TOML parse per validation, and only for
+    # this rule.
+    try:
+        consistency = _consistency_for(repo)
+    except ValueError:
+        # A malformed config in the target repo is reported by the loader on the
+        # path that reads it for real; re-raising here would turn a validation
+        # run into a crash about a different repository's settings.
+        return []
+
+    findings: list[Finding] = []
+    for name, sources in consistency.items():
+        seen: dict[str, list[str]] = {}
+        for relative, pattern in sources:
+            target = repo / relative
+            if not target.is_file():
+                findings.append(Finding(
+                    1, "inconsistent-artifact",
+                    f"consistency check `{name}` reads `{relative}`, "
+                    f"which does not exist",
+                ))
+                continue
+            content = target.read_text(encoding="utf-8", errors="replace")
+            match = pattern.search(content)
+            if match is None:
+                # A pattern matching nothing is the silent failure this project
+                # is about: the check would pass forever having compared one
+                # value with itself.
+                findings.append(Finding(
+                    1, "inconsistent-artifact",
+                    f"consistency check `{name}` found no value in `{relative}`; "
+                    f"the pattern matches nothing, so nothing is being compared",
+                ))
+                continue
+            seen.setdefault(match.group(1), []).append(relative)
+
+        if len(seen) > 1:
+            parts = "; ".join(
+                f"`{value}` in {', '.join(files)}" for value, files in sorted(seen.items())
+            )
+            findings.append(Finding(
+                1, "inconsistent-artifact",
+                f"`{name}` disagrees across files: {parts}",
+            ))
+    return findings
+
+
 _SECRET_SHAPES = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
@@ -1538,6 +1619,16 @@ def _probe_live_claim(repo: Path, text: str) -> str | None:
     return _probe_branch_in_newest(repo, text)
 
 
+def _probe_consistency(repo: Path, text: str) -> str | None:
+    """Not probeable by corrupting text, and honest about it.
+
+    Every other probe mutates the document. This rule never reads the document,
+    so no edit to `text` can make it fire. Returning None reports NO PROBE
+    rather than inventing a pass, which keeps --selftest's report true.
+    """
+    return None
+
+
 def _probe_secret(repo: Path, text: str) -> str | None:
     """Shape-based and universal, so a synthetic probe is honest here."""
     return text + "\n\nsk-" + "A1b2C3d4E5f6G7h8I9j0K1l2" + "\n"
@@ -1608,6 +1699,8 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "dead-md-link": sum(1 for raw in links
                             if not _EXTERNAL.match(raw) and not raw.startswith("#")),
         "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),
+        "inconsistent-artifact": sum(
+            len(sources) for sources in _consistency_for(repo).values()),
         "possible-secret": len(text.splitlines()),
     }
 
@@ -1681,6 +1774,14 @@ RULES: tuple[Rule, ...] = (
         in_archive=True,
         falsifiable="does this document contain a heading with that anchor?",
         probe=_probe_md_anchor,
+    ),
+    Rule(
+        kind="inconsistent-artifact",
+        check=validate_consistency,
+        scope="repository",
+        in_archive=False,
+        falsifiable="do the configured files state the same value?",
+        probe=_probe_consistency,
     ),
     Rule(
         kind="possible-secret",
@@ -1769,7 +1870,12 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     _DIRCACHE = {}
     try:
         findings: list[Finding] = []
+        primary = not in_archive and has_entries
         for rule in RULES:
+            if rule.scope == "repository" and not primary:
+                # Repository-wide, so it must not be repeated for the archive
+                # and every extra document; the disagreement is the same one.
+                continue
             if (in_archive or not has_entries) and not rule.in_archive:
                 continue
             findings += rule.check(repo, text)  # type: ignore[operator]
@@ -1918,6 +2024,95 @@ def render_findings(located: list[Located], fmt: str) -> tuple[list[str], bool]:
     return format_text(located), True
 
 
+def suggest_renames(repo: Path, base: Path, text: str, relative: str) -> str:
+    """A unified diff repointing references at where git says the file went.
+
+    Emitted to stdout as a PATCH, never written. That is not caution for its own
+    sake: this tool's authority rests entirely on the fact that it checks claims
+    and never writes them. A validator that edits prose can be wrong in a new
+    way - it can author a falsehood itself - and the first time it did, nothing
+    would be left to catch it.
+
+    A patch keeps the boundary and loses nothing. `git apply` is one command,
+    the diff is reviewable before it is applied, and the decision stays with the
+    person whose document it is.
+
+    Only renames GIT RECORDED are offered. A path that is merely missing gets no
+    suggestion, because guessing where it went is exactly the authoring this
+    refuses to do.
+    """
+    replacements: list[tuple[str, str]] = []
+
+    for raw in _MD_LINK.findall(_strip_code(text)):
+        if _EXTERNAL.match(raw) or raw.startswith("#"):
+            continue
+        target = raw.split("#", 1)[0]
+        if not target or _resolve_reference(repo, base, target)[0]:
+            continue
+        moved = _renamed_to(repo, target)
+        if moved:
+            replacements.append((target, moved))
+
+    for raw in _PATH_POINTER.findall(_prose(text)):
+        if _resolve_reference(repo, repo, raw)[0]:
+            continue
+        moved = _renamed_to(repo, raw)
+        if moved:
+            replacements.append((raw, moved))
+
+    if not replacements:
+        return ""
+
+    updated = text
+    for old, new in dict.fromkeys(replacements):
+        # Replaced only where the path is USED as a reference - inside a link
+        # target or a backticked pointer - rather than anywhere the characters
+        # happen to appear. A bare replace would also rewrite prose discussing
+        # the old name, which is often the very sentence explaining the move.
+        updated = updated.replace(f"]({old})", f"]({new})")
+        updated = updated.replace(f"`{old}`", f"`{new}`")
+
+    if updated == text:
+        return ""
+
+    import difflib
+    diff = difflib.unified_diff(
+        text.splitlines(keepends=True), updated.splitlines(keepends=True),
+        fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,
+    )
+    return "".join(diff)
+
+
+def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
+    """Entries mentioning `query`, newest first, as (document, header, body).
+
+    Returns whole ENTRIES rather than matching lines, which is the entire point
+    and the only reason this beats `grep`. A decision is recorded in a dated
+    entry with the reasoning around it; a naked line out of the middle tells you
+    a phrase exists and not what was decided or when.
+
+    Searches the live document and the archive together, because the whole
+    problem is that entries move from one to the other. Somebody looking for a
+    decision does not know, and should not need to know, whether it has been
+    retired yet.
+    """
+    needle = query.lower()
+    results: list[tuple[str, str, str]] = []
+    for relative in (HANDOFF_DOC, ARCHIVE_DOC):
+        path = repo / relative
+        if not path.is_file():
+            continue
+        with open(path, encoding="utf-8", newline="") as fh:
+            text = fh.read()
+        _, segments, _ = split_entries(text)
+        for kind, entry in segments:
+            if kind != "phase" or needle not in entry.lower():
+                continue
+            header = entry.splitlines()[0].strip() if entry.strip() else "(untitled)"
+            results.append((relative, header, entry))
+    return results
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="handoff_collect", description="Collect and validate handoff facts."
@@ -1929,6 +2124,13 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--verify", action="store_true", help="validate the committed doc")
     mode.add_argument("--selftest", action="store_true",
                       help="corrupt one real claim per rule and confirm each fires")
+    mode.add_argument("--search", metavar="TEXT",
+                      help="find past entries mentioning TEXT, live and archived")
+    parser.add_argument("--full", action="store_true",
+                        help="with --search, print whole entries rather than excerpts")
+    parser.add_argument("--suggest-fixes", action="store_true",
+                        help="with --validate/--verify, print a patch repointing "
+                             "renamed files. Writes nothing; pipe to `git apply`.")
     parser.add_argument("--out", metavar="PATH", help="bundle output path")
     parser.add_argument("--suite-json", metavar="PATH", help="reuse a completed suite run")
     parser.add_argument("--sha-map", metavar="PATH", help="filter-repo commit-map")
@@ -1954,12 +2156,55 @@ def main(argv: list[str] | None = None) -> int:
     # defaults are what was wanted. A validator that cries wolf stops being read
     # applies to its own diagnostics too.
     ignored_config = repo / ".handoff.toml"
-    if (repo.resolve() != REPO_ROOT.resolve() and ignored_config.is_file()
-            and str(ignored_config) != CONFIG.source):
+    # Compared as resolved paths, not as strings. The upward search means the
+    # config found from the script's own location is very often the same file
+    # this names, and a string comparison called them different over a
+    # separator - producing a warning that said the file it had just read was
+    # not read.
+    same_file = (ignored_config.is_file() and CONFIG.source != "defaults"
+                 and ignored_config.resolve() == Path(CONFIG.source).resolve())
+    if repo.resolve() != REPO_ROOT.resolve() and ignored_config.is_file() and not same_file:
         print(f"NOTE: settings came from {CONFIG.source}, so {ignored_config} was "
               f"NOT read. Configuration loads relative to this script; install it "
               f"into that repository as tools/ for its own settings to apply.",
               file=sys.stderr)
+    if args.search is not None:
+        if not args.search.strip():
+            parser.error("--search needs something to look for")
+        results = search_entries(repo, args.search)
+        for relative, header, entry in results:
+            print(f"{relative}: {header}")
+            body = entry.splitlines()[1:]
+            if args.full:
+                for line in body:
+                    print(f"    {line}")
+            else:
+                # A few lines of context, because the header alone rarely says
+                # what was decided. --full prints the entry when it does not.
+                excerpt = [ln for ln in body if ln.strip()][:4]
+                for line in excerpt:
+                    print(f"    {line.strip()[:96]}")
+            print()
+        # The denominator again: "no matches" and "searched nothing" print the
+        # same blank otherwise, and the second happens whenever a document is
+        # missing or its entry header does not match the configured prefix.
+        searched = sum(
+            1 for relative in (HANDOFF_DOC, ARCHIVE_DOC) if (repo / relative).is_file())
+        total = 0
+        for relative in (HANDOFF_DOC, ARCHIVE_DOC):
+            path = repo / relative
+            if path.is_file():
+                with open(path, encoding="utf-8", newline="") as fh:
+                    total += sum(1 for kind, _ in split_entries(fh.read())[1]
+                                 if kind == "phase")
+        print(f"{len(results)} match(es) in {total} entries "
+              f"across {searched} document(s)")
+        if total == 0:
+            print("  NOTE: no entries were found to search. Either these "
+                  "documents have none, or entry_prefix does not match their "
+                  "headers.")
+        return 0
+
     if args.selftest:
         target = repo / HANDOFF_DOC
         if not target.is_file():
@@ -2020,7 +2265,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.validate:
         # Human diagnostics go to stderr when stdout must be pure JSON. A SARIF
         # document with a progress line prepended is not a SARIF document.
-        stream = sys.stderr if args.format == "sarif" else sys.stdout
+        # stdout carries ONE machine-readable thing at a time. SARIF must be
+        # the only JSON there, and a patch must be the only patch there or
+        # `... | git apply` receives log lines and rejects the lot. Everything
+        # human moves to stderr in both cases.
+        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)
+                  else sys.stdout)
 
         def diag(*parts: object) -> None:
             print(*parts, file=stream)
@@ -2068,7 +2318,7 @@ def main(argv: list[str] | None = None) -> int:
                 item = Located(path, finding, primary)
                 located.append(item)
                 if args.format == "text":
-                    print(format_text([item])[0])
+                    print(format_text([item])[0], file=stream)
 
         findings = validate(repo, text)
         record(_rel(repo, target), findings, primary=True)
@@ -2138,6 +2388,22 @@ def main(argv: list[str] | None = None) -> int:
             if extra_findings:
                 exit_code = 1
         _LINK_BASE = None
+
+        if args.suggest_fixes:
+            # Written to stdout as a patch and never applied. In sarif mode the
+            # document must stay pure JSON, so the patch goes to stderr instead
+            # of corrupting it.
+            patch = suggest_renames(repo, target.parent, text, _rel(repo, target))
+            if patch:
+                # Written as BYTES, because print() rewrites newlines on
+                # Windows. A patch for a document that uses LF then arrives
+                # with CRLF, git apply rejects the mixed endings, and a patch
+                # that cannot be applied is not a feature.
+                sys.stdout.buffer.write(patch.encode("utf-8"))
+                sys.stdout.buffer.flush()
+            else:
+                diag("no rename suggestions: nothing references a file git "
+                     "recorded as moved")
 
         # Machine formats are emitted in one block, after every document has
         # been read, because SARIF is a single JSON value and annotations are

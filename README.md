@@ -96,11 +96,15 @@ line 5: [dead-md-link] links to `docs/old-name.md`, which does not exist;
 
 ### What it deliberately ignores
 
-It never checks numbers or dates. "We had 2238 tests in March" was true in March.
-It is not wrong now, just old.
+It never judges whether a number or date is *right*. "We had 2238 tests in
+March" was true in March. It is not wrong now, just old, and there is nothing to
+check it against.
 
 That restraint is the point. **A tool that cries wolf gets ignored**, and an
 ignored tool is worse than none. It only reports what it can prove is wrong.
+
+The one thing it will compare is **two files against each other**, which is a
+different question with a definite answer. See below.
 
 ---
 
@@ -331,6 +335,60 @@ particularly good at losing track of which branch they are on.
 
 You can remove it later by deleting the `pre-commit` file inside your project's
 `.git/hooks` folder, or bypass it once with `git commit --no-verify`.
+
+### Find something you wrote months ago
+
+Old entries get moved out of your notes file into an archive so the live file
+stays short. That is helpful until you need to remember why a decision was made
+and cannot recall which file it ended up in.
+
+```console
+$ python tools/handoff_collect.py --search "checkout"
+```
+
+It searches the live file and the archive together, and prints whole entries
+rather than single matching lines, so you get the decision and its date rather
+than a phrase out of context. Add `--full` for the complete entry.
+
+### Fix moved files without editing by hand
+
+When a file has been renamed, the tool already tells you where it went. It can
+also write the correction out for you:
+
+```console
+$ python tools/handoff_collect.py --verify --suggest-fixes
+```
+
+This prints a **patch** and changes nothing. You can read it, and apply it with
+one command if you agree:
+
+```console
+$ python tools/handoff_collect.py --verify --suggest-fixes | git apply -
+```
+
+It only offers changes for files git actually recorded as renamed. If a file is
+simply gone, it says nothing, because guessing where it went would mean writing
+something that might not be true, and that is the one thing this tool refuses
+to do.
+
+### Catch two files disagreeing with each other
+
+This tool never checks whether a number is *correct* - "we had 2238 tests" has
+nothing to check it against. But it can check whether two files in your project
+**contradict each other**, which has a definite answer.
+
+This project needed it: three files said the version was 0.1.0 while the
+changelog said 0.3.0, and anyone installing was told they were getting the first
+release. Add to `.handoff.toml`:
+
+```toml
+[handoff.consistency.version]
+"package.json" = '"version":\s*"([^"]+)"'
+"CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
+```
+
+Each line names a file and how to find the value in it. If they disagree, you
+are told which file says what.
 
 ### Check your other files too
 

@@ -1,5 +1,86 @@
 # Changelog
 
+## 0.4.0 (2026-07-26)
+
+Five additions, one of which exists because this project shipped the bug it
+catches.
+
+### `inconsistent-artifact`: files that contradict each other
+
+Three manifests advertised version 0.1.0 while the CHANGELOG documented 0.3.0.
+Anyone installing was told they were getting the first release, and nothing here
+could catch it because no rule inspects numbers.
+
+That restriction stands and this does not weaken it. The forbidden question is
+whether a value is CORRECT - "the suite was 2238" has nothing to be checked
+against. Whether two files in the repository state different values for the same
+thing has a definite answer needing only the filesystem.
+
+    [handoff.consistency.version]
+    "package.json" = '"version":\s*"([^"]+)"'
+    "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
+
+Off unless configured, because the files and patterns are per-project and a
+guessed default would accuse an innocent repository. A check listing one file is
+rejected at load: it could only agree with itself. So is a pattern with no
+capture group, which would have nothing to compare. A pattern that matches
+nothing is reported rather than passing quietly.
+
+It is the first rule with `scope = "repository"`. It reads no document, so it
+runs once on the primary pass rather than repeating the same disagreement for
+the archive and every extra document, and its configuration comes from the
+repository being checked rather than from the installed copy.
+
+### `--search`: find a decision after it was archived
+
+    python tools/handoff_collect.py --search "checkout"
+
+Searches the live document and the archive together, and returns whole ENTRIES
+rather than matching lines. That is the only reason it beats grep: a decision
+lives in a dated entry with its reasoning, and a line from the middle tells you
+a phrase exists rather than what was decided.
+
+### `--suggest-fixes`: a patch, never an edit
+
+Prints a unified diff repointing references at files git recorded as renamed.
+It writes nothing, and stdout carries only the patch, so it pipes into
+`git apply`.
+
+This tool's authority rests on checking claims and never writing them. A
+validator that edits prose can be wrong in a new way - it can author a falsehood
+itself - and nothing would be left to catch that. Only recorded renames are
+offered; a merely missing file gets no suggestion, because guessing where it
+went is exactly the authoring this refuses to do.
+
+Replacement is confined to where a path is USED as a reference. A bare
+find-and-replace would also rewrite the sentence explaining the move, which is
+often the one a reader most needs intact.
+
+### `mutate.py --check-only`: catch mutation rot in CI
+
+Sub-second, because it runs no tests: it asks only whether every mutation still
+matches the code it names. Mutations rot alongside that code - one silently
+stopped probing anything when ancestry moved to a batched rev-list, and it went
+unnoticed until the next half-hour campaign. Now in CI, so the rot is caught by
+the commit that causes it. It caught one during this very release.
+
+### Linux timing in CI
+
+Every performance number in these docs was measured on Windows, and the docs
+said so rather than claiming a figure never taken. CI now measures `--verify` on
+Linux and prints it as an annotation, so the claim has evidence on the platform
+most people run this on.
+
+### Fixed
+
+- Configuration is now found by searching upward from the script to the
+  repository root, stopping at `.git`. Looking only beside the script meant this
+  project could not configure its own tool: CI invokes it from inside `plugin/`,
+  found nothing, and reported a healthy run against default settings. The bound
+  prevents a nested checkout from inheriting an outer project's config.
+- The "settings came from elsewhere" warning compared paths as strings and could
+  report that the file it had just read was not read.
+
 ## 0.3.0 (2026-07-22)
 
 ### Fixed: one rule was 98 percent of validation time

@@ -71,6 +71,38 @@ jobs:
           python plugin/skills/handoff/payload/handoff_collect.py
           --verify --repo . --format=github
 
+      # Sub-second, because it runs no tests: it only asks whether every
+      # mutation still matches the code it names. Mutations rot alongside that
+      # code - one silently stopped probing anything when ancestry moved to a
+      # batched rev-list, and it went unnoticed until the next half-hour
+      # campaign. This catches that at the commit which causes it.
+      - name: Are the mutations still pointed at real code?
+        run: python tests/harnesses/mutate.py --check-only
+
+      # The performance numbers in the docs were all measured on Windows, where
+      # process spawning is expensive, and the docs say so rather than claiming
+      # a Linux figure that was never taken. This takes it, so the claim has
+      # evidence on the platform most people will run this on.
+      - name: Measure validation cost on Linux
+        run: |
+          python - <<'PY'
+          import subprocess, sys, time, pathlib
+          tool = "plugin/skills/handoff/payload/handoff_collect.py"
+          doc = pathlib.Path("NEXT_SESSION.md")
+          samples = []
+          for _ in range(5):
+              start = time.perf_counter()
+              subprocess.run([sys.executable, tool, "--verify", "--repo", "."],
+                             capture_output=True)
+              samples.append(time.perf_counter() - start)
+          samples.sort()
+          median = samples[len(samples) // 2]
+          lines = len(doc.read_text(encoding="utf-8").splitlines())
+          print(f"::notice::--verify on {lines} lines: {median * 1000:.0f} ms "
+                f"median of 5 (Linux, {sys.version.split()[0]})")
+          print(f"linux --verify median: {median * 1000:.0f} ms over {lines} lines")
+          PY
+
       # --verify answers "is the document clean". This answers the harder
       # question: "would these rules notice if it were not". It corrupts one
       # real claim per rule and fails if any rule stays silent.

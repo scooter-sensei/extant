@@ -1,7 +1,7 @@
 {
   "name": "handoff",
   "description": "Installs a validator that checks every falsifiable claim in your handoff or status document against git and the filesystem, plus git hooks that re-check after each commit and merge, and a /handoff command rendered for your repository. Reports findings as text, GitHub annotations or SARIF, and can prove its own rules fire.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "scooter-sensei"
   },

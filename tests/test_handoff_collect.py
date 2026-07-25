@@ -1247,7 +1247,7 @@ def test_every_rule_declares_a_falsifiable_question():
             f"{rule.kind}: falsifiable must be phrased as a question, got "
             f"{rule.falsifiable!r}"
         )
-        assert rule.scope in {"whole-file", "newest-entry"}, rule.scope
+        assert rule.scope in {"whole-file", "newest-entry", "repository"}, rule.scope
 
 
 def test_registry_covers_every_kind_the_validator_can_emit():
@@ -1262,25 +1262,27 @@ def test_registry_covers_every_kind_the_validator_can_emit():
     assert emitted <= declared, f"undeclared kinds: {emitted - declared}"
 
 
-def test_only_newest_entry_rules_are_archive_exempt():
+def test_only_non_whole_file_rules_are_archive_exempt():
     """Pins the asymmetry deliberately. A merge claim or dead reference does not
     become acceptable by being retired; only a claim about the CURRENT state
     stops being meaningful once an entry is history.
 
-    Both exempt rules are the newest-entry ones, and that is not a coincidence:
-    in the archive "the newest entry" means the most recently retired one, so a
-    present-tense reading of it is wrong by construction. Any future rule scoped
-    to the newest entry belongs here too, and any whole-file rule does not.
+    The exemption tracks SCOPE exactly, which is not a coincidence. A
+    newest-entry rule reads "the newest entry", which in the archive means the
+    most recently retired one, so a present-tense reading is wrong by
+    construction. A repository-scoped rule reads no document at all, so running
+    it again per archive and per extra document would report one disagreement
+    several times. Whole-file rules apply everywhere and are never exempt.
     """
     from handoff_collect import RULES
     exempt = {r.kind for r in RULES if not r.in_archive}
-    newest = {r.kind for r in RULES if r.scope == "newest-entry"}
-    assert exempt == {"stale-live-claim", "unknown-branch"}, (
+    not_whole_file = {r.kind for r in RULES if r.scope != "whole-file"}
+    assert exempt == {"stale-live-claim", "unknown-branch", "inconsistent-artifact"}, (
         f"unexpected archive exemptions: {exempt}"
     )
-    assert exempt == newest, (
-        f"archive exemption and newest-entry scope must agree; "
-        f"exempt={exempt} newest-entry={newest}"
+    assert exempt == not_whole_file, (
+        f"archive exemption must track scope exactly; "
+        f"exempt={exempt} non-whole-file={not_whole_file}"
     )
 
 

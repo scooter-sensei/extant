@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: "Use when a project needs its session-handoff or status document to stay TRUE - a doc that says what shipped, what is merged, what is next, and that a fresh session reads as ground truth. Installs a validator that machine-checks every falsifiable claim against git before a commit is allowed, plus a /handoff command that drafts the entry and git hooks that re-check after every commit and merge. Also use when asked to port, install, or configure the handoff system in another repo."
-version: 0.3.0
+version: 0.4.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -30,6 +30,11 @@ read end to end.
 | `tools/hooks/install` | Installs the git hooks |
 | `.claude/commands/handoff.md` | The `/handoff` slash command, rendered for this repo |
 | `.handoff.toml` | Project configuration |
+
+`--search TEXT` finds past entries in the live document and the archive
+together, returning whole entries. `--suggest-fixes` prints a patch repointing
+references at files git recorded as renamed; it writes nothing, and stdout
+carries only the patch so it can be piped to `git apply`.
 
 `--validate` and `--verify` take `--format=text` (default), `--format=github`
 for Actions annotations, or `--format=sarif`. SARIF puts nothing but JSON on
@@ -63,6 +68,13 @@ and both destroy the tool's value.
 | `dead-md-link` | `[text](path)` whose file is gone | whole file |
 | `dead-md-anchor` | `[text](#fragment)` with no such heading | same document only |
 | `possible-secret` | credential-shaped tokens before they are committed | whole file |
+| `inconsistent-artifact` | configured files that state DIFFERENT values for the same thing | repository |
+
+`inconsistent-artifact` is the one rule that reads no document. It compares
+files against EACH OTHER, which is why it does not breach the no-numbers
+guarantee: the forbidden question is whether a value is correct, and this asks
+whether two artifacts contradict each other. Off unless `[handoff.consistency]`
+is configured.
 
 Three cross-cutting behaviours worth knowing:
 
@@ -97,14 +109,19 @@ rule; `--selftest` proves the rules fire.
 
 ## The core guarantee, and the discipline that protects it
 
-**No rule inspects numbers or dates.** A statement like "the suite was 2238 at
-release 3" is historical: true when written, never re-checked. This is
-structural, not a heuristic - there is no rule that could flag it.
+**No rule judges whether a number or date is CORRECT.** A statement like "the
+suite was 2238 at release 3" is historical: true when written, never re-checked,
+and there is nothing to check it against. This is structural, not a heuristic.
 
-Do not add one. A numeric cross-check looks helpful and reintroduces false
-positives, and **a validator that cries wolf stops being read**, which costs more
-than having no validator at all. Every rule must be falsifiable against git or
-the filesystem, or it does not belong.
+Do not add such a rule. A numeric cross-check looks helpful and reintroduces
+false positives, and **a validator that cries wolf stops being read**, which
+costs more than having no validator at all.
+
+`inconsistent-artifact` is not an exception, and the distinction is worth
+holding precisely. It never asks whether a version is right. It asks whether two
+files in the repository state DIFFERENT values for the same thing, which has a
+definite answer that needs only the filesystem. Every rule must be falsifiable
+against git or the filesystem, or it does not belong.
 
 ## Read before changing anything
 

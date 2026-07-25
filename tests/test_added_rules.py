@@ -726,3 +726,309 @@ def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
 
     assert cached_for is duplicate, "the later call should own the cache entry"
     assert hc._prose(original) == first, "content must round-trip either way"
+
+
+# --- cross-artifact consistency ----------------------------------------------
+
+CONSISTENCY_CFG = (
+    "[handoff.consistency.version]\n"
+    + r'"a.json" = ' + "'" + r'"version": "([^"]+)"' + "'\n"
+    + r'"CHANGELOG.md" = ' + "'" + r'^## (\d+\.\d+\.\d+)' + "'\n"
+)
+
+
+def test_files_that_agree_are_silent(git_repo) -> None:
+    """The false-positive guard, and the one that decides whether this rule is
+    usable at all. A consistency check that fires on a correct repository would
+    be the first rule here to cry wolf."""
+    from handoff_collect import validate_consistency
+    repo, commit = git_repo
+    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / "a.json").write_text('{"version": "2.1.0"}\n', encoding="utf-8")
+    (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
+                                       encoding="utf-8")
+
+    assert validate_consistency(repo, "") == []
+
+
+def test_files_that_disagree_are_reported_with_both_values(git_repo) -> None:
+    """THE bug this rule exists for: three manifests said 0.1.0 while the
+    CHANGELOG said 0.3.0, and nothing could catch it because no rule inspects
+    numbers. Comparing files to EACH OTHER is a different question."""
+    from handoff_collect import validate_consistency
+    repo, commit = git_repo
+    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / "a.json").write_text('{"version": "0.1.0"}\n', encoding="utf-8")
+    (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
+                                       encoding="utf-8")
+
+    findings = validate_consistency(repo, "")
+
+    assert [f.kind for f in findings] == ["inconsistent-artifact"]
+    detail = findings[0].detail
+    assert "0.1.0" in detail and "2.1.0" in detail, detail
+    assert "a.json" in detail and "CHANGELOG.md" in detail, detail
+
+
+def test_a_pattern_that_matches_nothing_is_reported(git_repo) -> None:
+    """Silence here would be the worst outcome: the check would compare one
+    value against itself and pass forever, which is the exact failure the
+    denominator was introduced to make visible."""
+    from handoff_collect import validate_consistency
+    repo, commit = git_repo
+    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / "a.json").write_text('{"release": "2.1.0"}\n', encoding="utf-8")
+    (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
+                                       encoding="utf-8")
+
+    findings = validate_consistency(repo, "")
+
+    assert len(findings) == 1
+    assert "matches nothing" in findings[0].detail
+
+
+def test_a_missing_file_is_reported(git_repo) -> None:
+    from handoff_collect import validate_consistency
+    repo, commit = git_repo
+    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
+                                       encoding="utf-8")
+
+    findings = validate_consistency(repo, "")
+
+    assert any("does not exist" in f.detail for f in findings), findings
+
+
+def test_no_consistency_config_means_no_findings(git_repo) -> None:
+    """Off unless configured. The files and patterns are per-project, and a
+    guessed default would accuse an innocent repository."""
+    from handoff_collect import validate_consistency
+    repo, commit = git_repo
+
+    assert validate_consistency(repo, "") == []
+
+
+def test_the_rule_reads_the_repo_under_test_not_the_installed_one(git_repo) -> None:
+    """Configuration must come from the repository being checked.
+
+    This rule reads files by path, so holding one project's file list while
+    pointed at another is meaningless. It happened immediately: every temporary
+    repository in this suite inherited the real project's version block and was
+    told four files were missing.
+    """
+    from handoff_collect import validate_consistency
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "init")
+
+    assert validate_consistency(repo, "") == [], (
+        "a repo with no consistency config produced findings, so the rule is "
+        "reading someone else's configuration"
+    )
+
+
+def test_a_one_file_check_is_rejected_at_load(tmp_path) -> None:
+    """A check listing one file can only ever agree with itself.
+
+    Accepting it would produce a rule that passes forever while appearing to
+    compare something, which is this project's defining failure mode.
+    """
+    from handoff_config import load_config
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text(
+        "[handoff.consistency.version]\n\"only.json\" = '\"v\": \"(.+)\"'\n",
+        encoding="utf-8")
+
+    try:
+        load_config(tmp_path)
+    except ValueError as exc:
+        assert "at least two" in str(exc), exc
+    else:
+        raise AssertionError("a single-file consistency check was accepted")
+
+
+def test_a_pattern_without_a_capture_group_is_rejected(tmp_path) -> None:
+    """No capture group means no value to compare."""
+    from handoff_config import load_config
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text(
+        "[handoff.consistency.version]\n"
+        "\"a.json\" = 'version'\n\"b.json\" = 'version'\n", encoding="utf-8")
+
+    try:
+        load_config(tmp_path)
+    except ValueError as exc:
+        assert "capture group" in str(exc), exc
+    else:
+        raise AssertionError("a pattern with no capture group was accepted")
+
+
+# --- search and suggested fixes ----------------------------------------------
+
+def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
+    """Whole entries, not matching lines, and both documents at once.
+
+    Returning lines would make this a worse `grep`. A decision lives in a dated
+    entry with its reasoning; a line from the middle says a phrase exists and
+    not what was decided. Both documents are searched because the entire
+    problem is that entries MOVE from one to the other, and the person looking
+    does not know which side of that move they are on.
+    """
+    from handoff_collect import search_entries
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md",
+           "# S\n\n## Phase 2 - now (in progress, 2026-02-01)\n\n"
+           "Nothing about that here.\n\n## 1. Ref\n", "docs: live")
+    (repo / "docs").mkdir(exist_ok=True)
+    (repo / "docs" / "handoff-archive.md").write_text(
+        "# Archive\n\n## Phase 1 - checkout (shipped, 2026-01-01)\n\n"
+        "We chose the queue approach for checkout.\n\n", encoding="utf-8")
+
+    results = search_entries(repo, "queue approach")
+
+    assert len(results) == 1
+    document, header, body = results[0]
+    assert "archive" in document
+    assert "Phase 1" in header
+    assert "queue approach" in body
+
+
+def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
+    from handoff_collect import search_entries
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md",
+           "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+           "The Checkout Rewrite landed.\n\n## 1. Ref\n", "docs: live")
+
+    assert len(search_entries(repo, "checkout rewrite")) == 1
+    assert search_entries(repo, "kubernetes") == []
+
+
+def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
+    """The boundary this tool's authority rests on.
+
+    It checks claims and never writes them. A validator that edits prose can be
+    wrong in a new way - it can author a falsehood itself - and nothing would be
+    left to catch that. A patch keeps the boundary: reviewable, one command to
+    apply, and the decision stays with whoever owns the document.
+    """
+    from handoff_collect import suggest_renames
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    text = "See [plan](docs/plan.md).\n"
+    doc = repo / "NEXT_SESSION.md"
+    doc.write_text(text, encoding="utf-8")
+    git(repo, "mv", "docs/plan.md", "docs/design.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._RENAMES.clear()
+
+    patch = suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+
+    assert patch, "a recorded rename produced no suggestion"
+    assert "-See [plan](docs/plan.md)." in patch
+    assert "+See [plan](docs/design.md)." in patch
+    assert doc.read_text(encoding="utf-8") == text, (
+        "the document was modified; this must only ever emit a patch"
+    )
+
+
+def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
+    """Only renames GIT RECORDED are offered. Guessing where a file went is
+    exactly the authoring this refuses to do."""
+    from handoff_collect import suggest_renames
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    hc._RENAMES.clear()
+
+    assert suggest_renames(repo, repo, "See [x](docs/never-existed.md).\n",
+                           "NEXT_SESSION.md") == ""
+
+
+def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
+    """Replaced only where a path is USED as a reference.
+
+    A bare find-and-replace would also rewrite the sentence explaining the move,
+    which is frequently the one sentence a reader most needs intact.
+    """
+    from handoff_collect import suggest_renames
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    git(repo, "mv", "docs/plan.md", "docs/design.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._RENAMES.clear()
+    text = "See [plan](docs/plan.md).\nWe renamed docs/plan.md last week.\n"
+
+    patch = suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+
+    assert "+See [plan](docs/design.md)." in patch
+    assert "We renamed docs/plan.md last week." not in patch.replace("-", "", 1) or True
+    # The prose line must not appear as a changed line at all.
+    changed = [ln for ln in patch.splitlines()
+               if ln.startswith(("+", "-")) and not ln.startswith(("+++", "---"))]
+    assert not any("last week" in ln for ln in changed), changed
+
+
+def test_suggest_fixes_puts_nothing_but_the_patch_on_stdout(git_repo) -> None:
+    """`--suggest-fixes | git apply` must work, so stdout carries only a patch.
+
+    Found by mutation immediately after building the feature: making findings
+    share stdout with the patch broke no test, because the pipe had only ever
+    been checked by hand. git apply receives log lines and rejects the lot, and
+    a patch that cannot be applied is not a feature.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    commit("NEXT_SESSION.md",
+           "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+           "See [plan](docs/plan.md).\n\n## 1. Ref\n", "docs: status")
+    git(repo, "mv", "docs/plan.md", "docs/design.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+
+    result = subprocess.run(
+        [sys.executable, str(repo / "tools" / "handoff_collect.py"),
+         "--repo", str(repo), "--verify", "--suggest-fixes"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+    )
+
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+    assert lines, "no patch was produced"
+    assert all(ln.startswith(("---", "+++", "@@", "+", "-", " ")) for ln in lines), (
+        "stdout carries something that is not part of a patch:\n"
+        + "\n".join(ln for ln in lines
+                    if not ln.startswith(("---", "+++", "@@", "+", "-", " ")))
+    )
+    assert "dead-md-link" in result.stderr, (
+        "findings should still be reported, on stderr"
+    )
+
+
+def test_the_suggested_patch_actually_applies(git_repo) -> None:
+    """The only test of this feature that matters. A patch git rejects is
+    worthless however well-formed it looks, and the first version was rejected:
+    print() rewrote its newlines on Windows."""
+    import shutil
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    commit("NEXT_SESSION.md",
+           "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+           "**Design:** `docs/plan.md`\n\n## 1. Ref\n", "docs: status")
+    git(repo, "mv", "docs/plan.md", "docs/design.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+
+    produced = subprocess.run(
+        [sys.executable, str(repo / "tools" / "handoff_collect.py"),
+         "--repo", str(repo), "--verify", "--suggest-fixes"],
+        cwd=repo, capture_output=True, encoding="utf-8", text=True,
+    )
+    (repo / "fix.patch").write_text(produced.stdout, encoding="utf-8", newline="")
+
+    applied = subprocess.run(["git", "apply", "fix.patch"], cwd=repo,
+                             capture_output=True, text=True, encoding="utf-8")
+
+    assert applied.returncode == 0, f"git apply rejected the patch: {applied.stderr}"
+    assert "docs/design.md" in (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")

@@ -133,9 +133,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("github message escaping removed", collect,
          '    out = value.replace("%", "%25").replace("\\r", "%0D").replace("\\n", "%0A")',
          "    out = value"),
+        # Retargeted when --suggest-fixes made stdout a patch channel too, so
+        # the condition gained a second clause. Caught by --check-only at the
+        # commit that moved it, which is the whole reason that mode exists.
         ("sarif diagnostics leak onto stdout", collect,
-         '        stream = sys.stderr if args.format == "sarif" else sys.stdout',
+         '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)\n'
+         "                  else sys.stdout)",
          "        stream = sys.stdout"),
+        ("suggested patch shares stdout with the findings", collect,
+         '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
+         '        stream = (sys.stderr if (args.format == "sarif" or False)'),
         ("fingerprint folds in the line number", collect,
          '                "handoffClaim/v1": _fingerprint(\n'
          "                    item.path, item.finding.kind, item.finding.detail),",
@@ -187,6 +194,8 @@ def main() -> int:
                         help="package root (defaults to this checkout)")
     parser.add_argument("--python", default=sys.executable,
                         help="interpreter used to run the suite")
+    parser.add_argument("--check-only", action="store_true",
+                        help="verify every mutation still matches, run no tests")
     args = parser.parse_args()
 
     root = Path(args.repo).resolve()
@@ -199,6 +208,26 @@ def main() -> int:
         if not path.is_file():
             print(f"missing source file: {path}")
             return 1
+
+    if args.check_only:
+        # Seconds rather than half an hour, because it runs no tests. Mutations
+        # rot alongside the code they point at: one silently stopped probing
+        # anything when ancestry moved to a batched rev-list, and that was only
+        # discovered at the next full campaign. This is cheap enough for CI, so
+        # the rot is caught by the commit that causes it.
+        stale = [f"{label} (matched {backups[path].count(old)}x)"
+                 for label, path, old, _new in mutations
+                 if backups[path].count(old) != 1]
+        print(f"checked {len(mutations)} mutations against the current source: "
+              f"{len(mutations) - len(stale)} match exactly once, {len(stale)} do not")
+        for entry in stale:
+            print(f"  STALE  {entry}")
+        if stale:
+            print()
+            print("A mutation that matches nothing probes nothing, and a campaign")
+            print("containing one reports a clean result it did not earn. Retarget")
+            print("each of the above at the code that replaced what it named.")
+        return 1 if stale else 0
 
     print("baseline: ", end="", flush=True)
     if not run_suite(root, args.python):

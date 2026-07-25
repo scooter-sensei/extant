@@ -77,6 +77,23 @@ DEFAULTS: dict[str, object] = {
     # are for the archive. This is how a project whose state lives in a tracker
     # still gets its CLAUDE.md, AGENTS.md and README checked.
     "extra_docs": [],
+    # Named values that must AGREE across several files, as
+    # {check_name: {path: regex-with-one-capture-group}}.
+    #
+    #     [handoff.consistency.version]
+    #     "plugin/.claude-plugin/plugin.json" = '"version":\s*"([^"]+)"'
+    #     "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
+    #
+    # This does NOT breach the no-numbers guarantee, and the distinction is
+    # worth stating precisely. The forbidden thing is judging whether a number
+    # is CORRECT - "the suite was 2238" cannot be checked against anything, so a
+    # rule that tried would cry wolf. Asking whether two files in the repository
+    # CONTRADICT EACH OTHER is a different question with a definite answer, and
+    # it needs nothing but the filesystem.
+    #
+    # Empty by default: the files and patterns are per-project, and a guessed
+    # default would either match nothing or accuse an innocent repository.
+    "consistency": {},
     "todo_markers": r"\b(TODO|FIXME|XXX)\b",
     "code_suffixes": [".py", ".qml"],
     "todo_exclude_files": ["tools/handoff_collect.py"],
@@ -126,6 +143,8 @@ class HandoffConfig:
     todo_exclude_dirs: tuple[str, ...]
     extra_docs: tuple[str, ...]
     release_tag: re.Pattern[str]
+    # {check_name: ((path, compiled_pattern), ...)}
+    consistency: dict[str, tuple[tuple[str, re.Pattern[str]], ...]]
     base_header: re.Pattern[str]
     # None means the feature is switched off for this project, not that a
     # default applies. See DISABLEABLE.
@@ -214,6 +233,83 @@ def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
     return {k: v for k, v in section.items() if k in DEFAULTS}, warnings
 
 
+def _find_config(start: Path) -> Path | None:
+    """Look for `.handoff.toml` beside `start`, then upward to the repo root.
+
+    Installed as `tools/handoff_collect.py`, the first directory checked IS the
+    repository root and the search stops immediately. Run from anywhere else -
+    this project's own CI invokes the script from inside `plugin/`, and a
+    developer may run it from a checkout of the source - the file sits several
+    levels up, and looking only beside the script found nothing while reporting
+    a healthy run against default settings. That is the "config nothing reads"
+    failure, and it was reached by trying to configure this very repository.
+
+    The walk STOPS at the directory holding `.git`, inclusive. Without that
+    bound a project nested inside another checkout would silently inherit the
+    outer project's configuration, which is a worse failure than the one being
+    fixed: wrong settings that look deliberate.
+    """
+    current = start.resolve()
+    for directory in (current, *current.parents):
+        candidate = directory / CONFIG_NAME
+        if candidate.is_file():
+            return candidate
+        if (directory / ".git").exists():
+            return None      # repository root reached, nothing found
+    return None
+
+
+def _compile_consistency(
+    raw: object, path: Path
+) -> dict[str, tuple[tuple[str, re.Pattern[str]], ...]]:
+    """Validate and compile the consistency block.
+
+    Shape errors are raised rather than skipped. A mistyped block that quietly
+    checks nothing is the failure this whole project exists to prevent, and it
+    would be especially cruel here: the reader would believe two files are being
+    compared when nothing is reading either.
+
+    A pattern with no capture group is rejected for the same reason - there
+    would be no value to compare, so the check would pass vacuously forever.
+    """
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: [handoff.consistency] must be a table of checks")
+
+    compiled: dict[str, tuple[tuple[str, re.Pattern[str]], ...]] = {}
+    for name, sources in raw.items():
+        if not isinstance(sources, dict) or not sources:
+            raise ValueError(
+                f"{path}: consistency.{name} must be a table of "
+                f'"path" = \'pattern\' pairs, and must not be empty'
+            )
+        if len(sources) < 2:
+            raise ValueError(
+                f"{path}: consistency.{name} lists one file. A consistency check "
+                f"compares files against each other, so it needs at least two; "
+                f"with one it can only ever agree with itself."
+            )
+        entries = []
+        for file_path, pattern in sources.items():
+            try:
+                regex = re.compile(str(pattern), re.MULTILINE)
+            except re.error as exc:
+                raise ValueError(
+                    f"{path}: consistency.{name} pattern for {file_path} does "
+                    f"not compile: {exc}"
+                ) from exc
+            if regex.groups != 1:
+                raise ValueError(
+                    f"{path}: consistency.{name} pattern for {file_path} has "
+                    f"{regex.groups} capture groups; it needs exactly one, "
+                    f"around the value being compared"
+                )
+            entries.append((str(file_path), regex))
+        compiled[str(name)] = tuple(entries)
+    return compiled
+
+
 def load_config(repo: Path) -> HandoffConfig:
     """Load `.handoff.toml` from `repo`, falling back to Cerene's defaults.
 
@@ -226,8 +322,8 @@ def load_config(repo: Path) -> HandoffConfig:
     source = "defaults"
     warnings: list[str] = []
 
-    path = repo / CONFIG_NAME
-    if path.is_file():
+    path = _find_config(repo)
+    if path is not None and path.is_file():
         overrides, warnings = _read_toml(path)
         values.update(overrides)
         source = str(path)
@@ -260,6 +356,7 @@ def load_config(repo: Path) -> HandoffConfig:
         todo_exclude_dirs=tuple(values["todo_exclude_dirs"]),    # type: ignore[arg-type]
         extra_docs=tuple(values["extra_docs"]),                  # type: ignore[arg-type]
         release_tag=re.compile(str(values["release_tag"]), re.IGNORECASE),
+        consistency=_compile_consistency(values["consistency"], path),
         base_header=re.compile(str(values["base_header"]), re.MULTILINE),
         phase_task=optional("phase_task"),
         phase_bare=optional("phase_bare"),
