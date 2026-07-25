@@ -109,12 +109,12 @@ Each was measured against one project's real prose. See `porting.md`.
 | `path_pointer` | Paths introduced by `Plan:`, `Design:`, `see`, `read`. Keyed on operative use, never on path shape. |
 | `release_tag` | "released in v2.1". Checks the tag exists AND is an ancestor of trunk. Measured as ABSENT from the corpus this was built on, so its denominator reads 0 here; it is the common shape in CHANGELOG-keeping projects. |
 | `todo_markers` | `TODO`/`FIXME`/`XXX`. |
+| `code_suffixes` | Extensions scanned for TODOs. Excludes docs deliberately - a spec discussing TODO is not a TODO. |
+| `todo_exclude_files` / `todo_exclude_dirs` | Paths exempt from the TODO scan, so the tool does not report its own source. |
 
 Markdown links and heading anchors are checked too, and have no setting. Link
 syntax is fixed by the format rather than by any project's habits, so there is
 no corpus to measure and nothing to configure.
-| `code_suffixes` | Extensions scanned for TODOs. Excludes docs deliberately - a spec discussing TODO is not a TODO. |
-| `todo_exclude_files` / `todo_exclude_dirs` | Paths exempt from the TODO scan, so the tool does not report its own source. |
 
 ## Verifying a config actually works
 
