@@ -1106,7 +1106,25 @@ def _strip_code(text: str) -> str:
     return _blank(text, inline=True)
 
 
+# Nine rules each stripped the same document independently: 1.22 of 6.4 seconds
+# on a 100,000-line file, spent producing nine identical copies. Keyed on object
+# IDENTITY rather than equality, which is what makes this safe without a
+# lifecycle: every rule in one validate() receives the same str object, and a
+# different object simply misses. No hashing of a 5 MB string, and at most two
+# entries retained.
+_STRIPPED: dict[bool, tuple[str, str]] = {}
+
+
 def _blank(text: str, *, inline: bool) -> str:
+    cached = _STRIPPED.get(inline)
+    if cached is not None and cached[0] is text:
+        return cached[1]
+    result = _blank_uncached(text, inline=inline)
+    _STRIPPED[inline] = (text, result)
+    return result
+
+
+def _blank_uncached(text: str, *, inline: bool) -> str:
     out: list[str] = []
     inside = False
     for line in text.splitlines():
@@ -1261,6 +1279,30 @@ def _named_in_merge_history(repo: Path, branch: str) -> bool:
 _FILEISH = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,4}$")
 
 
+# Directory listings, cached only while validate() says it is safe to.
+#
+# The case check lists a directory per path component, so 3000 links four levels
+# deep cost 12,000 listings and 0.88 of 6.4 seconds. Within one validate() the
+# filesystem is assumed stable, which every rule here already assumes.
+#
+# None means CACHING IS OFF, which is the state whenever a rule is called
+# directly rather than through validate(). That matters: a caller that creates a
+# file between two checks must see the new answer, and a cache with no owner
+# would quietly hand back the old one. Correctness is the default; speed is
+# opted into by the one function that knows the scope.
+_DIRCACHE: dict[Path, set[str]] | None = None
+
+
+def _listdir(directory: Path) -> set[str]:
+    if _DIRCACHE is None:
+        return {entry.name for entry in directory.iterdir()}
+    names = _DIRCACHE.get(directory)
+    if names is None:
+        names = {entry.name for entry in directory.iterdir()}
+        _DIRCACHE[directory] = names
+    return names
+
+
 def _actual_case(base: Path, relative: str) -> str | None:
     """The on-disk spelling of `relative`, or None if no such file exists.
 
@@ -1282,7 +1324,7 @@ def _actual_case(base: Path, relative: str) -> str | None:
             parts.append(part)
             continue
         try:
-            names = {entry.name for entry in probe.iterdir()}
+            names = _listdir(probe)
         except OSError:
             return None
         if part in names:
@@ -1718,10 +1760,13 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     makes the two agree, and leaving it None keeps the old repo-root behaviour
     for callers that have no particular file in mind.
     """
-    global _LINK_BASE
-    previous = _LINK_BASE
+    global _LINK_BASE, _DIRCACHE
+    previous, previous_cache = _LINK_BASE, _DIRCACHE
     if base is not None:
         _LINK_BASE = base
+    # Directory listings may be reused for the duration of this call and no
+    # longer. Restoring rather than clearing keeps a nested call honest.
+    _DIRCACHE = {}
     try:
         findings: list[Finding] = []
         for rule in RULES:
@@ -1731,6 +1776,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         return findings
     finally:
         _LINK_BASE = previous
+        _DIRCACHE = previous_cache
 
 
 FORMATS = ("text", "github", "sarif")

@@ -677,3 +677,52 @@ def test_a_false_merge_claim_is_still_reported_through_the_batch(git_repo) -> No
     findings = validate_merge_claims(repo, f"Merged to `main` at `{stray}`.\n")
 
     assert [f.kind for f in findings] == ["false-merge-claim"]
+
+
+def test_directory_listings_are_not_cached_outside_validate(git_repo) -> None:
+    """Caching is opted into by validate(), never on by default.
+
+    The case check lists a directory per path component, which cost 0.88 of 6.4
+    seconds on 3000 links. Caching those listings is safe for the duration of one
+    validate() and unsafe outside it: a caller that creates a file between two
+    checks must see the new answer. The cache is therefore None unless validate()
+    has scoped it, and correctness is what happens when nobody asked for speed.
+    """
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    text = "See [later](docs/later.md).\n"
+
+    assert hc._DIRCACHE is None, "caching must be off by default"
+    first = hc.validate_md_links(repo, text)
+    assert [f.kind for f in first] == ["dead-md-link"]
+
+    (repo / "docs" / "later.md").write_text("# later\n", encoding="utf-8")
+
+    assert hc.validate_md_links(repo, text) == [], (
+        "a file created between two direct calls was not seen; a stale "
+        "directory listing outlived its owner"
+    )
+
+
+def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
+    """Two different strings with equal content must not share a cache entry.
+
+    Identity is what makes the strip cache safe without a lifecycle: every rule
+    in one validate() gets the same object, and anything else simply misses.
+    Keying on equality would be faster and would silently return the wrong
+    stripped text if a caller mutated a document between calls.
+    """
+    import handoff_collect as hc
+    repo, _ = git_repo
+    original = "Text with `code` in it.\n"
+    duplicate = "".join(original)  # equal content, distinct object
+
+    assert original == duplicate and original is not duplicate
+
+    first = hc._prose(original)
+    hc._prose(duplicate)
+    cached_for, _cached_value = hc._STRIPPED[False]
+
+    assert cached_for is duplicate, "the later call should own the cache entry"
+    assert hc._prose(original) == first, "content must round-trip either way"

@@ -29,6 +29,21 @@ itself at two distinct commits and is used unconditionally: a
 size-based switch would create a second path that only runs on large
 inputs, which is the code that never gets tested.
 
+A profile of the remaining time found two pieces of duplicated work rather
+than any algorithmic problem: nine rules each stripped the same document
+independently (1.22 of 6.4 seconds producing nine identical copies), and the
+case check listed a directory per path component with no cache (0.88 seconds
+across 3000 links). Both are now reused, taking a 5.5 MB document from 5.0s to
+4.1s and 3000 deep links from 3.0s to 0.7s.
+
+The two caches are scoped differently on purpose. The stripped text is keyed on
+object IDENTITY, so it needs no lifecycle: every rule in one validate() sees the
+same object, and anything else misses. Directory listings cannot use that trick,
+so they are cached ONLY while validate() has scoped them and are off by default
+- a caller that creates a file between two direct checks must see the new
+answer. Peak memory rose from 3.1x to 3.9x the document size, which is the
+honest price of holding one stripped copy.
+
 Scaling went from linear to sub-linear. The git hooks also now get three paths
 from one `git rev-parse` instead of three, saving about 170ms per commit on
 Windows, where each subprocess costs roughly 90ms.
