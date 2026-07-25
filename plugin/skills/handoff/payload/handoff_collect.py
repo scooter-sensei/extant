@@ -876,6 +876,12 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
             continue
         for match in _BRANCH_TOKEN.finditer(entry):
             branch = match.group(1)
+            # Same path/branch ambiguity as `unknown-branch`. Harder to reach
+            # here, because a live phrase must appear in the entry first, but
+            # the pattern is equally capable of matching a file and the
+            # consequence would be a confident falsehood about a document.
+            if _looks_like_a_path(repo, branch):
+                continue
             exists = _branch_exists(repo, branch)
             if exists and not _is_merged(repo, branch):
                 continue  # genuinely still open: the claim is true
@@ -1077,6 +1083,31 @@ def _named_in_merge_history(repo: Path, branch: str) -> bool:
     return bool(out.strip())
 
 
+# A branch name and a file path are THE SAME SHAPE: `prefix/name`. That is not
+# a hypothetical collision. The installer's fallback pattern for a repository
+# with no dominant branch prefix is `([\w.-]+/[^`]+)`, which matches
+# `docs/arch.md` exactly as readily as `feature/checkout`.
+#
+# It went unnoticed for as long as `branch_token` fed only `stale-live-claim`,
+# because that rule gates on a live phrase appearing in the same entry first, so
+# the loose pattern almost never reached a check. `unknown-branch` has no such
+# gate and inherited the looseness, reporting a renamed design document as a
+# branch that never existed. Measured on a real installed repository, first run,
+# which is the only reason it was caught before release.
+#
+# The extension test requires the first character after the dot to be a LETTER,
+# so `docs/arch.md` is excluded while a genuine `release/v1.2` is not. Erring
+# toward silence here is deliberate: a missed typo costs a reader nothing, and a
+# file reported as a phantom branch is the kind of false positive that gets a
+# validator switched off.
+_FILEISH = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,4}$")
+
+
+def _looks_like_a_path(repo: Path, token: str) -> bool:
+    """True when a token is better explained as a file than as a branch."""
+    return bool(_FILEISH.search(token)) or (repo / token).exists()
+
+
 def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
     """A branch named in the newest entry that git has never heard of.
 
@@ -1096,6 +1127,8 @@ def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
         newest_checked = True
         for match in _BRANCH_TOKEN.finditer(entry):
             branch = match.group(1)
+            if _looks_like_a_path(repo, branch):
+                continue  # a file reference caught by a path-shaped pattern
             if _branch_exists(repo, branch) or _named_in_merge_history(repo, branch):
                 continue
             line = text.count("\n", 0, start + match.start()) + 1
@@ -1304,7 +1337,14 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     bare = len(find_bare_sha_candidates(text))
     _, segments, _ = split_entries(text)
     newest = next((s for kind, s in segments if kind == "phase"), "")
-    branches_in_newest = len(_BRANCH_TOKEN.findall(newest)) if newest else 0
+    # Counts what the rules actually inspect, not what the pattern matched.
+    # Path-shaped tokens are skipped by both branch rules, so counting them here
+    # would overstate the denominator - and a denominator that overstates is
+    # worse than none, because it reports coverage that does not exist.
+    branches_in_newest = sum(
+        1 for token in (_BRANCH_TOKEN.findall(newest) if newest else [])
+        if not _looks_like_a_path(repo, token)
+    )
     links = [raw for line in _strip_code(text).splitlines()
              for raw in _MD_LINK.findall(line)]
     return {

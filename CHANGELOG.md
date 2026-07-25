@@ -2,6 +2,24 @@
 
 ## 0.3.0 (2026-07-22)
 
+### Fixed: a file path reported as a phantom branch
+
+`unknown-branch` reported `docs/arch.md` as "a branch that does not exist and
+appears in no merge commit". A branch token and a file path are the same shape,
+and the installer's fallback pattern for a repository with no dominant branch
+prefix matches both.
+
+It stayed invisible while that pattern fed only `stale-live-claim`, which gates
+on a live phrase appearing in the same entry first. `unknown-branch` has no such
+gate and inherited the looseness. Both rules now decline a token better
+explained as a file, and the denominator counts what the rules inspect rather
+than what the pattern matched.
+
+Found by installing into a foreign repository and reading the output, not by any
+test. It is the exact failure the path-pointer rule was designed around years of
+this project's own advice ago, reintroduced by a new rule that reused an old
+pattern without re-reading why the pattern was safe where it already lived.
+
 ### Added
 
 - **`--format=github`** emits GitHub Actions annotations, so a false claim is

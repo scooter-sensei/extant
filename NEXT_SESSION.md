@@ -6,6 +6,46 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 3 - Machine-readable output, and a mutation campaign (shipped, 2026-07-22)
+
+**Status.** Suite is 157 tests, all passing. Findings render as GitHub
+annotations or SARIF as well as text. A mutation campaign over 31 behaviour
+changes found six the suite did not notice; five were real and are now covered.
+
+**What Shipped.**
+
+- `--format=github` and `--format=sarif`, which are rendering of existing
+  findings rather than new rules, so they add no false-positive surface.
+- Findings now carry the document they came from, which the machine formats
+  need and the human one never did.
+- Six test gaps closed, each re-checked by re-running the mutation that
+  exposed it.
+
+**Known Issues.**
+
+- Settings load relative to the script rather than to `--repo`, and say so.
+- Gitflow-style release branches are still not modelled.
+
+**Next Tasks.**
+
+- `--search` over the archive, so a decision can be found after it is retired.
+- Rename autofix, emitted as a patch on stdout rather than written in place.
+
+**Gotchas.**
+
+- A rule that reuses an existing pattern inherits its looseness without
+  inheriting the gate that made it safe. `unknown-branch` reused `branch_token`,
+  which `stale-live-claim` only ever reaches after a live phrase matches, and
+  reported a renamed design document as a phantom branch. Found by installing
+  into a foreign repository, not by any test.
+- Two tests were written that a broken implementation satisfied: one asserted
+  a fingerprint helper directly while the defect lived in its caller, and one
+  asserted that no rule stayed silent, which a selftest incapable of reporting
+  silence satisfies trivially. Assert through the real path, and assert the
+  negative case as well as the positive one.
+- Mutation testing found what reading could not, but only where a mutation was
+  written. Six survivors from 31 attempts is a floor on the gaps, not a ceiling.
+
 ## Phase 2 - Four more rules, and a way to prove rules work (shipped, 2026-07-22)
 
 **Status.** Nine rules now, up from five. Suite is 136 tests, all passing. CI

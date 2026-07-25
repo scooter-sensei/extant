@@ -127,6 +127,22 @@ def test_anchor_matching_a_heading_is_silent(git_repo) -> None:
     assert validate_md_anchors(repo, text) == []
 
 
+def test_anchor_matching_is_case_insensitive(git_repo) -> None:
+    """Anchors resolve case-insensitively in every renderer that matters.
+
+    Found by mutation: making the comparison case-sensitive broke nothing in the
+    suite, because every other anchor test happened to use all-lowercase links.
+    A reader who writes `#Setup-Guide` for `## Setup Guide` would have been told
+    their working link was dead.
+    """
+    from handoff_collect import validate_md_anchors
+    repo, _ = git_repo
+
+    text = "## Setup Guide\n\nJump to [it](#Setup-Guide).\n"
+
+    assert validate_md_anchors(repo, text) == []
+
+
 def test_anchor_with_no_matching_heading_is_flagged(git_repo) -> None:
     from handoff_collect import validate_md_anchors
     repo, _ = git_repo
@@ -175,6 +191,75 @@ def test_branch_git_never_saw_is_flagged(git_repo) -> None:
     assert [f.kind for f in findings] == ["unknown-branch"]
 
 
+def test_a_file_path_is_not_reported_as_a_branch(git_repo, monkeypatch) -> None:
+    """THE false positive this rule shipped with, found on a real install.
+
+    A branch token and a file path are the same shape. The installer's fallback
+    pattern for a repository with no dominant branch prefix is
+    `([\\w.-]+/[^`]+)`, which matches `docs/arch.md` as readily as
+    `feature/checkout`. It stayed invisible while that pattern fed only
+    `stale-live-claim`, which gates on a live phrase first; `unknown-branch` has
+    no such gate and reported a renamed design document as a phantom branch.
+
+    Reproduced here with the real fallback pattern, not a contrived one.
+    """
+    import re
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
+
+    findings = hc.validate_branch_mentions(
+        repo, _entry("**Design:** `docs/arch.md`"))
+
+    assert findings == [], (
+        "a file path was reported as a branch: " + str([f.detail for f in findings])
+    )
+
+
+def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(git_repo, monkeypatch) -> None:
+    """The same guard, on the other rule that reads branch tokens.
+
+    Found by mutation after the fix: removing the guard from
+    `validate_live_claims` left the suite green, because the false positive had
+    only ever been reproduced against `unknown-branch`. Both rules read the same
+    loose pattern, so both need the same protection, and a fix applied to one
+    of two call sites is the kind of half-repair that looks complete in a diff.
+    """
+    import re
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
+
+    findings = hc.validate_live_claims(
+        repo, _entry("Work is NOT yet merged. **Design:** `docs/arch.md`"))
+
+    assert findings == [], (
+        "a file path was reported as an unmerged branch: "
+        + str([f.detail for f in findings])
+    )
+
+
+def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, monkeypatch) -> None:
+    """The other half: excluding paths must not blind the rule to real branches.
+
+    `release/v1.2` ends in a dot and digits. The cheap version of the fix above
+    skips anything containing a dot, which would silently stop checking a whole
+    naming convention.
+    """
+    import re
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
+
+    findings = hc.validate_branch_mentions(
+        repo, _entry("Work is on `release/v1.2`."))
+
+    assert [f.kind for f in findings] == ["unknown-branch"]
+
+
 def test_branch_rule_ignores_older_entries(git_repo) -> None:
     """Scoped to the newest entry, like live claims. Older entries name branches
     that were correct when written, and flagging them is noise."""
@@ -197,6 +282,28 @@ def test_missing_release_tag_is_flagged(git_repo) -> None:
     findings = validate_release_tags(repo, "Released in v9.9.9 last week.\n")
 
     assert [f.kind for f in findings] == ["dead-release-tag"]
+
+
+def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo) -> None:
+    """The half of this rule a mutation campaign found untested.
+
+    A tag existing is not the claim; the claim is that it SHIPPED. A tag cut on
+    an abandoned branch satisfies "does this tag exist" and still means the
+    release never happened, which is the more misleading of the two failures.
+    Dropping the ancestry check left every other test in this file green.
+    """
+    from handoff_collect import validate_release_tags
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "checkout", "-q", "-b", "abandoned")
+    commit("b.py", "b = 1\n", "feat: never merged")
+    git(repo, "tag", "v2.0")
+    git(repo, "checkout", "-q", "main")
+
+    findings = validate_release_tags(repo, "Released in v2.0 last week.\n")
+
+    assert [f.kind for f in findings] == ["dead-release-tag"]
+    assert "not an ancestor" in findings[0].detail
 
 
 def test_existing_tag_on_trunk_is_silent(git_repo) -> None:
@@ -274,6 +381,56 @@ def test_selftest_fires_every_probeable_rule(git_repo) -> None:
     silent = len(lines) - fired - unprobeable
     assert silent == 0, "a rule stayed silent after its probe:\n" + "\n".join(lines)
     assert fired >= 7, f"only {fired} rules could be exercised:\n" + "\n".join(lines)
+
+
+def test_entry_scoped_rules_are_skipped_for_documents_with_no_entries(git_repo) -> None:
+    """`has_entries=False` must actually govern which rules run.
+
+    A README has no dated entries, so "the newest entry" names nothing and the
+    entry-scoped rules would be reasoning about an empty string. Found by
+    mutation: ignoring the flag entirely left the suite green, because every
+    other extra_docs test used a document with no branch tokens in it.
+    """
+    from handoff_collect import validate
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    text = _entry("Work is on `feature/never`.")
+
+    with_entries = validate(repo, text, has_entries=True)
+    without = validate(repo, text, has_entries=False)
+
+    assert "unknown-branch" in [f.kind for f in with_entries], (
+        "the setup is wrong: this document should trip the rule when it has entries"
+    )
+    assert "unknown-branch" not in [f.kind for f in without]
+
+
+def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> None:
+    """A rule that ignores its own probe must be reported, not counted as fired.
+
+    Found by mutation: reporting FIRED unconditionally left the suite green,
+    because the existing selftest test only asserted that NOTHING stayed silent.
+    That assertion is satisfied trivially by a selftest that can never report
+    silence, which makes it exactly the shape of test this project warns about.
+    """
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    blind = hc.Rule(
+        kind="dead-sha",
+        check=lambda _repo, _text: [],   # corrupt anything; notice nothing
+        scope="whole-file",
+        in_archive=True,
+        falsifiable="never answered",
+        probe=hc._probe_sha,
+    )
+    monkeypatch.setattr(hc, "RULES", (blind,))
+
+    lines, fired, unprobeable = hc.selftest(repo, "Shipped at `abc1234567890`.\n")
+
+    assert fired == 0, "a blind rule must not be counted as firing"
+    assert unprobeable == 0, "the probe had a real SHA to corrupt"
+    assert "DID NOT FIRE" in lines[0]
 
 
 def test_extra_docs_are_validated(git_repo) -> None:

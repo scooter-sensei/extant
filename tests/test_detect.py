@@ -91,6 +91,34 @@ def test_find_documents_returns_every_candidate(tmp_path: Path) -> None:
     assert sorted(found) == ["HANDOFF.md", "STATUS.md"]
 
 
+def test_detect_trunk_prefers_origin_head(git_repo) -> None:
+    """The authoritative source, and the branch of this function nothing tested.
+
+    `origin/HEAD` is what the remote itself says its default branch is, which
+    beats guessing from local branch names. Found by mutation: ignoring it
+    entirely left the suite green, because every other trunk test happened to
+    exercise the local-branch fallback, where the answer is the same by
+    coincidence rather than by the code being right.
+    """
+    import subprocess
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    # A remote-tracking ref, without needing a real remote to talk to.
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/trunk", "HEAD"],
+                   cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "symbolic-ref", "refs/remotes/origin/HEAD",
+                    "refs/remotes/origin/trunk"],
+                   cwd=repo, check=True, capture_output=True)
+
+    observation = detect_trunk(repo)
+
+    assert observation.value == "trunk", (
+        "origin/HEAD names 'trunk'; falling back to the local 'main' means the "
+        "remote's own answer was ignored"
+    )
+    assert "origin/HEAD" in observation.evidence
+
+
 def test_detect_trunk_reads_git_rather_than_prose(git_repo) -> None:
     """Catches a trunk guessed from the document instead of asked of git.
 
