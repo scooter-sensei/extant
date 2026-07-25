@@ -62,8 +62,14 @@ jobs:
         with:
           python-version: "3.13"
 
+      # --format=github turns each finding into a workflow annotation, so a
+      # false claim is highlighted on the offending line in the pull request
+      # diff rather than buried in a log nobody expands. Needs no extra
+      # permissions, unlike a SARIF upload.
       - name: Validate this repository's own handoff document
-        run: python plugin/skills/handoff/payload/handoff_collect.py --verify --repo .
+        run: >
+          python plugin/skills/handoff/payload/handoff_collect.py
+          --verify --repo . --format=github
 
       # --verify answers "is the document clean". This answers the harder
       # question: "would these rules notice if it were not". It corrupts one

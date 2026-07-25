@@ -12,6 +12,7 @@ docs/superpowers/specs/2026-07-20-handoff-system-design.md.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -498,6 +499,22 @@ class Finding:
 
     def render(self) -> str:
         return f"line {self.line}: [{self.kind}] {self.detail}"
+
+
+@dataclass(frozen=True)
+class Located:
+    """A finding plus the document it came from.
+
+    The file used to live only in the print statement that rendered a finding,
+    which was enough for a human reading a terminal and not enough for anything
+    else. A machine format has to say WHICH file every result belongs to, so
+    the pairing is now carried in the data rather than reconstructed at the
+    moment of printing.
+    """
+
+    path: str          # repo-relative, forward slashes, for machine consumers
+    finding: Finding
+    primary: bool      # the document asked for, as opposed to archive/extra
 
 
 def _looks_like_sha(token: str) -> bool:
@@ -1452,6 +1469,145 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     return findings
 
 
+FORMATS = ("text", "github", "sarif")
+_TOOL_URI = "https://github.com/scooter-sensei/handoff-validator"
+
+
+def _rel(repo: Path, path: Path) -> str:
+    """Repo-relative POSIX path.
+
+    Both machine formats locate a result by path, and both want it relative to
+    the repository root with forward slashes. A Windows absolute path in a
+    SARIF upload resolves to nothing on the server, so this is not cosmetic.
+    """
+    try:
+        return path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _fingerprint(path: str, kind: str, detail: str) -> str:
+    """Stable identity for a finding, deliberately EXCLUDING the line number.
+
+    GitHub uses partialFingerprints to recognise the same result across runs.
+    Folding the line number in would make every finding brand new the moment
+    text above it shifted, which is the churn the field exists to prevent.
+    """
+    payload = f"{path}\x00{kind}\x00{detail}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:32]
+
+
+def _gh_escape(value: str, *, prop: bool = False) -> str:
+    """Escape a workflow-command string.
+
+    GitHub parses `::error k=v,k=v::message`, so a raw comma or colon inside a
+    property silently truncates the annotation, and a newline in the message
+    ends the command early. Paths and details here contain backticks and
+    punctuation routinely, so this is the ordinary case rather than a corner.
+    """
+    out = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    if prop:
+        out = out.replace(":", "%3A").replace(",", "%2C")
+    return out
+
+
+def format_github(located: list[Located]) -> list[str]:
+    """GitHub Actions annotations, which surface inline on the pull request."""
+    return [
+        f"::error file={_gh_escape(item.path, prop=True)},"
+        f"line={item.finding.line},"
+        f"title={_gh_escape(item.finding.kind, prop=True)}"
+        f"::{_gh_escape(item.finding.detail)}"
+        for item in located
+    ]
+
+
+def format_sarif(located: list[Located]) -> str:
+    """SARIF 2.1.0, the format code-scanning tools interchange.
+
+    The rule descriptors are generated from the registry, so a rule's
+    `falsifiable` question becomes its published description. That is the same
+    field the admission test already requires, which means a rule cannot reach
+    this output without having stated the exact question it asks.
+    """
+    kinds = {rule.kind: rule for rule in RULES}
+    seen: list[str] = []
+    for item in located:
+        if item.finding.kind not in seen:
+            seen.append(item.finding.kind)
+
+    descriptors = []
+    for kind in seen:
+        rule = kinds.get(kind)
+        question = rule.falsifiable if rule else "not a registry rule"
+        descriptors.append({
+            "id": kind,
+            "shortDescription": {"text": kind.replace("-", " ")},
+            "fullDescription": {"text": f"Checks: {question}"},
+            "help": {"text": f"This finding is falsifiable: {question}"},
+        })
+
+    results = []
+    for item in located:
+        results.append({
+            "ruleId": item.finding.kind,
+            "level": "error",
+            "message": {"text": item.finding.detail},
+            "partialFingerprints": {
+                "handoffClaim/v1": _fingerprint(
+                    item.path, item.finding.kind, item.finding.detail),
+            },
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": {"uri": item.path},
+                    "region": {"startLine": max(1, item.finding.line)},
+                },
+            }],
+        })
+
+    return json.dumps({
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "handoff-validator",
+                "informationUri": _TOOL_URI,
+                "rules": descriptors,
+            }},
+            "results": results,
+        }],
+    }, indent=2)
+
+
+def format_text(located: list[Located]) -> list[str]:
+    """The original human output, unchanged.
+
+    A finding in the requested document prints bare; anything from the archive
+    or an extra document is prefixed with its path. That asymmetry is preserved
+    deliberately rather than tidied: it is what a reader of the primary case
+    already expects, and what the existing tests pin.
+    """
+    return [
+        item.finding.render() if item.primary
+        else f"{item.path}: {item.finding.render()}"
+        for item in located
+    ]
+
+
+def render_findings(located: list[Located], fmt: str) -> tuple[list[str], bool]:
+    """Render for `fmt`. Returns the lines and whether they belong on stdout.
+
+    SARIF has to be the ONLY thing on stdout or it is not parseable JSON, so
+    the caller sends every human diagnostic to stderr in that mode. Text and
+    annotation output are line-oriented and mix freely.
+    """
+    if fmt == "sarif":
+        return [format_sarif(located)], True
+    if fmt == "github":
+        return format_github(located), True
+    return format_text(located), True
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="handoff_collect", description="Collect and validate handoff facts."
@@ -1467,6 +1623,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--suite-json", metavar="PATH", help="reuse a completed suite run")
     parser.add_argument("--sha-map", metavar="PATH", help="filter-repo commit-map")
     parser.add_argument("--repo", metavar="PATH", default=str(REPO_ROOT))
+    parser.add_argument("--format", choices=FORMATS, default="text",
+                        help="findings output: text, github annotations, or SARIF")
     return parser
 
 
@@ -1540,6 +1698,13 @@ def main(argv: list[str] | None = None) -> int:
         # nonsensical invocation.
         parser.error("--validate requires a non-empty FILE path")
     if args.validate:
+        # Human diagnostics go to stderr when stdout must be pure JSON. A SARIF
+        # document with a progress line prepended is not a SARIF document.
+        stream = sys.stderr if args.format == "sarif" else sys.stdout
+
+        def diag(*parts: object) -> None:
+            print(*parts, file=stream)
+
         target = Path(args.validate)
         if not target.is_file():
             # A traceback here is a poor answer to a common situation: the
@@ -1559,10 +1724,24 @@ def main(argv: list[str] | None = None) -> int:
             if changed:
                 with open(target, "w", encoding="utf-8", newline="") as fh:
                     fh.write(text)
-                print(f"translated {changed} stale SHA reference(s) in {target}")
+                diag(f"translated {changed} stale SHA reference(s) in {target}")
+        located: list[Located] = []
+
+        def record(path: str, items: list[Finding], *, primary: bool) -> None:
+            """Collect for the machine formats; print inline for the human one.
+
+            Text output stays interleaved with its summaries, which is what a
+            reader following along expects and what the existing tests pin. The
+            machine formats are emitted in one block at the end instead.
+            """
+            for finding in items:
+                item = Located(path, finding, primary)
+                located.append(item)
+                if args.format == "text":
+                    print(format_text([item])[0])
+
         findings = validate(repo, text)
-        for finding in findings:
-            print(finding.render())
+        record(_rel(repo, target), findings, primary=True)
         exit_code = 1 if findings else 0
 
         # The denominator. Without it a clean run and a run that checked nothing
@@ -1572,12 +1751,12 @@ def main(argv: list[str] | None = None) -> int:
         examined = count_examined(repo, text)
         summary = ", ".join(f"{kind} {n}" for kind, n in examined.items() if kind != "possible-secret")
         blind = [kind for kind, n in examined.items() if n == 0 and kind != "possible-secret"]
-        print(f"checked {Path(args.validate).name}: {summary}"
-              f" ({examined['possible-secret']} lines scanned for secrets)")
+        diag(f"checked {Path(args.validate).name}: {summary}"
+             f" ({examined['possible-secret']} lines scanned for secrets)")
         if blind:
-            print("  NOTE: these rules matched nothing at all - either this "
-                  "document makes no such claims, or the pattern is wrong: "
-                  + ", ".join(blind))
+            diag("  NOTE: these rules matched nothing at all - either this "
+                 "document makes no such claims, or the pattern is wrong: "
+                 + ", ".join(blind))
 
         # --verify/--validate used to read only their target file, so content
         # moved into the archive by --archive escaped validation forever: a
@@ -1592,10 +1771,9 @@ def main(argv: list[str] | None = None) -> int:
                 if archive_changed:
                     with open(archive_path, "w", encoding="utf-8", newline="") as fh:
                         fh.write(archive_text)
-                    print(f"translated {archive_changed} stale SHA reference(s) in {ARCHIVE_DOC}")
+                    diag(f"translated {archive_changed} stale SHA reference(s) in {ARCHIVE_DOC}")
             archive_findings = validate(repo, archive_text, in_archive=True)
-            for finding in archive_findings:
-                print(f"{ARCHIVE_DOC}: {finding.render()}")
+            record(ARCHIVE_DOC, archive_findings, primary=False)
             if archive_findings:
                 exit_code = 1
 
@@ -1608,22 +1786,35 @@ def main(argv: list[str] | None = None) -> int:
         for relative in CONFIG.extra_docs:
             extra = repo / relative
             if not extra.is_file():
-                print(f"{relative}: listed in extra_docs but does not exist")
+                # A configured document that is absent is itself a finding, not
+                # a log line: a machine consumer has to see it too, or a broken
+                # extra_docs entry disappears from every format but the human
+                # one. Line 1, because there is no file to point into.
+                record(relative, [Finding(
+                    1, "missing-document",
+                    "listed in extra_docs but does not exist",
+                )], primary=False)
                 exit_code = 1
                 continue
             with open(extra, encoding="utf-8", newline="") as fh:
                 extra_text = fh.read()
             _LINK_BASE = extra.parent
             extra_findings = validate(repo, extra_text, has_entries=False)
-            for finding in extra_findings:
-                print(f"{relative}: {finding.render()}")
+            record(relative, extra_findings, primary=False)
             examined_extra = count_examined(repo, extra_text)
             checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
                                 if kind != "possible-secret" and n)
-            print(f"checked {relative}: {checked or 'nothing applicable'}")
+            diag(f"checked {relative}: {checked or 'nothing applicable'}")
             if extra_findings:
                 exit_code = 1
         _LINK_BASE = None
+
+        # Machine formats are emitted in one block, after every document has
+        # been read, because SARIF is a single JSON value and annotations are
+        # easier to read grouped than interleaved with progress lines.
+        if args.format != "text":
+            for line in render_findings(located, args.format)[0]:
+                print(line)
 
         return exit_code
     # M-a: unreachable. The mutually-exclusive group is required, and every

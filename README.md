@@ -254,6 +254,37 @@ the matching check notices. Then it puts everything back. Nothing is written.
 broken.** That is the one line worth reading. This runs in CI here on every
 change, so the tool is not merely tested, it is watched failing.
 
+### Show the problems inside pull requests
+
+By default findings print as plain lines. Two other shapes exist for machines:
+
+```console
+$ python tools/handoff_collect.py --verify --format=github
+$ python tools/handoff_collect.py --verify --format=sarif
+```
+
+**`github`** prints GitHub Actions annotations, so each problem is highlighted
+on its own line in the pull request, instead of sitting in a log nobody opens.
+Add `--format=github` to the step that runs the check. Nothing else is needed.
+
+**`sarif`** prints the standard format that code-scanning tools exchange. It
+writes only JSON, so you can pipe it straight into a file. If you want the
+results in GitHub's Security tab, upload that file:
+
+```yaml
+      - name: Check the handoff document
+        run: python tools/handoff_collect.py --verify --format=sarif > handoff.sarif
+        continue-on-error: true
+
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: handoff.sarif
+```
+
+That upload step needs `permissions: security-events: write` on the job. This
+repository does not use it, so treat it as a starting point rather than
+something proven here: the annotation route above is what runs on every commit.
+
 ### Check your other files too
 
 Your status file is not the only one that rots. A `CLAUDE.md`, an `AGENTS.md`,

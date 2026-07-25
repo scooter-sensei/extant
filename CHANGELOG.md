@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.0 (2026-07-22)
+
+### Added
+
+- **`--format=github`** emits GitHub Actions annotations, so a false claim is
+  highlighted on its own line in the pull request diff rather than sitting in a
+  log. Runs on this repository's own document on every push.
+- **`--format=sarif`** emits SARIF 2.1.0, the format code-scanning tools
+  exchange. Rule descriptors are generated from the registry, so a rule's
+  `falsifiable` question becomes its published description: a rule cannot reach
+  this output without having stated the exact question it asks.
+
+Neither adds a rule or a false-positive surface. Both are rendering of findings
+that already existed, which is why they came first out of the improvement list.
+
+### Notes on the details that are easy to get silently wrong
+
+- Annotation properties escape `,` and `:`, and messages escape newlines. A raw
+  comma in a path truncates the workflow command and the annotation lands
+  nowhere, with no error.
+- In SARIF mode every human diagnostic moves to stderr. The denominator summary
+  is useful and is not JSON; leaving it on stdout makes the document unparseable
+  at the far end, long after the run.
+- `partialFingerprints` deliberately EXCLUDE the line number, so a finding that
+  moves keeps its identity instead of being re-reported as new.
+- Findings now carry the document they came from. The file previously existed
+  only inside the print statement that rendered it, which was enough for a
+  human and not enough for a machine.
+
 ## 0.2.0 (2026-07-22)
 
 Four new rules, a way to prove any rule actually works, and checking that
