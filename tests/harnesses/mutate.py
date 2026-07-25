@@ -28,9 +28,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     """(label, file, find, replace). Each must match exactly once."""
     return [
         # --- rule logic ------------------------------------------------------
+        # Retargeted when ancestry moved from a per-claim merge-base call to a
+        # batched rev-list. The old string named a line that no longer exists,
+        # so this mutation silently stopped probing anything - reported as a
+        # HARNESS FAULT rather than as a pass, which is the only reason it was
+        # noticed. Mutations rot alongside the code they point at.
         ("merge-claim never fires", collect,
-         "            if not _is_merged(repo, sha):",
-         "            if False:"),
+         "        if not merged[sha]:\n            findings.append(Finding(",
+         "        if False:\n            findings.append(Finding("),
+        ("batched ancestry always answers yes", collect,
+         "                merged[sha] = any(full.startswith(sha)\n"
+         "                                  for full in index.get(sha[:7], ()))",
+         "                merged[sha] = True"),
         ("live-claim checks EVERY entry, not just the newest", collect,
          '        if kind != "phase" or newest_checked:\n            continue\n'
          "        newest_checked = True\n        if not _LIVE_PHRASES.search(entry):",

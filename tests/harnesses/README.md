@@ -35,6 +35,13 @@ mutates something adjacent. That happened when `validate()` gained a
 try/finally: one mutation stopped matching outright, and the other kept matching
 by accident.
 
+**Mutations rot alongside the code they point at.** A later run reported
+`merge-claim never fires (matched 0x)` after ancestry moved from a per-claim
+merge-base call to a batched rev-list: the line it named no longer existed, so
+that behaviour had quietly stopped being probed. It surfaced only because a
+mismatch is a HARNESS FAULT here rather than a silent skip. Re-run this after
+any change to the code it targets, and repair what it reports.
+
 ## `scenarios.py` - does it work on projects unlike this one?
 
 ```sh
