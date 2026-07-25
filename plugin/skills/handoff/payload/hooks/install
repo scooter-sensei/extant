@@ -1,15 +1,48 @@
 #!/bin/sh
-# Install the handoff-verify hook into .git/hooks.
+# Install the handoff hooks into .git/hooks.
 #
-#     sh tools/hooks/install
+#     sh tools/hooks/install                     the checks (recommended)
+#     sh tools/hooks/install --with-trunk-guard  and the optional commit guard
 #
 # .git/hooks is not version-controlled, so the real logic lives in the tracked
 # script beside this one and the installed hooks are one-line shims that call
 # it. Re-running is safe: existing shims are detected and left alone, and any
-# other hook content (the graphify rebuild, for instance) is appended to, never
-# replaced.
+# other hook content is appended to, never replaced.
+#
+# WHY THE GUARD IS OPT-IN
+#
+# The default hooks are ADVISORY. They run after a commit has already been
+# recorded, print what they found, and never fail anything. The worst they can
+# do is tell you something you did not want to hear.
+#
+# main-tree-guard is different in kind: it REFUSES a commit. It is also about
+# git hygiene rather than about your document, so a person who installed a
+# documentation checker would meet it as a commit being rejected for a reason
+# they never asked about. A blocking hook that arrives unannounced is how a
+# useful tool earns a reputation for being in the way, so it is asked for
+# explicitly or not installed at all.
 
 set -eu
+
+WITH_GUARD=0
+for arg in "$@"; do
+    case "$arg" in
+        --with-trunk-guard) WITH_GUARD=1 ;;
+        -h|--help)
+            echo "usage: sh tools/hooks/install [--with-trunk-guard]"
+            echo
+            echo "  (no flag)            post-commit and post-merge checks."
+            echo "                       Advisory: they report, never block."
+            echo "  --with-trunk-guard   also refuse commits made in the main"
+            echo "                       working tree while it is off trunk."
+            echo "                       This one CAN block a commit."
+            exit 0 ;;
+        *)
+            echo "unknown option: $arg" >&2
+            echo "usage: sh tools/hooks/install [--with-trunk-guard]" >&2
+            exit 2 ;;
+    esac
+done
 
 COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
 MAIN_TREE=$(dirname "$COMMON_DIR")
@@ -40,14 +73,15 @@ EOF
     echo "installed: $name -> $script"
 }
 
-# pre-commit is a BLOCKING guard, so it must propagate its exit status rather
-# than being swallowed by the `|| true` the advisory shims use.
-guard_target="$HOOK_DIR/pre-commit"
-if [ -f "$guard_target" ] && grep -q "# main-tree-guard-hook" "$guard_target"; then
-    echo "already installed: pre-commit"
-else
-    [ -f "$guard_target" ] || printf '#!/bin/sh\n' > "$guard_target"
-    cat >> "$guard_target" <<'EOF'
+if [ "$WITH_GUARD" -eq 1 ]; then
+    # pre-commit is a BLOCKING guard, so it must propagate its exit status
+    # rather than being swallowed by the `|| true` the advisory shims use.
+    guard_target="$HOOK_DIR/pre-commit"
+    if [ -f "$guard_target" ] && grep -q "# main-tree-guard-hook" "$guard_target"; then
+        echo "already installed: pre-commit"
+    else
+        [ -f "$guard_target" ] || printf '#!/bin/sh\n' > "$guard_target"
+        cat >> "$guard_target" <<'EOF'
 
 # main-tree-guard-hook
 _g="$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/main-tree-guard"
@@ -61,8 +95,9 @@ else
     echo "[main-tree-guard] NOT RUNNING: no guard at $_g" >&2
 fi
 EOF
-    chmod +x "$guard_target"
-    echo "installed: pre-commit -> main-tree-guard"
+        chmod +x "$guard_target"
+        echo "installed: pre-commit -> main-tree-guard  (CAN BLOCK A COMMIT)"
+    fi
 fi
 
 for name in post-commit post-merge; do
@@ -95,3 +130,12 @@ echo
 echo "post-commit catches ordinary commits; post-merge catches merges, which"
 echo "git does NOT route through post-commit - that is the case that went"
 echo "unnoticed on 2026-07-21."
+
+if [ "$WITH_GUARD" -eq 0 ]; then
+    echo
+    echo "Not installed: the trunk guard, which refuses a commit made in the"
+    echo "main working tree while it is on some other branch. It is off by"
+    echo "default because it can block a commit and is about git habits rather"
+    echo "than about your document. Add it with:"
+    echo "    sh tools/hooks/install --with-trunk-guard"
+fi

@@ -26,7 +26,7 @@ read end to end.
 | `tools/handoff_collect.py` | Collector + validator. Five modes: `--collect`, `--archive`, `--validate`, `--verify`, `--selftest` |
 | `tools/handoff_config.py` | All project-specific values; reads `.handoff.toml` |
 | `tools/hooks/handoff-verify` | Re-checks the document after every commit and merge |
-| `tools/hooks/main-tree-guard` | Optional pre-commit guard: refuses a commit in the main working tree while it is off trunk |
+| `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
 | `tools/hooks/install` | Installs the git hooks |
 | `.claude/commands/handoff.md` | The `/handoff` slash command, rendered for this repo |
 | `.handoff.toml` | Project configuration |

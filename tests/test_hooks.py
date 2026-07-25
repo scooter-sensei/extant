@@ -48,6 +48,14 @@ def git(repo: Path, *args: str) -> str:
     ).stdout
 
 
+def run_installer(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run the hook installer from inside `repo`."""
+    return subprocess.run(
+        ["sh", "tools/hooks/install", *args], cwd=repo,
+        capture_output=True, text=True, encoding="utf-8",
+    )
+
+
 @requires_sh
 def test_guard_allows_commit_on_trunk(git_repo) -> None:
     """Catches a guard that blocks unconditionally, making commits impossible."""
@@ -207,4 +215,71 @@ def test_installer_references_only_hooks_that_exist() -> None:
     assert not missing, (
         f"tools/hooks/install references {sorted(referenced)}; "
         f"missing from tools/hooks/: {missing}"
+    )
+
+
+@requires_sh
+def test_default_install_does_not_add_a_blocking_hook(git_repo) -> None:
+    """The default must never install something that can refuse a commit.
+
+    Every default hook here is advisory: it runs after the commit is already
+    recorded, reports, and fails nothing. The trunk guard is different in kind,
+    and it is also about git habits rather than about the document, so someone
+    who installed a documentation checker would meet it as a rejected commit
+    for a reason they never asked about. It used to install by default.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+
+    result = run_installer(repo)
+
+    assert result.returncode == 0, result.stderr
+    hooks = repo / ".git" / "hooks"
+    assert (hooks / "post-commit").exists()
+    assert (hooks / "post-merge").exists()
+    assert not (hooks / "pre-commit").exists(), (
+        "the default install added a hook that can block a commit"
+    )
+    assert "--with-trunk-guard" in result.stdout, (
+        "the default should say the guard exists and how to get it"
+    )
+
+
+@requires_sh
+def test_the_guard_installs_when_asked_for(git_repo) -> None:
+    """Opt-in must actually opt in, or the flag is decoration."""
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+
+    result = run_installer(repo, "--with-trunk-guard")
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / ".git" / "hooks" / "pre-commit").exists()
+    assert "CAN BLOCK A COMMIT" in result.stdout, (
+        "installing a blocking hook must say so plainly"
+    )
+
+
+@requires_sh
+def test_an_unknown_flag_is_rejected_rather_than_ignored(git_repo) -> None:
+    """A misspelled --with-trunk-guard must not silently install nothing.
+
+    Quietly ignoring an unrecognised option is how someone believes they have
+    protection they do not have, which is this project's whole subject.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+
+    result = run_installer(repo, "--with-trunk-gaurd")
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "unknown option" in result.stderr
+    assert not (repo / ".git" / "hooks" / "post-commit").exists(), (
+        "a rejected invocation must not half-install"
     )

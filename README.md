@@ -186,13 +186,16 @@ $ sh tools/hooks/install
 
 From now on it re-checks your notes file every time you save a change.
 
+These checks only ever **tell you** things. They run after your change is
+already saved, print what they found, and never stop you doing anything.
+
 ### What lands in your project
 
 | | |
 |:---|:---|
 | `tools/` | the checker itself |
 | `.handoff.toml` | settings, written by reading **your** project |
-| git hooks | the automatic checks |
+| git hooks | the automatic checks (they report, they never block) |
 | `/handoff` command | only if you use Claude Code, written for your project |
 
 ---
@@ -295,6 +298,39 @@ results in GitHub's Security tab, upload that file:
 That upload step needs `permissions: security-events: write` on the job. This
 repository does not use it, so treat it as a starting point rather than
 something proven here: the annotation route above is what runs on every commit.
+
+### An optional extra: the wrong-branch guard
+
+There is one more check you can switch on. It is **off unless you ask for it**,
+because unlike everything else here it can **refuse to save your work**.
+
+```console
+$ sh tools/hooks/install --with-trunk-guard
+```
+
+**What problem it solves.** Git lets you keep several versions of a project
+going at once, called branches. There is usually one "real" version everyone
+shares, and side versions where work happens before joining it. If you forget
+which one you are looking at, you can save work onto the wrong version. The
+work is not lost, but it is filed in the wrong place, and finding that out
+later is unpleasant.
+
+This guard notices that situation and stops the save, with a message telling
+you where you actually are.
+
+**Why it is off by default.** It has nothing to do with your notes file. You
+came here for a tool that checks whether your writing is still true, and a tool
+that suddenly refuses to save your work for an unrelated reason is a tool people
+uninstall. So you get it only if you want it.
+
+**Should you turn it on?** If you work on one branch and rarely switch, no; it
+will never trigger and is just another moving part. If you juggle several
+branches, or you have ever pushed work and found it on the wrong one, yes. It is
+also worth it if AI assistants make commits in your project, because they are
+particularly good at losing track of which branch they are on.
+
+You can remove it later by deleting the `pre-commit` file inside your project's
+`.git/hooks` folder, or bypass it once with `git commit --no-verify`.
 
 ### Check your other files too
 
