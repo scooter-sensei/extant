@@ -2,6 +2,31 @@
 
 ## 0.3.0 (2026-07-22)
 
+### Fixed: one rule was 98 percent of validation time
+
+`false-merge-claim` spawned two git subprocesses per mention. On a 4000-line
+document that was 17.7 of 18.0 seconds. `dead-sha` handled identical volume in
+0.064s, because it batched existence checks through `git cat-file --batch-check`
+- the optimisation existed and had simply never been carried across.
+
+Existence now uses the same batched path, and ancestry is asked once per
+DISTINCT commit rather than once per mention, since documents repeat the same
+SHA constantly. Scoped to a single call rather than memoised across the process:
+git state changes between runs, and a cache outliving the run would answer from
+a repository that no longer exists in that shape.
+
+| document | before | after |
+|---|---|---|
+| 4,000 lines | 16.69s | 0.77s |
+| 16,000 lines | 66.68s | 1.59s |
+
+Scaling went from linear to sub-linear. The git hooks also now get three paths
+from one `git rev-parse` instead of three, saving about 170ms per commit on
+Windows, where each subprocess costs roughly 90ms.
+
+A test counts git invocations rather than seconds: a wall-clock assertion would
+be flaky on a loaded machine and would not say why it got slow.
+
 ### Fixed: a file path reported as a phantom branch
 
 `unknown-branch` reported `docs/arch.md` as "a branch that does not exist and

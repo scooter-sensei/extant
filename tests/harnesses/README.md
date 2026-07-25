@@ -69,6 +69,25 @@ Each probe reports what happened, so a loophole appears as a finding rather than
 as an absence of noise. It found seven; five were fixed and two are recorded in
 `references/design.md` as known limits.
 
+## `perf.py` - is it fast enough to leave installed?
+
+```sh
+python tests/harnesses/perf.py <extracted-package> <scratch-dir>
+```
+
+Four questions in descending order of importance: what the hooks add to every
+commit, whether validation scales with document size, whether it scales with
+repository size, and which rule spends the time.
+
+It found that one rule was 98 percent of total validation time - two git
+subprocesses per merge claim, where the reference rule had batched the same
+work all along. Fixing that took a 4000-line document from 16.7s to 0.77s.
+
+Measured on Windows, where process spawning is expensive. The remaining hook
+cost is mostly interpreter startup and shell spawns rather than the tool's own
+work, so numbers on Linux are likely lower - **unverified**, since these were
+not measured there.
+
 ## Reading the output
 
 All three print a denominator: how many mutations, scenarios, or probes ran.

@@ -16,29 +16,46 @@
 
 set -u
 
+# Three answers from ONE git process. This hook runs on every commit, and each
+# subprocess costs roughly 90 ms on Windows, so three separate `git rev-parse`
+# calls were about 170 ms of pure overhead per commit for information git will
+# hand over all at once. Split with the shell's own word splitting rather than
+# sed, because spending the saving on three more process spawns would be worse
+# than not optimising at all.
+#
+# The three are NOT interchangeable:
+#
+#   --git-dir         this worktree's own git directory. MERGE_HEAD and the
+#                     rebase state live here, per worktree.
+#   --show-toplevel   the checkout being committed to, which is the branch
+#                     whose claims are being validated. Reading the document
+#                     from the main working tree instead would validate some
+#                     other branch's file, and would break outright when the
+#                     main tree sits on a branch predating the tool (observed
+#                     2026-07-21, 180 commits behind).
+#   --git-common-dir  the shared directory, whose parent is the MAIN working
+#                     tree. Only the interpreter comes from there, because a
+#                     virtualenv is gitignored and exists nowhere else.
+_paths=$(git rev-parse --path-format=absolute \
+             --git-dir --show-toplevel --git-common-dir 2>/dev/null) || exit 0
+_oldifs=$IFS
+IFS='
+'
+# shellcheck disable=SC2086
+set -- $_paths
+IFS=$_oldifs
+[ "$#" -eq 3 ] || exit 0
+GIT_DIR_PATH=$1
+TOPLEVEL=$2
+COMMON_DIR=$3
+MAIN_TREE=$(dirname "$COMMON_DIR")
+
 # Never disturb an in-progress operation. A rebase or cherry-pick commits
 # repeatedly and would fire this on every step; MERGE_HEAD means a merge is
 # still resolving.
-GIT_DIR_PATH=$(git rev-parse --git-dir 2>/dev/null) || exit 0
 [ -d "$GIT_DIR_PATH/rebase-merge" ] && exit 0
 [ -d "$GIT_DIR_PATH/rebase-apply" ] && exit 0
 [ -f "$GIT_DIR_PATH/MERGE_HEAD" ] && exit 0
-
-# Two different roots, deliberately.
-#
-# The TOOL and the DOCUMENT come from the checkout being committed to - this
-# worktree - because that is the branch whose claims are being validated.
-# Reading them from the main working tree instead would validate some other
-# branch's file, and would break outright whenever the main tree happens to sit
-# on a branch that predates the tool (observed 2026-07-21: the main tree was
-# 180 commits behind and the hook errored looking for a script that branch had
-# never had).
-#
-# The INTERPRETER can only come from the main working tree: .venv is gitignored
-# and exists nowhere else.
-TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
-MAIN_TREE=$(dirname "$COMMON_DIR")
 
 # Virtualenv layout differs by platform: Windows uses Scripts/python.exe, POSIX
 # uses bin/python. This previously hardcoded the Windows form and then skipped

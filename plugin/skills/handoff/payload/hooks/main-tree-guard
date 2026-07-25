@@ -25,9 +25,20 @@
 
 set -u
 
-TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
-MAIN_TREE=$(dirname "$COMMON_DIR")
+# Both answers from one git process. This is a PRE-commit hook, so its cost is
+# paid before the commit completes rather than after, which makes it the more
+# irritating of the two to have running. See handoff-verify for the same note.
+_paths=$(git rev-parse --path-format=absolute \
+             --show-toplevel --git-common-dir 2>/dev/null) || exit 0
+_oldifs=$IFS
+IFS='
+'
+# shellcheck disable=SC2086
+set -- $_paths
+IFS=$_oldifs
+[ "$#" -eq 2 ] || exit 0
+TOPLEVEL=$1
+MAIN_TREE=$(dirname "$2")
 
 # Linked worktrees are exactly where work is supposed to happen. Allow freely.
 [ "$TOPLEVEL" = "$MAIN_TREE" ] || exit 0

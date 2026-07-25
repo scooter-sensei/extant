@@ -589,3 +589,38 @@ def test_library_callers_can_resolve_links_against_the_document(git_repo) -> Non
         "the setup is wrong: plan.md does not exist relative to the repo root"
     )
     assert with_base == [], f"sibling link reported dead despite base: {with_base}"
+
+
+def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypatch) -> None:
+    """The performance fix, pinned so it cannot silently regress.
+
+    Two git subprocesses per claim was 98 percent of total validation time,
+    measured at 17.7 of 18.0 seconds on a 4000-line document. `dead-sha` had
+    already solved half of it by batching, and the optimisation was never
+    carried across, so the two rules handled identical volume 170x apart.
+
+    Counts invocations rather than seconds: a wall-clock assertion would be
+    flaky on a loaded machine and would not say WHY it got slow.
+    """
+    import handoff_collect as hc
+    repo, commit = git_repo
+    sha = commit("a.py", "a = 1\n", "feat: a").strip()[:9]
+
+    calls: list[tuple[str, ...]] = []
+    real_git = hc._git
+
+    def counting_git(r, *args):
+        calls.append(args)
+        return real_git(r, *args)
+
+    monkeypatch.setattr(hc, "_git", counting_git)
+    # Twenty mentions of the same commit, which is how documents really read.
+    text = "".join(f"Line {n}: merged to `main` at `{sha}`.\n" for n in range(20))
+
+    findings = hc.validate_merge_claims(repo, text)
+
+    assert findings == [], f"the setup is wrong, {sha} is on trunk: {findings}"
+    assert len(calls) <= 3, (
+        f"{len(calls)} git calls for 20 mentions of one commit; existence should "
+        f"batch and ancestry should be asked once per distinct commit: {calls}"
+    )

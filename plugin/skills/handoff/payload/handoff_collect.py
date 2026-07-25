@@ -840,18 +840,38 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
     """
     # Claims inside code are examples, not promises. See _prose.
     text = _prose(text)
+    claims = [(number, match.group(1))
+              for number, line in enumerate(text.splitlines(), start=1)
+              for match in _MERGE_CLAIM.finditer(line)]
+    if not claims:
+        return []
+
+    # TWO git subprocesses PER CLAIM was 98% of total validation time, measured
+    # on a 4000-line document: 17.7 of 18.0 seconds, and most of the 1.8s the
+    # post-commit hook added to every commit. `validate_references` had already
+    # solved half of this by batching existence checks, and the optimisation was
+    # simply never carried across.
+    #
+    # Existence now goes through the same batched `git cat-file --batch-check`,
+    # and ancestry is asked once per DISTINCT commit rather than once per
+    # mention - documents repeat the same SHA constantly. Deliberately scoped to
+    # this call rather than memoised across the process: git state can change
+    # between validations, and a cache that outlives the run would answer from
+    # a repository that no longer exists in that shape.
+    resolved = _resolve_shas(repo, [sha for _n, sha in claims])
+    merged: dict[str, bool] = {}
     findings: list[Finding] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for match in _MERGE_CLAIM.finditer(line):
-            sha = match.group(1)
-            if not _sha_exists(repo, sha):
-                continue
-            if not _is_merged(repo, sha):
-                findings.append(Finding(
-                    number, "false-merge-claim",
-                    f"claims work merged to {TRUNK} at `{sha}`, but that commit "
-                    f"is not an ancestor of {TRUNK}",
-                ))
+    for number, sha in claims:
+        if sha not in resolved:
+            continue
+        if sha not in merged:
+            merged[sha] = _is_merged(repo, sha)
+        if not merged[sha]:
+            findings.append(Finding(
+                number, "false-merge-claim",
+                f"claims work merged to {TRUNK} at `{sha}`, but that commit "
+                f"is not an ancestor of {TRUNK}",
+            ))
     return findings
 
 
