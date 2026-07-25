@@ -146,11 +146,9 @@ _UNKNOWN_HINT = (
 )
 
 
-_ESCAPE_HINT = """{path}: {err}
-
-Most likely cause: a regex written in a TOML *basic* string (double quotes).
-TOML processes escapes there, and `\\d` / `\\s` / `\\(` are not valid ones, so the
-whole file fails to parse.
+_ESCAPE_HINT = """Most likely cause: a regex written in a TOML *basic* string
+(double quotes). TOML processes escapes there, and `\\d` / `\\s` / `\\(` are not
+valid ones, so the whole file fails to parse.
 
 Put regex values in LITERAL strings (single quotes), which perform no escape
 processing at all:
@@ -161,6 +159,42 @@ processing at all:
 Use ''' triple quotes ''' if the pattern itself contains a single quote."""
 
 
+_DUPLICATE_HINT = """Cause: the same key is set twice, and TOML refuses to let a
+later line overwrite an earlier one.
+
+Check for a key that appears both in the generated block near the top and again
+lower down, which is what appending to this file rather than editing it in place
+produces."""
+
+
+_GENERIC_HINT = """The file is not valid TOML. The position above is where the
+parser gave up, which is usually at or just after the offending line.
+
+See references/config.md for the shape of every key."""
+
+
+# EVERY hint here must fit the error it is attached to. This dispatch exists
+# because the escape hint used to be unconditional: a duplicate key produced
+# "Cannot overwrite a value" followed by a confident paragraph about regex
+# quoting, which is not merely unhelpful but actively misleading. Someone would
+# check their quotes, find them correct, and have no next move.
+#
+# A wrong cause is worse than no cause: it gets believed, acted on, and repeated.
+_HINTS = (
+    ("cannot overwrite", _DUPLICATE_HINT),
+    ("escape", _ESCAPE_HINT),
+    ("invalid literal", _ESCAPE_HINT),
+    ("unterminated", _ESCAPE_HINT),
+)
+
+
+def _explain(path: Path, exc: Exception) -> str:
+    """Attach the hint that actually matches this decoder error."""
+    text = str(exc).lower()
+    hint = next((h for needle, h in _HINTS if needle in text), _GENERIC_HINT)
+    return f"{path}: {exc}\n\n{hint}"
+
+
 def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
     try:
         with open(path, "rb") as fh:
@@ -168,8 +202,8 @@ def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
     except tomllib.TOMLDecodeError as exc:
         # The bare decoder error names a line and column and nothing else, which
         # is useless to someone hand-writing a regex - and porting.md explicitly
-        # asks them to. Re-raise with the actual cause and the fix.
-        raise ValueError(_ESCAPE_HINT.format(path=path, err=exc)) from exc
+        # asks them to. Re-raise with the cause that fits THIS error.
+        raise ValueError(_explain(path, exc)) from exc
     section = data.get("handoff", data)
     if not isinstance(section, dict):
         raise ValueError(f"{path}: [handoff] must be a table")

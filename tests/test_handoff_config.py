@@ -169,3 +169,67 @@ def test_plans_dir_can_be_switched_off(tmp_path):
         "[handoff]\nplans_dir = ''\n", encoding="utf-8"
     )
     assert load_config(tmp_path).plans_dir == ""
+
+
+def test_a_duplicate_key_is_not_blamed_on_regex_quoting(tmp_path):
+    """Every hint must fit the error it is attached to.
+
+    The escape hint used to be unconditional, so a duplicate key produced
+    "Cannot overwrite a value" followed by a confident paragraph about regex
+    quoting. That is worse than no hint: the reader checks their quotes, finds
+    them correct, and has no next move. Found by an end-to-end scenario run,
+    not by any unit test.
+    """
+    from handoff_config import load_config
+    (tmp_path / ".handoff.toml").write_text(
+        "trunk = 'main'\nbranch_token = '`a/b`'\nbranch_token = '`c/d`'\n",
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(tmp_path)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("invalid TOML was accepted")
+
+    assert "same key is set twice" in message, message
+    assert "basic* string" not in message, (
+        "a duplicate key was blamed on regex quoting:\n" + message
+    )
+
+
+def test_an_escape_error_still_gets_the_quoting_hint(tmp_path):
+    """The other half: narrowing the hint must not remove it where it applies."""
+    from handoff_config import load_config
+    # Raw string: the FILE must literally contain a backslash-d inside a
+    # double-quoted TOML string, which is what makes the decoder reject it.
+    (tmp_path / ".handoff.toml").write_text(
+        r'branch_token = "`(\d+)/x`"' + "\n", encoding="utf-8",
+    )
+
+    try:
+        load_config(tmp_path)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("invalid TOML was accepted")
+
+    assert "LITERAL strings" in message, message
+
+
+def test_an_unrecognised_toml_error_gets_a_generic_hint(tmp_path):
+    """A cause the dispatch does not know must fall back honestly rather than
+    guessing, which is the whole point of the change."""
+    from handoff_config import load_config
+    (tmp_path / ".handoff.toml").write_text("this is not toml at all\n", encoding="utf-8")
+
+    try:
+        load_config(tmp_path)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("invalid TOML was accepted")
+
+    assert "not valid TOML" in message, message
+    assert "basic* string" not in message, message

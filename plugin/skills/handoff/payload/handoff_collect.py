@@ -42,7 +42,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # patterns were derived by MEASURING this repo's documents. Copy them to another
 # project without re-measuring and the validator matches nothing while appearing
 # healthy. Run `--init` against the target repo instead of guessing.
-CONFIG = load_config(REPO_ROOT)
+try:
+    CONFIG = load_config(REPO_ROOT)
+except ValueError as _config_error:
+    # Configuration is read at import, so a malformed .handoff.toml surfaces as
+    # a traceback before main() ever runs. The explanation is already in the
+    # message; burying it under a stack that names tomllib internals just makes
+    # the reader work for it. Print it plainly when this is being RUN, and
+    # re-raise untouched when it is being imported, so tests still see the
+    # exception rather than a dead interpreter.
+    if __name__ == "__main__":
+        print(f"handoff: cannot read configuration\n\n{_config_error}", file=sys.stderr)
+        raise SystemExit(2) from None
+    raise
 
 HANDOFF_DOC = CONFIG.handoff_doc
 ARCHIVE_DOC = CONFIG.archive_doc
