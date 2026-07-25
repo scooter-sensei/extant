@@ -460,3 +460,132 @@ def test_extra_docs_are_validated(git_repo) -> None:
     assert "CLAUDE.md" in result.stdout, result.stdout
     assert "dead-md-link" in result.stdout, result.stdout
     assert result.returncode == 1
+
+
+# --- loopholes found by the adversarial smoke test ---------------------------
+
+def test_claims_inside_a_code_fence_are_not_checked(git_repo) -> None:
+    """A fenced block is an example or pasted output, not a promise.
+
+    A README showing "Merged to `main` at `abc1234`" as the format to follow was
+    read as a claim about abc1234. Found by an adversarial probe, not by any
+    test, and it is the same false-positive class as the backticked example
+    link fixed earlier.
+    """
+    from handoff_collect import validate_references, validate_path_pointers
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    text = ("Example of the format:\n\n```\n"
+            "Merged to `main` at `0000000000000000000000000000000000000000`.\n"
+            "**Design:** `docs/example-not-real.md`\n"
+            "```\n")
+
+    assert validate_references(repo, text) == []
+    assert validate_path_pointers(repo, text) == []
+
+
+def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
+    """The other half, and the reason inline code is NOT stripped for claims.
+
+    Claims are written in backticks by convention, so blanking inline spans the
+    way the link rules do would delete exactly what these rules check. Applying
+    that stripping wholesale turned eight tests red at once.
+    """
+    from handoff_collect import validate_references
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+
+    findings = validate_references(
+        repo, "Shipped at `0000000000000000000000000000000000000000`.\n")
+
+    assert [f.kind for f in findings] == ["dead-sha"]
+
+
+def test_a_secret_inside_a_code_fence_is_still_reported(git_repo) -> None:
+    """Fenced code is exempt from CLAIM rules, never from the secret scan.
+
+    A credential pasted into a fence is still a committed credential. The
+    exemption is about what a document promises, not about what it contains.
+    """
+    from handoff_collect import scan_secrets
+
+    findings = scan_secrets("```\nexport KEY=sk-A1b2C3d4E5f6G7h8I9j0K1l2m3\n```\n")
+
+    assert [f.kind for f in findings] == ["possible-secret"]
+
+
+def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_repo) -> None:
+    """Windows and macOS resolve `docs/PLAN.md` to `docs/plan.md`; Linux does not.
+
+    Without this, a document passes on a developer's laptop and fails in CI, or
+    passes in CI while misleading every Linux reader. The check compares against
+    the real directory entry so the answer is the same everywhere.
+    """
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+
+    findings = validate_md_links(repo, "See [plan](docs/PLAN.md).\n")
+
+    assert [f.kind for f in findings] == ["dead-md-link"]
+    assert "case differs" in findings[0].detail
+    assert "docs/plan.md" in findings[0].detail
+
+
+def test_correct_case_path_stays_silent(git_repo) -> None:
+    """The guard against a case check that flags everything."""
+    from handoff_collect import validate_md_links
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+
+    assert validate_md_links(repo, "See [plan](docs/plan.md).\n") == []
+
+
+def test_collect_survives_a_repository_with_no_commits(git_repo, tmp_path) -> None:
+    """`git log` exits 128 on an unborn branch rather than returning nothing.
+
+    A freshly initialised repository is a legitimate state for someone just
+    starting, not an error deserving a traceback.
+    """
+    from handoff_collect import commits_since, find_boundary
+    repo, _ = git_repo  # created, never committed to
+
+    assert find_boundary(repo) == ""
+    assert commits_since(repo, "") == []
+
+
+def test_a_document_that_is_not_utf8_is_reported_not_crashed(git_repo) -> None:
+    """Reading with errors='replace' would let every rule run against silently
+    corrupted text and report findings about bytes that are not there."""
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# S\n", "docs: doc")
+    (repo / "NEXT_SESSION.md").write_bytes(b"# S\n\n\xff\xfe binary\n")
+
+    result = run_tool(repo, "--validate", "NEXT_SESSION.md")
+
+    assert result.returncode == 1
+    assert "not valid UTF-8" in result.stderr, result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_library_callers_can_resolve_links_against_the_document(git_repo) -> None:
+    """A relative link resolves against its own file, not the repository root.
+
+    The CLI has always passed this through a module global, so a library caller
+    had no way to supply it: `docs/HANDOFF.md` linking to a sibling `plan.md`
+    was reported dead through the API and fine through the CLI. Found by an
+    adversarial probe calling validate() the way a downstream tool would.
+    """
+    from handoff_collect import validate
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    text = "See [plan](plan.md).\n"
+
+    without_base = [f.kind for f in validate(repo, text, has_entries=False)]
+    with_base = [f.kind for f in validate(repo, text, has_entries=False,
+                                          base=repo / "docs")]
+
+    assert "dead-md-link" in without_base, (
+        "the setup is wrong: plan.md does not exist relative to the repo root"
+    )
+    assert with_base == [], f"sibling link reported dead despite base: {with_base}"

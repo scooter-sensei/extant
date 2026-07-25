@@ -63,6 +63,25 @@ TRUNK = CONFIG.trunk
 _ARCHIVE_HEADER = CONFIG.archive_header
 
 
+def _git_soft(repo: Path, *args: str) -> str:
+    """Run git, returning "" instead of raising when the command fails.
+
+    For FACT GATHERING, where the absence of an answer is itself a legitimate
+    answer. A repository with no commits has no HEAD, no trunk ref and no
+    branches, so `git log`, `git rev-parse HEAD` and `git branch --merged main`
+    all exit 128 - not because anything is wrong, but because someone has just
+    run `git init`.
+
+    Deliberately NOT used by the validation rules. There, a git command that
+    fails means a claim could not be checked, and silently treating that as
+    "no finding" is the exact shape of failure this project exists to prevent.
+    """
+    try:
+        return _git(repo, *args)
+    except (subprocess.CalledProcessError, OSError):
+        return ""
+
+
 def _git(repo: Path, *args: str) -> str:
     """Run a git command in `repo`, returning stdout. Raises on non-zero."""
     return subprocess.run(
@@ -107,14 +126,24 @@ def find_boundary(repo: Path) -> str:
     Derived from the repo rather than stored, so there is no marker file or tag
     that can drift out of sync with reality.
     """
-    out = _git(repo, "log", "-1", "--format=%H", "--", HANDOFF_DOC)
-    return out.strip()
+    try:
+        return _git(repo, "log", "-1", "--format=%H", "--", HANDOFF_DOC).strip()
+    except subprocess.CalledProcessError:
+        # A repository with no commits at all: `git log` exits 128 rather than
+        # returning nothing, so this is not the same as "the document has never
+        # been committed". Both mean the same thing here - there is no boundary
+        # - and an unborn branch is a legitimate state for a repository someone
+        # has just started, not an error worth a traceback.
+        return ""
 
 
 def commits_since(repo: Path, boundary: str) -> list[dict[str, str]]:
     """Commits after `boundary` (exclusive), oldest first, phase-labelled."""
     rev_range = f"{boundary}..HEAD" if boundary else "HEAD"
-    out = _git(repo, "log", "--reverse", "--format=%H%x00%s", rev_range)
+    try:
+        out = _git(repo, "log", "--reverse", "--format=%H%x00%s", rev_range)
+    except subprocess.CalledProcessError:
+        return []  # unborn branch: no commits to report
     commits: list[dict[str, str]] = []
     for line in out.splitlines():
         if not line.strip():
@@ -328,9 +357,19 @@ def read_plan(repo: Path) -> dict[str, object]:
 def collect(repo: Path, suite_json: str | None = None) -> dict[str, object]:
     """Assemble the full fact bundle. No prose, ever."""
     boundary = find_boundary(repo)
-    branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
-    merged = set(_git(repo, "branch", "--merged", TRUNK).replace("*", "").split())
-    all_branches = set(_git(repo, "branch", "--format=%(refname:short)").split())
+    try:
+        branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    except subprocess.CalledProcessError:
+        # An unborn branch has no resolvable HEAD. `git symbolic-ref` still
+        # knows the name the first commit WILL be on, which is more useful than
+        # "unknown" and is what `git status` reports in the same situation.
+        try:
+            branch = _git(repo, "symbolic-ref", "--short",
+                          "HEAD").strip() or "unknown"
+        except subprocess.CalledProcessError:
+            branch = "unknown"
+    merged = set(_git_soft(repo, "branch", "--merged", TRUNK).replace("*", "").split())
+    all_branches = set(_git_soft(repo, "branch", "--format=%(refname:short)").split())
     commits = commits_since(repo, boundary)
     return {
         "boundary_sha": boundary,
@@ -631,6 +670,8 @@ def _resolve_shas(repo: Path, tokens: list[str]) -> set[str]:
 
 def validate_references(repo: Path, text: str) -> list[Finding]:
     """Every referenced SHA must still resolve; a dead reference is useless."""
+    # Claims inside code are examples, not promises. See _prose.
+    text = _prose(text)
     findings: list[Finding] = []
     backticked = find_sha_candidates(text)
     bare = find_bare_sha_candidates(text)
@@ -797,6 +838,8 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
     commit is not an ancestor of main" would be a confusing second finding
     about a commit that does not exist.
     """
+    # Claims inside code are examples, not promises. See _prose.
+    text = _prose(text)
     findings: list[Finding] = []
     for number, line in enumerate(text.splitlines(), start=1):
         for match in _MERGE_CLAIM.finditer(line):
@@ -846,15 +889,22 @@ def validate_path_pointers(repo: Path, text: str) -> list[Finding]:
     operative promise at any age, and archiving an entry does not make its
     broken pointer work.
     """
+    # Claims inside code are examples, not promises. See _prose.
+    text = _prose(text)
     findings: list[Finding] = []
     for number, line in enumerate(text.splitlines(), start=1):
         for raw in _PATH_POINTER.findall(line):
-            target = Path(raw) if _ABSOLUTE.match(raw) else repo / raw
-            if not target.exists():
-                detail = f"points at `{raw}`, which does not exist"
-                moved = _renamed_to(repo, raw)
-                if moved:
-                    detail += f"; git shows it renamed to `{moved}`"
+            exists, actual_case = _resolve_reference(repo, repo, raw)
+            if not exists:
+                if actual_case:
+                    detail = (f"points at `{raw}`, but the file on disk is "
+                              f"`{actual_case}`; the case differs, which fails "
+                              f"on a case-sensitive filesystem")
+                else:
+                    detail = f"points at `{raw}`, which does not exist"
+                    moved = _renamed_to(repo, raw)
+                    if moved:
+                        detail += f"; git shows it renamed to `{moved}`"
                 findings.append(Finding(number, "dead-path-pointer", detail))
     return findings
 
@@ -874,6 +924,8 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
     reported line numbers stay correct - only the checking itself is
     restricted to that first phase segment.
     """
+    # Claims inside code are examples, not promises. See _prose.
+    text = _prose(text)
     findings: list[Finding] = []
     _, segments, _ = split_entries(text)
     cursor = 0
@@ -990,17 +1042,51 @@ def _strip_code(text: str) -> str:
     link, and the rule reported it as dead. Documentation ABOUT links is the
     most predictable place for example links to appear, which makes it the last
     place a link checker can afford to be naive.
+
+    Blanked with SPACES rather than emptied, so both the line count and every
+    character offset survive. Rules that report a line by counting newlines up
+    to a match offset therefore keep working on the stripped text, which is what
+    lets every claim rule share this instead of only the link rules.
     """
+    return _blank(text, inline=True)
+
+
+def _blank(text: str, *, inline: bool) -> str:
     out: list[str] = []
     inside = False
     for line in text.splitlines():
         if _FENCE.match(line):
             inside = not inside
-            out.append("")
+            out.append(" " * len(line))
             continue
-        out.append("" if inside else _INLINE_CODE.sub(
-            lambda m: " " * len(m.group(0)), line))
+        if inside:
+            out.append(" " * len(line))
+        elif inline:
+            out.append(_INLINE_CODE.sub(lambda m: " " * len(m.group(0)), line))
+        else:
+            out.append(line)
     return "\n".join(out)
+
+
+def _prose(text: str) -> str:
+    """Text with FENCED BLOCKS removed, for rules that check claims.
+
+    A fenced block is an example or captured output, not a promise. A README
+    showing the expected format, or a pasted `git log`, was being read as a
+    claim about the commits in it.
+
+    Inline code is deliberately KEPT here, unlike in the link rules. Claims are
+    written inside backticks by convention - "merged to `main` at `abc1234`",
+    "**Design:** `docs/plan.md`" - so blanking inline spans would delete the
+    very thing these rules exist to check. Applying the link rules' stripping
+    wholesale turned eight tests red at once, which is a cheaper way to learn it
+    than shipping a validator that silently checks nothing.
+
+    NOT used by the secret scan either, for the opposite reason: a credential
+    pasted inside a fence is still a committed credential. That rule is about
+    what the file CONTAINS, not what it claims.
+    """
+    return _blank(text, inline=False)
 
 
 def _slug(title: str) -> str:
@@ -1039,13 +1125,18 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             target = raw.split("#", 1)[0]
             if not target:
                 continue
-            resolved = Path(target) if _ABSOLUTE.match(target) else base / target
-            if resolved.exists():
+            exists, actual_case = _resolve_reference(repo, base, target)
+            if exists:
                 continue
-            detail = f"links to `{target}`, which does not exist"
-            moved = _renamed_to(repo, target)
-            if moved:
-                detail += f"; git shows it renamed to `{moved}`"
+            if actual_case:
+                detail = (f"links to `{target}`, but the file on disk is "
+                          f"`{actual_case}`; the case differs, which fails on a "
+                          f"case-sensitive filesystem")
+            else:
+                detail = f"links to `{target}`, which does not exist"
+                moved = _renamed_to(repo, target)
+                if moved:
+                    detail += f"; git shows it renamed to `{moved}`"
             findings.append(Finding(number, "dead-md-link", detail))
     return findings
 
@@ -1115,6 +1206,53 @@ def _named_in_merge_history(repo: Path, branch: str) -> bool:
 _FILEISH = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,4}$")
 
 
+def _actual_case(base: Path, relative: str) -> str | None:
+    """The on-disk spelling of `relative`, or None if no such file exists.
+
+    Windows and macOS resolve `docs/PLAN.md` to `docs/plan.md` without
+    complaint; Linux does not. A document that passes on a developer's laptop
+    therefore fails in CI, or worse, passes in CI and misleads every Linux
+    reader. Comparing each component against the real directory entry gives the
+    same answer on every platform, which is the only useful kind.
+
+    `Path.resolve()` is deliberately avoided: on Windows it silently rewrites a
+    path to its on-disk case, which would make this function agree with the bug
+    it exists to find.
+    """
+    probe = base
+    parts: list[str] = []
+    for part in Path(relative).parts:
+        if part in (".", ".."):
+            probe = probe / part
+            parts.append(part)
+            continue
+        try:
+            names = {entry.name for entry in probe.iterdir()}
+        except OSError:
+            return None
+        if part in names:
+            exact = part
+        else:
+            matches = [n for n in names if n.lower() == part.lower()]
+            if not matches:
+                return None
+            exact = matches[0]
+        parts.append(exact)
+        probe = probe / exact
+    return "/".join(parts)
+
+
+def _resolve_reference(repo: Path, base: Path, raw: str) -> tuple[bool, str | None]:
+    """(exists_portably, on_disk_spelling_if_it_differs)."""
+    if _ABSOLUTE.match(raw):
+        return Path(raw).exists(), None
+    actual = _actual_case(base, raw)
+    if actual is None:
+        return False, None
+    normalised = Path(raw).as_posix()
+    return (True, None) if actual == normalised else (False, actual)
+
+
 def _looks_like_a_path(repo: Path, token: str) -> bool:
     """True when a token is better explained as a file than as a branch."""
     return bool(_FILEISH.search(token)) or (repo / token).exists()
@@ -1127,6 +1265,8 @@ def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
     branches that were correct when written. Deletion after merge is normal and
     is never reported, because the merge commit still names the branch.
     """
+    # Claims inside code are examples, not promises. See _prose.
+    text = _prose(text)
     findings: list[Finding] = []
     _, segments, _ = split_entries(text)
     cursor = 0
@@ -1163,6 +1303,8 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
     a CHANGELOG, where this is the usual way a release is claimed, and it is
     falsifiable in exactly the way a merge claim is.
     """
+    # Claims inside code are examples, not promises. See _prose.
+    text = _prose(text)
     findings: list[Finding] = []
     for number, line in enumerate(text.splitlines(), start=1):
         for tag in _RELEASE_TAG.findall(line):
@@ -1489,7 +1631,7 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
 
 
 def validate(repo: Path, text: str, *, in_archive: bool = False,
-             has_entries: bool = True) -> list[Finding]:
+             has_entries: bool = True, base: Path | None = None) -> list[Finding]:
     """Run every rule that applies to this KIND of document.
 
     The caller says what the document IS; the registry decides which rules
@@ -1512,13 +1654,28 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     document such as a README or CLAUDE.md has no dated entries at all, so
     "the newest entry" names nothing and the entry-scoped rules would be
     reasoning about an empty string. They are skipped for the same reason.
+
+    `base` is the DIRECTORY the text came from, because a relative markdown link
+    resolves against its own file rather than against the repository root. The
+    CLI has always passed this via a module global; a library caller had no way
+    to supply it, so `docs/HANDOFF.md` linking to a sibling `plan.md` was
+    reported dead through the API and fine through the CLI. Passing it here
+    makes the two agree, and leaving it None keeps the old repo-root behaviour
+    for callers that have no particular file in mind.
     """
-    findings: list[Finding] = []
-    for rule in RULES:
-        if (in_archive or not has_entries) and not rule.in_archive:
-            continue
-        findings += rule.check(repo, text)  # type: ignore[operator]
-    return findings
+    global _LINK_BASE
+    previous = _LINK_BASE
+    if base is not None:
+        _LINK_BASE = base
+    try:
+        findings: list[Finding] = []
+        for rule in RULES:
+            if (in_archive or not has_entries) and not rule.in_archive:
+                continue
+            findings += rule.check(repo, text)  # type: ignore[operator]
+        return findings
+    finally:
+        _LINK_BASE = previous
 
 
 FORMATS = ("text", "github", "sarif")
@@ -1708,8 +1865,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"no such document: {target}")
             print(f"  handoff_doc is '{CONFIG.handoff_doc}', from {CONFIG.source}")
             return 1
-        with open(target, encoding="utf-8", newline="") as fh:
-            text = fh.read()
+        try:
+            with open(target, encoding="utf-8", newline="") as fh:
+                text = fh.read()
+        except UnicodeDecodeError as exc:
+            # A document that is not valid UTF-8 is a situation to report, not
+            # to crash on. Reading it with errors="replace" instead would let
+            # every rule run against silently corrupted text and report findings
+            # about bytes that are not there.
+            print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
+                  f"{exc.start}). The handoff document must be a text file.",
+                  file=sys.stderr)
+            return 1
         _LINK_BASE = target.parent
         lines, fired, unprobeable = selftest(repo, text)
         print(f"selftest: probing {len(RULES)} rules against {HANDOFF_DOC}\n")
@@ -1766,8 +1933,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  handoff_doc is '{CONFIG.handoff_doc}', from {CONFIG.source}")
             print("  set handoff_doc in .handoff.toml, or pass --validate <path>")
             return 1
-        with open(target, encoding="utf-8", newline="") as fh:
-            text = fh.read()
+        try:
+            with open(target, encoding="utf-8", newline="") as fh:
+                text = fh.read()
+        except UnicodeDecodeError as exc:
+            # A document that is not valid UTF-8 is a situation to report, not
+            # to crash on. Reading it with errors="replace" instead would let
+            # every rule run against silently corrupted text and report findings
+            # about bytes that are not there.
+            print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
+                  f"{exc.start}). The handoff document must be a text file.",
+                  file=sys.stderr)
+            return 1
         # Relative links resolve against the document, not the repo root.
         _LINK_BASE = target.parent
         mapping = load_sha_map(args.sha_map) if args.sha_map else None

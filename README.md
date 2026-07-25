@@ -320,6 +320,15 @@ status file at all, still gets something useful out of this.
   run it from somewhere else, where your settings would be skipped. It tells
   you when that happens rather than quietly using the wrong ones.
 - If the settings are wrong it checks nothing while appearing to work.
+- **It cannot tell a corrected claim from a deleted one.** Removing the sentence
+  it complained about makes a document pass. The `/handoff` workflow works
+  around this by making the agent report its first-run findings even after
+  fixing them, so a deletion is visible in both the report and the diff, but
+  the checker on its own has no way to know.
+- **A pattern you write yourself can hang it.** The settings take regular
+  expressions, and a badly shaped one can take effectively forever on certain
+  text. That is your own configuration doing it, and the fix is to simplify the
+  pattern, but the failure looks like the tool freezing rather than complaining.
 
 ## Works with any language
 

@@ -123,6 +123,28 @@ validator scanned per line while the translator scanned whole-text, and because
 backticks pair across newlines the two drifted out of phase on **402 tokens**.
 The validator reported dead SHAs the repairer was structurally unable to fix.
 
+## Known limits, found by adversarial probing
+
+An adversarial pass over 14 abuse cases left three standing. They are recorded
+because an undisclosed limit is indistinguishable from an unknown one.
+
+**Claim deletion passes.** The validator compares claims against git; it cannot
+compare a document against its own previous version. Deleting the offending
+sentence is therefore always a way through. Mitigated only at the workflow
+level, by the anti-gaming rules below.
+
+**A user-supplied regex can hang.** Configuration accepts patterns, and Python's
+`re` has no timeout, so a catastrophically backtracking pattern spins. The blast
+radius is the author's own repository and the fix is to simplify the pattern,
+but a hang is a worse failure mode than an error and is worth knowing about.
+
+**Fenced code is exempt from claim rules but not from the secret scan.** These
+pull in opposite directions on purpose. An example in a fence is not a promise,
+so claims there are ignored; a credential in a fence is still committed, so the
+secret scan reads everything. Inline backticks are treated differently again:
+kept for claim rules, because claims are written inside them, and blanked for
+link rules, because an example link is written inside them too.
+
 ## Anti-gaming
 
 **The subagent gets at most 2 validation attempts and must report its FIRST-run
