@@ -1,9 +1,9 @@
 name: tests
 
-# NOTE: this is expected to be RED until the placeholder copyright holder in
-# LICENSE is replaced. That failure is deliberate (see PUBLISHING.md); a green
-# badge over an unpublishable license would be the exact kind of reassuring,
-# false signal this project exists to prevent.
+# NOTE: a test fails while LICENSE still carries a placeholder copyright
+# holder. That failure is deliberate: a green badge over an unpublishable
+# license would be the exact kind of reassuring, false signal this project
+# exists to prevent.
 
 on:
   push:

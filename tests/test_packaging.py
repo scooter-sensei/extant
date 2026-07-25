@@ -45,8 +45,8 @@ def test_no_publication_placeholders_remain() -> None:
     assert "MIT License" in PACKAGE_ROOT.joinpath("LICENSE").read_text(encoding="utf-8")
     assert not offenders, (
         f"{len(offenders)} file(s) still carry the {placeholder} placeholder. "
-        f"Replace it with a real name or handle before publishing, see "
-        f"PUBLISHING.md:\n  " + "\n  ".join(offenders)
+        f"Replace it with the owner's real name or handle:\n  "
+        + "\n  ".join(offenders)
     )
 
 
