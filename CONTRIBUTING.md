@@ -62,6 +62,14 @@ confirm it goes red. A test that has never failed pins nothing. If a mutation
 does not reproduce the bug you meant to reproduce, the green run afterwards
 means nothing either.
 
+`tests/harnesses/mutate.py` does this mechanically for the whole suite, and
+`tests/harnesses/` holds two more audits that pytest cannot perform: a scenario
+matrix over project shapes unlike this one, and an adversarial smoke test. They
+are slow and run by hand. See `tests/harnesses/README.md`.
+
+They are worth running before a release, because between them they found every
+defect fixed in 0.3.0 and the unit suite found none of them.
+
 ## Style
 
 - ASCII only in string literals. Non-ASCII in printed output raises
