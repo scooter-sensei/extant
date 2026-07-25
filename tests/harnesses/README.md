@@ -88,6 +88,32 @@ cost is mostly interpreter startup and shell spawns rather than the tool's own
 work, so numbers on Linux are likely lower - **unverified**, since these were
 not measured there.
 
+## `stress.py` - where does it fall over?
+
+```sh
+python tests/harnesses/stress.py <extracted-package> <scratch-dir>
+```
+
+Aimed at the WEAK points on purpose, not at comfortable ones. The merge-claim
+rule is fast because it asks git once per distinct commit, so the case that
+matters is a document naming a different commit every time, where that
+deduplication buys nothing. The case-sensitivity check lists a directory per
+path component and caches nothing, so the case that matters is thousands of
+links in a deep tree. A load test that avoids a tool's known weak spots is
+measuring the wrong thing.
+
+Nine cases: 2000 distinct merge claims, a 100,000-line document, 5000 commits
+with 500 branches and 200 tags, 3000 links across a deep tree, a 500-entry
+archive, 50 extra documents, a 1 MB single line, peak memory, and 40 back-to-back
+runs.
+
+Peak memory is reported alongside time. A tool that is fast because it holds the
+whole document and every intermediate list at once has moved the problem rather
+than solved it.
+
+Each measurement carries a budget, so "slow" is a stated expectation being
+missed rather than a number someone has to judge by eye.
+
 ## Reading the output
 
 All three print a denominator: how many mutations, scenarios, or probes ran.

@@ -624,3 +624,56 @@ def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypat
         f"{len(calls)} git calls for 20 mentions of one commit; existence should "
         f"batch and ancestry should be asked once per distinct commit: {calls}"
     )
+
+
+def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
+    """The batch must say no as reliably as it says yes.
+
+    Ancestry is answered from one `git rev-list` rather than one merge-base per
+    claim, which took 2000 distinct claims from 105 seconds to about one. The
+    dangerous failure is not slowness: a batch that always answered True would
+    make `false-merge-claim` silently stop firing, and a check comparing only
+    on-trunk commits would pass against exactly that bug.
+
+    The first verification run had this hole - the fixture happened to contain
+    no off-trunk commits, so it compared 60 commits and proved one direction.
+    """
+    import handoff_collect as hc
+    repo, commit = git_repo
+    on_trunk = [commit(f"a{n}.py", f"a = {n}\n", f"feat: on trunk {n}")[:9]
+                for n in range(3)]
+    git(repo, "checkout", "-q", "-b", "abandoned")
+    off_trunk = [commit(f"b{n}.py", f"b = {n}\n", f"feat: off trunk {n}")[:9]
+                 for n in range(3)]
+    git(repo, "checkout", "-q", "main")
+
+    index = hc._trunk_ancestor_index(repo)
+    assert index, "no ancestor index built; the rest would prove nothing"
+
+    def batched(sha: str) -> bool:
+        return any(full.startswith(sha) for full in index.get(sha[:7], ()))
+
+    for sha in on_trunk:
+        assert batched(sha) is True, f"{sha} is on trunk but the batch said no"
+        assert hc._is_merged(repo, sha) is True
+    for sha in off_trunk:
+        assert batched(sha) is False, (
+            f"{sha} is NOT on trunk but the batch said yes; false-merge-claim "
+            f"would go silently blind"
+        )
+        assert hc._is_merged(repo, sha) is False
+
+
+def test_a_false_merge_claim_is_still_reported_through_the_batch(git_repo) -> None:
+    """End to end, because the two halves above could both be right while the
+    rule that consumes them is wired wrong."""
+    from handoff_collect import validate_merge_claims
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: base")
+    git(repo, "checkout", "-q", "-b", "abandoned")
+    stray = commit("b.py", "b = 1\n", "feat: never merged")[:9]
+    git(repo, "checkout", "-q", "main")
+
+    findings = validate_merge_claims(repo, f"Merged to `main` at `{stray}`.\n")
+
+    assert [f.kind for f in findings] == ["false-merge-claim"]

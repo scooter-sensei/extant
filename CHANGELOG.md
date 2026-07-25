@@ -19,6 +19,15 @@ a repository that no longer exists in that shape.
 |---|---|---|
 | 4,000 lines | 16.69s | 0.77s |
 | 16,000 lines | 66.68s | 1.59s |
+| 2,000 distinct merge claims | 104.8s | 2.1s |
+
+The third row came from a stress case aimed at the fix above: deduplicating by commit buys nothing when every claim names a different
+one. Ancestry now comes from a single `git rev-list` rather than one
+`merge-base` per commit. Measured on 5000 commits, rev-list costs 125ms
+against roughly 100ms for a single merge-base, so the batch pays for
+itself at two distinct commits and is used unconditionally: a
+size-based switch would create a second path that only runs on large
+inputs, which is the code that never gets tested.
 
 Scaling went from linear to sub-linear. The git hooks also now get three paths
 from one `git rev-parse` instead of three, saving about 170ms per commit on
