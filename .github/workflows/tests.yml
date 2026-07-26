@@ -45,6 +45,40 @@ jobs:
       - name: Run the suite
         run: python -m pytest
 
+  scenarios:
+    # The end-to-end matrix: a fresh repository per scenario, the tool
+    # installed into it, and assertions about what should happen.
+    #
+    # It ran by hand until now, which is precisely how a stale assertion
+    # survived. When the trunk guard became opt-in, the hooks scenario went on
+    # asserting that a default install wires a blocking pre-commit hook, and
+    # nothing said so until someone remembered to run the harness before a
+    # release. Here it fails on the commit that causes it.
+    #
+    # Linux also removes the local trap that hid it: `sh` is always present, so
+    # the ten hook tests that SKIP on a machine without one all actually run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Against a `git archive` extract rather than the working tree, so what
+      # is exercised is what would actually ship. A file that is present
+      # locally but untracked would otherwise pass here and be missing for
+      # everyone else.
+      - name: Build a shippable extract
+        run: |
+          mkdir -p /tmp/pkg
+          git archive HEAD | tar -x -C /tmp/pkg
+
+      - name: Run the scenario matrix
+        run: python tests/harnesses/scenarios.py /tmp/pkg /tmp/arena
+
   self-check:
     # The tool validating its own handoff document. Restricted to pushes on
     # main because the ancestry checks need a local `main` ref to resolve

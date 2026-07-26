@@ -29,6 +29,47 @@ def _run(repo: Path, *args: str) -> str:
     ).stdout
 
 
+@pytest.fixture(autouse=True)
+def neutral_config(tmp_path: Path):
+    """Run every in-process test against DEFAULT settings.
+
+    Configuration is read once at import, relative to the payload file, and the
+    upward search then finds THIS repository's own `.handoff.toml`. Tests that
+    call `main()` or `validate()` in process therefore inherit whatever this
+    project happens to configure for itself, which has nothing to do with the
+    behaviour under test.
+
+    That coupling was invisible while the file configured only a consistency
+    block, because `inconsistent-artifact` deliberately reads the config of the
+    repository being CHECKED rather than the ambient one. `extra_docs` does not,
+    so the moment this repository listed extra documents, a temporary repo was
+    asked for files it had never heard of and one unrelated test went red.
+
+    Without this, any contributor adding any setting here can turn unrelated
+    tests red, and the failure names a document rather than a cause.
+
+    Tests that run the tool as a SUBPROCESS are unaffected either way: a new
+    process reads the target repository's config, which is the real install
+    shape and is tested separately.
+    """
+    import handoff_collect as hc
+
+    # A directory with a `.git` in it and no config: the upward search stops
+    # there, so this cannot pick up a stray file from anywhere above tmp_path.
+    neutral = tmp_path / "_neutral_config"
+    (neutral / ".git").mkdir(parents=True, exist_ok=True)
+
+    saved_config = hc.CONFIG
+    saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
+    hc.reload_config(neutral)
+    try:
+        yield
+    finally:
+        hc.CONFIG = saved_config
+        for name, value in saved.items():
+            setattr(hc, name, value)
+
+
 @pytest.fixture
 def git_repo(tmp_path: Path) -> tuple[Path, Callable[[str, str, str], str]]:
     repo = tmp_path / "repo"

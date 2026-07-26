@@ -139,6 +139,34 @@ def test_payload_string_literals_are_ascii() -> None:
     )
 
 
+def test_this_repositorys_own_config_is_kept_out_of_tests() -> None:
+    """Pins the `neutral_config` fixture, which is otherwise unfalsifiable.
+
+    Settings load at import, relative to the payload, and the upward search
+    finds this repository's `.handoff.toml`. Every in-process test would then
+    run against whatever this project configures for itself. An autouse fixture
+    resets that to defaults, and an autouse fixture that quietly stops working
+    looks exactly like one that is working.
+    """
+    import handoff_collect as hc
+    from handoff_config import load_config
+
+    own = load_config(PACKAGE_ROOT)
+
+    # The denominator. If this repository stops configuring extra documents,
+    # the assertion below passes while demonstrating nothing, so fail loudly
+    # and say what to re-point it at rather than pass in silence.
+    assert own.extra_docs, (
+        "this repository no longer sets extra_docs, so this test no longer "
+        "shows that ambient configuration is kept out of tests. Re-point it at "
+        "whatever setting this repository does configure."
+    )
+    assert hc.CONFIG.extra_docs == (), (
+        "this repository's own extra_docs leaked into a test: "
+        f"{hc.CONFIG.extra_docs}. The neutral_config fixture is not applying."
+    )
+
+
 def test_every_shipped_file_is_ascii_including_prose() -> None:
     """Nothing pinned the DOCUMENTATION, which is where an em dash comes from.
 

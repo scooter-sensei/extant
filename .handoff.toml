@@ -5,6 +5,34 @@
 # could catch it: no rule inspects numbers. Comparing files against EACH OTHER
 # is a different question with a definite answer, and this is that check.
 
+# Documents that get the whole-file rules as well as the handoff document.
+#
+# Only three of this repository's documents can be checked, and the reason is
+# worth recording so that nobody helpfully adds a fourth. The rest are
+# documentation ABOUT claim-checking, so they are full of example claims that
+# are SUPPOSED to be dead:
+#
+#   README.md     illustrative SHAs (8f2a91c, abc1234) and a v2.1 tag, two of
+#                 them inside the table that documents the rules flagging them
+#   CHANGELOG.md  the same v2.1 example
+#   SKILL.md      points at "references/porting.md", which is correct relative
+#                 to SKILL.md and correct in an INSTALLED skill, where the
+#                 repository path does not exist. Path pointers resolve from
+#                 the repository root, so it reads as dead here. Do not "fix"
+#                 it; that would break the installed skill to satisfy a linter.
+#   config.md     the same shape, as a sibling reference to porting.md
+#   porting.md    quotes a SHA from the source corpus to explain why the merge
+#                 pattern requires the SHA to FOLLOW the phrase
+#
+# Measured, not guessed: each candidate was run before being listed here. Two
+# of the three below currently examine nothing, which is honest rather than
+# useless - they carry no claims today and this catches the first one added.
+extra_docs = [
+    "CONTRIBUTING.md",
+    "tests/harnesses/README.md",
+    "plugin/skills/handoff/references/design.md",
+]
+
 [handoff.consistency.version]
 "plugin/.claude-plugin/plugin.json" = '"version":\s*"([^"]+)"'
 ".claude-plugin/marketplace.json" = '"version":\s*"([^"]+)"'
