@@ -9,8 +9,10 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 6 - Renamed to extant (shipped, 2026-07-27)
 
 **Status.** Suite is 203 tests, all passing. Nothing about the engine changed;
-every name did. The word "handoff" appears nowhere in this repository except as
-a filename the tool looks for in other people's projects.
+every name did. The old name survives in exactly two places, both deliberate:
+the CHANGELOG entry recording the rename, which cannot describe it without
+naming it, and `HANDOFF.md` in the document-detection list, which is a filename
+in other people's repositories rather than one of ours.
 
 **What Shipped.**
 
