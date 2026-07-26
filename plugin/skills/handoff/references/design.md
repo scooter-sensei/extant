@@ -125,8 +125,10 @@ The validator reported dead SHAs the repairer was structurally unable to fix.
 
 ## Known limits, found by adversarial probing
 
-An adversarial pass over 14 abuse cases left three standing. They are recorded
-because an undisclosed limit is indistinguishable from an unknown one.
+An adversarial pass, now 18 probes wide, leaves three standing. They are
+recorded because an undisclosed limit is indistinguishable from an unknown one:
+the harness prints each of these as a flagged observation on every run, and a
+flag with nothing written down here would read as a fresh defect every time.
 
 **Claim deletion passes.** The validator compares claims against git; it cannot
 compare a document against its own previous version. Deleting the offending
@@ -137,6 +139,15 @@ level, by the anti-gaming rules below.
 `re` has no timeout, so a catastrophically backtracking pattern spins. The blast
 radius is the author's own repository and the fix is to simplify the pattern,
 but a hang is a worse failure mode than an error and is worth knowing about.
+
+**A consistency check can name the same file twice and always agree.** The
+check rejects a single-file block, because comparing a file against itself
+proves nothing, and it normalises paths so `docs/x.md` and `docs/./x.md` are
+caught as one file under two spellings. What it cannot catch is the same file
+reached by genuinely different routes, a symlink or a case variant on a
+case-insensitive filesystem. Such a block passes forever while appearing to
+compare two things. The two-file minimum catches the obvious shape and not this
+one.
 
 **Fenced code is exempt from claim rules but not from the secret scan.** These
 pull in opposite directions on purpose. An example in a fence is not a promise,

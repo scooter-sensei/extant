@@ -403,7 +403,15 @@ def s10_archive_roundtrip() -> None:
 
 # --------------------------------------------------------------------------
 def s11_hooks() -> None:
-    """The git hooks, installed and actually firing."""
+    """The git hooks, installed and actually firing.
+
+    The trunk guard is OPT-IN, so both halves of that promise are asserted
+    here: a default install must be incapable of blocking a commit, and
+    `--with-trunk-guard` must actually block one. Checking only the second half
+    is what this scenario used to do, and it kept passing after the default
+    changed underneath it - the assertion was for the old contract, so it went
+    red for the right reason and had to be rewritten rather than re-flagged.
+    """
     name = "s11-hooks"
     print(f"\n[{name}] git hooks")
     repo = new_repo(name)
@@ -412,25 +420,50 @@ def s11_hooks() -> None:
     commit(repo, "chore: init")
     install(repo)
     out = sh(repo, "sh", "tools/hooks/install", check=False)
-    check(name, "hook installer ran", out.returncode == 0, out.stdout + out.stderr)
-    check(name, "pre-commit guard wired", (repo / ".git/hooks/pre-commit").exists())
+    combined = out.stdout + out.stderr
+    check(name, "hook installer ran", out.returncode == 0, combined)
     check(name, "post-commit wired", (repo / ".git/hooks/post-commit").exists())
     check(name, "post-merge wired", (repo / ".git/hooks/post-merge").exists())
+    check(name, "default install wires NO blocking hook",
+          not (repo / ".git/hooks/pre-commit").exists(), combined)
+    check(name, "default names the flag that would add the guard",
+          "--with-trunk-guard" in out.stdout, combined)
 
     write(repo, "x.txt", "x\n")
     sh(repo, "git", "add", "-A")
     res = sh(repo, "git", "commit", "-m", "chore: trigger hooks", check=False)
     combined = res.stdout + res.stderr
-    check(name, "commit on trunk allowed by the guard", res.returncode == 0, combined)
+    check(name, "commit on trunk allowed", res.returncode == 0, combined)
     check(name, "post-commit reported the false claim", "[handoff]" in combined, combined)
 
+    # Off trunk in the main tree, guard NOT installed: must be allowed through.
     sh(repo, "git", "checkout", "-q", "-b", "topic")
     write(repo, "y.txt", "y\n")
+    sh(repo, "git", "add", "-A")
+    res = sh(repo, "git", "commit", "-m", "chore: off trunk, unguarded", check=False)
+    check(name, "off-trunk commit allowed while the guard is not installed",
+          res.returncode == 0, res.stdout + res.stderr)
+
+    # Opt in, and the identical commit must now be refused.
+    out = sh(repo, "sh", "tools/hooks/install", "--with-trunk-guard", check=False)
+    combined = out.stdout + out.stderr
+    check(name, "opt-in installer ran", out.returncode == 0, combined)
+    check(name, "opt-in wires the guard", (repo / ".git/hooks/pre-commit").exists(), combined)
+    check(name, "opt-in says plainly that it can block",
+          "CAN BLOCK A COMMIT" in out.stdout, combined)
+
+    write(repo, "z.txt", "z\n")
     sh(repo, "git", "add", "-A")
     res = sh(repo, "git", "commit", "-m", "chore: off trunk in main tree", check=False)
     check(name, "guard BLOCKS an off-trunk commit in the main tree",
           res.returncode != 0 and "BLOCKED" in (res.stdout + res.stderr),
           res.stdout + res.stderr)
+
+    # A misspelled flag must not quietly install the advisory set and imply the
+    # guard came with it.
+    out = sh(repo, "sh", "tools/hooks/install", "--with-trunk-gaurd", check=False)
+    check(name, "a misspelled flag is refused, not ignored",
+          out.returncode == 2, out.stdout + out.stderr)
 
 
 # --------------------------------------------------------------------------
@@ -451,12 +484,19 @@ def s12_empty_repo() -> None:
           "stayed silent" in st.stdout, st.stdout)
 
 
+# Counted, never spelled out. The README beside this file claimed "Three tools"
+# for two commits after the fourth and fifth arrived, and this line said
+# "12 scenarios" as a literal - a hand-maintained denominator in a harness whose
+# job is to make hand-maintained numbers untrustworthy.
+SCENARIOS = (s1_node_master_status, s2_release_tags, s3_ticket_branches,
+             s4_no_document, s5_extra_docs, s6_everything_broken,
+             s7_clean_project, s8_crlf_and_nested, s9_worktree,
+             s10_archive_roundtrip, s11_hooks, s12_empty_repo)
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
-    for fn in (s1_node_master_status, s2_release_tags, s3_ticket_branches,
-               s4_no_document, s5_extra_docs, s6_everything_broken,
-               s7_clean_project, s8_crlf_and_nested, s9_worktree,
-               s10_archive_roundtrip, s11_hooks, s12_empty_repo):
+    for fn in SCENARIOS:
         try:
             fn()
         except Exception as exc:                                # noqa: BLE001
@@ -465,7 +505,8 @@ def main() -> int:
 
     total = len(PASS) + len(FAIL)
     print(f"\n{'=' * 62}")
-    print(f"12 scenarios, {total} assertions: {len(PASS)} passed, {len(FAIL)} FAILED")
+    print(f"{len(SCENARIOS)} scenarios, {total} assertions: "
+          f"{len(PASS)} passed, {len(FAIL)} FAILED")
     if FAIL:
         print("\nFAILURES:")
         for f in FAIL:

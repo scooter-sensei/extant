@@ -68,6 +68,16 @@ what is tested is what would actually ship.
 It found that the installed slash command named the source project, and that a
 file path was being reported as a phantom branch.
 
+It later went red for a better reason: after the trunk guard became opt-in, the
+hooks scenario still asserted that a default install wires a `pre-commit` hook.
+The product was right and the assertion was for the retired contract. The fix
+was not to pass the new flag and move on - that would have left the DEFAULT
+untested, which is the half that matters, since a documentation checker
+silently regaining the power to refuse a commit is the worse failure. Both
+directions are now asserted: the default install must be incapable of blocking,
+and `--with-trunk-guard` must actually block. A scenario that has to be edited
+after a deliberate change is doing its job; one that does not, is not watching.
+
 ## `smoke.py` - what happens when someone abuses it?
 
 ```sh
@@ -81,8 +91,13 @@ paths, symlinks and `../` traversal, an option-shaped branch token, and three
 ways of gaming the validator.
 
 Each probe reports what happened, so a loophole appears as a finding rather than
-as an absence of noise. It found seven; five were fixed and two are recorded in
-`references/design.md` as known limits.
+as an absence of noise. It found seven; five were fixed and the rest are
+recorded in `references/design.md` as known limits, alongside two more that
+later probes turned up. A clean run today is 18 probes, 23 observations, three
+of them flagged: the regex hang, deletion-as-repair, and a consistency check
+that names one file twice. Flagged is not the same as unknown - each of the
+three points at a paragraph in `design.md`, and a fourth appearing would mean
+something genuinely new.
 
 ## `perf.py` - is it fast enough to leave installed?
 
@@ -117,10 +132,16 @@ path component and caches nothing, so the case that matters is thousands of
 links in a deep tree. A load test that avoids a tool's known weak spots is
 measuring the wrong thing.
 
-Nine cases: 2000 distinct merge claims, a 100,000-line document, 5000 commits
+Twelve cases: 2000 distinct merge claims, a 100,000-line document, 5000 commits
 with 500 branches and 200 tags, 3000 links across a deep tree, a 500-entry
-archive, 50 extra documents, a 1 MB single line, peak memory, and 40 back-to-back
-runs.
+archive, 50 extra documents, a 1 MB single line, peak memory, 40 back-to-back
+runs, `--search` over a 2000-entry archive, a 200-file consistency check, and
+500 renamed references in one document.
+
+This section said "Nine cases" for as long as it took the last three to be
+written, which is the same drift the tool exists to catch and cannot: no rule
+here inspects a number. The count in the output is derived from the case list;
+this sentence is prose, and prose is what rots.
 
 Peak memory is reported alongside time. A tool that is fast because it holds the
 whole document and every intermediate list at once has moved the problem rather

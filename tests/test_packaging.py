@@ -139,6 +139,58 @@ def test_payload_string_literals_are_ascii() -> None:
     )
 
 
+def test_every_shipped_file_is_ascii_including_prose() -> None:
+    """Nothing pinned the DOCUMENTATION, which is where an em dash comes from.
+
+    Two ASCII checks already exist and neither covers a markdown file: one
+    tokenizes Python and reads string literals only, the other reads the shell
+    hooks. Prose was the gap, and prose is exactly where a smart-quote or an em
+    dash arrives, pasted in with a sentence, in a README that a Windows console
+    then cannot print.
+
+    Whole-file and allowlist-free on purpose. An extension filter is how this
+    check would quietly stop covering something: a hand-written list of
+    suffixes silently skips every file whose kind nobody thought of, and the
+    extensionless hooks are already three such files. Everything tracked is
+    read, and a binary would have to be declared here deliberately.
+    """
+    skipped: list[str] = []
+    offenders: list[str] = []
+    scanned = 0
+
+    for path in sorted(PACKAGE_ROOT.rglob("*")):
+        parts = path.relative_to(PACKAGE_ROOT).parts
+        if not path.is_file():
+            continue
+        if {".git", "__pycache__", ".pytest_cache", ".venv"} & set(parts):
+            continue
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("ascii")
+        except UnicodeDecodeError as exc:
+            # Report the character rather than the byte offset alone: "U+2014"
+            # is actionable and "invalid byte at 4211" is not.
+            char = raw.decode("utf-8", errors="replace")[:exc.start + 1][-1]
+            offenders.append(
+                f"{path.relative_to(PACKAGE_ROOT)}: U+{ord(char):04X} ({char!r})"
+            )
+            continue
+        if "\x00" in text:
+            skipped.append(str(path.relative_to(PACKAGE_ROOT)))
+            continue
+        scanned += 1
+
+    # Denominators. A rglob that matched nothing, or an exclusion that grew to
+    # cover the repository, would otherwise pass in exactly the same silence.
+    assert scanned > 20, f"only {scanned} files scanned; the sweep is not reaching them"
+    assert not skipped, f"binary files present and unexamined: {skipped}"
+    assert not offenders, (
+        "non-ASCII in a shipped file (use '-' for an em dash, '...' for an "
+        "ellipsis, '->' for an arrow, and plain quotes):\n  "
+        + "\n  ".join(offenders)
+    )
+
+
 def test_shipped_shell_hooks_are_ascii() -> None:
     """The hooks echo to a terminal too, and are not Python, so tokenize cannot
     see them. Whole-file check: they carry no diagrams to preserve."""
