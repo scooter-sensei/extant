@@ -245,3 +245,56 @@ def test_no_invalid_escape_sequences_anywhere() -> None:
         "invalid escape sequences (use a raw string or double the backslash):\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_every_config_derived_global_is_reloadable() -> None:
+    """A derived global that reload_config forgets keeps a stale value.
+
+    Configuration is read at import, relative to the file. Installed as a
+    package - which the pre-commit framework does - that location is
+    site-packages, so the tool must re-read config for the repository it was
+    pointed at. Anything derived from CONFIG and not refreshed then silently
+    describes some other project.
+
+    The source is PARSED for the assignments rather than compared against a
+    hand-written list, so adding a derived global without reloading it fails
+    here instead of shipping.
+    """
+    import re
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    import handoff_collect as hc
+
+    source = (SKILL_ROOT / "payload" / "handoff_collect.py").read_text(encoding="utf-8")
+    assigned = dict(re.findall(r"^(\w+) = CONFIG\.(\w+)$", source, re.M))
+
+    assert assigned, "found no CONFIG-derived globals; this check proves nothing"
+    assert assigned == hc._CONFIG_DERIVED, (
+        "reload_config does not cover every derived global.\n"
+        f"  in the source but not reloaded: {set(assigned) - set(hc._CONFIG_DERIVED)}\n"
+        f"  reloaded but not in the source: {set(hc._CONFIG_DERIVED) - set(assigned)}"
+    )
+
+
+def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
+    """Catches a reload that updates CONFIG and leaves the globals behind."""
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    import handoff_collect as hc
+
+    before = hc.HANDOFF_DOC
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text(
+        'handoff_doc = "SOMETHING_ELSE.md"\ntrunk = "develop"\n', encoding="utf-8")
+    try:
+        hc.reload_config(tmp_path)
+        assert hc.HANDOFF_DOC == "SOMETHING_ELSE.md"
+        assert hc.TRUNK == "develop"
+        assert hc._MERGE_CLAIM.search("merged to `develop` at `abc1234`"), (
+            "a compiled pattern that interpolates trunk was not rebuilt"
+        )
+    finally:
+        hc.reload_config(PACKAGE_ROOT)
+    assert hc.HANDOFF_DOC == before

@@ -74,6 +74,139 @@ def verify_hooks(repo: Path) -> list[str]:
     return lines
 
 
+# Presets exist because the documented failure mode of this tool is a
+# configuration that matches nothing and reports a healthy run forever. Asking
+# every adopter to derive patterns before they have seen the tool work once is
+# a fine way to lose them at step one.
+#
+# A preset names the DOCUMENTS and the shape. Detection still supplies trunk,
+# branch naming and commit conventions, because those are measured from the
+# repository and a guess would be worse than a measurement.
+#
+# `readme` deliberately needs nothing else: it is the shape of a project that
+# keeps no status document at all, which is most of them.
+PRESETS: dict[str, dict[str, object]] = {
+    "readme": {
+        "summary": "check the docs you already have (no status file needed)",
+        "handoff_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md"],
+        # No dated entries in a README, so nothing to archive or group.
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+    },
+    "node": {
+        "summary": "a README-shaped project, plus package.json cross-checks",
+        "handoff_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "suite_command": ["npm", "test"],
+        "consistency": {
+            "version": {
+                "package.json": r'"version":\s*"([^"]+)"',
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
+    "python": {
+        "summary": "a README-shaped project, plus pyproject cross-checks",
+        "handoff_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            "version": {
+                "pyproject.toml": r'^version\s*=\s*"([^"]+)"',
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
+    "rust": {
+        "summary": "a README-shaped project, plus Cargo.toml cross-checks",
+        "handoff_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "suite_command": ["cargo", "test"],
+        "consistency": {
+            "version": {
+                "Cargo.toml": r'^version\s*=\s*"([^"]+)"',
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
+    "handoff": {
+        "summary": "a running status document with dated entries (the original shape)",
+        "handoff_doc": None,      # detected
+        "extra_docs": [],
+        "disable": [],
+    },
+}
+
+
+def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Observation], list[str]]:
+    """Fold a preset into the derived observations, reporting what it changed.
+
+    A preset never overrides something MEASURED from the repository. Detection
+    beats a template every time: the whole point of the installer is that it
+    looks rather than assumes, and a preset that silently replaced a derived
+    trunk would reintroduce exactly the copied-config failure this project was
+    built around.
+    """
+    preset = PRESETS[name]
+    notes = [f"preset '{name}': {preset['summary']}"]
+    by_key = {o.key: o for o in obs}
+    out = list(obs)
+
+    doc = preset.get("handoff_doc")
+    if doc:
+        existing = by_key.get("handoff_doc")
+        if existing is not None and existing.value == doc:
+            notes.append(f"  handoff_doc already {doc}")
+        elif (repo / str(doc)).is_file():
+            out = [Observation("handoff_doc", doc, DERIVED,
+                               f"chosen by preset '{name}'") if o.key == "handoff_doc"
+                   else o for o in out]
+            notes.append(f"  handoff_doc -> {doc}")
+        else:
+            notes.append(f"  {doc} does not exist here; kept the detected document")
+
+    extras = [e for e in preset.get("extra_docs", []) if (repo / str(e)).is_file()]
+    if extras:
+        out.append(Observation("extra_docs", extras, DERIVED,
+                               f"present in this repo, added by preset '{name}'"))
+        notes.append(f"  extra_docs -> {', '.join(extras)}")
+
+    for key in preset.get("disable", []):          # type: ignore[union-attr]
+        out = [o for o in out if o.key != key]
+        out.append(Observation(key, "", DERIVED,
+                               f"switched off by preset '{name}'"))
+    if preset.get("disable"):
+        notes.append(f"  disabled: {', '.join(preset['disable'])}")  # type: ignore[arg-type]
+
+    if "suite_command" in preset:
+        out.append(Observation("suite_command", preset["suite_command"], DERIVED,
+                               f"preset '{name}'"))
+        notes.append(f"  suite_command -> {preset['suite_command']}")
+
+    consistency = preset.get("consistency", {})
+    if consistency:
+        # Only checks whose files are ALL present are emitted. A check naming a
+        # file that does not exist reports a finding on the first run, which
+        # teaches the reader that this tool complains about nothing, and that
+        # lesson is very hard to unteach.
+        usable = {
+            check: sources for check, sources in consistency.items()   # type: ignore[union-attr]
+            if all((repo / f).is_file() for f in sources)
+        }
+        skipped = sorted(set(consistency) - set(usable))                # type: ignore[arg-type]
+        if usable:
+            out.append(Observation("consistency", usable, DERIVED,
+                                   f"preset '{name}', files verified present"))
+            notes.append(f"  consistency -> {', '.join(usable)}")
+        for check in skipped:
+            missing = [f for f in consistency[check]                    # type: ignore[index]
+                       if not (repo / f).is_file()]
+            notes.append(f"  consistency.{check} skipped: {', '.join(missing)} not here")
+    return out, notes
+
+
 def render_command(obs: list[Observation], project: str) -> tuple[str, list[str]]:
     """Render the /handoff slash command for THIS repo.
 
@@ -227,7 +360,12 @@ def render_config(obs: list[Observation]) -> str:
     regexy = {"branch_token", "merge_claim", "phase_task", "live_phrases",
               "base_header", "path_pointer", "phase_bare", "todo_markers"}
     plain = {"handoff_doc", "archive_doc", "trunk", "entry_prefix", "pointer_prefix"}
-    for o in obs:
+    # `consistency` is a nested table, so it must be emitted AFTER every plain
+    # key: in TOML everything following a table header belongs to that table,
+    # and a scalar written below one silently joins it. That is the same shape
+    # as the bug where a [handoff.*] sub-table swallowed the top-level keys.
+    deferred = [o for o in obs if o.key == "consistency"]
+    for o in [o for o in obs if o.key != "consistency"]:
         lines.append(f"# [{o.confidence}] {o.evidence}")
         if o.value is None:
             lines.append(f"# {o.key} = '...'   # NOT DETERMINED - set this by hand")
@@ -239,10 +377,29 @@ def render_config(obs: list[Observation]) -> str:
                 lines.append(f"{o.key} = '{value}'")
         elif o.key in plain:
             lines.append(f'{o.key} = "{o.value}"')
+        elif isinstance(o.value, list):
+            rendered = ", ".join(f'"{item}"' for item in o.value)
+            lines.append(f"{o.key} = [{rendered}]")
+        elif o.value == "":
+            # An empty string is how a feature is switched OFF, and it has to be
+            # written as a quoted empty string. Falling through to the bare
+            # branch produced `plans_dir = ` with nothing after it, which is not
+            # valid TOML - so the installer wrote a file the tool then refused
+            # to read. An installer that emits a broken config is worse than one
+            # that emits none.
+            lines.append(f"{o.key} = ''")
         else:
             lines.append(f"{o.key} = {o.value}")
         lines.append("")
     lines += ["retain_entries = 3", ""]
+
+    for o in deferred:
+        lines.append(f"# [{o.confidence}] {o.evidence}")
+        for check, sources in o.value.items():          # type: ignore[union-attr]
+            lines.append(f"[handoff.consistency.{check}]")
+            for file_path, pattern in sources.items():
+                lines.append(f'"{file_path}" = \'{pattern}\'')
+            lines.append("")
     return "\n".join(lines)
 
 
@@ -252,6 +409,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--doc", help="path to the handoff document, if ambiguous")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true", help="overwrite existing payload files")
+    parser.add_argument("--preset", choices=sorted(PRESETS),
+                        help="start from a known project shape; "
+                             + "; ".join(f"{k}: {v['summary']}" for k, v in PRESETS.items()))
     args = parser.parse_args(argv)
 
     repo = Path(args.repo).resolve()
@@ -275,6 +435,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     obs, _info = observe(repo, doc)
+    if args.preset:
+        obs, preset_notes = apply_preset(args.preset, obs, repo)
+        print()
+        for note in preset_notes:
+            print(f"  {note}")
     print("\nderived configuration")
     width = max(len(o.key) for o in obs)
     for o in obs:

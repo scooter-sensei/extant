@@ -2113,6 +2113,75 @@ def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
     return results
 
 
+# Every module-level value derived from CONFIG, as {global: config field}.
+#
+# Declared ONCE so the reload below and the test that guards it read the same
+# list. A test parses this file for `NAME = CONFIG.field` and asserts the set
+# matches exactly, so a new derived global that nobody reloads fails a test
+# rather than silently keeping a stale value when the tool runs against a
+# different repository.
+_CONFIG_DERIVED = {
+    "HANDOFF_DOC": "handoff_doc",
+    "ARCHIVE_DOC": "archive_doc",
+    "RETAIN_ENTRIES": "retain_entries",
+    "TRUNK": "trunk",
+    "_ARCHIVE_HEADER": "archive_header",
+    "_PHASE_TASK": "phase_task",
+    "_PHASE_BARE": "phase_bare",
+    "_TODO_MARKER": "todo_markers",
+    "_BASE_HEADER": "base_header",
+    "_PHASE_PREFIX": "entry_prefix",
+    "_POINTER_PREFIX": "pointer_prefix",
+    "_LIVE_PHRASES": "live_phrases",
+    "_BRANCH_TOKEN": "branch_token",
+    "_MERGE_CLAIM": "merge_claim",
+    "_PATH_POINTER": "path_pointer",
+    "_RELEASE_TAG": "release_tag",
+}
+
+
+def reload_config(repo: Path) -> None:
+    """Re-read configuration for `repo` and refresh everything derived from it.
+
+    Configuration is read at import, relative to this file, which is right when
+    the tool sits at `tools/` inside the repository it checks. Installed as a
+    package - which is what the pre-commit framework does - `__file__` is inside
+    site-packages, where there is no repository and no `.handoff.toml`. Without
+    this the hook would validate `NEXT_SESSION.md` in every project on earth and
+    report a healthy run for the ones that keep no such file.
+    """
+    global CONFIG
+    CONFIG = load_config(repo)
+    for name, field in _CONFIG_DERIVED.items():
+        globals()[name] = getattr(CONFIG, field)
+
+
+def cli() -> int:
+    """Console-script entry point, used by the pre-commit hook.
+
+    Differs from `main` in two ways, both because a hook invokes the command
+    bare from the repository being committed to:
+
+    - no mode given means `--verify`
+    - `--repo` defaults to the CURRENT DIRECTORY rather than to wherever the
+      package was installed
+    """
+    argv = list(sys.argv[1:])
+    modes = {"--collect", "--archive", "--validate", "--verify",
+             "--selftest", "--search"}
+    if not any(arg.split("=", 1)[0] in modes for arg in argv):
+        argv.insert(0, "--verify")
+    if not any(arg.split("=", 1)[0] == "--repo" for arg in argv):
+        repo = Path.cwd()
+        argv += ["--repo", str(repo)]
+    else:
+        index = next(i for i, a in enumerate(argv) if a.split("=", 1)[0] == "--repo")
+        raw = argv[index]
+        repo = Path(raw.split("=", 1)[1] if "=" in raw else argv[index + 1])
+    reload_config(repo)
+    return main(argv)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="handoff_collect", description="Collect and validate handoff facts."

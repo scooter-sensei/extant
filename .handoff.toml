@@ -9,4 +9,5 @@
 "plugin/.claude-plugin/plugin.json" = '"version":\s*"([^"]+)"'
 ".claude-plugin/marketplace.json" = '"version":\s*"([^"]+)"'
 "plugin/skills/handoff/SKILL.md" = '^version:\s*(\S+)'
+"pyproject.toml" = '^version = "([^"]+)"'
 "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'

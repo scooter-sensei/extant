@@ -1,0 +1,38 @@
+# Hooks published for the pre-commit framework.
+#
+#   repos:
+#     - repo: https://github.com/scooter-sensei/handoff-validator
+#       rev: v0.5.0
+#       hooks:
+#         - id: handoff
+#
+# `language: python` so pre-commit builds its own isolated environment and this
+# works on Windows, macOS and Linux without a shebang or an executable bit.
+# The package has no third-party dependencies, so that environment is empty
+# apart from the tool itself.
+#
+# always_run with pass_filenames false, deliberately. pre-commit's default is to
+# run a hook only when a matching file changed, and that is exactly wrong here:
+# a commit that touches no documentation at all can still falsify a claim in it.
+# Merging a branch makes "not yet merged" false without editing a single line of
+# prose, which is the case this whole tool exists for.
+
+- id: handoff
+  name: Check that the documentation still tells the truth
+  description: >
+    Verifies every falsifiable claim in your documentation against git and the
+    filesystem: dead commit references, false merge claims, dead links and
+    paths, release tags that never shipped, and files that contradict each
+    other.
+  entry: handoff-validate
+  language: python
+  pass_filenames: false
+  always_run: true
+
+- id: handoff-annotate
+  name: Check documentation, output as GitHub annotations
+  description: Same checks, emitted as GitHub Actions workflow annotations.
+  entry: handoff-validate --format=github
+  language: python
+  pass_filenames: false
+  always_run: true

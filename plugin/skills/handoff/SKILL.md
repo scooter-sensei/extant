@@ -1,23 +1,27 @@
 ---
 name: handoff
-description: "Use when a project needs its session-handoff or status document to stay TRUE - a doc that says what shipped, what is merged, what is next, and that a fresh session reads as ground truth. Installs a validator that machine-checks every falsifiable claim against git before a commit is allowed, plus a /handoff command that drafts the entry and git hooks that re-check after every commit and merge. Also use when asked to port, install, or configure the handoff system in another repo."
-version: 0.4.0
+description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /handoff command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
+version: 0.5.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
 ---
 
-# Handoff system
+# Handoff validator
 
-A status document that a fresh session reads as ground truth will decay, and the
-decay is invisible until somebody acts on a false claim. This installs a
-validator that makes the decay impossible to ignore.
+Documentation makes claims - a version, a file path, a commit, a branch - and
+those claims decay. The decay is invisible until somebody acts on one. This
+installs a validator that makes it impossible to ignore.
 
-Built and proven on a real repo where the handoff document had rotted to: a
-false "not yet merged" claim about work that shipped three days earlier, 40 dead
-commit references after a history rewrite, a pointer to a plan file that did not
-exist, and 1,782 lines of unbounded growth that every session was instructed to
-read end to end.
+**It needs no special document.** Point it at a README, a CONTRIBUTING file, an
+architecture note, anything in markdown. Requiring a dedicated status file was
+the largest barrier to using this and was never a real requirement.
+
+It does handle that shape too, and was built on one: a real repository whose
+handoff document had rotted to a false "not yet merged" claim about work that
+shipped three days earlier, 40 dead commit references after a history rewrite, a
+pointer to a plan file that did not exist, and 1,782 lines of unbounded growth
+that every session was told to read end to end.
 
 ## What it installs
 
@@ -43,9 +47,18 @@ stdout; every human diagnostic moves to stderr.
 ## Installing into a repo
 
 ```
-python <skill>/install.py --repo /path/to/repo
+python <skill>/install.py --repo /path/to/repo --preset readme
 cd /path/to/repo && sh tools/hooks/install
 ```
+
+Presets: `readme` (any project, no status file needed), `node`, `python`,
+`rust`, `handoff` (a running status document). A preset chooses the documents
+and the shape; detection still supplies trunk, branch naming and commit
+conventions, because those are measured rather than assumed.
+
+**Most projects want `readme`.** Requiring a status document to exist was the
+single largest barrier to using this at all, and it was never a real
+requirement: the rules work on any markdown.
 
 Then **derive the configuration from the real document - do not accept the
 defaults blindly.** See `references/porting.md`. This is the step that decides

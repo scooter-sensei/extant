@@ -1,0 +1,46 @@
+# Packaging exists for ONE reason: the pre-commit framework builds an isolated
+# environment from a repository, and `language: python` needs something
+# installable to build. Without this file, adopting the tool through pre-commit
+# is impossible.
+#
+# This does not change how the tool is normally installed. The hooks and the
+# slash command have to live inside the target repository, so `install.py`
+# copying files in remains the primary path. Packaging covers the validation
+# half only, which is the half pre-commit runs.
+#
+# No dependencies, deliberately. Standard library and git, nothing else.
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "handoff-validator"
+version = "0.5.0"
+description = "Check that the claims in your documentation are still true, against git and the filesystem"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "scooter-sensei"}]
+keywords = ["documentation", "validation", "git", "pre-commit", "ai-agents"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/scooter-sensei/handoff-validator"
+Changelog = "https://github.com/scooter-sensei/handoff-validator/blob/main/CHANGELOG.md"
+
+[project.scripts]
+handoff-validate = "handoff_collect:cli"
+
+[tool.setuptools]
+package-dir = {"" = "plugin/skills/handoff/payload"}
+py-modules = ["handoff_collect", "handoff_config"]

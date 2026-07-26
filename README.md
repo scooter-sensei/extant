@@ -2,7 +2,7 @@
 
 # handoff-validator
 
-**Keeps your project's status notes honest, by checking them against what actually happened.**
+**Your documentation makes claims. This checks whether they are still true.**
 
 [![tests](https://github.com/scooter-sensei/handoff-validator/actions/workflows/tests.yml/badge.svg)](https://github.com/scooter-sensei/handoff-validator/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -15,25 +15,15 @@
 
 ## The problem
 
-Most projects keep a notes file that says where things stand. Yours probably has
-lines like these:
+Your README says the project needs Node 18. Your `package.json` says 20. Your
+CONTRIBUTING file links to a script that was deleted in March. Somewhere a
+document says a rewrite "landed in `8f2a91c`", and that commit no longer exists.
 
-```markdown
-## Phase 3 - Checkout flow (in progress)
+Every one of those sentences was true the day it was written.
 
-**Status.** The checkout work is NOT yet merged.
-It lives on `feature/checkout`.
-
-Shipped earlier: merged to `main` at `8f2a91c`.
-
-**Design:** `docs/checkout-plan.md`
-```
-
-Every one of those sentences was true the day it was written. Weeks later, some
-of them quietly are not. The checkout work did get merged. The commit was
-rewritten and no longer exists. The design doc was renamed.
-
-Nothing complains, because the file is just writing.
+Nothing complains, because documentation is just writing. Tests check code. Type
+checkers check types. Nothing checks whether your prose is still accurate, so it
+drifts quietly until somebody follows it and wastes an afternoon.
 
 This matters more than it used to. AI coding assistants read these files and
 treat them as fact. An assistant cannot tell that a line expired, so it plans
@@ -41,24 +31,29 @@ around something untrue, and you get confidently wrong work.
 
 ## What it looks like when it works
 
-Run one command against that exact file:
+An ordinary project. A README, a `package.json`, a CONTRIBUTING file. **No
+special status document, no new habits to adopt.**
 
 ```console
 $ python tools/handoff_collect.py --verify
 
-line 6:  [stale-live-claim]   claims `feature/checkout` unmerged, but that branch
-                              no longer exists (merged and cleaned up, or the
-                              claim is stale)
-line 8:  [dead-sha]           `8f2a91c` does not resolve in this repo
-line 10: [dead-path-pointer]  points at `docs/checkout-plan.md`, which does not exist
+line 5:  [dead-sha]                `deadbeef1234567` does not resolve in this repo
+line 3:  [dead-md-link]            links to `docs/setup.md`, which does not exist
+line 1:  [inconsistent-artifact]   `node_version` disagrees across files:
+                                   `18` in README.md; `20` in package.json
 
-checked NEXT_SESSION.md: dead-sha 1, stale-live-claim 1, false-merge-claim 1,
-  dead-path-pointer 1 (10 lines scanned for secrets)
+checked README.md: dead-sha 1, dead-md-link 1, inconsistent-artifact 2
+CONTRIBUTING.md: line 3: [dead-md-link] links to `scripts/gone.sh`
 ```
 
-Three lies, found in under a second, with line numbers. That last line is the
-count of things it **looked at**, which matters as much as the problems it found.
-More on that below.
+Four lies in the docs you already have, found in under a second, with line
+numbers. That `checked` line is the count of things it **looked at**, which
+matters as much as the problems it found. More on that below.
+
+It also handles the harder case, if you keep one: a running status or handoff
+file, where entries make claims about branches and merges that go stale as work
+lands. That is where this started, and it is now one use case rather than the
+price of entry.
 
 ---
 
@@ -112,8 +107,13 @@ different question with a definite answer. See below.
 
 | | |
 |:---|:---|
-| **Probably yes** | You keep a running notes, status, or handoff file, you use Git, and especially if an AI assistant reads that file. |
-| **Probably not** | Everything lives in Jira or Linear and you keep no notes file, or your project does not use Git. |
+| **Probably yes** | Your project uses Git and has documentation: a README, a CONTRIBUTING file, docs, architecture notes. That is enough. It matters more if an AI assistant reads those files, because it cannot tell an expired line from a current one. |
+| **Probably not** | Your project does not use Git, or your documentation is a single paragraph that never mentions a file, a commit, or a version. |
+
+Note what is **not** on that list: keeping a status or handoff file. This
+started as a tool for those and required one to exist, which turned out to be
+the single largest reason people could not use it. The rules were never
+specific to that shape - they work on any markdown.
 
 ---
 
@@ -159,7 +159,23 @@ That is the whole installation. Now open the project you want to protect and ask
 It runs the setup, works out the right settings by looking at your project, and
 tells you what it found.
 
-### Option B: download it yourself
+### Option B: pre-commit, if you already use it
+
+One block in your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/scooter-sensei/handoff-validator
+    rev: v0.5.0
+    hooks:
+      - id: handoff
+```
+
+It runs on every commit, whether or not you touched any documentation. That is
+deliberate: merging a branch can make a sentence false without editing a single
+line of prose, which is the case this exists for.
+
+### Option C: download it yourself
 
 Works with or without Claude Code.
 
@@ -180,6 +196,28 @@ $ python handoff-validator/plugin/skills/handoff/install.py --repo /path/to/your
 Read what it prints. If it looks wrong, stop, and nothing has happened.
 
 **3. Do it for real.** Same command, without `--dry-run`.
+
+If you want it configured for you, add a preset:
+
+```console
+$ python .../install.py --repo /path/to/your/project --preset readme
+```
+
+| Preset | For |
+|:---|:---|
+| `readme` | any project. Checks your README and CONTRIBUTING. Nothing else needed. |
+| `node` | the same, plus `package.json` and `CHANGELOG.md` version agreement |
+| `python` | the same, with `pyproject.toml` |
+| `rust` | the same, with `Cargo.toml` |
+| `handoff` | a running status file with dated entries |
+
+A preset picks the documents and the shape. It never overrides something the
+setup measured from your project, because a measurement beats a template, and a
+preset that quietly replaced your real branch name would be the copied-config
+problem this tool was built around.
+
+Checks whose files are not present are skipped and reported, so a preset never
+opens by complaining about a file you do not have.
 
 **4. Turn on the automatic checks.**
 

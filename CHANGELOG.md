@@ -1,5 +1,73 @@
 # Changelog
 
+## 0.5.0 (2026-07-26)
+
+Repositioned, plus presets and a pre-commit hook. The engine barely changed;
+what changed is who can use it.
+
+### It never needed a status document
+
+Peer review landed on one point hard: most teams keep no running status file, so
+the tool looked useless to them. Testing that claim rather than accepting it
+showed the engine already handled an ordinary project - a README, a
+package.json, a CONTRIBUTING file - and found a dead commit reference, a dead
+link and a Node version disagreement with no code changes at all.
+
+So the barrier was the pitch, not the engine. The README, SKILL.md and
+marketplace entry now lead with "your documentation makes claims; this checks
+whether they are still true". Status documents are one shape rather than the
+price of entry.
+
+The audience table said "probably not for you" to exactly the projects now being
+targeted, which is the sort of stale claim this tool exists to catch.
+
+### Presets
+
+    python install.py --repo . --preset readme
+
+`readme`, `node`, `python`, `rust` and `handoff`. A preset chooses the documents
+and the shape; detection still supplies trunk, branch naming and commit
+conventions, because those are measured and a template would be a guess.
+
+Checks whose files are absent are skipped and reported, so a preset never opens
+by complaining about a file you do not have - a tool whose first act is a false
+positive has taught a lesson that is very hard to unteach.
+
+### pre-commit framework
+
+    repos:
+      - repo: https://github.com/scooter-sensei/handoff-validator
+        rev: v0.5.0
+        hooks:
+          - id: handoff
+
+Runs on every commit regardless of which files changed, deliberately: merging a
+branch can falsify a sentence without editing a line of prose.
+
+Verified against the real framework rather than written from the documentation.
+It built its environment from the repository, read the consumer's config,
+validated that project's README rather than a default filename, failed on the
+rotted version and passed once the docs were fixed.
+
+That last part needed a real fix. Configuration is read at import relative to
+the file, which under pip is site-packages - so the hook would have validated
+NEXT_SESSION.md in every project on earth and reported a healthy run for the
+ones with no such file. `reload_config` re-reads for the repository being
+checked, and a test parses this file for every `NAME = CONFIG.field` assignment
+and fails if one is not reloaded, so a future derived global cannot quietly keep
+a stale value.
+
+### Fixed
+
+- The installer emitted `plans_dir = ` with nothing after it when a preset
+  switched a feature off. That is not valid TOML, so the installer wrote a file
+  the tool then refused to read. An installer that emits a broken config is
+  worse than one that emits none.
+- `pyproject.toml` exists now, for one reason: pre-commit builds an isolated
+  environment and `language: python` needs something installable. Copying files
+  into the target repository remains the primary install path, because the hooks
+  and slash command have to live there.
+
 ## 0.4.0 (2026-07-26)
 
 Five additions, one of which exists because this project shipped the bug it
