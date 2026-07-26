@@ -2382,8 +2382,14 @@ def main(argv: list[str] | None = None) -> int:
             extra_findings = validate(repo, extra_text, has_entries=False)
             record(relative, extra_findings, primary=False)
             examined_extra = count_examined(repo, extra_text)
+            # Repository-scoped rules do not run for an extra document, so
+            # reporting their candidate count here claims coverage that was
+            # not provided. A denominator that overstates is worse than none:
+            # it is the reassuring number, not the honest one.
+            skipped = {rule.kind for rule in RULES if rule.scope == "repository"}
             checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
-                                if kind != "possible-secret" and n)
+                                if kind != "possible-secret" and n
+                                and kind not in skipped)
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
             if extra_findings:
                 exit_code = 1

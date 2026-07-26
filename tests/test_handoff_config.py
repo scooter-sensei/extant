@@ -240,3 +240,45 @@ def test_an_unrecognised_toml_error_gets_a_generic_hint(tmp_path):
 
     assert "not valid TOML" in message, message
     assert "basic* string" not in message, message
+
+
+def test_top_level_keys_survive_a_handoff_subtable(tmp_path):
+    """Writing [handoff.consistency.x] must not discard settings above it.
+
+    TOML turns that header into a `handoff` key, and choosing between the two
+    locations silently dropped every top-level setting: the file looked
+    configured and was not. Found by trying to configure a README-only project,
+    which is the case this tool most wants to serve.
+    """
+    from handoff_config import load_config
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text(
+        'handoff_doc = "README.md"\n'
+        'extra_docs = ["CONTRIBUTING.md"]\n'
+        "\n[handoff.consistency.node]\n"
+        "\"README.md\" = 'Node (\d+)'\n"
+        "\"package.json\" = 'node.*?(\d+)'\n",
+        encoding="utf-8")
+
+    cfg = load_config(tmp_path)
+
+    assert cfg.handoff_doc == "README.md", "a top-level key was discarded"
+    assert cfg.extra_docs == ("CONTRIBUTING.md",)
+    assert "node" in cfg.consistency
+
+
+def test_a_key_set_in_both_places_is_refused(tmp_path):
+    """Two homes for one setting means the wrong one can be read while the
+    right one sits there looking correct."""
+    from handoff_config import load_config
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text(
+        'handoff_doc = "TOP.md"\n\n[handoff]\nhandoff_doc = "NESTED.md"\n',
+        encoding="utf-8")
+
+    try:
+        load_config(tmp_path)
+    except ValueError as exc:
+        assert "both at the top level" in str(exc), exc
+    else:
+        raise AssertionError("a key defined twice was accepted")

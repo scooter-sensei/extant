@@ -224,9 +224,25 @@ def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
         # is useless to someone hand-writing a regex - and porting.md explicitly
         # asks them to. Re-raise with the cause that fits THIS error.
         raise ValueError(_explain(path, exc)) from exc
-    section = data.get("handoff", data)
-    if not isinstance(section, dict):
+    # MERGED, not chosen between. Writing a sub-table such as
+    # [handoff.consistency.version] creates a `handoff` key, and picking that
+    # over the top level silently discarded every setting written above it -
+    # handoff_doc, extra_docs, everything. The file looked configured and was
+    # not, which is the exact failure this project exists to surface, sitting
+    # in its own loader. Found by trying to configure a README-only project.
+    nested = data.get("handoff", {})
+    if not isinstance(nested, dict):
         raise ValueError(f"{path}: [handoff] must be a table")
+    top_level = {k: v for k, v in data.items() if k != "handoff"}
+
+    both = sorted(set(top_level) & set(nested) & set(DEFAULTS))
+    if both:
+        raise ValueError(
+            f"{path}: {', '.join(both)} set both at the top level and under "
+            f"[handoff]. Pick one place; leaving two is how the wrong value "
+            f"gets read while the right one sits there looking correct."
+        )
+    section = {**top_level, **nested}
     warnings = [
         _UNKNOWN_HINT.format(key=k, path=path.name)
         for k in section if k not in DEFAULTS
