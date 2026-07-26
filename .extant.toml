@@ -1,11 +1,11 @@
-# Configuration for this repository's own handoff document.
+# Configuration for this repository's own status document.
 #
 # The consistency block exists because this project shipped three manifests
 # advertising version 0.1.0 while the CHANGELOG documented 0.3.0. Nothing here
 # could catch it: no rule inspects numbers. Comparing files against EACH OTHER
 # is a different question with a definite answer, and this is that check.
 
-# Documents that get the whole-file rules as well as the handoff document.
+# Documents that get the whole-file rules as well as the status document.
 #
 # Only three of this repository's documents can be checked, and the reason is
 # worth recording so that nobody helpfully adds a fourth. The rest are
@@ -30,12 +30,12 @@
 extra_docs = [
     "CONTRIBUTING.md",
     "tests/harnesses/README.md",
-    "plugin/skills/handoff/references/design.md",
+    "plugin/skills/extant/references/design.md",
 ]
 
-[handoff.consistency.version]
+[extant.consistency.version]
 "plugin/.claude-plugin/plugin.json" = '"version":\s*"([^"]+)"'
 ".claude-plugin/marketplace.json" = '"version":\s*"([^"]+)"'
-"plugin/skills/handoff/SKILL.md" = '^version:\s*(\S+)'
+"plugin/skills/extant/SKILL.md" = '^version:\s*(\S+)'
 "pyproject.toml" = '^version = "([^"]+)"'
 "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'

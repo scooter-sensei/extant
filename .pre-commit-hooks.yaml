@@ -1,10 +1,10 @@
 # Hooks published for the pre-commit framework.
 #
 #   repos:
-#     - repo: https://github.com/scooter-sensei/handoff-validator
-#       rev: v0.5.0
+#     - repo: https://github.com/scooter-sensei/extant
+#       rev: v0.6.0
 #       hooks:
-#         - id: handoff
+#         - id: extant
 #
 # `language: python` so pre-commit builds its own isolated environment and this
 # works on Windows, macOS and Linux without a shebang or an executable bit.
@@ -17,22 +17,22 @@
 # Merging a branch makes "not yet merged" false without editing a single line of
 # prose, which is the case this whole tool exists for.
 
-- id: handoff
+- id: extant
   name: Check that the documentation still tells the truth
   description: >
     Verifies every falsifiable claim in your documentation against git and the
     filesystem: dead commit references, false merge claims, dead links and
     paths, release tags that never shipped, and files that contradict each
     other.
-  entry: handoff-validate
+  entry: extant
   language: python
   pass_filenames: false
   always_run: true
 
-- id: handoff-annotate
+- id: extant-annotate
   name: Check documentation, output as GitHub annotations
   description: Same checks, emitted as GitHub Actions workflow annotations.
-  entry: handoff-validate --format=github
+  entry: extant --format=github
   language: python
   pass_filenames: false
   always_run: true

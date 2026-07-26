@@ -14,7 +14,7 @@ from typing import Callable
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 # payload/ holds what is installed into a target repo; SKILL_ROOT holds the
 # installer and the detection module, which stay here. Both are importable so
 # that install-time code is testable, not only the copied part. It was the
@@ -34,7 +34,7 @@ def neutral_config(tmp_path: Path):
     """Run every in-process test against DEFAULT settings.
 
     Configuration is read once at import, relative to the payload file, and the
-    upward search then finds THIS repository's own `.handoff.toml`. Tests that
+    upward search then finds THIS repository's own `.extant.toml`. Tests that
     call `main()` or `validate()` in process therefore inherit whatever this
     project happens to configure for itself, which has nothing to do with the
     behaviour under test.
@@ -52,7 +52,7 @@ def neutral_config(tmp_path: Path):
     process reads the target repository's config, which is the real install
     shape and is tested separately.
     """
-    import handoff_collect as hc
+    import extant_collect as hc
 
     # A directory with a `.git` in it and no config: the upward search stops
     # there, so this cannot pick up a stray file from anywhere above tmp_path.

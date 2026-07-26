@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the handoff hooks into .git/hooks.
+# Install the status hooks into .git/hooks.
 #
 #     sh tools/hooks/install                     the checks (recommended)
 #     sh tools/hooks/install --with-trunk-guard  and the optional commit guard
@@ -47,7 +47,7 @@ done
 COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
 MAIN_TREE=$(dirname "$COMMON_DIR")
 HOOK_DIR="$COMMON_DIR/hooks"
-MARKER="# handoff-verify-hook"
+MARKER="# extant-verify-hook"
 
 mkdir -p "$HOOK_DIR"
 
@@ -117,8 +117,8 @@ for name in post-commit post-merge; do
     # bare `sh <missing>` would print a confusing error on every commit.
     cat >> "$target" <<'EOF'
 
-# handoff-verify-hook
-_hv="$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/handoff-verify"
+# extant-verify-hook
+_hv="$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/extant-verify"
 [ -f "$_hv" ] && sh "$_hv"
 EOF
 

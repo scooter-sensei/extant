@@ -80,7 +80,7 @@ jobs:
         run: python tests/harnesses/scenarios.py /tmp/pkg /tmp/arena
 
   self-check:
-    # The tool validating its own handoff document. Restricted to pushes on
+    # The tool validating its own status document. Restricted to pushes on
     # main because the ancestry checks need a local `main` ref to resolve
     # against, and fetch-depth 0 because a shallow clone cannot answer "is this
     # commit an ancestor of trunk" at all -- it would report dead references
@@ -100,9 +100,9 @@ jobs:
       # false claim is highlighted on the offending line in the pull request
       # diff rather than buried in a log nobody expands. Needs no extra
       # permissions, unlike a SARIF upload.
-      - name: Validate this repository's own handoff document
+      - name: Validate this repository's own status document
         run: >
-          python plugin/skills/handoff/payload/handoff_collect.py
+          python plugin/skills/extant/payload/extant_collect.py
           --verify --repo . --format=github
 
       # Sub-second, because it runs no tests: it only asks whether every
@@ -121,7 +121,7 @@ jobs:
         run: |
           python - <<'PY'
           import subprocess, sys, time, pathlib
-          tool = "plugin/skills/handoff/payload/handoff_collect.py"
+          tool = "plugin/skills/extant/payload/extant_collect.py"
           doc = pathlib.Path("NEXT_SESSION.md")
           samples = []
           for _ in range(5):
@@ -141,4 +141,4 @@ jobs:
       # question: "would these rules notice if it were not". It corrupts one
       # real claim per rule and fails if any rule stays silent.
       - name: Probe every rule against that document
-        run: python plugin/skills/handoff/payload/handoff_collect.py --selftest --repo .
+        run: python plugin/skills/extant/payload/extant_collect.py --selftest --repo .

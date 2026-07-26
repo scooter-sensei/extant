@@ -3,5 +3,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
-handoff_bundle.json
+status_bundle.json
 .DS_Store

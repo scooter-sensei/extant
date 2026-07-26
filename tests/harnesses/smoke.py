@@ -1,4 +1,4 @@
-"""Adversarial smoke test: try to break handoff-validator.
+"""Adversarial smoke test: try to break extant.
 
 Not a confirmation pass. Each probe attempts a specific abuse or edge case and
 reports what actually happened, so a loophole shows up as a finding rather than
@@ -49,7 +49,7 @@ def new_repo(name: str, trunk: str = "main") -> Path:
     sh(repo, "git", "init", "-q", "-b", trunk)
     sh(repo, "git", "config", "user.email", "t@t")
     sh(repo, "git", "config", "user.name", "T")
-    shutil.copytree(PKG / "plugin/skills/handoff/payload", repo / "tools")
+    shutil.copytree(PKG / "plugin/skills/extant/payload", repo / "tools")
     return repo
 
 
@@ -67,7 +67,7 @@ def commit(repo: Path, msg: str) -> str:
 
 
 def tool(repo: Path, *args: str, timeout: int = 120):
-    return sh(repo, PY, str(repo / "tools/handoff_collect.py"),
+    return sh(repo, PY, str(repo / "tools/extant_collect.py"),
               "--repo", str(repo), *args, timeout=timeout)
 
 
@@ -113,7 +113,7 @@ def p_no_git_at_all() -> None:
     d = ARENA / "notgit"
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True)
-    shutil.copytree(PKG / "plugin/skills/handoff/payload", d / "tools")
+    shutil.copytree(PKG / "plugin/skills/extant/payload", d / "tools")
     write(d, "NEXT_SESSION.md", ENTRY.format("Reference `0000000000000000000000000000000000000000`."))
     res = tool(d, "--validate", "NEXT_SESSION.md")
     if "Traceback" in res.stderr:
@@ -157,7 +157,7 @@ def p_large_document() -> None:
 def p_pathological_regex() -> None:
     print("\n[performance] catastrophic-backtracking config")
     repo = new_repo("redos")
-    write(repo, ".handoff.toml", "branch_token = '`((a+)+b)`'\n")
+    write(repo, ".extant.toml", "branch_token = '`((a+)+b)`'\n")
     write(repo, "NEXT_SESSION.md", ENTRY.format("`" + "a" * 40 + "`"))
     commit(repo, "init")
     try:
@@ -254,7 +254,7 @@ def p_wrong_entry_header() -> None:
 def p_argument_injection() -> None:
     print("\n[hardening] branch token that looks like a git option")
     repo = new_repo("inject")
-    write(repo, ".handoff.toml", "branch_token = '`([\\w.-]+/[^`]+)`'\n")
+    write(repo, ".extant.toml", "branch_token = '`([\\w.-]+/[^`]+)`'\n")
     write(repo, "NEXT_SESSION.md", ENTRY.format(
         "Work is on `--output=/tmp/pwned/x`."))
     commit(repo, "init")
@@ -280,7 +280,7 @@ def p_deleting_the_claim() -> None:
     after = tool(repo, "--validate", "NEXT_SESSION.md")
     if before.returncode == 1 and after.returncode == 0:
         note("BY-DESIGN", "deleting a claim makes the document pass",
-             "documented and mitigated only by the /handoff workflow reporting "
+             "documented and mitigated only by the /extant workflow reporting "
              "first-run findings; the validator alone cannot tell repair from "
              "erasure")
     else:
@@ -290,7 +290,7 @@ def p_deleting_the_claim() -> None:
 def p_pattern_that_matches_nothing() -> None:
     print("\n[gaming] a config whose patterns match nothing")
     repo = new_repo("blind")
-    write(repo, ".handoff.toml",
+    write(repo, ".extant.toml",
           "merge_claim = 'ZZZZ_NEVER_MATCHES_{trunk}'\n"
           "path_pointer = 'ZZZZ_NEVER'\n")
     write(repo, "NEXT_SESSION.md", ENTRY.format(
@@ -312,7 +312,7 @@ def p_library_link_base() -> None:
     commit(repo, "init")
     script = (
         "import sys; sys.path.insert(0, r'%s')\n"
-        "import handoff_collect as h, pathlib\n"
+        "import extant_collect as h, pathlib\n"
         "repo = pathlib.Path(r'%s')\n"
         "doc = pathlib.Path(r'%s')\n"
         "text = doc.read_text(encoding='utf-8')\n"
@@ -341,8 +341,8 @@ def p_consistency_abuse() -> None:
     print("\n[consistency] paths outside the repo, and a self-referential check")
     repo = new_repo("consistency-abuse")
     write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing."))
-    write(repo, ".handoff.toml",
-          "[handoff.consistency.escape]\n"
+    write(repo, ".extant.toml",
+          "[extant.consistency.escape]\n"
           "\"../../../etc/passwd\" = 'root:(x)'\n"
           "\"NEXT_SESSION.md\" = 'Phase (1)'\n")
     commit(repo, "init")
@@ -354,8 +354,8 @@ def p_consistency_abuse() -> None:
            f"exit {res.returncode}, reported rather than crashed")
 
     # A check whose two files are the same file: it can only agree with itself.
-    write(repo, ".handoff.toml",
-          "[handoff.consistency.same]\n"
+    write(repo, ".extant.toml",
+          "[extant.consistency.same]\n"
           "\"NEXT_SESSION.md\" = 'Phase (1)'\n"
           "\"./NEXT_SESSION.md\" = 'Phase (1)'\n")
     commit(repo, "same file twice")
@@ -438,7 +438,7 @@ def p_config_discovery_abuse() -> None:
     outer = ARENA / "config-outer"
     shutil.rmtree(outer, ignore_errors=True)
     (outer / "inner").mkdir(parents=True)
-    write(outer, ".handoff.toml", 'handoff_doc = "OUTER_WINS.md"\n')
+    write(outer, ".extant.toml", 'primary_doc = "OUTER_WINS.md"\n')
     repo = new_repo("config-outer/inner/repo")
     write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing."))
     commit(repo, "init")
@@ -448,7 +448,7 @@ def p_config_discovery_abuse() -> None:
              "the search escaped the repository root")
     else:
         ok("config search stops at the repository root",
-           "an outer .handoff.toml was not inherited")
+           "an outer .extant.toml was not inherited")
 
 
 def main() -> int:

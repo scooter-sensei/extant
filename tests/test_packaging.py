@@ -11,7 +11,7 @@ import tokenize
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 
 
 def test_no_publication_placeholders_remain() -> None:
@@ -143,13 +143,13 @@ def test_this_repositorys_own_config_is_kept_out_of_tests() -> None:
     """Pins the `neutral_config` fixture, which is otherwise unfalsifiable.
 
     Settings load at import, relative to the payload, and the upward search
-    finds this repository's `.handoff.toml`. Every in-process test would then
+    finds this repository's `.extant.toml`. Every in-process test would then
     run against whatever this project configures for itself. An autouse fixture
     resets that to defaults, and an autouse fixture that quietly stops working
     looks exactly like one that is working.
     """
-    import handoff_collect as hc
-    from handoff_config import load_config
+    import extant_collect as hc
+    from extant_config import load_config
 
     own = load_config(PACKAGE_ROOT)
 
@@ -263,7 +263,7 @@ def test_command_template_placeholders_are_all_rendered() -> None:
     sys.path.insert(0, str(SKILL_ROOT))
     import install as installer  # noqa: E402
 
-    template = SKILL_ROOT / "payload" / "commands" / "handoff.md.template"
+    template = SKILL_ROOT / "payload" / "commands" / "extant.md.template"
     found = set(__import__("re").findall(r"\{\{[A-Z_]+\}\}", template.read_text(encoding="utf-8")))
 
     assert found, "template contains no placeholders; the renderer would be a no-op"
@@ -271,7 +271,7 @@ def test_command_template_placeholders_are_all_rendered() -> None:
     from detect import DERIVED, Observation  # noqa: E402
 
     obs = [
-        Observation("handoff_doc", "STATUS.md", DERIVED, "test"),
+        Observation("primary_doc", "STATUS.md", DERIVED, "test"),
         Observation("archive_doc", "docs/archive.md", DERIVED, "test"),
         Observation("entry_prefix", "## Release ", DERIVED, "test"),
     ]
@@ -344,9 +344,9 @@ def test_every_config_derived_global_is_reloadable() -> None:
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    import handoff_collect as hc
+    import extant_collect as hc
 
-    source = (SKILL_ROOT / "payload" / "handoff_collect.py").read_text(encoding="utf-8")
+    source = (SKILL_ROOT / "payload" / "extant_collect.py").read_text(encoding="utf-8")
     assigned = dict(re.findall(r"^(\w+) = CONFIG\.(\w+)$", source, re.M))
 
     assert assigned, "found no CONFIG-derived globals; this check proves nothing"
@@ -362,19 +362,19 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    import handoff_collect as hc
+    import extant_collect as hc
 
-    before = hc.HANDOFF_DOC
+    before = hc.PRIMARY_DOC
     (tmp_path / ".git").mkdir()
-    (tmp_path / ".handoff.toml").write_text(
-        'handoff_doc = "SOMETHING_ELSE.md"\ntrunk = "develop"\n', encoding="utf-8")
+    (tmp_path / ".extant.toml").write_text(
+        'primary_doc = "SOMETHING_ELSE.md"\ntrunk = "develop"\n', encoding="utf-8")
     try:
         hc.reload_config(tmp_path)
-        assert hc.HANDOFF_DOC == "SOMETHING_ELSE.md"
+        assert hc.PRIMARY_DOC == "SOMETHING_ELSE.md"
         assert hc.TRUNK == "develop"
         assert hc._MERGE_CLAIM.search("merged to `develop` at `abc1234`"), (
             "a compiled pattern that interpolates trunk was not rebuilt"
         )
     finally:
         hc.reload_config(PACKAGE_ROOT)
-    assert hc.HANDOFF_DOC == before
+    assert hc.PRIMARY_DOC == before

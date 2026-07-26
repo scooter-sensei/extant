@@ -1,21 +1,21 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "handoff-validator",
+  "name": "extant",
   "description": "Check that the claims in your documentation are still true. Works on any markdown you already have - a README, a CONTRIBUTING file, an architecture note - against git and the filesystem.",
   "owner": {
     "name": "scooter-sensei"
   },
   "plugins": [
     {
-      "name": "handoff",
+      "name": "extant",
       "description": "Verifies every falsifiable claim in your documentation against git and the filesystem, with git hooks that re-check after each commit and merge. Ten rules: dead commit references, false merge claims, stale 'not yet merged' statements, branches git never saw, release tags that never shipped, dead file pointers, broken markdown links and heading anchors, files that contradict each other, and committed secrets. Needs no special status document - presets configure it for a plain README, or for Node, Python and Rust projects. Findings render as text, GitHub annotations or SARIF.",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "author": {
         "name": "scooter-sensei"
       },
       "source": "./plugin",
       "category": "productivity",
-      "homepage": "https://github.com/scooter-sensei/handoff-validator",
+      "homepage": "https://github.com/scooter-sensei/extant",
       "tags": [
         "git",
         "documentation",

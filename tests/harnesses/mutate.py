@@ -144,9 +144,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
          '        stream = (sys.stderr if (args.format == "sarif" or False)'),
         ("fingerprint folds in the line number", collect,
-         '                "handoffClaim/v1": _fingerprint(\n'
+         '                "statusClaim/v1": _fingerprint(\n'
          "                    item.path, item.finding.kind, item.finding.detail),",
-         '                "handoffClaim/v1": _fingerprint(\n'
+         '                "statusClaim/v1": _fingerprint(\n'
          "                    item.path, item.finding.kind,\n"
          '                    f"{item.finding.detail}:{item.finding.line}"),'),
         ("sarif drops partialFingerprints", collect,
@@ -166,7 +166,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    return bool(_SHA_SHAPE.match(token))"),
 
         # --- config errors -----------------------------------------------------
-        ("every TOML error blamed on regex quoting again", collect.parent / "handoff_config.py",
+        ("every TOML error blamed on regex quoting again", collect.parent / "extant_config.py",
          "    hint = next((h for needle, h in _HINTS if needle in text), _GENERIC_HINT)",
          "    hint = _ESCAPE_HINT"),
 
@@ -195,12 +195,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
 
         # --- search --------------------------------------------------------------
         ("search only looks at the live document", collect,
-         "    for relative in (HANDOFF_DOC, ARCHIVE_DOC):\n"
+         "    for relative in (PRIMARY_DOC, ARCHIVE_DOC):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
          "        with open(path, encoding=\"utf-8\", newline=\"\") as fh:",
-         "    for relative in (HANDOFF_DOC,):\n"
+         "    for relative in (PRIMARY_DOC,):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
@@ -230,10 +230,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    (base / 'SIDE_EFFECT.txt').write_text('written', encoding='utf-8')"),
 
         # --- config discovery -----------------------------------------------------
-        ("config is no longer searched for upward", detect.parent / "payload/handoff_config.py",
+        ("config is no longer searched for upward", detect.parent / "payload/extant_config.py",
          "    for directory in (current, *current.parents):",
          "    for directory in (current,):"),
-        ("config search runs past the repository root", detect.parent / "payload/handoff_config.py",
+        ("config search runs past the repository root", detect.parent / "payload/extant_config.py",
          '        if (directory / ".git").exists():\n            return None',
          '        if False:\n            return None'),
 
@@ -299,8 +299,8 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(args.repo).resolve()
-    skill = root / "plugin/skills/handoff"
-    mutations = build_mutations(skill / "payload/handoff_collect.py", skill / "detect.py")
+    skill = root / "plugin/skills/extant"
+    mutations = build_mutations(skill / "payload/extant_collect.py", skill / "detect.py")
 
     backups = {path: path.read_text(encoding="utf-8")
                for _l, path, _o, _n in mutations}

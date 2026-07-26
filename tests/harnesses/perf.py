@@ -1,4 +1,4 @@
-"""Performance measurement for handoff-validator.
+"""Performance measurement for extant.
 
 Four questions, in descending order of how much they matter:
 
@@ -39,7 +39,7 @@ def new_repo(name: str) -> Path:
     sh(repo, "git", "config", "user.email", "t@t")
     sh(repo, "git", "config", "user.name", "T")
     sh(repo, "git", "config", "commit.gpgsign", "false")
-    shutil.copytree(PKG / "plugin/skills/handoff/payload", repo / "tools")
+    shutil.copytree(PKG / "plugin/skills/extant/payload", repo / "tools")
     return repo
 
 
@@ -67,9 +67,9 @@ def document(lines: int, repo: Path, real_sha: str) -> str:
         if n % 20 == 0:
             body.append(f"Merged to `main` at `{real_sha}`.")
         elif n % 20 == 5:
-            body.append(f"**Design:** `tools/handoff_collect.py`")
+            body.append(f"**Design:** `tools/extant_collect.py`")
         elif n % 20 == 10:
-            body.append(f"See [tool](tools/handoff_collect.py) for detail.")
+            body.append(f"See [tool](tools/extant_collect.py) for detail.")
         elif n % 20 == 15:
             body.append(f"Jump to [ref](#1-reference).")
         else:
@@ -126,7 +126,7 @@ def document_scaling() -> None:
     previous = None
     for lines in (250, 1000, 4000, 16000):
         write(repo, "NEXT_SESSION.md", document(lines, repo, sha))
-        elapsed = timed(lambda: sh(repo, PY, str(repo / "tools/handoff_collect.py"),
+        elapsed = timed(lambda: sh(repo, PY, str(repo / "tools/extant_collect.py"),
                                    "--repo", str(repo), "--validate", "NEXT_SESSION.md"),
                         runs=3)
         ratio = "" if previous is None else f"x{elapsed/previous:.2f} for x4 size"
@@ -152,12 +152,12 @@ def repo_scaling() -> None:
         body = ("Merged to `main` at `%s`.\n" % sha
                 + "Work continues on `feature/topic-1`.\n" * 10
                 + "Released in v1.0 already.\n"
-                + "**Design:** `tools/handoff_collect.py`\n")
+                + "**Design:** `tools/extant_collect.py`\n")
         write(repo, "NEXT_SESSION.md",
               f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n## 1. Ref\n")
         sh(repo, "git", "add", "-A")
         sh(repo, "git", "commit", "-qm", "docs")
-        elapsed = timed(lambda: sh(repo, PY, str(repo / "tools/handoff_collect.py"),
+        elapsed = timed(lambda: sh(repo, PY, str(repo / "tools/extant_collect.py"),
                                    "--repo", str(repo), "--validate", "NEXT_SESSION.md"),
                         runs=3)
         print(f"  {commits:>4} commits, {branches:>3} branches : {elapsed:6.2f}s")
@@ -181,7 +181,7 @@ def per_rule() -> None:
     script = f'''
 import sys, time, pathlib
 sys.path.insert(0, r"{repo / 'tools'}")
-import handoff_collect as h
+import extant_collect as h
 repo = pathlib.Path(r"{repo}")
 text = pathlib.Path(r"{repo / 'NEXT_SESSION.md'}").read_text(encoding="utf-8")
 h._LINK_BASE = repo

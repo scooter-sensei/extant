@@ -1,6 +1,6 @@
 """Behavioural tests for the shell git hooks.
 
-The hooks are the only part of the handoff system with no Python to test, and
+The hooks are the only part of the status workflow with no Python to test, and
 they failed accordingly: `main-tree-guard` spent its entire life installed but
 inert, because the installer's payload list omitted the file while the pre-commit
 shim guarded the call with `[ -f ]`. The installer printed a success line, the
@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 HOOKS_DIR = SKILL_ROOT / "payload" / "hooks"
 GUARD = HOOKS_DIR / "main-tree-guard"
 
@@ -60,7 +60,7 @@ def run_installer(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def test_guard_allows_commit_on_trunk(git_repo) -> None:
     """Catches a guard that blocks unconditionally, making commits impossible."""
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
 
     result = run_guard(repo)
 
@@ -71,7 +71,7 @@ def test_guard_allows_commit_on_trunk(git_repo) -> None:
 def test_guard_blocks_off_trunk_commit_in_main_tree(git_repo) -> None:
     """Catches a guard that never fires - the state it actually shipped in."""
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
     git(repo, "checkout", "-q", "-b", "topic")
 
     result = run_guard(repo)
@@ -84,14 +84,14 @@ def test_guard_blocks_off_trunk_commit_in_main_tree(git_repo) -> None:
 def test_guard_reads_trunk_from_config(git_repo) -> None:
     """The regression test for the bug this file exists because of.
 
-    The guard hardcoded `main`, so on a repo whose .handoff.toml correctly said
+    The guard hardcoded `main`, so on a repo whose .extant.toml correctly said
     `trunk = "master"` it blocked every commit on that repo's real trunk. A
     guard that ignores the config passes every other test in this file.
     """
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
     git(repo, "branch", "-m", "master")
-    (repo / ".handoff.toml").write_text('trunk = "master"\n', encoding="utf-8")
+    (repo / ".extant.toml").write_text('trunk = "master"\n', encoding="utf-8")
 
     result = run_guard(repo)
 
@@ -108,9 +108,9 @@ def test_guard_message_names_the_configured_trunk(git_repo) -> None:
     sends someone to create one.
     """
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
     git(repo, "branch", "-m", "master")
-    (repo / ".handoff.toml").write_text('trunk = "master"\n', encoding="utf-8")
+    (repo / ".extant.toml").write_text('trunk = "master"\n', encoding="utf-8")
     git(repo, "checkout", "-q", "-b", "topic")
 
     result = run_guard(repo)
@@ -129,7 +129,7 @@ def test_guard_exempts_linked_worktrees(git_repo, tmp_path: Path) -> None:
     legitimate commit in the project's normal workflow.
     """
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
     worktree = tmp_path / "wt"
     git(repo, "worktree", "add", "-q", str(worktree), "-b", "feat")
 
@@ -138,7 +138,7 @@ def test_guard_exempts_linked_worktrees(git_repo, tmp_path: Path) -> None:
     assert result.returncode == 0, f"blocked a worktree commit: {result.stderr}"
 
 
-VERIFY_HOOK = HOOKS_DIR / "handoff-verify"
+VERIFY_HOOK = HOOKS_DIR / "extant-verify"
 
 
 def run_verify_hook(cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -152,8 +152,8 @@ def run_verify_hook(cwd: Path) -> subprocess.CompletedProcess[str]:
 def test_verify_hook_reads_the_configured_document(git_repo) -> None:
     """Catches a hook that guards its work with a hardcoded document name.
 
-    handoff-verify tested `[ -f NEXT_SESSION.md ]` before doing anything, while
-    --verify, which it then invokes, reads handoff_doc from .handoff.toml. Any
+    extant-verify tested `[ -f NEXT_SESSION.md ]` before doing anything, while
+    --verify, which it then invokes, reads primary_doc from .extant.toml. Any
     project that called its document something else fell through the "nothing to
     validate" exit, so the hook installed cleanly and validated nothing for its
     entire life -- silently, because that exit is the legitimate one.
@@ -164,14 +164,14 @@ def test_verify_hook_reads_the_configured_document(git_repo) -> None:
     repo, commit = git_repo
     commit("README.md", "# repo\n", "init")
     (repo / "tools").mkdir(exist_ok=True)
-    (repo / "tools" / "handoff_collect.py").write_text("", encoding="utf-8")
-    (repo / ".handoff.toml").write_text('handoff_doc = "STATUS.md"\n', encoding="utf-8")
+    (repo / "tools" / "extant_collect.py").write_text("", encoding="utf-8")
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.md"\n', encoding="utf-8")
 
     result = run_verify_hook(repo)
 
     combined = result.stdout + result.stderr
     assert "STATUS.md" in combined, (
-        "the hook ignored handoff_doc and looked for some other document: "
+        "the hook ignored primary_doc and looked for some other document: "
         f"{combined!r}"
     )
     assert "nothing was validated" in combined
@@ -187,11 +187,11 @@ def test_verify_hook_stays_quiet_when_no_document_is_configured(git_repo) -> Non
     repo, commit = git_repo
     commit("README.md", "# repo\n", "init")
     (repo / "tools").mkdir(exist_ok=True)
-    (repo / "tools" / "handoff_collect.py").write_text("", encoding="utf-8")
+    (repo / "tools" / "extant_collect.py").write_text("", encoding="utf-8")
 
     result = run_verify_hook(repo)
 
-    assert (result.stdout + result.stderr).strip() == "", "nagged a repo with no handoff doc"
+    assert (result.stdout + result.stderr).strip() == "", "nagged a repo with no status doc"
 
 
 def test_installer_references_only_hooks_that_exist() -> None:
@@ -207,7 +207,7 @@ def test_installer_references_only_hooks_that_exist() -> None:
 
     # State the denominator. If the pattern stops matching, this test would pass
     # against an installer referencing nothing but existing files AND against one
-    # referencing nothing at all -- the ambiguity the whole handoff system exists
+    # referencing nothing at all -- the ambiguity the whole status workflow exists
     # to remove.
     assert referenced, "found no hook references in tools/hooks/install"
 
@@ -230,7 +230,7 @@ def test_default_install_does_not_add_a_blocking_hook(git_repo) -> None:
     """
     import shutil
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
     shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
 
     result = run_installer(repo)
@@ -252,7 +252,7 @@ def test_the_guard_installs_when_asked_for(git_repo) -> None:
     """Opt-in must actually opt in, or the flag is decoration."""
     import shutil
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
     shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
 
     result = run_installer(repo, "--with-trunk-guard")
@@ -273,7 +273,7 @@ def test_an_unknown_flag_is_rejected_rather_than_ignored(git_repo) -> None:
     """
     import shutil
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "# Handoff\n", "init")
+    commit("NEXT_SESSION.md", "# Status\n", "init")
     shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
 
     result = run_installer(repo, "--with-trunk-gaurd")

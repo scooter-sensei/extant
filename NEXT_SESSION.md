@@ -1,10 +1,50 @@
-# handoff-validator - session handoff
+# extant - session status
 
 Entries newest first. Everything from the numbered sections down is permanent
 reference and is never archived.
 
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
+
+## Phase 6 - Renamed to extant (shipped, 2026-07-27)
+
+**Status.** Suite is 203 tests, all passing. Nothing about the engine changed;
+every name did. The word "handoff" appears nowhere in this repository except as
+a filename the tool looks for in other people's projects.
+
+**What Shipped.**
+
+- The rename: repository, package, command, configuration file and table, both
+  pre-commit hook ids, both modules, the slash command, the `primary_doc`
+  setting, and the preset that used to carry the old name and is now `status`.
+- The scenario matrix runs in CI, and three more of this repository's own
+  documents are checked.
+- A fixture keeping this project's own configuration out of its tests, because
+  listing extra documents made a temporary repository inherit them.
+
+**Known Issues.**
+
+- The tag and repository rename are pushed by hand, so the documented
+  pre-commit path stays broken for as long as the two disagree. Verify with a
+  real install rather than assuming, as with the previous release.
+- Gitflow-style release branches are still not modelled.
+
+**Next Tasks.**
+
+- Publish a release from the new tag, and check the marketplace entry installs
+  end to end. That path has never been exercised from a published repository.
+
+**Gotchas.**
+
+- A blanket substitution is wrong even when the total reconciles exactly. The
+  count matched on the first attempt and the result was still broken: a path
+  component written as a separate string literal was renamed to the prose word,
+  pointing six test files at a directory that did not exist, and the TOML table
+  name went the same way in three places. Identifiers and prose need different
+  rules, and only a rehearsal on a throwaway clone showed which was which.
+- The same substitution turned a detection candidate into a duplicate of its
+  neighbour, silently halving what that list could find. A name that belongs to
+  the outside world is not yours to rename, however global the rename.
 
 ## Phase 5 - Any documentation, not just a status file (shipped, 2026-07-26)
 
@@ -24,7 +64,7 @@ opt-in.
   and the marketplace entry now lead with the claim-checking question. The
   audience table had been telling exactly the newly-targeted projects "probably
   not for you".
-- Presets `readme`, `node`, `python`, `rust` and `handoff`. A preset chooses the
+- Presets `readme`, `node`, `python`, `rust` and `status`. A preset chooses the
   documents and the shape; detection still measures trunk and branch naming,
   because a template would be guessing at those.
 - A hooks manifest for the pre-commit framework, and the packaging metadata it
@@ -59,7 +99,7 @@ opt-in.
   reports a healthy run wherever no such file exists. A test now parses the
   source for every global derived from configuration and fails if one is not
   refreshed.
-- A `[handoff.*]` sub-table silently discarded every top-level key. The config
+- A `[extant.*]` sub-table silently discarded every top-level key. The config
   file looked configured and was not, which is this project's own failure mode
   sitting in its own loader. Both sources are merged now, and a key set in both
   places is refused rather than resolved quietly.
@@ -187,7 +227,7 @@ document is clean, one asking whether the rules would notice if it were not.
 - Measuring first changed what got built, twice. A branch rule keyed on mere
   existence would have emitted four findings and four false positives on the
   first real corpus, because merged branches get deleted. Markdown links and
-  release phrases turned out to be entirely absent from the handoff documents
+  release phrases turned out to be entirely absent from the status documents
   available, and are shipped for the general documents `extra_docs` reaches.
 - The `--selftest` probe for merge claims first replaced a commit with zeros,
   and reported a working rule as broken: that rule deliberately ignores claims
@@ -198,7 +238,7 @@ document is clean, one asking whether the rules would notice if it were not.
 
 **Status.** Extracted from the project this was built and proven on, made
 repository-agnostic, and packaged as an installable Claude Code plugin. Suite
-is 115 tests, all passing. The package validates its own handoff document,
+is 115 tests, all passing. The package validates its own status document,
 which is this file, and CI repeats that check on every push to the trunk.
 
 Ready to publish. Nothing is outstanding for the initial release.
@@ -246,17 +286,17 @@ Ready to publish. Nothing is outstanding for the initial release.
 **Gotchas.**
 
 - Accepting the default configuration without deriving it gives a validator that
-  checks nothing, convincingly. Read `plugin/skills/handoff/references/porting.md` first.
+  checks nothing, convincingly. Read `plugin/skills/extant/references/porting.md` first.
 - A rule reporting zero examined is inert, not clean. The exit code cannot tell
   you which, and that distinction is most of the point of this tool.
 
 ## 1. Layout
 
-**Design:** `plugin/skills/handoff/references/design.md` records why each rule is scoped as it is,
+**Design:** `plugin/skills/extant/references/design.md` records why each rule is scoped as it is,
 with the failure that forced each decision. For every configuration key, see
-`plugin/skills/handoff/references/config.md`.
+`plugin/skills/extant/references/config.md`.
 
-The skill lives at `plugin/skills/handoff/`. Inside it, `payload/` holds the
+The skill lives at `plugin/skills/extant/`. Inside it, `payload/` holds the
 files installed into a target repository as `tools/`, while `install.py` and
 `detect.py` stay put and are never copied.
 

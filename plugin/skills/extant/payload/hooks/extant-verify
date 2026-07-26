@@ -1,15 +1,15 @@
 #!/bin/sh
-# Re-check the handoff document against git after a commit or merge.
+# Re-check the status document against git after a commit or merge.
 #
-#     tools/hooks/handoff-verify
+#     tools/hooks/extant-verify
 #
 # Installed into .git/hooks/post-commit and .git/hooks/post-merge by
 # tools/hooks/install. Advisory only: it never blocks or fails an operation,
 # because the commit it is checking has already happened.
 #
-# Why this exists: /handoff gates its OWN commit on the validator, but nothing
+# Why this exists: /extant gates its OWN commit on the validator, but nothing
 # re-checked the document afterwards. A later commit can falsify a claim that
-# was true when written. That is not hypothetical - merging the handoff branch
+# was true when written. That is not hypothetical - merging the status branch
 # on 2026-07-21 turned "not yet integrated" false the instant it landed, and
 # only a manual --verify noticed. This turns "the validator was run" from a
 # claim into an observation.
@@ -77,9 +77,9 @@ if [ -z "$PY" ]; then
     PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
 fi
 
-TOOL="$TOPLEVEL/tools/handoff_collect.py"
+TOOL="$TOPLEVEL/tools/extant_collect.py"
 
-# The document name is per-project and lives in .handoff.toml. This line used to
+# The document name is per-project and lives in .extant.toml. This line used to
 # hardcode NEXT_SESSION.md, so a repo that called its document anything else fell
 # straight through the "nothing to validate" exit below and this hook did nothing
 # for its entire installed life - silently, because that exit is the legitimate
@@ -87,9 +87,9 @@ TOOL="$TOPLEVEL/tools/handoff_collect.py"
 # config correctly; only the guard in front of it did not.
 DOC_NAME=NEXT_SESSION.md
 CONFIGURED=0
-CONFIG="$TOPLEVEL/.handoff.toml"
+CONFIG="$TOPLEVEL/.extant.toml"
 if [ -f "$CONFIG" ]; then
-    _d=$(sed -n "s/^[[:space:]]*handoff_doc[[:space:]]*=[[:space:]]*[\"']\\([^\"']*\\).*/\\1/p" \
+    _d=$(sed -n "s/^[[:space:]]*primary_doc[[:space:]]*=[[:space:]]*[\"']\\([^\"']*\\).*/\\1/p" \
          "$CONFIG" | head -n 1)
     if [ -n "$_d" ]; then
         DOC_NAME="$_d"
@@ -102,12 +102,12 @@ DOC="$TOPLEVEL/$DOC_NAME"
 [ -f "$TOOL" ] || exit 0
 
 # A missing DOCUMENT is only legitimately silent when nothing claimed one exists.
-# If .handoff.toml names it, its absence means this commit went unvalidated, and
+# If .extant.toml names it, its absence means this commit went unvalidated, and
 # that is a finding rather than a no-op.
 if [ ! -f "$DOC" ]; then
     if [ "$CONFIGURED" -eq 1 ]; then
-        echo "[handoff] .handoff.toml names '$DOC_NAME', but no such file exists" >&2
-        echo "[handoff]   nothing was validated for this commit" >&2
+        echo "[extant] .extant.toml names '$DOC_NAME', but no such file exists" >&2
+        echo "[extant]   nothing was validated for this commit" >&2
     fi
     exit 0
 fi
@@ -116,9 +116,9 @@ fi
 # something should have been checked. Skipping quietly here is what made this
 # hook a no-op on POSIX for its entire existence.
 if [ -z "$PY" ]; then
-    echo "[handoff] cannot validate ${DOC##*/}: no Python interpreter found." >&2
-    echo "[handoff]   tried .venv/{Scripts/python.exe,bin/python,bin/python3}" >&2
-    echo "[handoff]   under $MAIN_TREE, then python3/python on PATH." >&2
+    echo "[extant] cannot validate ${DOC##*/}: no Python interpreter found." >&2
+    echo "[extant]   tried .venv/{Scripts/python.exe,bin/python,bin/python3}" >&2
+    echo "[extant]   under $MAIN_TREE, then python3/python on PATH." >&2
     exit 0
 fi
 
@@ -127,10 +127,10 @@ STATUS=$?
 
 if [ "$STATUS" -ne 0 ]; then
     COUNT=$(printf '%s\n' "$OUTPUT" | grep -c '\[' )
-    echo "[handoff] $DOC_NAME has $COUNT unverified claim(s):"
+    echo "[extant] $DOC_NAME has $COUNT unverified claim(s):"
     printf '%s\n' "$OUTPUT" | head -5 | sed 's/^/  /'
     if [ "$COUNT" -gt 5 ]; then
-        echo "  ... run: \"$PY\" tools/handoff_collect.py --verify"
+        echo "  ... run: \"$PY\" tools/extant_collect.py --verify"
     fi
 fi
 

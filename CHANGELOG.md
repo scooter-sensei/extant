@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.6.0 (2026-07-27)
+
+Renamed to **extant**. No behaviour changed; every name did.
+
+### Why
+
+"Handoff" named one half of the tool, and after 0.5.0 it was the minority half.
+The engine had always worked on an ordinary README and a package manifest, but
+anyone arriving at a project called `handoff-validator` reasonably concluded it
+wanted a ceremony they do not perform. The name was the last stale claim in a
+repository built to find stale claims.
+
+**extant** *(adj.)* - still in existence; surviving. Six of the ten rules ask
+exactly that: does this commit, branch, tag, file, or heading still exist? It is
+also a word that already belongs to documents, and it promises nothing about
+truth, which matters because this tool refuses to judge whether a value is
+correct.
+
+### What changed
+
+| | Before | After |
+|:---|:---|:---|
+| repository, package | `handoff-validator` | `extant` |
+| command | `handoff-validate` | `extant` |
+| configuration file | `.handoff.toml` | `.extant.toml` |
+| configuration table | `[handoff]` | `[extant]` |
+| pre-commit hook ids | `handoff`, `handoff-annotate` | `extant`, `extant-annotate` |
+| modules | `handoff_collect`, `handoff_config` | `extant_collect`, `extant_config` |
+| slash command | `/handoff` | `/extant` |
+| primary document setting | `handoff_doc` | `primary_doc` |
+| preset for status projects | `handoff` | `status` |
+
+This is a breaking change for anyone who installed 0.5.0: the configuration
+file, its table name, one setting, and both hook ids are different. It is made
+now precisely because the audience for whom it breaks is small, and it will only
+ever grow.
+
+### One word deliberately kept
+
+`HANDOFF.md` survives, in the document-detection list and in the fixtures that
+stand in for a user's file. It is not this project's name; it is a filename the
+tool LOOKS FOR in other people's repositories. Renaming it would not have
+rebranded anything, and a blanket substitution first turned the candidate list
+into two identical entries, which is a detection bug wearing a rename's clothes.
+
+### How it was done
+
+746 occurrences across 38 of 41 files, as an ordered substitution with the
+most specific rules first, so that a bare `handoff` rule could not eat
+`handoff_collect` and leave `extant_collect` unreachable. Every rule reported
+its own count, and the total reconciled against an independent count of the
+three case variants: 735 replaced plus 11 protected equals 746, with nothing
+unaccounted for.
+
+Rehearsed on a throwaway clone before the real tree was touched. That rehearsal
+earned its keep: the first attempt renamed a path component written as a
+separate string literal, pointed six test files at a directory that did not
+exist, and renamed the TOML table to the wrong word in three places.
+
 ## 0.5.0 (2026-07-26)
 
 Repositioned, plus presets and a pre-commit hook. The engine barely changed;
@@ -25,7 +84,7 @@ targeted, which is the sort of stale claim this tool exists to catch.
 
     python install.py --repo . --preset readme
 
-`readme`, `node`, `python`, `rust` and `handoff`. A preset chooses the documents
+`readme`, `node`, `python`, `rust` and `status`. A preset chooses the documents
 and the shape; detection still supplies trunk, branch naming and commit
 conventions, because those are measured and a template would be a guess.
 
@@ -36,10 +95,10 @@ positive has taught a lesson that is very hard to unteach.
 ### pre-commit framework
 
     repos:
-      - repo: https://github.com/scooter-sensei/handoff-validator
-        rev: v0.5.0
+      - repo: https://github.com/scooter-sensei/extant
+        rev: v0.6.0
         hooks:
-          - id: handoff
+          - id: extant
 
 Runs on every commit regardless of which files changed, deliberately: merging a
 branch can falsify a sentence without editing a line of prose.
@@ -53,7 +112,7 @@ That last part needed a real fix. Configuration is read at import relative to
 the file, which under pip is site-packages - so the hook would have validated
 NEXT_SESSION.md in every project on earth and reported a healthy run for the
 ones with no such file. `reload_config` re-reads for the repository being
-checked, and a test parses `handoff_collect.py` for every `NAME = CONFIG.field`
+checked, and a test parses `extant_collect.py` for every `NAME = CONFIG.field`
 assignment and fails if one is not reloaded, so a future derived global cannot
 quietly keep a stale value.
 
@@ -101,7 +160,7 @@ number:
   "Known Issues" listed the settings-loading bug that this release fixed.
 - `references/config.md` documented every setting except the consistency block,
   the one configuration feature 0.4.0 added. It now covers that, the merge of
-  top-level and `[handoff]` keys, and the upward search stopping at the
+  top-level and `[extant]` keys, and the upward search stopping at the
   repository root.
 - `CONTRIBUTING.md` named two further audit harnesses beyond the mutation
   campaign where there are four, and described the ASCII rule as applying to
@@ -125,7 +184,7 @@ whether a value is CORRECT - "the suite was 2238" has nothing to be checked
 against. Whether two files in the repository state different values for the same
 thing has a definite answer needing only the filesystem.
 
-    [handoff.consistency.version]
+    [extant.consistency.version]
     "package.json" = '"version":\s*"([^"]+)"'
     "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
 
@@ -142,7 +201,7 @@ repository being checked rather than from the installed copy.
 
 ### `--search`: find a decision after it was archived
 
-    python tools/handoff_collect.py --search "checkout"
+    python tools/extant_collect.py --search "checkout"
 
 Searches the live document and the archive together, and returns whole ENTRIES
 rather than matching lines. That is the only reason it beats grep: a decision
@@ -318,13 +377,13 @@ reaches beyond the one status document.
   ordinary hygiene. All four were still named in merge commits, and that is what
   the shipped rule keys on.
 - Markdown links and release phrases were measured as **entirely absent** from
-  the handoff documents available. They are shipped because they are common in
+  the status documents available. They are shipped because they are common in
   the general documentation `extra_docs` now reaches, and their denominators
   report 0 honestly where they do not apply.
 
 ### Fixed
 
-- `--repo` now warns when it is pointed at a repository whose `.handoff.toml`
+- `--repo` now warns when it is pointed at a repository whose `.extant.toml`
   is being ignored. Configuration loads relative to the script, which is right
   when installed but silently wrong when run from elsewhere.
 
@@ -335,15 +394,15 @@ First public release, extracted from the project it was built and proven on.
 ### Features
 
 - Installable as a Claude Code plugin: the repository is its own marketplace,
-  so `/plugin marketplace add scooter-sensei/handoff-validator` followed by
-  `/plugin install handoff@handoff-validator` is the whole setup. The validator,
+  so `/plugin marketplace add scooter-sensei/extant` followed by
+  `/plugin install status@extant` is the whole setup. The validator,
   the hooks, and the CLI still work standalone with no Claude Code involved.
 - Five validation rules, each falsifiable against git or the filesystem: dead
   commit references (backticked and bare), stale live claims, false merge
   claims, dead path pointers, and credential shapes.
 - `--verify` and `--validate` report the **denominator** for every rule, so a
   pattern that matches nothing is visibly different from a clean document.
-- `--collect` gathers facts into a JSON bundle: commits since the last handoff
+- `--collect` gathers facts into a JSON bundle: commits since the last status
   grouped by phase or ticket, changed files, TODO markers, suite result, and
   plan checkbox state. Records whether a suite figure was measured or supplied.
 - `--archive` rotates old entries into an archive document, asserting multiset
@@ -356,7 +415,7 @@ First public release, extracted from the project it was built and proven on.
   `--suite-json` accepts a result from CI instead.
 - Git hooks for `post-commit`, `post-merge`, and an optional `pre-commit`
   trunk guard.
-- Optional Claude Code `/handoff` slash command, rendered per repository.
+- Optional Claude Code `/extant` slash command, rendered per repository.
 
 ### Changes made during extraction
 

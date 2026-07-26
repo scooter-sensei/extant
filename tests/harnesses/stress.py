@@ -1,4 +1,4 @@
-"""Stress and load testing: find where handoff-validator falls over.
+"""Stress and load testing: find where extant falls over.
 
 Deliberately aimed at the WEAK points rather than at comfortable ones. The
 merge-claim rule was optimised by asking git once per distinct commit, so the
@@ -44,7 +44,7 @@ def new_repo(name: str) -> Path:
     sh(repo, "git", "config", "user.email", "t@t")
     sh(repo, "git", "config", "user.name", "T")
     sh(repo, "git", "config", "gc.auto", "0")
-    shutil.copytree(PKG / "plugin/skills/handoff/payload", repo / "tools")
+    shutil.copytree(PKG / "plugin/skills/extant/payload", repo / "tools")
     return repo
 
 
@@ -99,7 +99,7 @@ def run_timed(repo: Path, *args: str, budget: float, timeout: int = 600):
     """Time a subprocess run and judge it against a budget in seconds."""
     start = time.perf_counter()
     try:
-        proc = sh(repo, PY, str(repo / "tools/handoff_collect.py"),
+        proc = sh(repo, PY, str(repo / "tools/extant_collect.py"),
                   "--repo", str(repo), *args, timeout=timeout)
     except subprocess.TimeoutExpired:
         return None, timeout
@@ -150,7 +150,7 @@ def case_huge_document() -> None:
         if n % 50 == 0:
             body.append(f"Merged to `main` at `{shas[0]}`.")
         elif n % 50 == 25:
-            body.append("See [tool](tools/handoff_collect.py) for detail.")
+            body.append("See [tool](tools/extant_collect.py) for detail.")
         else:
             body.append(f"Prose line {n}, nothing falsifiable, just words to scan.")
     text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
@@ -219,7 +219,7 @@ def case_huge_archive() -> None:
         for n in range(500))
     write(repo, "NEXT_SESSION.md",
           f"# S\n\n## Phase 501 - now (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
-    write(repo, "docs/handoff-archive.md", f"# Archive\n\n{entries}")
+    write(repo, "docs/status-archive.md", f"# Archive\n\n{entries}")
     proc, elapsed = run_timed(repo, "--verify", budget=20)
     report("huge-archive", "500 archived entries", verdict_for(elapsed, 20))
 
@@ -237,7 +237,7 @@ def case_many_extra_docs() -> None:
     write(repo, "NEXT_SESSION.md",
           "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
     listed = ", ".join(f'"{n}"' for n in names)
-    write(repo, ".handoff.toml", f"extra_docs = [{listed}]\n")
+    write(repo, ".extant.toml", f"extra_docs = [{listed}]\n")
     proc, elapsed = run_timed(repo, "--verify", budget=25)
     report("many-extra-docs", "50 extra documents", verdict_for(elapsed, 25))
     if proc:
@@ -273,7 +273,7 @@ def case_memory() -> None:
     script = f'''
 import sys, tracemalloc, pathlib
 sys.path.insert(0, r"{repo / 'tools'}")
-import handoff_collect as h
+import extant_collect as h
 repo = pathlib.Path(r"{repo}")
 text = pathlib.Path(r"{doc}").read_text(encoding="utf-8")
 h._LINK_BASE = repo
@@ -307,7 +307,7 @@ def case_repeated() -> None:
           f"Merged to `main` at `{shas[0]}`.\n\n## 1. Ref\n")
     start = time.perf_counter()
     for _ in range(40):
-        sh(repo, PY, str(repo / "tools/handoff_collect.py"),
+        sh(repo, PY, str(repo / "tools/extant_collect.py"),
            "--repo", str(repo), "--validate", "NEXT_SESSION.md")
     elapsed = time.perf_counter() - start
     report("repeated", "40 runs", f"{elapsed:6.1f}s total, "
@@ -327,7 +327,7 @@ def case_search_large_archive() -> None:
         for n in range(2000))
     write(repo, "NEXT_SESSION.md",
           "# S\n\n## Phase 2001 - now (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
-    write(repo, "docs/handoff-archive.md", f"# Archive\n\n{entries}")
+    write(repo, "docs/status-archive.md", f"# Archive\n\n{entries}")
     proc, elapsed = run_timed(repo, "--search", "checkout rewrite", budget=20)
     report("search", "2000-entry archive", verdict_for(elapsed, 20))
     if proc:
@@ -340,11 +340,11 @@ def case_consistency_many_files() -> None:
     print("\n[11] 200 files in one consistency check")
     repo = new_repo("stress-consistency")
     bulk_commits(repo, 3)
-    lines = ["[handoff.consistency.version]"]
+    lines = ["[extant.consistency.version]"]
     for n in range(200):
         write(repo, f"pkg/mod{n}/meta.json", '{"version": "1.2.3"}\n')
         lines.append(f'"pkg/mod{n}/meta.json" = ' + "'" + r'"version": "([^"]+)"' + "'")
-    write(repo, ".handoff.toml", "\n".join(lines) + "\n")
+    write(repo, ".extant.toml", "\n".join(lines) + "\n")
     write(repo, "NEXT_SESSION.md", "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
     proc, elapsed = run_timed(repo, "--verify", budget=20)
     report("consistency", "200 files agreeing", verdict_for(elapsed, 20))

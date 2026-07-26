@@ -1,4 +1,4 @@
-"""Tests for tools/handoff_collect.py - the /handoff collector and validator."""
+"""Tests for tools/extant_collect.py - the /extant collector and validator."""
 from __future__ import annotations
 
 import subprocess
@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
-TOOL = SKILL_ROOT / "payload" / "handoff_collect.py"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
+TOOL = SKILL_ROOT / "payload" / "extant_collect.py"
 
 
 def test_fixture_builds_a_repo_with_commits(git_repo):
@@ -31,49 +31,49 @@ def test_cli_help_exits_zero():
 
 
 def test_parse_phase_from_task_suffix():
-    from handoff_collect import parse_phase
+    from extant_collect import parse_phase
     assert parse_phase("feat: voice - reload mailbox (9.6 Task 5)") == "9.6"
     assert parse_phase("refactor: settings - retire banner (9.6 Task 9)") == "9.6"
 
 
 def test_parse_phase_from_bare_version():
-    from handoff_collect import parse_phase
+    from extant_collect import parse_phase
     assert parse_phase("docs: plan - Phase 9.5b core runtime") == "9.5b"
 
 
 def test_parse_phase_unknown_when_absent():
-    from handoff_collect import parse_phase
+    from extant_collect import parse_phase
     assert parse_phase("chore: tidy imports") == "unknown"
 
 
 def test_parse_phase_ignores_library_versions():
     """GA-2 regression: a real commit subject from main. A library version is
     not a phase number."""
-    from handoff_collect import parse_phase
+    from extant_collect import parse_phase
     subject = "fix: ui - System-tab Column anchor + PySide6 6.11 QML load guard"
     assert parse_phase(subject) == "unknown"
 
 
-def test_boundary_is_last_commit_touching_the_handoff_doc(git_repo):
-    from handoff_collect import find_boundary
+def test_boundary_is_last_commit_touching_the_primary_doc(git_repo):
+    from extant_collect import find_boundary
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "old handoff\n", "docs: handoff - phase 1")
-    boundary = commit("NEXT_SESSION.md", "newer handoff\n", "docs: handoff - phase 2")
-    commit("src.py", "x = 1\n", "feat: thing - after the handoff")
+    commit("NEXT_SESSION.md", "old status\n", "docs: status - phase 1")
+    boundary = commit("NEXT_SESSION.md", "newer status\n", "docs: status - phase 2")
+    commit("src.py", "x = 1\n", "feat: thing - after the status")
     assert find_boundary(repo) == boundary
 
 
 def test_boundary_empty_when_doc_has_no_history(git_repo):
-    from handoff_collect import find_boundary
+    from extant_collect import find_boundary
     repo, commit = git_repo
     commit("src.py", "x = 1\n", "feat: thing - only commit")
     assert find_boundary(repo) == ""
 
 
 def test_commits_since_boundary_excludes_the_boundary_itself(git_repo):
-    from handoff_collect import commits_since, find_boundary
+    from extant_collect import commits_since, find_boundary
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - phase 1")
+    commit("NEXT_SESSION.md", "status\n", "docs: status - phase 1")
     commit("a.py", "a = 1\n", "feat: a - thing (9.6 Task 1)")
     commit("b.py", "b = 1\n", "feat: b - other (9.6 Task 2)")
     result = commits_since(repo, find_boundary(repo))
@@ -83,9 +83,9 @@ def test_commits_since_boundary_excludes_the_boundary_itself(git_repo):
 
 
 def test_scan_todos_finds_markers_in_changed_files(git_repo):
-    from handoff_collect import find_boundary, scan_todos
+    from extant_collect import find_boundary, scan_todos
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - base")
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
     commit("a.py", "x = 1\n# TODO: fix this\n", "feat: a - with todo")
     todos = scan_todos(repo, find_boundary(repo))
     assert len(todos) == 1
@@ -96,19 +96,19 @@ def test_scan_todos_finds_markers_in_changed_files(git_repo):
 
 def test_scan_todos_ignores_markdown(git_repo):
     """GA-5: docs legitimately contain the word TODO; only code counts."""
-    from handoff_collect import find_boundary, scan_todos
+    from extant_collect import find_boundary, scan_todos
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - base")
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
     commit("docs/plan.md", "- [ ] TODO: an example marker in a plan\n",
            "docs: plan - with a todo")
     assert scan_todos(repo, find_boundary(repo)) == []
 
 
 def test_scan_todos_ignores_unchanged_files(git_repo):
-    from handoff_collect import find_boundary, scan_todos
+    from extant_collect import find_boundary, scan_todos
     repo, commit = git_repo
     commit("old.py", "# TODO: ancient\n", "feat: old - pre-existing todo")
-    commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - base")
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
     commit("new.py", "y = 2\n", "feat: new - clean")
     assert scan_todos(repo, find_boundary(repo)) == []
 
@@ -119,12 +119,12 @@ def test_scan_todos_excludes_its_own_source_and_tests(git_repo):
     test file both do. Without this exclusion, every real run touching
     either would report phantom findings, the exact "noise trains the reader
     to ignore the section" failure GA-5 already exists to prevent."""
-    from handoff_collect import find_boundary, scan_todos
+    from extant_collect import find_boundary, scan_todos
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - base")
-    commit("tools/handoff_collect.py", "# TODO: discusses the marker\n",
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
+    commit("tools/extant_collect.py", "# TODO: discusses the marker\n",
            "feat: tool - change")
-    commit("tests/tools/test_handoff_collect.py", "# FIXME: discusses the marker\n",
+    commit("tests/tools/test_extant_collect.py", "# FIXME: discusses the marker\n",
            "feat: tool - test change")
     commit("tests/tools/conftest.py", "# XXX: discusses the marker\n",
            "feat: tool - conftest change")
@@ -133,7 +133,7 @@ def test_scan_todos_excludes_its_own_source_and_tests(git_repo):
 
 def test_parse_pytest_summary_reads_a_real_green_line():
     """GA-1 regression: verbatim pytest output from this repo."""
-    from handoff_collect import parse_pytest_summary
+    from extant_collect import parse_pytest_summary
     line = "====================== 2262 passed in 597.70s (0:09:57) ======================="
     result = parse_pytest_summary(line)
     assert result["passed"] == 2262
@@ -142,7 +142,7 @@ def test_parse_pytest_summary_reads_a_real_green_line():
 
 
 def test_parse_pytest_summary_reads_failures():
-    from handoff_collect import parse_pytest_summary
+    from extant_collect import parse_pytest_summary
     result = parse_pytest_summary("=========== 3 failed, 2259 passed in 601.20s ===========")
     assert result["passed"] == 2259
     assert result["failed"] == 3
@@ -150,7 +150,7 @@ def test_parse_pytest_summary_reads_failures():
 
 def test_run_suite_prefers_supplied_json(git_repo, tmp_path):
     import json
-    from handoff_collect import run_suite
+    from extant_collect import run_suite
     repo, _ = git_repo
     supplied = tmp_path / "suite.json"
     supplied.write_text(json.dumps({"passed": 2262, "failed": 0, "duration_s": 597.7}))
@@ -162,17 +162,17 @@ def test_run_suite_prefers_supplied_json(git_repo, tmp_path):
 def test_run_suite_raises_when_venv_missing(tmp_path):
     """I-3 regression: git worktrees have no .venv of their own (it is
     gitignored and exists only in the main repo), so the measured path used
-    to raise an uncaught FileNotFoundError, crashing /handoff step 1 in the
+    to raise an uncaught FileNotFoundError, crashing /extant step 1 in the
     normal case (phase work happens in worktrees by project convention).
     tmp_path has no .venv and is not even a git repo - this must fail before
     any git or subprocess interaction is attempted."""
-    from handoff_collect import run_suite
+    from extant_collect import run_suite
     with pytest.raises(RuntimeError, match="--suite-json"):
         run_suite(tmp_path, None)
 
 
 def test_read_plan_splits_checked_and_unchecked_steps(git_repo):
-    from handoff_collect import read_plan
+    from extant_collect import read_plan
     repo, commit = git_repo
     plan = (
         "# Plan\n\n### Task 1\n\n- [x] **Step 1: done thing**\n"
@@ -187,7 +187,7 @@ def test_read_plan_splits_checked_and_unchecked_steps(git_repo):
 
 
 def test_read_plan_picks_the_newest_by_date_prefix(git_repo):
-    from handoff_collect import read_plan
+    from extant_collect import read_plan
     repo, commit = git_repo
     commit("docs/superpowers/plans/2026-01-01-old.md", "- [x] old\n", "docs: plan - old")
     commit("docs/superpowers/plans/2026-07-20-new.md", "- [ ] new\n", "docs: plan - new")
@@ -199,7 +199,7 @@ def test_read_plan_tolerates_no_plans_dir(git_repo):
     read_plan() return path (see test_read_plan_checkbox_tracking_*), so this
     exact-equality assertion is updated to include the new key rather than
     dropped, per the fix's explicit requirement."""
-    from handoff_collect import read_plan
+    from extant_collect import read_plan
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - no plans dir")
     assert read_plan(repo) == {
@@ -208,7 +208,7 @@ def test_read_plan_tolerates_no_plans_dir(git_repo):
 
 
 def test_read_plan_checkbox_tracking_true_when_some_checked(git_repo):
-    from handoff_collect import read_plan
+    from extant_collect import read_plan
     repo, commit = git_repo
     plan = "# Plan\n\n- [x] done thing\n- [ ] pending thing\n"
     commit("docs/superpowers/plans/2026-07-20-thing.md", plan, "docs: plan - thing")
@@ -220,9 +220,9 @@ def test_read_plan_checkbox_tracking_false_when_none_checked(git_repo):
     practice (25 of 27 real plans have zero checked boxes, including the plan
     for work that just shipped), so a plan with unchecked boxes but NO
     checked ones must report checkbox_tracking=False - signalling to the
-    handoff command that `remaining` reflects an unmaintained file, not
+    status command that `remaining` reflects an unmaintained file, not
     outstanding work."""
-    from handoff_collect import read_plan
+    from extant_collect import read_plan
     repo, commit = git_repo
     plan = "# Plan\n\nProse only; boxes never checked off.\n- [ ] pending thing\n"
     commit("docs/superpowers/plans/2026-07-20-thing.md", plan, "docs: plan - thing")
@@ -233,9 +233,9 @@ def test_read_plan_checkbox_tracking_false_when_none_checked(git_repo):
 
 def test_collect_assembles_bundle(git_repo, tmp_path):
     import json
-    from handoff_collect import collect
+    from extant_collect import collect
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - base")
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
     commit("a.py", "a = 1\n", "feat: a - thing (9.6 Task 1)")
     supplied = tmp_path / "suite.json"
     supplied.write_text(json.dumps({"passed": 10, "failed": 0, "duration_s": 1.0}))
@@ -249,9 +249,9 @@ def test_collect_assembles_bundle(git_repo, tmp_path):
 
 def test_collect_reports_nothing_to_hand_off(git_repo, tmp_path):
     import json
-    from handoff_collect import collect
+    from extant_collect import collect
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - base")
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
     supplied = tmp_path / "suite.json"
     supplied.write_text(json.dumps({"passed": 1, "failed": 0, "duration_s": 0.1}))
     bundle = collect(repo, suite_json=str(supplied))
@@ -260,7 +260,7 @@ def test_collect_reports_nothing_to_hand_off(git_repo, tmp_path):
 
 
 SAMPLE_DOC = (
-    "# Cerene - Next Session Handoff\n\nIntro line.\n\n"
+    "# Cerene - Next Session Status\n\nIntro line.\n\n"
     "## Phase 9.6 - newest\n\nsix\n\n"
     "## Phase 9.5b - second\n\nfive-b\n\n"
     "## Phase 9.5a - third\n\nfive-a\n\n"
@@ -271,7 +271,7 @@ SAMPLE_DOC = (
 
 
 INTERLEAVED_DOC = (
-    "# Cerene - Next Session Handoff\n\nIntro.\n\n"
+    "# Cerene - Next Session Status\n\nIntro.\n\n"
     "## Phase 9.6 - newest\n\nsix\n\n"
     "## Phase 9.5b - second\n\nfive-b\n\n"
     "## Phase 9.5a - third\n\nfive-a\n\n"
@@ -282,9 +282,9 @@ INTERLEAVED_DOC = (
 
 
 def test_split_entries_separates_preamble_entries_and_base():
-    from handoff_collect import split_entries
+    from extant_collect import split_entries
     preamble, segments, base = split_entries(SAMPLE_DOC)
-    assert "Next Session Handoff" in preamble
+    assert "Next Session Status" in preamble
     assert len(segments) == 5
     assert all(kind == "phase" for kind, _ in segments)
     assert segments[0][1].startswith("## Phase 9.6")
@@ -293,7 +293,7 @@ def test_split_entries_separates_preamble_entries_and_base():
 
 def test_split_entries_classifies_interleaved_reference_sections():
     """GA-4: the real doc has '## Architecture roadmap' between phase entries."""
-    from handoff_collect import split_entries
+    from extant_collect import split_entries
     _, segments, _ = split_entries(INTERLEAVED_DOC)
     kinds = [kind for kind, _ in segments]
     assert kinds == ["phase", "phase", "phase", "other", "phase"]
@@ -302,16 +302,16 @@ def test_split_entries_classifies_interleaved_reference_sections():
 def test_archive_never_archives_a_reference_section(git_repo):
     """GA-4 regression: reference material must survive in NEXT_SESSION.md even
     when the phase entry preceding it gets archived."""
-    from handoff_collect import archive
+    from extant_collect import archive
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", INTERLEAVED_DOC, "docs: handoff - interleaved")
+    commit("NEXT_SESSION.md", INTERLEAVED_DOC, "docs: status - interleaved")
     counts = archive(repo, retain=3)
     assert counts["archived"] == 1
     with open(repo / "NEXT_SESSION.md", encoding="utf-8", newline="") as fh:
         remaining = fh.read()
     assert "ROADMAP BODY" in remaining
     assert "## Phase 9.4" not in remaining
-    with open(repo / "docs" / "handoff-archive.md", encoding="utf-8", newline="") as fh:
+    with open(repo / "docs" / "status-archive.md", encoding="utf-8", newline="") as fh:
         assert "ROADMAP BODY" not in fh.read()
 
 
@@ -331,11 +331,11 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
     anything. "---" appears nowhere in the code's own additions, so losing
     one of its six copies is an unambiguous, undiluted deficit.
     """
-    import handoff_collect as handoff_collect
-    from handoff_collect import archive
+    import extant_collect as extant_collect
+    from extant_collect import archive
 
     doc = (
-        "# Cerene - Next Session Handoff\n\nIntro line.\n\n---\n\n"
+        "# Cerene - Next Session Status\n\nIntro line.\n\n---\n\n"
         "## Phase 9.6 - newest\n\nsix\n\n---\n\n"
         "## Phase 9.5b - second\n\nfive-b\n\n---\n\n"
         "## Phase 9.5a - third\n\nfive-a\n\n---\n\n"
@@ -344,11 +344,11 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
         "## 1. Project at a glance\n\nreference\n"
     )
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", doc, "docs: handoff - duplicate rule")
+    commit("NEXT_SESSION.md", doc, "docs: status - duplicate rule")
     with open(repo / "NEXT_SESSION.md", "rb") as fh:
         before = fh.read()
 
-    real_split_entries = handoff_collect.split_entries
+    real_split_entries = extant_collect.split_entries
 
     def buggy_split_entries(text):
         # retain=3 keeps segments[0:3] (9.6, 9.5b, 9.5a) and moves the rest,
@@ -364,7 +364,7 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
         segments[-1] = (kind, "\n".join(lines))
         return preamble, segments, base
 
-    monkeypatch.setattr(handoff_collect, "split_entries", buggy_split_entries)
+    monkeypatch.setattr(extant_collect, "split_entries", buggy_split_entries)
 
     with pytest.raises(RuntimeError):
         archive(repo, retain=3)
@@ -372,13 +372,13 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
     with open(repo / "NEXT_SESSION.md", "rb") as fh:
         after = fh.read()
     assert after == before, "guard must fail closed: no partial write on loss"
-    assert not (repo / "docs" / "handoff-archive.md").exists()
+    assert not (repo / "docs" / "status-archive.md").exists()
 
 
 def test_archive_retains_newest_three_and_moves_the_rest(git_repo):
-    from handoff_collect import archive
+    from extant_collect import archive
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", SAMPLE_DOC, "docs: handoff - sample")
+    commit("NEXT_SESSION.md", SAMPLE_DOC, "docs: status - sample")
     counts = archive(repo, retain=3)
     assert counts["retained"] == 3
     assert counts["archived"] == 2
@@ -388,7 +388,7 @@ def test_archive_retains_newest_three_and_moves_the_rest(git_repo):
     assert "## Phase 9.5a" in remaining
     assert "## Phase 9.4" not in remaining
     assert "## 1. Project at a glance" in remaining
-    with open(repo / "docs" / "handoff-archive.md", encoding="utf-8", newline="") as fh:
+    with open(repo / "docs" / "status-archive.md", encoding="utf-8", newline="") as fh:
         archived = fh.read()
     assert "## Phase 9.4" in archived
     assert "## Phase 9.3" in archived
@@ -403,33 +403,33 @@ def test_archive_conserves_every_original_line(git_repo):
     contributed may be undercounted, which is exactly what a one-directional
     Counter residual on original's own lines proves."""
     from collections import Counter
-    from handoff_collect import archive
+    from extant_collect import archive
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", SAMPLE_DOC, "docs: handoff - sample")
+    commit("NEXT_SESSION.md", SAMPLE_DOC, "docs: status - sample")
     original = Counter(SAMPLE_DOC.splitlines())
     archive(repo, retain=3)
     with open(repo / "NEXT_SESSION.md", encoding="utf-8", newline="") as fh:
         remaining = Counter(fh.read().splitlines())
-    with open(repo / "docs" / "handoff-archive.md", encoding="utf-8", newline="") as fh:
+    with open(repo / "docs" / "status-archive.md", encoding="utf-8", newline="") as fh:
         archived = Counter(fh.read().splitlines())
     missing = original - remaining - archived
     assert not missing, f"line(s) lost: {missing!r}"
 
 
 def test_archive_is_a_noop_when_nothing_to_move(git_repo):
-    from handoff_collect import archive
+    from extant_collect import archive
     repo, commit = git_repo
     short = "# Head\n\n## Phase 9.6 - only\n\nsix\n\n## 1. Base\n\nref\n"
-    commit("NEXT_SESSION.md", short, "docs: handoff - short")
+    commit("NEXT_SESSION.md", short, "docs: status - short")
     counts = archive(repo, retain=3)
     assert counts["archived"] == 0
-    assert not (repo / "docs" / "handoff-archive.md").exists()
+    assert not (repo / "docs" / "status-archive.md").exists()
 
 
 def test_archive_preserves_crlf(git_repo):
-    from handoff_collect import archive
+    from extant_collect import archive
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", SAMPLE_DOC.replace("\n", "\r\n"), "docs: handoff - crlf")
+    commit("NEXT_SESSION.md", SAMPLE_DOC.replace("\n", "\r\n"), "docs: status - crlf")
     archive(repo, retain=3)
     with open(repo / "NEXT_SESSION.md", "rb") as fh:
         raw = fh.read()
@@ -447,16 +447,16 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
     read first. Confirmed by simulation: 1 block after run 1, 2 after run 2,
     3 after run 3, none ever removed.
 
-    Runs archive() twice back to back, simulating two handoffs, and checks:
+    Runs archive() twice back to back, simulating two statuss, and checks:
     the pointer count never exceeds one, archive ordering across the two
     runs stays newest-first, and the conservation guard does not falsely
     raise on the second run even though the on-disk file it reads already
     contains a stale pointer left by the first.
     """
-    from handoff_collect import _ARCHIVE_HEADER, archive
+    from extant_collect import _ARCHIVE_HEADER, archive
     repo, commit = git_repo
     run1_doc = (
-        "# Cerene - Next Session Handoff\n\nIntro line.\n\n"
+        "# Cerene - Next Session Status\n\nIntro line.\n\n"
         "## Phase 9.6 - run1 newest\n\nrun1-body-A\n\n"
         "## Phase 9.5b - run1 second\n\nrun1-body-B\n\n"
         "## Phase 9.5a - run1 third\n\nrun1-body-C\n\n"
@@ -464,7 +464,7 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
         "## Phase 9.3 - run1 fifth\n\nrun1-body-E\n\n"
         "## 1. Project at a glance\n\nreference\n"
     )
-    commit("NEXT_SESSION.md", run1_doc, "docs: handoff - run1 base")
+    commit("NEXT_SESSION.md", run1_doc, "docs: status - run1 base")
 
     first = archive(repo, retain=3)
     assert first["archived"] == 2
@@ -473,7 +473,7 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
         after_first = fh.read()
     assert after_first.count("## Archive pointer") == 1
 
-    # Simulate the next handoff: a new phase entry is always PREPENDED to
+    # Simulate the next status: a new phase entry is always PREPENDED to
     # NEXT_SESSION.md, ahead of whatever run 1 retained (including its
     # pointer block, still sitting inline at this point).
     run2_doc = after_first.replace(
@@ -481,7 +481,7 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
         "## Phase 9.7 - run2 newest\n\nrun2-body-A\n\n## Phase 9.6 - run1 newest",
         1,
     )
-    commit("NEXT_SESSION.md", run2_doc, "docs: handoff - run2 base")
+    commit("NEXT_SESSION.md", run2_doc, "docs: status - run2 base")
 
     second = archive(repo, retain=3)
     assert second["archived"] == 1
@@ -492,7 +492,7 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
     assert "run1-body-B" in after_second      # 9.5b: still retained (3rd newest)
     assert "run1-body-C" not in after_second  # 9.5a: fell out of the window this run
 
-    with open(repo / "docs" / "handoff-archive.md", encoding="utf-8", newline="") as fh:
+    with open(repo / "docs" / "status-archive.md", encoding="utf-8", newline="") as fh:
         archived = fh.read()
     assert archived.count(_ARCHIVE_HEADER) == 1
     assert "## Archive pointer" not in archived
@@ -502,7 +502,7 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
 
 
 def test_find_sha_candidates_requires_backticks_and_a_digit():
-    from handoff_collect import find_sha_candidates
+    from extant_collect import find_sha_candidates
     text = "merged at `7544a63` but not decade or `facade` or `deadbeef` or bare 7544a63\n"
     found = [token for _, token in find_sha_candidates(text)]
     assert found == ["7544a63"]
@@ -514,7 +514,7 @@ def test_find_bare_sha_candidates_requires_digit_and_letter():
     bare token needs BOTH a digit and a letter. An all-digit run (a year, a
     test count) and an all-letter hex-looking word must not match, even
     though both are individually valid hex and within the length bound."""
-    from handoff_collect import find_bare_sha_candidates
+    from extant_collect import find_bare_sha_candidates
     text = (
         "bare sha bead123 here, a plain year 2026072 alone, "
         "and hex word deadbeef alone\n"
@@ -528,7 +528,7 @@ def test_find_bare_sha_candidates_skips_backticked_spans():
     bare candidate - its span overlaps a `_BACKTICKED` span on the same
     line, so it is skipped here (and reported, if dead, only once via
     find_sha_candidates / the "dead-sha" path)."""
-    from handoff_collect import find_bare_sha_candidates
+    from extant_collect import find_bare_sha_candidates
     text = "backticked `abc1234` must not appear as bare, but bead123 must\n"
     found = [token for _, token in find_bare_sha_candidates(text)]
     assert found == ["bead123"]
@@ -539,13 +539,13 @@ def test_find_bare_sha_candidates_excludes_a_hex_run_embedded_in_a_longer_word()
     to trailing non-hex word characters (an identifier, not a token) must
     produce no match at all, not a truncated match of the hex-looking
     prefix."""
-    from handoff_collect import find_bare_sha_candidates
+    from extant_collect import find_bare_sha_candidates
     text = "identifier deadbeefzz is not a sha-shaped token\n"
     assert find_bare_sha_candidates(text) == []
 
 
 def test_validate_references_flags_a_dead_sha(git_repo):
-    from handoff_collect import validate_references
+    from extant_collect import validate_references
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - thing")
     findings = validate_references(repo, "See `deadbee1` for details.\n")
@@ -555,7 +555,7 @@ def test_validate_references_flags_a_dead_sha(git_repo):
 
 
 def test_validate_references_accepts_a_live_sha(git_repo):
-    from handoff_collect import validate_references
+    from extant_collect import validate_references
     repo, commit = git_repo
     sha = commit("a.py", "a = 1\n", "feat: a - thing")
     assert validate_references(repo, f"See `{sha}` for details.\n") == []
@@ -565,7 +565,7 @@ def test_validate_references_flags_a_bare_dead_sha(git_repo):
     """I-1(b): a SHA written without backticks that does not resolve must be
     flagged - this is exactly the class of reference that previously
     escaped --verify entirely."""
-    from handoff_collect import validate_references
+    from extant_collect import validate_references
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - thing")
     findings = validate_references(repo, "merged at deadbee1 without backticks\n")
@@ -577,7 +577,7 @@ def test_validate_references_flags_a_bare_dead_sha(git_repo):
 def test_validate_references_accepts_a_bare_live_sha(git_repo):
     """I-1(b): a bare SHA that RESOLVES is merely unstyled, not broken -
     flagging it would be noise, so it must produce no finding at all."""
-    from handoff_collect import validate_references
+    from extant_collect import validate_references
     repo, commit = git_repo
     sha = commit("a.py", "a = 1\n", "feat: a - thing")
     token = sha[:7]
@@ -589,7 +589,7 @@ def test_bare_dead_sha_inside_backticks_is_not_double_reported(git_repo):
     existing dead-sha path - not a second time as bare-dead-sha, since its
     span overlaps the backticked span and find_bare_sha_candidates skips
     it."""
-    from handoff_collect import validate_references
+    from extant_collect import validate_references
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - thing")
     findings = validate_references(repo, "See `deadbee1` for details.\n")
@@ -598,7 +598,7 @@ def test_bare_dead_sha_inside_backticks_is_not_double_reported(git_repo):
 
 
 def test_translate_shas_rewrites_using_the_commit_map(tmp_path):
-    from handoff_collect import load_sha_map, translate_shas
+    from extant_collect import load_sha_map, translate_shas
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("7544a63aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa f7d48c3bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n")
     mapping = load_sha_map(str(map_file))
@@ -609,7 +609,7 @@ def test_translate_shas_rewrites_using_the_commit_map(tmp_path):
 
 def test_translate_shas_leaves_ambiguous_prefixes_alone(tmp_path):
     """GA-6: two old SHAs share the prefix, so neither may win."""
-    from handoff_collect import load_sha_map, translate_shas
+    from extant_collect import load_sha_map, translate_shas
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text(
         "abc1234aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1111111ccccccccccccccccccccccccccccccccc\n"
@@ -626,7 +626,7 @@ def test_sha_map_translates_a_bare_dead_sha(tmp_path):
     repairable by --sha-map, not just flaggable. Kept BARE (no backticks
     added) and at its original length, since translate_shas repairs the
     reference, it does not add styling the author never wrote."""
-    from handoff_collect import load_sha_map, translate_shas
+    from extant_collect import load_sha_map, translate_shas
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("dead0001" + "a" * 32 + " f00d0001" + "b" * 32 + "\n")
     mapping = load_sha_map(str(map_file))
@@ -641,7 +641,7 @@ def test_translate_shas_leaves_ambiguous_bare_prefix_alone(tmp_path):
     """I-1(c): the bare path must honour the same GA-6 ambiguity rule as the
     backticked path -- two old SHAs sharing the bare token's prefix, so
     neither translation may win."""
-    from handoff_collect import load_sha_map, translate_shas
+    from extant_collect import load_sha_map, translate_shas
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text(
         "abc1234aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1111111ccccccccccccccccccccccccccccccccc\n"
@@ -654,7 +654,7 @@ def test_translate_shas_leaves_ambiguous_bare_prefix_alone(tmp_path):
 
 
 def test_live_claim_flags_a_branch_that_actually_merged(git_repo):
-    from handoff_collect import validate_live_claims
+    from extant_collect import validate_live_claims
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "checkout", "-b", "claude/feature"], cwd=repo, check=True,
@@ -671,7 +671,7 @@ def test_live_claim_flags_a_branch_that_actually_merged(git_repo):
 
 
 def test_live_claim_accepts_a_genuinely_unmerged_branch(git_repo):
-    from handoff_collect import validate_live_claims
+    from extant_collect import validate_live_claims
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "branch", "claude/feature"], cwd=repo, check=True,
@@ -686,9 +686,9 @@ def test_live_claim_accepts_a_genuinely_unmerged_branch(git_repo):
 
 def test_historical_facts_never_flag(git_repo):
     """The false-positive test. If this ever fails, the tool stops being trusted."""
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, commit = git_repo
-    sha = commit("NEXT_SESSION.md", "handoff\n", "docs: handoff - base")
+    sha = commit("NEXT_SESSION.md", "status\n", "docs: status - base")
     text = (
         f"## Phase 9.5b - done\n\nMerged at `{sha[:7]}`. Suite was 2238 passed, "
         "0 failures. Previously 2218. Completed 2026-07-15.\n"
@@ -697,28 +697,28 @@ def test_historical_facts_never_flag(git_repo):
 
 
 def test_scan_secrets_flags_a_token_shaped_string():
-    from handoff_collect import scan_secrets
+    from extant_collect import scan_secrets
     findings = scan_secrets("key is sk-abcdefghijklmnopqrstuvwxyz012345\n")
     assert len(findings) == 1
     assert findings[0].kind == "possible-secret"
 
 
 def test_scan_secrets_ignores_ordinary_prose():
-    from handoff_collect import scan_secrets
+    from extant_collect import scan_secrets
     assert scan_secrets("The suite passed 2262 tests in 597 seconds.\n") == []
 
 
 def test_verify_mode_returns_nonzero_on_a_bad_doc(git_repo):
-    from handoff_collect import main
+    from extant_collect import main
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "See `deadbee1` for details.\n", "docs: handoff - bad")
+    commit("NEXT_SESSION.md", "See `deadbee1` for details.\n", "docs: status - bad")
     assert main(["--verify", "--repo", str(repo)]) == 1
 
 
 def test_verify_mode_returns_zero_on_a_clean_doc(git_repo):
-    from handoff_collect import main
+    from extant_collect import main
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: handoff - clean")
+    commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: status - clean")
     assert main(["--verify", "--repo", str(repo)]) == 0
 
 
@@ -729,7 +729,7 @@ def test_main_errors_on_empty_validate_path(git_repo):
     `raise NotImplementedError` this replaces assumed it to be. It must exit
     non-zero via parser.error rather than silently falling through to an
     implicit `None` return, which SystemExit would report as exit code 0."""
-    from handoff_collect import main
+    from extant_collect import main
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     with pytest.raises(SystemExit) as exc_info:
@@ -738,14 +738,14 @@ def test_main_errors_on_empty_validate_path(git_repo):
 
 
 def test_scan_secrets_flags_a_project_scoped_key():
-    from handoff_collect import scan_secrets
+    from extant_collect import scan_secrets
     findings = scan_secrets("key is sk-proj-A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6\n")
     assert len(findings) == 1
     assert findings[0].kind == "possible-secret"
 
 
 def test_validate_includes_secret_findings(git_repo):
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     text = "## Phase 9.9 - thing\n\nSecret: sk-abcdefghijklmnopqrstuvwxyz012345\n"
@@ -763,7 +763,7 @@ def test_live_claim_flags_a_branch_that_no_longer_exists(git_repo):
     claim was never caught. Under the pre-fix logic this text produces zero
     findings; discriminates because the fix adds a dedicated
     branch-does-not-exist case that must fire here."""
-    from handoff_collect import validate_live_claims
+    from extant_collect import validate_live_claims
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "checkout", "-b", "claude/ghost"], cwd=repo, check=True,
@@ -789,7 +789,7 @@ def test_live_claim_ignores_a_stale_claim_in_an_older_entry(git_repo):
     (which checked every phase segment unconditionally) this text produces
     one finding for the older entry; after the fix, only the first
     (newest) phase segment is ever checked, so it must produce none."""
-    from handoff_collect import validate_live_claims
+    from extant_collect import validate_live_claims
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "checkout", "-b", "claude/old-feature"], cwd=repo, check=True,
@@ -819,7 +819,7 @@ def test_live_claim_newest_entry_true_claim_stays_silent(git_repo):
     regardless of merge status (paired with the next test, which requires a
     positive finding on the same shape of document, to pin the newest-segment
     selection itself)."""
-    from handoff_collect import validate_live_claims
+    from extant_collect import validate_live_claims
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "branch", "claude/still-open"], cwd=repo, check=True,
@@ -847,7 +847,7 @@ def test_live_claim_newest_entry_merged_branch_flags(git_repo):
     zero, since no other segment in the document qualifies -- so this test
     fails loudly under that class of bug even though it doesn't distinguish
     the historical pre-fix behavior."""
-    from handoff_collect import validate_live_claims
+    from extant_collect import validate_live_claims
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "checkout", "-b", "claude/actually-merged"], cwd=repo, check=True,
@@ -869,15 +869,15 @@ def test_live_claim_newest_entry_merged_branch_flags(git_repo):
 
 def test_verify_flags_a_dead_sha_that_lives_only_in_the_archive(git_repo, capsys):
     """Change 2: before this fix, --verify/--validate read only their target
-    file, so content moved into docs/handoff-archive.md escaped validation
+    file, so content moved into docs/status-archive.md escaped validation
     entirely. A dead SHA present ONLY in the archive must still surface, and
     the printed finding must be labelled with the archive's repo-relative
     path so a reader can tell which document it refers to. Discriminates:
     under the pre-fix main(), --verify reads only NEXT_SESSION.md (clean
     here), so this would return 0 with no mention of the archive at all."""
-    from handoff_collect import ARCHIVE_DOC, main
+    from extant_collect import ARCHIVE_DOC, main
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: handoff - clean")
+    commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: status - clean")
     commit(ARCHIVE_DOC, "Archived history: see `deadbee1` for details.\n",
            "docs: archive - with a dead sha")
 
@@ -895,9 +895,9 @@ def test_sha_map_translates_a_dead_sha_inside_the_archive_file(git_repo, tmp_pat
     findings it has no way to fix. Discriminates: under the pre-fix main(),
     sha-map translation only ever touched the --validate/--verify target, so
     the archive file on disk would be left with `dead0001` untouched."""
-    from handoff_collect import ARCHIVE_DOC, main
+    from extant_collect import ARCHIVE_DOC, main
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: handoff - clean")
+    commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: status - clean")
     commit(ARCHIVE_DOC, "Archived history: merged at `dead0001` long ago.\n",
            "docs: archive - with a dead sha")
     old_sha = "dead0001" + "a" * 32
@@ -932,7 +932,7 @@ def test_translate_shas_finds_a_sha_after_an_odd_backtick_line(tmp_path):
     assertions below FAIL against it (count == 0, no translation) and PASS
     against the per-line fix.
     """
-    from handoff_collect import load_sha_map, translate_shas
+    from extant_collect import load_sha_map, translate_shas
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text(
         "1234567aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa f7d48c3bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
@@ -957,7 +957,7 @@ def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(tmp_path):
     same red herring as test_find_sha_candidates_requires_backticks_and_a_digit)
     among three real SHA-shaped tokens.
     """
-    from handoff_collect import find_sha_candidates, load_sha_map, translate_shas
+    from extant_collect import find_sha_candidates, load_sha_map, translate_shas
 
     doc = (
         "Odd backtick trap number one: `\n"
@@ -1011,7 +1011,7 @@ def test_bare_candidates_and_translation_agree_on_tokenization(tmp_path):
     test_find_bare_sha_candidates_requires_digit_and_letter), and two real
     bare SHA-shaped tokens on different lines.
     """
-    from handoff_collect import find_bare_sha_candidates, load_sha_map, translate_shas
+    from extant_collect import find_bare_sha_candidates, load_sha_map, translate_shas
 
     doc = (
         "Backticked `abc1234` must be ignored by bare scanning.\n"
@@ -1049,7 +1049,7 @@ def test_archive_is_exempt_from_live_claim_checking(git_repo):
     live claim. Without the exemption, an archived entry that honestly records
     its own past 'not yet merged' status is flagged for saying so - the exact
     false positive the newest-entry scoping exists to prevent."""
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "branch", "claude/old"], cwd=repo, check=True,
@@ -1072,7 +1072,7 @@ def test_archive_is_exempt_from_live_claim_checking(git_repo):
 def test_archive_exemption_still_checks_references_and_secrets(git_repo):
     """The exemption is narrow: dead references and leaked credentials do not
     become acceptable by being archived."""
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     findings = validate(repo, "See `deadbee1`.\nkey sk-abcdefghijklmnopqrstuvwxyz012345\n",
@@ -1086,7 +1086,7 @@ def test_resolve_shas_agrees_with_per_token_checking(git_repo):
     """The batched resolver replaced ~60 subprocess spawns with one call. Its
     only real risk is disagreeing with the per-token path it replaced, so pin
     the equivalence directly on a mix of live and dead tokens."""
-    from handoff_collect import _resolve_shas, _sha_exists
+    from extant_collect import _resolve_shas, _sha_exists
     repo, commit = git_repo
     live_full = commit("a.py", "a = 1\n", "feat: a - first")
     live_short = live_full[:7]
@@ -1099,7 +1099,7 @@ def test_resolve_shas_agrees_with_per_token_checking(git_repo):
 
 
 def test_resolve_shas_handles_no_tokens(git_repo):
-    from handoff_collect import _resolve_shas
+    from extant_collect import _resolve_shas
     repo, _ = git_repo
     assert _resolve_shas(repo, []) == set()
 
@@ -1118,7 +1118,7 @@ def _repo_with_unmerged_branch(git_repo):
 
 def test_false_merge_claim_is_flagged(git_repo):
     """The dangerous direction: claiming work landed when it did not."""
-    from handoff_collect import validate_merge_claims
+    from extant_collect import validate_merge_claims
     repo, _, unmerged = _repo_with_unmerged_branch(git_repo)
     findings = validate_merge_claims(
         repo, f"**Status:** SHIPPED. Merged to `main` at `{unmerged[:7]}` via `--no-ff`.\n")
@@ -1128,7 +1128,7 @@ def test_false_merge_claim_is_flagged(git_repo):
 
 
 def test_true_merge_claim_stays_silent(git_repo):
-    from handoff_collect import validate_merge_claims
+    from extant_collect import validate_merge_claims
     repo, merged, _ = _repo_with_unmerged_branch(git_repo)
     assert validate_merge_claims(
         repo, f"Merged to `main` at `{merged[:7]}` via `--no-ff`.\n") == []
@@ -1137,7 +1137,7 @@ def test_true_merge_claim_stays_silent(git_repo):
 def test_merge_claim_with_dead_sha_is_not_double_reported(git_repo):
     """A dead SHA is already a dead-sha finding; adding 'not an ancestor of
     main' about a commit that does not exist would only confuse."""
-    from handoff_collect import validate_merge_claims
+    from extant_collect import validate_merge_claims
     repo, _, _ = _repo_with_unmerged_branch(git_repo)
     assert validate_merge_claims(repo, "Merged to `main` at `deadbee1`.\n") == []
 
@@ -1145,14 +1145,14 @@ def test_merge_claim_with_dead_sha_is_not_double_reported(git_repo):
 def test_merge_claim_matches_the_real_corpus_phrasings(git_repo):
     """A rule that misses the wording actually used is worthless. These four
     lines are taken verbatim from NEXT_SESSION.md and the archive."""
-    from handoff_collect import validate_merge_claims
+    from extant_collect import validate_merge_claims
     repo, _, unmerged = _repo_with_unmerged_branch(git_repo)
     s = unmerged[:7]
     for line in (
         f"**Ship status:** SHIPPED. Merged to `main` at `{s}` via `--no-ff`; feature branch deleted.",
         f"**Status: SHIPPED.** Merged to `main` at `{s}` via `--no-ff` on 2026-07-18",
         f"**Status:** SHIPPED to `main` at `{s}` on 2026-06-04. 33 commits merged.",
-        f"the `/handoff` slash command are **merged to `main` at `{s}`** via `--no-ff`",
+        f"the `/extant` slash command are **merged to `main` at `{s}`** via `--no-ff`",
     ):
         assert validate_merge_claims(repo, line + "\n"), f"missed: {line[:50]}"
 
@@ -1160,7 +1160,7 @@ def test_merge_claim_matches_the_real_corpus_phrasings(git_repo):
 def test_merge_claim_ignores_a_sha_that_precedes_the_phrase(git_repo):
     """Real near-miss from the corpus: the SHA belongs to 'branched from', not
     to the 'landed on main' phrase that follows it."""
-    from handoff_collect import validate_merge_claims
+    from extant_collect import validate_merge_claims
     repo, _, unmerged = _repo_with_unmerged_branch(git_repo)
     line = f"branched from main @ `{unmerged[:7]}` (the spec + plan docs landed directly on main first)\n"
     assert validate_merge_claims(repo, line) == []
@@ -1169,7 +1169,7 @@ def test_merge_claim_ignores_a_sha_that_precedes_the_phrase(git_repo):
 def test_merge_claims_are_checked_in_the_archive_too(git_repo):
     """Live claims are exempt in the archive; merge claims are NOT, because a
     factual claim about the past stays falsifiable at any age."""
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, _, unmerged = _repo_with_unmerged_branch(git_repo)
     text = f"## Phase 9.0 - retired\n\nMerged to `main` at `{unmerged[:7]}`.\n"
     kinds = {f.kind for f in validate(repo, text, in_archive=True)}
@@ -1177,7 +1177,7 @@ def test_merge_claims_are_checked_in_the_archive_too(git_repo):
 
 
 def test_dead_path_pointer_is_flagged(git_repo):
-    from handoff_collect import validate_path_pointers
+    from extant_collect import validate_path_pointers
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     findings = validate_path_pointers(
@@ -1187,7 +1187,7 @@ def test_dead_path_pointer_is_flagged(git_repo):
 
 
 def test_live_path_pointer_stays_silent(git_repo):
-    from handoff_collect import validate_path_pointers
+    from extant_collect import validate_path_pointers
     repo, commit = git_repo
     commit("docs/plans/real.md", "# plan\n", "docs: plan - real")
     assert validate_path_pointers(repo, "**Plan:** `docs/plans/real.md`\n") == []
@@ -1199,7 +1199,7 @@ def test_descriptive_path_mentions_are_not_flagged(git_repo):
     deferred work, or a file explicitly described as deleted. A shape-keyed
     rule would emit 23 false positives and break the never-cry-wolf guarantee.
     These three lines are the real corpus patterns."""
-    from handoff_collect import validate_path_pointers
+    from extant_collect import validate_path_pointers
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     for line in (
@@ -1213,7 +1213,7 @@ def test_descriptive_path_mentions_are_not_flagged(git_repo):
 def test_path_pointer_catches_a_windows_absolute_path(git_repo):
     """The defect that motivated this rule was a Windows absolute path in
     CLAUDE.md; a forward-slash-only pattern would have missed it."""
-    from handoff_collect import validate_path_pointers
+    from extant_collect import validate_path_pointers
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     line = r"For task specs, read `C:\Users\priya\.claude\plans\stateless-waddling-rossum.md`."
@@ -1223,7 +1223,7 @@ def test_path_pointer_catches_a_windows_absolute_path(git_repo):
 
 
 def test_path_pointers_are_checked_in_the_archive_too(git_repo):
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     text = "## Phase 9.0 - retired\n\n**Design:** `docs/specs/gone.md`\n"
@@ -1239,7 +1239,7 @@ def test_every_rule_declares_a_falsifiable_question():
     in the author's head, so nothing stopped a rule that inspects numbers or
     dates being added - and such a rule cries wolf, which is the one failure
     that destroys the validator's value."""
-    from handoff_collect import RULES
+    from extant_collect import RULES
     assert RULES, "registry must not be empty"
     for rule in RULES:
         assert rule.falsifiable.strip(), f"{rule.kind} declares no falsifiable question"
@@ -1254,7 +1254,7 @@ def test_registry_covers_every_kind_the_validator_can_emit():
     """A rule reachable through validate() but absent from the registry would
     have undeclared scope and archive semantics - exactly the implicit state the
     registry exists to remove."""
-    from handoff_collect import RULES
+    from extant_collect import RULES
     declared = {r.kind for r in RULES}
     # bare-dead-sha is emitted by the same rule that emits dead-sha.
     emitted = {"dead-sha", "stale-live-claim", "false-merge-claim",
@@ -1274,7 +1274,7 @@ def test_only_non_whole_file_rules_are_archive_exempt():
     it again per archive and per extra document would report one disagreement
     several times. Whole-file rules apply everywhere and are never exempt.
     """
-    from handoff_collect import RULES
+    from extant_collect import RULES
     exempt = {r.kind for r in RULES if not r.in_archive}
     not_whole_file = {r.kind for r in RULES if r.scope != "whole-file"}
     assert exempt == {"stale-live-claim", "unknown-branch", "inconsistent-artifact"}, (
@@ -1289,7 +1289,7 @@ def test_only_non_whole_file_rules_are_archive_exempt():
 def test_archive_mode_skips_exactly_the_exempt_rules(git_repo):
     """Behavioural counterpart: the registry's declaration must actually govern
     what runs, not merely describe it."""
-    from handoff_collect import RULES, validate
+    from extant_collect import RULES, validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     subprocess.run(["git", "branch", "claude/old"], cwd=repo, check=True, capture_output=True)
@@ -1315,7 +1315,7 @@ def test_finds_a_posix_layout_interpreter(git_repo):
     macOS and Linux - where the interpreter is .venv/bin/python - nothing was
     found, and the git hook skipped silently on every commit while appearing
     installed and healthy."""
-    from handoff_collect import find_python
+    from extant_collect import find_python
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     assert find_python(repo) is None
@@ -1328,7 +1328,7 @@ def test_finds_a_posix_layout_interpreter(git_repo):
 
 
 def test_finds_a_windows_layout_interpreter(git_repo):
-    from handoff_collect import find_python
+    from extant_collect import find_python
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     win = repo / ".venv" / "Scripts"
@@ -1340,7 +1340,7 @@ def test_finds_a_windows_layout_interpreter(git_repo):
 
 def test_python3_layout_is_tried_when_python_is_absent(git_repo):
     """Some POSIX venvs ship only python3."""
-    from handoff_collect import find_python
+    from extant_collect import find_python
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     posix = repo / ".venv" / "bin"
@@ -1353,7 +1353,7 @@ def test_python3_layout_is_tried_when_python_is_absent(git_repo):
 def test_missing_interpreter_error_names_what_it_tried(git_repo):
     """An error that only says 'not found' leaves the reader guessing which of
     three layouts was expected."""
-    from handoff_collect import run_suite
+    from extant_collect import run_suite
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     try:
@@ -1370,7 +1370,7 @@ def test_count_examined_reports_the_denominator(git_repo):
     """Zero findings and zero checked print identically without this. That
     ambiguity produced five separate silent failures in one session, so the
     counts are load-bearing, not cosmetic."""
-    from handoff_collect import count_examined
+    from extant_collect import count_examined
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     text = (
@@ -1388,7 +1388,7 @@ def test_count_examined_reports_the_denominator(git_repo):
 def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(git_repo):
     """A rule with nothing to examine must report 0, not be omitted - that is
     the signal distinguishing 'no such claims here' from 'pattern is broken'."""
-    from handoff_collect import count_examined
+    from extant_collect import count_examined
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
     counts = count_examined(repo, "## Phase 1 - nothing falsifiable at all\n")
@@ -1399,7 +1399,7 @@ def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(git_repo):
     # WITHOUT a denominator fails here. A silent rule is invisible in exactly
     # the way this whole tool exists to prevent, and a literal set would have to
     # be edited by the same person who forgot.
-    from handoff_collect import RULES
+    from extant_collect import RULES
     assert set(counts) == {rule.kind for rule in RULES}, (
         "every rule must report a denominator; missing: "
         f"{ {r.kind for r in RULES} - set(counts) }"

@@ -1,4 +1,4 @@
-"""Derive handoff configuration by inspecting a repository.
+"""Derive extant configuration by inspecting a repository.
 
 Pure-ish detection functions, separated from install.py so they are testable
 without copying files anywhere.
@@ -138,7 +138,7 @@ _PHASEY = re.compile(r"\((\d+(?:\.\d+)+[a-z]?)\s+\w+\s*\d*\)")
 def detect_commit_convention(repo: Path) -> list[Observation]:
     """Whether commit subjects carry a parseable grouping key.
 
-    The handoff groups commits by "phase". Most repos have no such concept, and
+    The status groups commits by "phase". Most repos have no such concept, and
     saying so plainly is better than shipping a regex that silently labels
     everything "unknown".
     """
@@ -185,7 +185,7 @@ _DOC_DIRS = ("", "docs", "doc", ".github", "meta", "notes")
 
 
 def find_documents(repo: Path) -> list[Path]:
-    """Every plausible handoff document, nearest the root first.
+    """Every plausible status document, nearest the root first.
 
     Returns ALL of them. A large repo often has several, and picking the first
     silently is how the tool ends up validating the wrong file.

@@ -10,7 +10,7 @@
 #   1. `git merge --no-ff` landed a finished branch on an unrelated topic branch.
 #   2. A doc was edited against a base 180 commits stale; committing it would
 #      have silently reverted rules the project depends on.
-#   3. A git hook validated a different branch's handoff document than the one
+#   3. A git hook validated a different branch's status document than the one
 #      being committed.
 #   4. A recorded suite baseline pointed at a commit the suite never ran on.
 #   5. A test-count measurement reported the stale branch's number.
@@ -27,7 +27,7 @@ set -u
 
 # Both answers from one git process. This is a PRE-commit hook, so its cost is
 # paid before the commit completes rather than after, which makes it the more
-# irritating of the two to have running. See handoff-verify for the same note.
+# irritating of the two to have running. See extant-verify for the same note.
 _paths=$(git rev-parse --path-format=absolute \
              --show-toplevel --git-common-dir 2>/dev/null) || exit 0
 _oldifs=$IFS
@@ -44,17 +44,17 @@ MAIN_TREE=$(dirname "$2")
 [ "$TOPLEVEL" = "$MAIN_TREE" ] || exit 0
 
 # The trunk is per-project. Hardcoding `main` here made this guard block every
-# commit on a `master` or `develop` repo - including one whose .handoff.toml
+# commit on a `master` or `develop` repo - including one whose .extant.toml
 # correctly said `trunk = "master"`, which this script simply never read. That
-# is the "config key nothing reads" failure the handoff system exists to catch,
-# so it must not live in the handoff system's own guard.
+# is the "config key nothing reads" failure the status workflow exists to catch,
+# so it must not live in the status workflow's own guard.
 #
 # Parsed with sed rather than a Python call: this runs on every commit, and the
-# handoff system deliberately supports repos with no Python at all (a JS or Rust
+# status workflow deliberately supports repos with no Python at all (a JS or Rust
 # project sets suite_command = ["npm", "test"]). A pre-commit hook that needs an
 # interpreter those repos do not have would be worse than the bug it fixes.
 TRUNK=main
-CONFIG="$MAIN_TREE/.handoff.toml"
+CONFIG="$MAIN_TREE/.extant.toml"
 if [ -f "$CONFIG" ]; then
     _t=$(sed -n "s/^[[:space:]]*trunk[[:space:]]*=[[:space:]]*[\"']\\([^\"']*\\).*/\\1/p" \
          "$CONFIG" | head -n 1)

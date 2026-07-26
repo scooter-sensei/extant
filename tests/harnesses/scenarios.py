@@ -1,4 +1,4 @@
-"""End-to-end scenario matrix for handoff-validator.
+"""End-to-end scenario matrix for extant.
 
 Builds a fresh repository per scenario, installs the tool from the COMMITTED
 package state, and asserts what should happen. Each check states its
@@ -61,12 +61,12 @@ def commit(repo: Path, message: str) -> str:
 
 
 def install(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
-    return sh(repo, PY, str(PKG / "plugin/skills/handoff/install.py"),
+    return sh(repo, PY, str(PKG / "plugin/skills/extant/install.py"),
               "--repo", str(repo), *extra, check=False)
 
 
 def tool(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return sh(repo, PY, str(repo / "tools/handoff_collect.py"),
+    return sh(repo, PY, str(repo / "tools/extant_collect.py"),
               "--repo", str(repo), *args, check=False)
 
 
@@ -93,13 +93,13 @@ def s1_node_master_status() -> None:
 
     out = install(repo)
     check(name, "installer succeeded", out.returncode == 0, out.stdout + out.stderr)
-    cfg = (repo / ".handoff.toml").read_text(encoding="utf-8")
+    cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
     check(name, "derived trunk=master", 'trunk = "master"' in cfg, cfg)
-    check(name, "derived handoff_doc=STATUS.md", 'handoff_doc = "STATUS.md"' in cfg, cfg)
+    check(name, "derived primary_doc=STATUS.md", 'primary_doc = "STATUS.md"' in cfg, cfg)
     check(name, "derived entry_prefix from '## Release'",
           "## Release" in cfg, cfg)
 
-    cmd = (repo / ".claude/commands/handoff.md").read_text(encoding="utf-8")
+    cmd = (repo / ".claude/commands/extant.md").read_text(encoding="utf-8")
     check(name, "slash command names this project, not the source",
           "Cerene" not in cmd and "NEXT_SESSION" not in cmd and name in cmd)
 
@@ -109,7 +109,7 @@ def s1_node_master_status() -> None:
 
     # A JS project sets a non-Python suite command; the tool must not demand
     # an interpreter it was never told to use.
-    with open(repo / ".handoff.toml", "a", encoding="utf-8") as fh:
+    with open(repo / ".extant.toml", "a", encoding="utf-8") as fh:
         fh.write('suite_command = ["npm", "test"]\n')
     res = tool(repo, "--collect", "--out", str(repo / "b.json"),
                "--suite-json", str(repo / "suite.json"))
@@ -172,7 +172,7 @@ def s3_ticket_branches() -> None:
         commit(repo, f"ABC-{n}: work")
 
     out = install(repo)
-    cfg = (repo / ".handoff.toml").read_text(encoding="utf-8")
+    cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
     check(name, "derived trunk=develop", 'trunk = "develop"' in cfg, cfg)
     check(name, "detected the ticket convention",
           "ABC" in cfg or "phase_task" in out.stdout, out.stdout + cfg)
@@ -180,9 +180,9 @@ def s3_ticket_branches() -> None:
 
 # --------------------------------------------------------------------------
 def s4_no_document() -> None:
-    """A team whose state lives in a tracker: no handoff document at all."""
+    """A team whose state lives in a tracker: no status document at all."""
     name = "s4-nodoc"
-    print(f"\n[{name}] no handoff document anywhere")
+    print(f"\n[{name}] no status document anywhere")
     repo = new_repo(name)
     write(repo, "README.md", "# app\n")
     commit(repo, "chore: init")
@@ -190,8 +190,8 @@ def s4_no_document() -> None:
     out = install(repo)
     check(name, "installer refuses rather than inventing a document",
           out.returncode == 1, out.stdout)
-    check(name, "and says why", "no handoff document" in out.stdout.lower(), out.stdout)
-    check(name, "no config written", not (repo / ".handoff.toml").exists())
+    check(name, "and says why", "no status document" in out.stdout.lower(), out.stdout)
+    check(name, "no config written", not (repo / ".extant.toml").exists())
 
 
 # --------------------------------------------------------------------------
@@ -205,7 +205,7 @@ def s5_extra_docs() -> None:
     write(repo, "AGENTS.md", "# Agents\n\nJump to [nope](#no-such-heading).\n")
     commit(repo, "chore: init")
     install(repo)
-    with open(repo / ".handoff.toml", "a", encoding="utf-8") as fh:
+    with open(repo / ".extant.toml", "a", encoding="utf-8") as fh:
         fh.write('extra_docs = ["CLAUDE.md", "AGENTS.md"]\n')
 
     res = tool(repo, "--verify")
@@ -215,11 +215,11 @@ def s5_extra_docs() -> None:
     check(name, "exit 1", res.returncode == 1)
 
     # A configured document that is absent must be a finding, not a shrug.
-    with open(repo / ".handoff.toml", "a", encoding="utf-8") as fh:
+    with open(repo / ".extant.toml", "a", encoding="utf-8") as fh:
         fh.write('')
-    cfgtext = (repo / ".handoff.toml").read_text(encoding="utf-8").replace(
+    cfgtext = (repo / ".extant.toml").read_text(encoding="utf-8").replace(
         'extra_docs = ["CLAUDE.md", "AGENTS.md"]', 'extra_docs = ["MISSING.md"]')
-    (repo / ".handoff.toml").write_text(cfgtext, encoding="utf-8")
+    (repo / ".extant.toml").write_text(cfgtext, encoding="utf-8")
     res = tool(repo, "--verify")
     check(name, "missing extra_doc reported", "missing-document" in res.stdout, res.stdout)
 
@@ -241,12 +241,12 @@ def s6_everything_broken() -> None:
     # HARNESS BUG, fixed: the installer already writes branch_token, and TOML
     # refuses a duplicate key. Drop its line before adding our own rather than
     # appending a second definition.
-    cfg = (repo / ".handoff.toml").read_text(encoding="utf-8")
+    cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
     cfg = "\n".join(ln for ln in cfg.splitlines()
                     if not ln.startswith("branch_token"))
     cfg += ("\nlive_phrases = 'NOT yet merged'\n"
             "branch_token = '`((?:feature|claude)/[^`]+)`'\n")
-    (repo / ".handoff.toml").write_text(cfg, encoding="utf-8")
+    (repo / ".extant.toml").write_text(cfg, encoding="utf-8")
 
     write(repo, "NEXT_SESSION.md",
           "# Status\n\n## Phase 2 - now (in progress, 2026-07-01)\n\n"
@@ -326,7 +326,7 @@ def s8_crlf_and_nested() -> None:
           "\r\n## 1. Ref\r\n", crlf=True)
     commit(repo, "chore: init")
     out = install(repo)
-    cfg = (repo / ".handoff.toml").read_text(encoding="utf-8")
+    cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
     check(name, "found the nested document",
           "docs/HANDOFF.md" in cfg, out.stdout + cfg)
 
@@ -354,7 +354,7 @@ def s9_worktree() -> None:
         shutil.rmtree(wt, ignore_errors=True)
     sh(repo, "git", "worktree", "add", "-q", str(wt), "-b", "feature/work")
 
-    res = sh(wt, PY, str(wt / "tools/handoff_collect.py"), "--repo", str(wt),
+    res = sh(wt, PY, str(wt / "tools/extant_collect.py"), "--repo", str(wt),
              "--validate", "NEXT_SESSION.md", check=False)
     check(name, "runs inside a worktree", res.returncode in (0, 1), res.stdout + res.stderr)
     check(name, "finds the dead SHA there too", "dead-sha" in res.stdout, res.stdout)
@@ -383,9 +383,9 @@ def s10_archive_roundtrip() -> None:
           "retained=" in res.stdout and "archived=" in res.stdout, res.stdout)
 
     after = (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")
-    archive_path = repo / "docs/handoff-archive.md"
+    archive_path = repo / "docs/status-archive.md"
     if not archive_path.exists():
-        archive_path = repo / "handoff-archive.md"
+        archive_path = repo / "status-archive.md"
     arch = archive_path.read_text(encoding="utf-8") if archive_path.exists() else ""
     check(name, "archive file created", bool(arch), str(list(repo.glob("**/*archive*"))))
     kept = after.count("## Phase ")
@@ -398,7 +398,7 @@ def s10_archive_roundtrip() -> None:
 
     res = tool(repo, "--verify")
     check(name, "archived content still validated",
-          "handoff-archive" in res.stdout or "archive" in res.stdout.lower(), res.stdout)
+          "status-archive" in res.stdout or "archive" in res.stdout.lower(), res.stdout)
 
 
 # --------------------------------------------------------------------------
@@ -434,7 +434,7 @@ def s11_hooks() -> None:
     res = sh(repo, "git", "commit", "-m", "chore: trigger hooks", check=False)
     combined = res.stdout + res.stderr
     check(name, "commit on trunk allowed", res.returncode == 0, combined)
-    check(name, "post-commit reported the false claim", "[handoff]" in combined, combined)
+    check(name, "post-commit reported the false claim", "[extant]" in combined, combined)
 
     # Off trunk in the main tree, guard NOT installed: must be allowed through.
     sh(repo, "git", "checkout", "-q", "-b", "topic")

@@ -7,15 +7,15 @@ three times, so the incidents are recorded alongside the rules.
 ## Architecture: fat script, thin subagent, validator gates the commit
 
 ```
-/handoff
+/extant
    |  the invoking session writes a friction summary from its own context
    v
 subagent
    |
-   +- 1. handoff_collect.py --collect   -> bundle.json   (facts, no prose)
+   +- 1. extant_collect.py --collect   -> bundle.json   (facts, no prose)
    +- 2. drafts the entry from the bundle
-   +- 3. handoff_collect.py --archive   (AFTER drafting; see below)
-   +- 4. handoff_collect.py --validate  -> exit 0/1
+   +- 3. extant_collect.py --archive   (AFTER drafting; see below)
+   +- 4. extant_collect.py --validate  -> exit 0/1
    +- 5. commits ONLY if step 4 exits 0
 ```
 
@@ -41,7 +41,7 @@ ignored. Every rule must be falsifiable against git or the filesystem.
 
 ## Adding a rule
 
-Rules live in a registry in `handoff_collect.py`. Each declares what it emits,
+Rules live in a registry in `extant_collect.py`. Each declares what it emits,
 its scope, whether it survives archiving, and - required - the exact yes/no
 question it asks of git or the filesystem:
 
@@ -163,7 +163,7 @@ findings even if a later attempt cleared them.** Without this, the cheapest way
 to pass a validator is to delete the offending claim. With it, claim-deletion is
 visible in both the report and the diff.
 
-**A red test suite must not block the handoff commit.** A handoff that can only
+**A red test suite must not block the status commit.** An entry that can only
 describe green states withholds the truth exactly when it matters most.
 
 **The archive must be validated.** Otherwise `--archive` shrinks the validation

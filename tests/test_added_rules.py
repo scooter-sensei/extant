@@ -12,8 +12,8 @@ import sys
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
-TOOL = SKILL_ROOT / "payload" / "handoff_collect.py"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
+TOOL = SKILL_ROOT / "payload" / "extant_collect.py"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -32,7 +32,7 @@ def test_md_link_to_a_missing_file_is_flagged(git_repo) -> None:
     """Catches the gap that motivated this rule: a plain markdown link was
     invisible, because the path rule only sees backticked paths after an
     operative marker."""
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
@@ -45,7 +45,7 @@ def test_md_link_to_a_missing_file_is_flagged(git_repo) -> None:
 def test_md_link_to_an_existing_file_is_silent(git_repo) -> None:
     """The false-positive guard. A rule that flags working links is worse than
     no rule, because it trains people to ignore the output."""
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
 
@@ -58,7 +58,7 @@ def test_external_links_are_never_checked(git_repo) -> None:
     Checking external links would make a green run depend on someone else's
     uptime and rate limits, turning a deterministic check into a coin flip.
     """
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = ("[docs](https://example.invalid/nope)\n"
@@ -75,7 +75,7 @@ def test_example_links_in_inline_code_are_ignored(git_repo) -> None:
     example links live, so this is the predictable case rather than an exotic
     one, and it was found by running the rule against our own front page.
     """
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = "| `[a link](to/a/file.md)` whose file is gone | checks it |\n"
@@ -89,7 +89,7 @@ def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
     Without this, the fix above could be 'ignore any line containing a
     backtick', which would blind the rule wherever prose mixes the two.
     """
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = "Example `[x](never-real.md)` but see [the plan](docs/gone.md).\n"
@@ -104,7 +104,7 @@ def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
 def test_links_inside_code_fences_are_ignored(git_repo) -> None:
     """A README demonstrating link syntax is showing an example, not making a
     promise. Catches a scanner that reads fenced blocks as prose."""
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = "Example:\n\n```markdown\n[label](docs/not-real.md)\n```\n"
@@ -120,7 +120,7 @@ def test_anchor_matching_a_heading_is_silent(git_repo) -> None:
     Punctuation and backticks are dropped and spaces become hyphens, so
     "## 1. Layout `here`" has to resolve for `#1-layout-here`.
     """
-    from handoff_collect import validate_md_anchors
+    from extant_collect import validate_md_anchors
     repo, _ = git_repo
 
     text = "## 1. Layout `here`\n\nJump to [it](#1-layout-here).\n"
@@ -135,7 +135,7 @@ def test_anchor_matching_is_case_insensitive(git_repo) -> None:
     A reader who writes `#Setup-Guide` for `## Setup Guide` would have been told
     their working link was dead.
     """
-    from handoff_collect import validate_md_anchors
+    from extant_collect import validate_md_anchors
     repo, _ = git_repo
 
     text = "## Setup Guide\n\nJump to [it](#Setup-Guide).\n"
@@ -144,7 +144,7 @@ def test_anchor_matching_is_case_insensitive(git_repo) -> None:
 
 
 def test_anchor_with_no_matching_heading_is_flagged(git_repo) -> None:
-    from handoff_collect import validate_md_anchors
+    from extant_collect import validate_md_anchors
     repo, _ = git_repo
 
     findings = validate_md_anchors(repo, "## Layout\n\nSee [x](#nonexistent).\n")
@@ -166,7 +166,7 @@ def test_merged_then_deleted_branch_is_not_flagged(git_repo) -> None:
     "does this branch exist" would have produced four findings, all wrong, on
     its first run. Deleting a merged branch is ordinary hygiene.
     """
-    from handoff_collect import validate_branch_mentions
+    from extant_collect import validate_branch_mentions
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "checkout", "-q", "-b", "feature/done")
@@ -182,7 +182,7 @@ def test_merged_then_deleted_branch_is_not_flagged(git_repo) -> None:
 def test_branch_git_never_saw_is_flagged(git_repo) -> None:
     """The positive case: a name that exists in neither refs nor merge history
     is a typo or work that was never integrated."""
-    from handoff_collect import validate_branch_mentions
+    from extant_collect import validate_branch_mentions
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
@@ -204,7 +204,7 @@ def test_a_file_path_is_not_reported_as_a_branch(git_repo, monkeypatch) -> None:
     Reproduced here with the real fallback pattern, not a contrived one.
     """
     import re
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
@@ -227,7 +227,7 @@ def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(git_repo, monk
     of two call sites is the kind of half-repair that looks complete in a diff.
     """
     import re
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
@@ -249,7 +249,7 @@ def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, monkeypatch)
     naming convention.
     """
     import re
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
@@ -263,7 +263,7 @@ def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, monkeypatch)
 def test_branch_rule_ignores_older_entries(git_repo) -> None:
     """Scoped to the newest entry, like live claims. Older entries name branches
     that were correct when written, and flagging them is noise."""
-    from handoff_collect import validate_branch_mentions
+    from extant_collect import validate_branch_mentions
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = ("# Status\n\n## Phase 2 - now (in progress, 2026-02-01)\n\nNothing.\n\n"
@@ -275,7 +275,7 @@ def test_branch_rule_ignores_older_entries(git_repo) -> None:
 # --- release tags ------------------------------------------------------------
 
 def test_missing_release_tag_is_flagged(git_repo) -> None:
-    from handoff_collect import validate_release_tags
+    from extant_collect import validate_release_tags
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
@@ -292,7 +292,7 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo) -> None:
     release never happened, which is the more misleading of the two failures.
     Dropping the ancestry check left every other test in this file green.
     """
-    from handoff_collect import validate_release_tags
+    from extant_collect import validate_release_tags
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "checkout", "-q", "-b", "abandoned")
@@ -309,7 +309,7 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo) -> None:
 def test_existing_tag_on_trunk_is_silent(git_repo) -> None:
     """Catches a rule that flags real releases, which would make it unusable for
     the CHANGELOG-keeping projects it exists to serve."""
-    from handoff_collect import validate_release_tags
+    from extant_collect import validate_release_tags
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "v1.0")
@@ -326,13 +326,13 @@ def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
     detection has run, so the first version looked correct and silently found
     nothing. Dropping the pathspec is what makes it work.
     """
-    import handoff_collect
-    from handoff_collect import validate_md_links
+    import extant_collect
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("docs/old.md", "# old\n", "docs: add")
     git(repo, "mv", "docs/old.md", "docs/new.md")
     git(repo, "commit", "-qm", "docs: rename")
-    handoff_collect._RENAMES.clear()
+    extant_collect._RENAMES.clear()
 
     findings = validate_md_links(repo, "See [it](docs/old.md).\n")
 
@@ -348,7 +348,7 @@ def test_every_rule_declares_a_probe() -> None:
     The same reasoning as the existing `falsifiable` requirement: declaring it
     in the registry is what stops a rule being added that nothing can exercise.
     """
-    from handoff_collect import RULES
+    from extant_collect import RULES
 
     assert RULES, "the registry is empty; this test would pass vacuously"
     missing = [r.kind for r in RULES if not callable(r.probe)]
@@ -362,7 +362,7 @@ def test_selftest_fires_every_probeable_rule(git_repo) -> None:
     SHA with zeros, but the rule skips claims whose commit does not resolve, so
     a working rule was reported as silent.
     """
-    from handoff_collect import selftest
+    from extant_collect import selftest
     repo, commit = git_repo
     base = commit("docs/plan.md", "# plan\n", "feat: base").strip()[:9]
     git(repo, "checkout", "-q", "-b", "feature/open")
@@ -391,7 +391,7 @@ def test_entry_scoped_rules_are_skipped_for_documents_with_no_entries(git_repo) 
     mutation: ignoring the flag entirely left the suite green, because every
     other extra_docs test used a document with no branch tokens in it.
     """
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = _entry("Work is on `feature/never`.")
@@ -413,7 +413,7 @@ def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> Non
     That assertion is satisfied trivially by a selftest that can never report
     silence, which makes it exactly the shape of test this project warns about.
     """
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     blind = hc.Rule(
@@ -440,7 +440,7 @@ def test_extra_docs_are_validated(git_repo) -> None:
     The payload is copied into the repository first, because that is how it is
     actually used and the only arrangement in which its configuration is read.
     Settings load relative to the tool's own location, so running it from
-    outside a repository reads that repository's .handoff.toml not at all. The
+    outside a repository reads that repository's .extant.toml not at all. The
     tool says so on stderr; this test exercises the real installation instead.
     """
     import shutil
@@ -448,11 +448,11 @@ def test_extra_docs_are_validated(git_repo) -> None:
     commit("NEXT_SESSION.md", "# Status\n\n## Phase 1 - x (done, 2026-01-01)\n\nNothing.\n",
            "docs: status")
     shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
-    (repo / ".handoff.toml").write_text('extra_docs = ["CLAUDE.md"]\n', encoding="utf-8")
+    (repo / ".extant.toml").write_text('extra_docs = ["CLAUDE.md"]\n', encoding="utf-8")
     (repo / "CLAUDE.md").write_text("See [design](docs/absent.md).\n", encoding="utf-8")
 
     result = subprocess.run(
-        [sys.executable, str(repo / "tools" / "handoff_collect.py"),
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
          "--repo", str(repo), "--validate", "NEXT_SESSION.md"],
         cwd=repo, capture_output=True, text=True, encoding="utf-8",
     )
@@ -472,7 +472,7 @@ def test_claims_inside_a_code_fence_are_not_checked(git_repo) -> None:
     test, and it is the same false-positive class as the backticked example
     link fixed earlier.
     """
-    from handoff_collect import validate_references, validate_path_pointers
+    from extant_collect import validate_references, validate_path_pointers
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = ("Example of the format:\n\n```\n"
@@ -491,7 +491,7 @@ def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
     way the link rules do would delete exactly what these rules check. Applying
     that stripping wholesale turned eight tests red at once.
     """
-    from handoff_collect import validate_references
+    from extant_collect import validate_references
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
@@ -507,7 +507,7 @@ def test_a_secret_inside_a_code_fence_is_still_reported(git_repo) -> None:
     A credential pasted into a fence is still a committed credential. The
     exemption is about what a document promises, not about what it contains.
     """
-    from handoff_collect import scan_secrets
+    from extant_collect import scan_secrets
 
     findings = scan_secrets("```\nexport KEY=sk-A1b2C3d4E5f6G7h8I9j0K1l2m3\n```\n")
 
@@ -521,7 +521,7 @@ def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_r
     passes in CI while misleading every Linux reader. The check compares against
     the real directory entry so the answer is the same everywhere.
     """
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
 
@@ -534,7 +534,7 @@ def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_r
 
 def test_correct_case_path_stays_silent(git_repo) -> None:
     """The guard against a case check that flags everything."""
-    from handoff_collect import validate_md_links
+    from extant_collect import validate_md_links
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
 
@@ -547,7 +547,7 @@ def test_collect_survives_a_repository_with_no_commits(git_repo, tmp_path) -> No
     A freshly initialised repository is a legitimate state for someone just
     starting, not an error deserving a traceback.
     """
-    from handoff_collect import commits_since, find_boundary
+    from extant_collect import commits_since, find_boundary
     repo, _ = git_repo  # created, never committed to
 
     assert find_boundary(repo) == ""
@@ -576,7 +576,7 @@ def test_library_callers_can_resolve_links_against_the_document(git_repo) -> Non
     was reported dead through the API and fine through the CLI. Found by an
     adversarial probe calling validate() the way a downstream tool would.
     """
-    from handoff_collect import validate
+    from extant_collect import validate
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     text = "See [plan](plan.md).\n"
@@ -602,7 +602,7 @@ def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypat
     Counts invocations rather than seconds: a wall-clock assertion would be
     flaky on a loaded machine and would not say WHY it got slow.
     """
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, commit = git_repo
     sha = commit("a.py", "a = 1\n", "feat: a").strip()[:9]
 
@@ -638,7 +638,7 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
     The first verification run had this hole - the fixture happened to contain
     no off-trunk commits, so it compared 60 commits and proved one direction.
     """
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, commit = git_repo
     on_trunk = [commit(f"a{n}.py", f"a = {n}\n", f"feat: on trunk {n}")[:9]
                 for n in range(3)]
@@ -667,7 +667,7 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
 def test_a_false_merge_claim_is_still_reported_through_the_batch(git_repo) -> None:
     """End to end, because the two halves above could both be right while the
     rule that consumes them is wired wrong."""
-    from handoff_collect import validate_merge_claims
+    from extant_collect import validate_merge_claims
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: base")
     git(repo, "checkout", "-q", "-b", "abandoned")
@@ -688,7 +688,7 @@ def test_directory_listings_are_not_cached_outside_validate(git_repo) -> None:
     checks must see the new answer. The cache is therefore None unless validate()
     has scoped it, and correctness is what happens when nobody asked for speed.
     """
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     text = "See [later](docs/later.md).\n"
@@ -713,7 +713,7 @@ def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
     Keying on equality would be faster and would silently return the wrong
     stripped text if a caller mutated a document between calls.
     """
-    import handoff_collect as hc
+    import extant_collect as hc
     repo, _ = git_repo
     original = "Text with `code` in it.\n"
     duplicate = "".join(original)  # equal content, distinct object
@@ -731,7 +731,7 @@ def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
 # --- cross-artifact consistency ----------------------------------------------
 
 CONSISTENCY_CFG = (
-    "[handoff.consistency.version]\n"
+    "[extant.consistency.version]\n"
     + r'"a.json" = ' + "'" + r'"version": "([^"]+)"' + "'\n"
     + r'"CHANGELOG.md" = ' + "'" + r'^## (\d+\.\d+\.\d+)' + "'\n"
 )
@@ -741,9 +741,9 @@ def test_files_that_agree_are_silent(git_repo) -> None:
     """The false-positive guard, and the one that decides whether this rule is
     usable at all. A consistency check that fires on a correct repository would
     be the first rule here to cry wolf."""
-    from handoff_collect import validate_consistency
+    from extant_collect import validate_consistency
     repo, commit = git_repo
-    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "a.json").write_text('{"version": "2.1.0"}\n', encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
@@ -755,9 +755,9 @@ def test_files_that_disagree_are_reported_with_both_values(git_repo) -> None:
     """THE bug this rule exists for: three manifests said 0.1.0 while the
     CHANGELOG said 0.3.0, and nothing could catch it because no rule inspects
     numbers. Comparing files to EACH OTHER is a different question."""
-    from handoff_collect import validate_consistency
+    from extant_collect import validate_consistency
     repo, commit = git_repo
-    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "a.json").write_text('{"version": "0.1.0"}\n', encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
@@ -774,9 +774,9 @@ def test_a_pattern_that_matches_nothing_is_reported(git_repo) -> None:
     """Silence here would be the worst outcome: the check would compare one
     value against itself and pass forever, which is the exact failure the
     denominator was introduced to make visible."""
-    from handoff_collect import validate_consistency
+    from extant_collect import validate_consistency
     repo, commit = git_repo
-    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "a.json").write_text('{"release": "2.1.0"}\n', encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
@@ -788,9 +788,9 @@ def test_a_pattern_that_matches_nothing_is_reported(git_repo) -> None:
 
 
 def test_a_missing_file_is_reported(git_repo) -> None:
-    from handoff_collect import validate_consistency
+    from extant_collect import validate_consistency
     repo, commit = git_repo
-    (repo / ".handoff.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
+    (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
 
@@ -802,7 +802,7 @@ def test_a_missing_file_is_reported(git_repo) -> None:
 def test_no_consistency_config_means_no_findings(git_repo) -> None:
     """Off unless configured. The files and patterns are per-project, and a
     guessed default would accuse an innocent repository."""
-    from handoff_collect import validate_consistency
+    from extant_collect import validate_consistency
     repo, commit = git_repo
 
     assert validate_consistency(repo, "") == []
@@ -816,7 +816,7 @@ def test_the_rule_reads_the_repo_under_test_not_the_installed_one(git_repo) -> N
     repository in this suite inherited the real project's version block and was
     told four files were missing.
     """
-    from handoff_collect import validate_consistency
+    from extant_collect import validate_consistency
     repo, commit = git_repo
     commit("README.md", "# x\n", "init")
 
@@ -832,10 +832,10 @@ def test_a_one_file_check_is_rejected_at_load(tmp_path) -> None:
     Accepting it would produce a rule that passes forever while appearing to
     compare something, which is this project's defining failure mode.
     """
-    from handoff_config import load_config
+    from extant_config import load_config
     (tmp_path / ".git").mkdir()
-    (tmp_path / ".handoff.toml").write_text(
-        "[handoff.consistency.version]\n\"only.json\" = '\"v\": \"(.+)\"'\n",
+    (tmp_path / ".extant.toml").write_text(
+        "[extant.consistency.version]\n\"only.json\" = '\"v\": \"(.+)\"'\n",
         encoding="utf-8")
 
     try:
@@ -848,10 +848,10 @@ def test_a_one_file_check_is_rejected_at_load(tmp_path) -> None:
 
 def test_a_pattern_without_a_capture_group_is_rejected(tmp_path) -> None:
     """No capture group means no value to compare."""
-    from handoff_config import load_config
+    from extant_config import load_config
     (tmp_path / ".git").mkdir()
-    (tmp_path / ".handoff.toml").write_text(
-        "[handoff.consistency.version]\n"
+    (tmp_path / ".extant.toml").write_text(
+        "[extant.consistency.version]\n"
         "\"a.json\" = 'version'\n\"b.json\" = 'version'\n", encoding="utf-8")
 
     try:
@@ -873,13 +873,13 @@ def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
     problem is that entries MOVE from one to the other, and the person looking
     does not know which side of that move they are on.
     """
-    from handoff_collect import search_entries
+    from extant_collect import search_entries
     repo, commit = git_repo
     commit("NEXT_SESSION.md",
            "# S\n\n## Phase 2 - now (in progress, 2026-02-01)\n\n"
            "Nothing about that here.\n\n## 1. Ref\n", "docs: live")
     (repo / "docs").mkdir(exist_ok=True)
-    (repo / "docs" / "handoff-archive.md").write_text(
+    (repo / "docs" / "status-archive.md").write_text(
         "# Archive\n\n## Phase 1 - checkout (shipped, 2026-01-01)\n\n"
         "We chose the queue approach for checkout.\n\n", encoding="utf-8")
 
@@ -893,7 +893,7 @@ def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
 
 
 def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
-    from handoff_collect import search_entries
+    from extant_collect import search_entries
     repo, commit = git_repo
     commit("NEXT_SESSION.md",
            "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
@@ -915,8 +915,8 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     left to catch that. A patch keeps the boundary: reviewable, one command to
     apply, and the decision stays with whoever owns the document.
     """
-    from handoff_collect import suggest_renames
-    import handoff_collect as hc
+    from extant_collect import suggest_renames
+    import extant_collect as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     text = "See [plan](docs/plan.md).\n"
@@ -939,8 +939,8 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
 def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
     """Only renames GIT RECORDED are offered. Guessing where a file went is
     exactly the authoring this refuses to do."""
-    from handoff_collect import suggest_renames
-    import handoff_collect as hc
+    from extant_collect import suggest_renames
+    import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     hc._RENAMES.clear()
@@ -955,8 +955,8 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     A bare find-and-replace would also rewrite the sentence explaining the move,
     which is frequently the one sentence a reader most needs intact.
     """
-    from handoff_collect import suggest_renames
-    import handoff_collect as hc
+    from extant_collect import suggest_renames
+    import extant_collect as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     git(repo, "mv", "docs/plan.md", "docs/design.md")
@@ -993,7 +993,7 @@ def test_suggest_fixes_puts_nothing_but_the_patch_on_stdout(git_repo) -> None:
     shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
 
     result = subprocess.run(
-        [sys.executable, str(repo / "tools" / "handoff_collect.py"),
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
          "--repo", str(repo), "--verify", "--suggest-fixes"],
         cwd=repo, capture_output=True, text=True, encoding="utf-8",
     )
@@ -1025,7 +1025,7 @@ def test_the_suggested_patch_actually_applies(git_repo) -> None:
     shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
 
     produced = subprocess.run(
-        [sys.executable, str(repo / "tools" / "handoff_collect.py"),
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
          "--repo", str(repo), "--verify", "--suggest-fixes"],
         cwd=repo, capture_output=True, encoding="utf-8", text=True,
     )
@@ -1045,10 +1045,10 @@ def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
     check compares nothing while appearing configured. Found by an adversarial
     probe rather than by reasoning about the format.
     """
-    from handoff_config import load_config
+    from extant_config import load_config
     (tmp_path / ".git").mkdir()
-    (tmp_path / ".handoff.toml").write_text(
-        "[handoff.consistency.version]\n"
+    (tmp_path / ".extant.toml").write_text(
+        "[extant.consistency.version]\n"
         "\"a.md\" = 'v: (.+)'\n\"./a.md\" = 'v: (.+)'\n", encoding="utf-8")
 
     try:
@@ -1062,10 +1062,10 @@ def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
 def test_two_genuinely_different_files_still_load(tmp_path) -> None:
     """The guard must not reject a legitimate pair whose paths merely look
     similar."""
-    from handoff_config import load_config
+    from extant_config import load_config
     (tmp_path / ".git").mkdir()
-    (tmp_path / ".handoff.toml").write_text(
-        "[handoff.consistency.version]\n"
+    (tmp_path / ".extant.toml").write_text(
+        "[extant.consistency.version]\n"
         "\"a.md\" = 'v: (.+)'\n\"./docs/a.md\" = 'v: (.+)'\n", encoding="utf-8")
 
     checks = load_config(tmp_path).consistency
@@ -1081,8 +1081,8 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     feature makes is that it emits a patch and touches the working tree not at
     all, and that is what has to be pinned.
     """
-    from handoff_collect import suggest_renames
-    import handoff_collect as hc
+    from extant_collect import suggest_renames
+    import extant_collect as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     git(repo, "mv", "docs/plan.md", "docs/design.md")
@@ -1104,21 +1104,21 @@ def test_config_is_found_by_searching_upward(tmp_path) -> None:
     anywhere else it does not, and looking only beside the script found nothing
     while reporting a healthy run against defaults - which is how this project
     discovered it could not configure its own tool."""
-    from handoff_config import load_config
+    from extant_config import load_config
     (tmp_path / ".git").mkdir()
-    (tmp_path / ".handoff.toml").write_text('handoff_doc = "FOUND.md"\n', encoding="utf-8")
+    (tmp_path / ".extant.toml").write_text('primary_doc = "FOUND.md"\n', encoding="utf-8")
     nested = tmp_path / "plugin" / "skills" / "payload"
     nested.mkdir(parents=True)
 
-    assert load_config(nested).handoff_doc == "FOUND.md"
+    assert load_config(nested).primary_doc == "FOUND.md"
 
 
 def test_config_search_stops_at_the_repository_root(tmp_path) -> None:
     """A project nested inside another checkout must not inherit the outer
     project's settings. Wrong settings that look deliberate are a worse failure
     than the missing-config one this search was added to fix."""
-    from handoff_config import load_config
-    (tmp_path / ".handoff.toml").write_text('handoff_doc = "OUTER.md"\n', encoding="utf-8")
+    from extant_config import load_config
+    (tmp_path / ".extant.toml").write_text('primary_doc = "OUTER.md"\n', encoding="utf-8")
     inner = tmp_path / "inner"
     inner.mkdir()
     (inner / ".git").mkdir()
@@ -1128,4 +1128,4 @@ def test_config_search_stops_at_the_repository_root(tmp_path) -> None:
     assert cfg.source == "defaults", (
         f"the search escaped the repository root and read {cfg.source}"
     )
-    assert cfg.handoff_doc != "OUTER.md"
+    assert cfg.primary_doc != "OUTER.md"

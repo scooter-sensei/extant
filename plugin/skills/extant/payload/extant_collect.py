@@ -1,13 +1,13 @@
-"""Collector and validator for the /handoff session-handoff system.
+"""Collector and validator for the /extant session-status workflow.
 
-    .venv/Scripts/python tools/handoff_collect.py --collect --out bundle.json
-    .venv/Scripts/python tools/handoff_collect.py --archive
-    .venv/Scripts/python tools/handoff_collect.py --validate NEXT_SESSION.md
-    .venv/Scripts/python tools/handoff_collect.py --verify
+    .venv/Scripts/python tools/extant_collect.py --collect --out bundle.json
+    .venv/Scripts/python tools/extant_collect.py --archive
+    .venv/Scripts/python tools/extant_collect.py --validate NEXT_SESSION.md
+    .venv/Scripts/python tools/extant_collect.py --verify
 
-Deterministic half of the handoff system: everything here is mechanical and
+Deterministic half of the status workflow: everything here is mechanical and
 tested. Prose is written by the subagent, never by this script. See
-docs/superpowers/specs/2026-07-20-handoff-system-design.md.
+docs/superpowers/specs/2026-07-20-status-system-design.md.
 """
 from __future__ import annotations
 
@@ -21,42 +21,42 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-# This file is used two ways: imported as `tools.handoff_collect` (tests, where
+# This file is used two ways: imported as `tools.extant_collect` (tests, where
 # the repo root is on sys.path) and run directly as a script (the hooks and the
-# /handoff command, where only tools/ is). The first import fails in the second
+# /extant command, where only tools/ is). The first import fails in the second
 # case, so fall back to the sibling module.
 try:
-    from tools.handoff_config import load_config
+    from tools.extant_config import load_config
 except ModuleNotFoundError:  # pragma: no cover - exercised by the CLI tests
-    from handoff_config import load_config
+    from extant_config import load_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Every project-specific value is resolved once, here, from .handoff.toml beside
+# Every project-specific value is resolved once, here, from .extant.toml beside
 # the repo root - falling back to defaults that reproduce this project's
 # behaviour exactly, so a repo without a config file sees no change. The names
 # below stay module-level constants because the whole module and its tests refer
 # to them directly; only their SOURCE moved.
 #
-# Porting warning, stated at length in tools/handoff_config.py: three of these
+# Porting warning, stated at length in tools/extant_config.py: three of these
 # patterns were derived by MEASURING this repo's documents. Copy them to another
 # project without re-measuring and the validator matches nothing while appearing
 # healthy. Run `--init` against the target repo instead of guessing.
 try:
     CONFIG = load_config(REPO_ROOT)
 except ValueError as _config_error:
-    # Configuration is read at import, so a malformed .handoff.toml surfaces as
+    # Configuration is read at import, so a malformed .extant.toml surfaces as
     # a traceback before main() ever runs. The explanation is already in the
     # message; burying it under a stack that names tomllib internals just makes
     # the reader work for it. Print it plainly when this is being RUN, and
     # re-raise untouched when it is being imported, so tests still see the
     # exception rather than a dead interpreter.
     if __name__ == "__main__":
-        print(f"handoff: cannot read configuration\n\n{_config_error}", file=sys.stderr)
+        print(f"extant: cannot read configuration\n\n{_config_error}", file=sys.stderr)
         raise SystemExit(2) from None
     raise
 
-HANDOFF_DOC = CONFIG.handoff_doc
+PRIMARY_DOC = CONFIG.primary_doc
 ARCHIVE_DOC = CONFIG.archive_doc
 RETAIN_ENTRIES = CONFIG.retain_entries
 TRUNK = CONFIG.trunk
@@ -121,13 +121,13 @@ def parse_phase(subject: str) -> str | None:
 
 
 def find_boundary(repo: Path) -> str:
-    """SHA of the most recent commit touching the handoff doc, else ''.
+    """SHA of the most recent commit touching the status doc, else ''.
 
     Derived from the repo rather than stored, so there is no marker file or tag
     that can drift out of sync with reality.
     """
     try:
-        return _git(repo, "log", "-1", "--format=%H", "--", HANDOFF_DOC).strip()
+        return _git(repo, "log", "-1", "--format=%H", "--", PRIMARY_DOC).strip()
     except subprocess.CalledProcessError:
         # A repository with no commits at all: `git log` exits 128 rather than
         # returning nothing, so this is not the same as "the document has never
@@ -159,7 +159,7 @@ _TODO_MARKER = CONFIG.todo_markers
 # them would report phantom findings on every real run that touches this
 # file. Same "noise trains the reader to ignore the section" failure GA-5
 # already exists to prevent, just reintroduced by the tool scanning itself.
-_TODO_SCAN_EXCLUDED_FILES = {"tools/handoff_collect.py"}
+_TODO_SCAN_EXCLUDED_FILES = {"tools/extant_collect.py"}
 _TODO_SCAN_EXCLUDED_DIR_PREFIX = "tests/tools/"
 
 # GA-1: separate anchored patterns, NOT one regex of optional groups. A single
@@ -262,7 +262,7 @@ def run_suite(repo: Path, suite_json: str | None) -> dict[str, object]:
     worktree has no `.venv` of its own (it is gitignored and exists only in
     the main repo) - so the measured path must fail with an actionable
     RuntimeError instead of an uncaught FileNotFoundError crashing
-    /handoff step 1. A worktree-run suite would also be wrong even where a
+    /extant step 1. A worktree-run suite would also be wrong even where a
     .venv happens to exist: tests/test_startup_time.py spawns subprocesses
     that inherit pytest's cwd, and running from a worktree produces roughly
     20 spurious failures. --suite-json is the only correct path there.
@@ -396,7 +396,7 @@ _POINTER_PREFIX = CONFIG.pointer_prefix
 
 
 def split_entries(text: str) -> tuple[str, list[tuple[str, str]], str]:
-    """Split a handoff doc into (preamble, [(kind, text)], reference base).
+    """Split a status doc into (preamble, [(kind, text)], reference base).
 
     GA-4: splits on EVERY top-level section, not just `## Phase `. Sections
     classified "other" are reference material interleaved among the phase
@@ -426,7 +426,7 @@ def archive(repo: Path, retain: int = RETAIN_ENTRIES) -> dict[str, int]:
     irreversible file operation in the system, so conservation is asserted
     rather than trusted.
     """
-    doc = repo / HANDOFF_DOC
+    doc = repo / PRIMARY_DOC
     with open(doc, encoding="utf-8", newline="") as fh:
         original = fh.read()
     newline = "\r\n" if "\r\n" in original else "\n"
@@ -582,7 +582,7 @@ def _looks_like_bare_sha(token: str) -> bool:
     year, a test count) that `_looks_like_sha` alone would wrongly accept.
     The digit requirement excludes a hex-looking English word the same way it
     already does for `_looks_like_sha`. Measured against ~2600 lines of the
-    real handoff documents with zero false positives.
+    real status documents with zero false positives.
     """
     return any(ch.isdigit() for ch in token) and any(ch.isalpha() for ch in token)
 
@@ -608,7 +608,7 @@ def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     I-1: a SHA written without backticks previously escaped both
     `validate_references` and `translate_shas` entirely. Scanned per line,
     consistent with `find_sha_candidates` and the rest of the module - see
-    the EX-8 note in docs/superpowers/plans/2026-07-20-handoff-system.md for
+    the EX-8 note in docs/superpowers/plans/2026-07-20-status-system.md for
     why a whole-text scan drifts out of phase with backtick pairing.
 
     "Outside backticks" is computed per line: the spans `_BACKTICKED` covers
@@ -647,7 +647,7 @@ def _resolve_shas(repo: Path, tokens: list[str]) -> set[str]:
     per-token path if the counts ever disagree.
 
     Worth the care: on Windows each subprocess spawn costs ~40 ms, and a real
-    handoff document plus its archive carries ~60 references. Batching takes
+    status document plus its archive carries ~60 references. Batching takes
     `--verify` from about 2.6 s to under half a second, which is what makes it
     cheap enough to run from a git hook on every commit.
     """
@@ -1526,8 +1526,8 @@ def scan_secrets(text: str) -> list[Finding]:
 
 
 _DEAD_SHA = "0" * 40
-_MISSING_PATH = "__handoff_selftest_missing__.md"
-_FAKE_BRANCH_LEAF = "handoff-selftest-no-such-branch"
+_MISSING_PATH = "__extant_selftest_missing__.md"
+_FAKE_BRANCH_LEAF = "extant-selftest-no-such-branch"
 
 
 def _sub_group(text: str, pattern: re.Pattern[str], group: int, value: str) -> str | None:
@@ -1567,7 +1567,7 @@ def _probe_pointer(repo: Path, text: str) -> str | None:
 
 
 def _probe_tag(repo: Path, text: str) -> str | None:
-    return _sub_group(text, _RELEASE_TAG, 1, "v0.0.0-handoff-selftest")
+    return _sub_group(text, _RELEASE_TAG, 1, "v0.0.0-extant-selftest")
 
 
 def _probe_md_link(repo: Path, text: str) -> str | None:
@@ -1585,7 +1585,7 @@ def _probe_md_anchor(repo: Path, text: str) -> str | None:
         if not match.group(1).startswith("#"):
             continue
         start, end = match.span(1)
-        return text[:start] + "#handoff-selftest-no-such-heading" + text[end:]
+        return text[:start] + "#extant-selftest-no-such-heading" + text[end:]
     return None
 
 
@@ -1886,7 +1886,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
 
 
 FORMATS = ("text", "github", "sarif")
-_TOOL_URI = "https://github.com/scooter-sensei/handoff-validator"
+_TOOL_URI = "https://github.com/scooter-sensei/extant"
 
 
 def _rel(repo: Path, path: Path) -> str:
@@ -1970,7 +1970,7 @@ def format_sarif(located: list[Located]) -> str:
             "level": "error",
             "message": {"text": item.finding.detail},
             "partialFingerprints": {
-                "handoffClaim/v1": _fingerprint(
+                "statusClaim/v1": _fingerprint(
                     item.path, item.finding.kind, item.finding.detail),
             },
             "locations": [{
@@ -1986,7 +1986,7 @@ def format_sarif(located: list[Located]) -> str:
         "version": "2.1.0",
         "runs": [{
             "tool": {"driver": {
-                "name": "handoff-validator",
+                "name": "extant",
                 "informationUri": _TOOL_URI,
                 "rules": descriptors,
             }},
@@ -2098,7 +2098,7 @@ def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
     """
     needle = query.lower()
     results: list[tuple[str, str, str]] = []
-    for relative in (HANDOFF_DOC, ARCHIVE_DOC):
+    for relative in (PRIMARY_DOC, ARCHIVE_DOC):
         path = repo / relative
         if not path.is_file():
             continue
@@ -2121,7 +2121,7 @@ def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
 # rather than silently keeping a stale value when the tool runs against a
 # different repository.
 _CONFIG_DERIVED = {
-    "HANDOFF_DOC": "handoff_doc",
+    "PRIMARY_DOC": "primary_doc",
     "ARCHIVE_DOC": "archive_doc",
     "RETAIN_ENTRIES": "retain_entries",
     "TRUNK": "trunk",
@@ -2146,7 +2146,7 @@ def reload_config(repo: Path) -> None:
     Configuration is read at import, relative to this file, which is right when
     the tool sits at `tools/` inside the repository it checks. Installed as a
     package - which is what the pre-commit framework does - `__file__` is inside
-    site-packages, where there is no repository and no `.handoff.toml`. Without
+    site-packages, where there is no repository and no `.extant.toml`. Without
     this the hook would validate `NEXT_SESSION.md` in every project on earth and
     report a healthy run for the ones that keep no such file.
     """
@@ -2184,12 +2184,12 @@ def cli() -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="handoff_collect", description="Collect and validate handoff facts."
+        prog="extant_collect", description="Collect and validate status facts."
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--collect", action="store_true", help="emit bundle.json")
     mode.add_argument("--archive", action="store_true", help="split old entries out")
-    mode.add_argument("--validate", metavar="FILE", help="validate a handoff document")
+    mode.add_argument("--validate", metavar="FILE", help="validate a status document")
     mode.add_argument("--verify", action="store_true", help="validate the committed doc")
     mode.add_argument("--selftest", action="store_true",
                       help="corrupt one real claim per rule and confirm each fires")
@@ -2217,14 +2217,14 @@ def main(argv: list[str] | None = None) -> int:
     # Configuration is read once at import, relative to THIS FILE, which is
     # correct when the tool sits at tools/ inside the repository it checks. Run
     # from anywhere else with --repo, git operations follow --repo while the
-    # config does not, so .handoff.toml in the target is silently ignored. Say
+    # config does not, so .extant.toml in the target is silently ignored. Say
     # so on stderr rather than let the two disagree quietly.
     # Narrowed to the case where a real config file is actually being ignored.
     # Warning whenever the paths merely differ would fire on every run against a
     # repository that has no config at all, where nothing is lost and the
     # defaults are what was wanted. A validator that cries wolf stops being read
     # applies to its own diagnostics too.
-    ignored_config = repo / ".handoff.toml"
+    ignored_config = repo / ".extant.toml"
     # Compared as resolved paths, not as strings. The upward search means the
     # config found from the script's own location is very often the same file
     # this names, and a string comparison called them different over a
@@ -2258,9 +2258,9 @@ def main(argv: list[str] | None = None) -> int:
         # same blank otherwise, and the second happens whenever a document is
         # missing or its entry header does not match the configured prefix.
         searched = sum(
-            1 for relative in (HANDOFF_DOC, ARCHIVE_DOC) if (repo / relative).is_file())
+            1 for relative in (PRIMARY_DOC, ARCHIVE_DOC) if (repo / relative).is_file())
         total = 0
-        for relative in (HANDOFF_DOC, ARCHIVE_DOC):
+        for relative in (PRIMARY_DOC, ARCHIVE_DOC):
             path = repo / relative
             if path.is_file():
                 with open(path, encoding="utf-8", newline="") as fh:
@@ -2275,10 +2275,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.selftest:
-        target = repo / HANDOFF_DOC
+        target = repo / PRIMARY_DOC
         if not target.is_file():
             print(f"no such document: {target}")
-            print(f"  handoff_doc is '{CONFIG.handoff_doc}', from {CONFIG.source}")
+            print(f"  primary_doc is '{CONFIG.primary_doc}', from {CONFIG.source}")
             return 1
         try:
             with open(target, encoding="utf-8", newline="") as fh:
@@ -2289,12 +2289,12 @@ def main(argv: list[str] | None = None) -> int:
             # every rule run against silently corrupted text and report findings
             # about bytes that are not there.
             print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
-                  f"{exc.start}). The handoff document must be a text file.",
+                  f"{exc.start}). The status document must be a text file.",
                   file=sys.stderr)
             return 1
         _LINK_BASE = target.parent
         lines, fired, unprobeable = selftest(repo, text)
-        print(f"selftest: probing {len(RULES)} rules against {HANDOFF_DOC}\n")
+        print(f"selftest: probing {len(RULES)} rules against {PRIMARY_DOC}\n")
         for line in lines:
             print(line)
         silent = len(RULES) - fired - unprobeable
@@ -2310,11 +2310,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if silent else 0
     if args.collect:
         bundle = collect(repo, suite_json=args.suite_json)
-        out = Path(args.out) if args.out else repo / "handoff_bundle.json"
+        out = Path(args.out) if args.out else repo / "status_bundle.json"
         with open(out, "w", encoding="utf-8", newline="") as fh:
             json.dump(bundle, fh, indent=2)
         if bundle["nothing_to_hand_off"]:
-            print("nothing to hand off: no commits since the last handoff")
+            print("nothing to hand off: no commits since the last status")
         print(out)
         return 0
     if args.archive:
@@ -2322,7 +2322,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"retained={counts['retained']} archived={counts['archived']}")
         return 0
     if args.verify:
-        args.validate = str(repo / HANDOFF_DOC)
+        args.validate = str(repo / PRIMARY_DOC)
     if args.validate == "":
         # M-a: argparse still counts --validate as "provided" (satisfying
         # the required mutually-exclusive group) even when its value is the
@@ -2350,8 +2350,8 @@ def main(argv: list[str] | None = None) -> int:
             # document lives elsewhere in this project, or the config points at
             # the wrong name. Say which file was expected and where it came from.
             print(f"no such document: {target}")
-            print(f"  handoff_doc is '{CONFIG.handoff_doc}', from {CONFIG.source}")
-            print("  set handoff_doc in .handoff.toml, or pass --validate <path>")
+            print(f"  primary_doc is '{CONFIG.primary_doc}', from {CONFIG.source}")
+            print("  set primary_doc in .extant.toml, or pass --validate <path>")
             return 1
         try:
             with open(target, encoding="utf-8", newline="") as fh:
@@ -2362,7 +2362,7 @@ def main(argv: list[str] | None = None) -> int:
             # every rule run against silently corrupted text and report findings
             # about bytes that are not there.
             print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
-                  f"{exc.start}). The handoff document must be a text file.",
+                  f"{exc.start}). The status document must be a text file.",
                   file=sys.stderr)
             return 1
         # Relative links resolve against the document, not the repo root.

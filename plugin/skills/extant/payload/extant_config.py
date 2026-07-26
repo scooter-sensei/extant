@@ -1,19 +1,19 @@
-"""Project-specific configuration for the handoff system.
+"""Project-specific configuration for the status workflow.
 
 Everything the validator knows about a particular project lives here: document
 names, entry-header shapes, and the patterns each rule matches. The defaults
-reproduce Cerene's behaviour exactly, so a repo with no `.handoff.toml` sees no
+reproduce Cerene's behaviour exactly, so a repo with no `.extant.toml` sees no
 change.
 
-    from tools.handoff_config import load_config
+    from tools.extant_config import load_config
     cfg = load_config(repo)
-    cfg.handoff_doc          # "NEXT_SESSION.md"
+    cfg.primary_doc          # "NEXT_SESSION.md"
     cfg.live_phrases         # compiled pattern
 
 WHY THIS FILE EXISTS, AND THE WARNING THAT COMES WITH IT
 --------------------------------------------------------
 Three of the rules below were derived by MEASURING Cerene's real documents, not
-by reasoning about what handoff prose "should" look like. Copying those patterns
+by reasoning about what status prose "should" look like. Copying those patterns
 to another project without re-measuring is the main way this system fails
 silently:
 
@@ -28,7 +28,7 @@ silently:
   like" a status claim reintroduces false positives, and a validator that cries
   wolf stops being read, which costs more than having no validator.
 
-So: when porting, run `handoff_collect.py --init` against the target repo. It
+So: when porting, run `extant_collect.py --init` against the target repo. It
 samples the real document and reports what it finds, so the config is derived
 rather than guessed. See references/porting.md in the skill.
 """
@@ -40,15 +40,15 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-CONFIG_NAME = ".handoff.toml"
+CONFIG_NAME = ".extant.toml"
 
 DEFAULTS: dict[str, object] = {
-    "handoff_doc": "NEXT_SESSION.md",
-    "archive_doc": "docs/handoff-archive.md",
+    "primary_doc": "NEXT_SESSION.md",
+    "archive_doc": "docs/status-archive.md",
     "retain_entries": 3,
     "trunk": "main",
     "plans_dir": "docs/superpowers/plans",
-    "archive_header": "# Cerene - Handoff Archive\n\nOlder phase entries, newest first.\n\n",
+    "archive_header": "# Cerene - Status Archive\n\nOlder phase entries, newest first.\n\n",
     "entry_prefix": "## Phase ",
     "pointer_prefix": "## Archive pointer",
     # Regex sources, kept as strings so they can live in TOML.
@@ -81,7 +81,7 @@ DEFAULTS: dict[str, object] = {
     # Named values that must AGREE across several files, as
     # {check_name: {path: regex-with-one-capture-group}}.
     #
-    #     [handoff.consistency.version]
+    #     [extant.consistency.version]
     #     "plugin/.claude-plugin/plugin.json" = '"version":\s*"([^"]+)"'
     #     "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
     #
@@ -97,7 +97,7 @@ DEFAULTS: dict[str, object] = {
     "consistency": {},
     "todo_markers": r"\b(TODO|FIXME|XXX)\b",
     "code_suffixes": [".py", ".qml"],
-    "todo_exclude_files": ["tools/handoff_collect.py"],
+    "todo_exclude_files": ["tools/extant_collect.py"],
     "todo_exclude_dirs": ["tests/tools/"],
     "venv_python": ".venv/Scripts/python.exe",
     # How to run the suite, and how to read its output. `{python}` is replaced
@@ -123,10 +123,10 @@ DISABLEABLE = frozenset({"phase_task", "phase_bare", "plans_dir"})
 
 
 @dataclass(frozen=True)
-class HandoffConfig:
+class StatusConfig:
     """Resolved configuration. Regexes are compiled once at load."""
 
-    handoff_doc: str
+    primary_doc: str
     archive_doc: str
     retain_entries: int
     trunk: str
@@ -225,21 +225,21 @@ def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
         # asks them to. Re-raise with the cause that fits THIS error.
         raise ValueError(_explain(path, exc)) from exc
     # MERGED, not chosen between. Writing a sub-table such as
-    # [handoff.consistency.version] creates a `handoff` key, and picking that
+    # [extant.consistency.version] creates a `status` key, and picking that
     # over the top level silently discarded every setting written above it -
-    # handoff_doc, extra_docs, everything. The file looked configured and was
+    # primary_doc, extra_docs, everything. The file looked configured and was
     # not, which is the exact failure this project exists to surface, sitting
     # in its own loader. Found by trying to configure a README-only project.
-    nested = data.get("handoff", {})
+    nested = data.get("extant", {})
     if not isinstance(nested, dict):
-        raise ValueError(f"{path}: [handoff] must be a table")
-    top_level = {k: v for k, v in data.items() if k != "handoff"}
+        raise ValueError(f"{path}: [extant] must be a table")
+    top_level = {k: v for k, v in data.items() if k != "extant"}
 
     both = sorted(set(top_level) & set(nested) & set(DEFAULTS))
     if both:
         raise ValueError(
             f"{path}: {', '.join(both)} set both at the top level and under "
-            f"[handoff]. Pick one place; leaving two is how the wrong value "
+            f"[extant]. Pick one place; leaving two is how the wrong value "
             f"gets read while the right one sits there looking correct."
         )
     section = {**top_level, **nested}
@@ -251,9 +251,9 @@ def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
 
 
 def _find_config(start: Path) -> Path | None:
-    """Look for `.handoff.toml` beside `start`, then upward to the repo root.
+    """Look for `.extant.toml` beside `start`, then upward to the repo root.
 
-    Installed as `tools/handoff_collect.py`, the first directory checked IS the
+    Installed as `tools/extant_collect.py`, the first directory checked IS the
     repository root and the search stops immediately. Run from anywhere else -
     this project's own CI invokes the script from inside `plugin/`, and a
     developer may run it from a checkout of the source - the file sits several
@@ -292,7 +292,7 @@ def _compile_consistency(
     if not raw:
         return {}
     if not isinstance(raw, dict):
-        raise ValueError(f"{path}: [handoff.consistency] must be a table of checks")
+        raise ValueError(f"{path}: [extant.consistency] must be a table of checks")
 
     compiled: dict[str, tuple[tuple[str, re.Pattern[str]], ...]] = {}
     for name, sources in raw.items():
@@ -344,8 +344,8 @@ def _compile_consistency(
     return compiled
 
 
-def load_config(repo: Path) -> HandoffConfig:
-    """Load `.handoff.toml` from `repo`, falling back to Cerene's defaults.
+def load_config(repo: Path) -> StatusConfig:
+    """Load `.extant.toml` from `repo`, falling back to Cerene's defaults.
 
     A missing file is normal, not an error: the defaults are a working
     configuration. An unknown key is reported as a warning rather than being
@@ -371,8 +371,8 @@ def load_config(repo: Path) -> HandoffConfig:
         raw = values[key]
         return re.compile(str(raw)) if raw else None
 
-    return HandoffConfig(
-        handoff_doc=str(values["handoff_doc"]),
+    return StatusConfig(
+        primary_doc=str(values["primary_doc"]),
         archive_doc=str(values["archive_doc"]),
         retain_entries=int(values["retain_entries"]),
         trunk=trunk,

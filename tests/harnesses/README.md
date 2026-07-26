@@ -58,7 +58,7 @@ python tests/harnesses/scenarios.py <extracted-package> <scratch-dir>
 
 Builds a fresh repository per scenario, installs the tool, and asserts what
 should happen: a Node project on `master`, ticket-prefixed branches on
-`develop`, release tags, a repo with no handoff document at all, CRLF files
+`develop`, release tags, a repo with no status document at all, CRLF files
 nested in `docs/`, a linked worktree, an archive round-trip, the git hooks
 firing, and a single-commit repository.
 

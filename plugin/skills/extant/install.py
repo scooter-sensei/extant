@@ -1,10 +1,10 @@
-"""Install the handoff system into a repository, deriving its configuration.
+"""Install the status workflow into a repository, deriving its configuration.
 
     python install.py --repo /path/to/repo --dry-run
     python install.py --repo /path/to/repo
     python install.py --repo /path/to/repo --doc docs/STATUS.md
 
-Copies the tool, hooks and slash command, then writes a `.handoff.toml` derived
+Copies the tool, hooks and slash command, then writes a `.extant.toml` derived
 by INSPECTING the repository - its trunk branch, branch naming, commit
 conventions and the document itself - rather than by copying another project's
 values.
@@ -30,16 +30,16 @@ from detect import DEFAULT, DERIVED, GUESSED, UNKNOWN, Observation
 SKILL_ROOT = Path(__file__).resolve().parent
 
 PAYLOAD = [
-    ("payload/handoff_collect.py", "tools/handoff_collect.py"),
-    ("payload/handoff_config.py", "tools/handoff_config.py"),
-    ("payload/hooks/handoff-verify", "tools/hooks/handoff-verify"),
+    ("payload/extant_collect.py", "tools/extant_collect.py"),
+    ("payload/extant_config.py", "tools/extant_config.py"),
+    ("payload/hooks/extant-verify", "tools/hooks/extant-verify"),
     ("payload/hooks/main-tree-guard", "tools/hooks/main-tree-guard"),
     ("payload/hooks/install", "tools/hooks/install"),
     # The slash command is RENDERED, not copied - see render_command.
 ]
 
-COMMAND_TEMPLATE = "payload/commands/handoff.md.template"
-COMMAND_DEST = ".claude/commands/handoff.md"
+COMMAND_TEMPLATE = "payload/commands/extant.md.template"
+COMMAND_DEST = ".claude/commands/extant.md"
 
 
 def verify_hooks(repo: Path) -> list[str]:
@@ -88,14 +88,14 @@ def verify_hooks(repo: Path) -> list[str]:
 PRESETS: dict[str, dict[str, object]] = {
     "readme": {
         "summary": "check the docs you already have (no status file needed)",
-        "handoff_doc": "README.md",
+        "primary_doc": "README.md",
         "extra_docs": ["CONTRIBUTING.md"],
         # No dated entries in a README, so nothing to archive or group.
         "disable": ["phase_task", "phase_bare", "plans_dir"],
     },
     "node": {
         "summary": "a README-shaped project, plus package.json cross-checks",
-        "handoff_doc": "README.md",
+        "primary_doc": "README.md",
         "extra_docs": ["CONTRIBUTING.md"],
         "disable": ["phase_task", "phase_bare", "plans_dir"],
         "suite_command": ["npm", "test"],
@@ -108,7 +108,7 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "python": {
         "summary": "a README-shaped project, plus pyproject cross-checks",
-        "handoff_doc": "README.md",
+        "primary_doc": "README.md",
         "extra_docs": ["CONTRIBUTING.md"],
         "disable": ["phase_task", "phase_bare", "plans_dir"],
         "consistency": {
@@ -120,7 +120,7 @@ PRESETS: dict[str, dict[str, object]] = {
     },
     "rust": {
         "summary": "a README-shaped project, plus Cargo.toml cross-checks",
-        "handoff_doc": "README.md",
+        "primary_doc": "README.md",
         "extra_docs": ["CONTRIBUTING.md"],
         "disable": ["phase_task", "phase_bare", "plans_dir"],
         "suite_command": ["cargo", "test"],
@@ -131,9 +131,9 @@ PRESETS: dict[str, dict[str, object]] = {
             },
         },
     },
-    "handoff": {
+    "status": {
         "summary": "a running status document with dated entries (the original shape)",
-        "handoff_doc": None,      # detected
+        "primary_doc": None,      # detected
         "extra_docs": [],
         "disable": [],
     },
@@ -154,16 +154,16 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
     by_key = {o.key: o for o in obs}
     out = list(obs)
 
-    doc = preset.get("handoff_doc")
+    doc = preset.get("primary_doc")
     if doc:
-        existing = by_key.get("handoff_doc")
+        existing = by_key.get("primary_doc")
         if existing is not None and existing.value == doc:
-            notes.append(f"  handoff_doc already {doc}")
+            notes.append(f"  primary_doc already {doc}")
         elif (repo / str(doc)).is_file():
-            out = [Observation("handoff_doc", doc, DERIVED,
-                               f"chosen by preset '{name}'") if o.key == "handoff_doc"
+            out = [Observation("primary_doc", doc, DERIVED,
+                               f"chosen by preset '{name}'") if o.key == "primary_doc"
                    else o for o in out]
-            notes.append(f"  handoff_doc -> {doc}")
+            notes.append(f"  primary_doc -> {doc}")
         else:
             notes.append(f"  {doc} does not exist here; kept the detected document")
 
@@ -208,12 +208,12 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
 
 
 def render_command(obs: list[Observation], project: str) -> tuple[str, list[str]]:
-    """Render the /handoff slash command for THIS repo.
+    """Render the /extant slash command for THIS repo.
 
     This file used to be copied verbatim. Every installation therefore told the
     agent it was working on the source project, to write that project's document
     at that project's path, in a layout the target repo may not use - while a
-    correctly derived .handoff.toml sat next to it, unread. It is the same
+    correctly derived .extant.toml sat next to it, unread. It is the same
     "config key nothing reads" defect the validator exists to catch, and it was
     the single largest obstacle to this skill being usable anywhere else.
     """
@@ -225,14 +225,14 @@ def render_command(obs: list[Observation], project: str) -> tuple[str, list[str]
         entry_prefix = "## Phase "
         notes.append(
             "entry_prefix was not detected; the command file falls back to "
-            "'## Phase '. Set it in .handoff.toml and correct the command, or "
+            "'## Phase '. Set it in .extant.toml and correct the command, or "
             "archiving and live-claim checks will not recognise your entries."
         )
 
     mapping = {
         "{{PROJECT}}": project,
-        "{{DOC}}": str(values.get("handoff_doc") or "NEXT_SESSION.md"),
-        "{{ARCHIVE}}": str(values.get("archive_doc") or "handoff-archive.md"),
+        "{{DOC}}": str(values.get("primary_doc") or "NEXT_SESSION.md"),
+        "{{ARCHIVE}}": str(values.get("archive_doc") or "status-archive.md"),
         "{{ENTRY_PREFIX}}": str(entry_prefix),
     }
 
@@ -272,7 +272,7 @@ def copy_payload(repo: Path, *, dry_run: bool, force: bool) -> list[str]:
 
 
 def choose_document(repo: Path, explicit: str | None) -> tuple[Path | None, list[str]]:
-    """Pick the handoff document, and say so when the choice was ambiguous."""
+    """Pick the status document, and say so when the choice was ambiguous."""
     notes: list[str] = []
     if explicit:
         path = repo / explicit
@@ -282,7 +282,7 @@ def choose_document(repo: Path, explicit: str | None) -> tuple[Path | None, list
 
     found = detect.find_documents(repo)
     if not found:
-        return None, ["no handoff document found in the usual places"]
+        return None, ["no status document found in the usual places"]
     if len(found) > 1:
         rels = [str(p.relative_to(repo)).replace("\\", "/") for p in found]
         notes.append(f"MULTIPLE candidates: {', '.join(rels)}")
@@ -296,7 +296,7 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
     rel = str(doc.relative_to(repo)).replace("\\", "/")
 
     obs: list[Observation] = [
-        Observation("handoff_doc", rel, DERIVED, f"{info['lines']} lines"),
+        Observation("primary_doc", rel, DERIVED, f"{info['lines']} lines"),
         detect.detect_trunk(repo),
         detect.detect_branch_pattern(repo),
         *detect.detect_commit_convention(repo),
@@ -304,7 +304,7 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
 
     # Archive sits beside the document, not at a path borrowed from elsewhere.
     parent = doc.parent.relative_to(repo).as_posix()
-    archive = f"{parent}/handoff-archive.md" if parent != "." else "handoff-archive.md"
+    archive = f"{parent}/status-archive.md" if parent != "." else "status-archive.md"
     obs.append(Observation("archive_doc", archive, DERIVED, "placed beside the document"))
 
     # Entry header: repeated AND date-bearing headers score above reference ones.
@@ -344,14 +344,14 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
 def render_config(obs: list[Observation]) -> str:
     """Emit TOML. Undetermined values are commented out, never guessed."""
     lines = [
-        "# Generated by the handoff skill's installer, by inspecting this repo.",
+        "# Generated by the extant skill's installer, by inspecting this repo.",
         "#",
         "# Confidence is recorded per value. Anything marked unknown/default is",
         "# COMMENTED OUT rather than guessed: a pattern that matches nothing makes",
         "# --verify exit 0 forever while looking healthy, which is worse than an",
         "# obviously missing setting. See references/porting.md.",
         "",
-        "[handoff]",
+        "[extant]",
     ]
     # Regex values go in TOML LITERAL strings (single quotes), which perform no
     # escape processing. In a basic string `\d` and `\s` are invalid escapes and
@@ -359,11 +359,11 @@ def render_config(obs: list[Observation]) -> str:
     # config did, caught only by parsing the output rather than reading it.
     regexy = {"branch_token", "merge_claim", "phase_task", "live_phrases",
               "base_header", "path_pointer", "phase_bare", "todo_markers"}
-    plain = {"handoff_doc", "archive_doc", "trunk", "entry_prefix", "pointer_prefix"}
+    plain = {"primary_doc", "archive_doc", "trunk", "entry_prefix", "pointer_prefix"}
     # `consistency` is a nested table, so it must be emitted AFTER every plain
     # key: in TOML everything following a table header belongs to that table,
     # and a scalar written below one silently joins it. That is the same shape
-    # as the bug where a [handoff.*] sub-table swallowed the top-level keys.
+    # as the bug where a [extant.*] sub-table swallowed the top-level keys.
     deferred = [o for o in obs if o.key == "consistency"]
     for o in [o for o in obs if o.key != "consistency"]:
         lines.append(f"# [{o.confidence}] {o.evidence}")
@@ -396,7 +396,7 @@ def render_config(obs: list[Observation]) -> str:
     for o in deferred:
         lines.append(f"# [{o.confidence}] {o.evidence}")
         for check, sources in o.value.items():          # type: ignore[union-attr]
-            lines.append(f"[handoff.consistency.{check}]")
+            lines.append(f"[extant.consistency.{check}]")
             for file_path, pattern in sources.items():
                 lines.append(f'"{file_path}" = \'{pattern}\'')
             lines.append("")
@@ -406,7 +406,7 @@ def render_config(obs: list[Observation]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="install", description=__doc__)
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--doc", help="path to the handoff document, if ambiguous")
+    parser.add_argument("--doc", help="path to the status document, if ambiguous")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true", help="overwrite existing payload files")
     parser.add_argument("--preset", choices=sorted(PRESETS),
@@ -431,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
     for note in notes:
         print(f"  {note}")
     if doc is None:
-        print("\n  Create a handoff document, then rerun - or pass --doc.")
+        print("\n  Create a status document, then rerun - or pass --doc.")
         return 1
 
     obs, _info = observe(repo, doc)
@@ -447,12 +447,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {o.key:<{width}}  [{o.confidence:<8}] {shown[:70]}")
         print(f"  {'':<{width}}   {o.evidence}")
 
-    cfg = repo / ".handoff.toml"
+    cfg = repo / ".extant.toml"
     print()
     if cfg.exists() and not args.force:
-        print("  .handoff.toml already exists - left alone (use --force to replace)")
+        print("  .extant.toml already exists - left alone (use --force to replace)")
     else:
-        print(f"  {'would write' if args.dry_run else 'wrote'} .handoff.toml")
+        print(f"  {'would write' if args.dry_run else 'wrote'} .extant.toml")
         if not args.dry_run:
             cfg.write_text(render_config(obs), encoding="utf-8", newline="")
 

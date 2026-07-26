@@ -1,12 +1,12 @@
-# `.handoff.toml` reference
+# `.extant.toml` reference
 
 Lives at the repo root. Every key is optional; omitted keys fall back to
 defaults that reproduce the source project's behaviour. Keys may sit under a
-`[handoff]` table or at the top level.
+`[extant]` table or at the top level.
 
 ```toml
-[handoff]
-handoff_doc = "NEXT_SESSION.md"
+[extant]
+primary_doc = "NEXT_SESSION.md"
 trunk = "main"
 entry_prefix = "## Phase "
 ```
@@ -18,16 +18,16 @@ nothing.
 ### Both placements are merged, and a key may not use both
 
 The two placements are read together rather than one winning. This mattered
-once, badly: writing a sub-table such as `[handoff.consistency.version]` makes
-TOML create a `handoff` key, and the loader used to choose the nested table over
+once, badly: writing a sub-table such as `[extant.consistency.version]` makes
+TOML create a `status` key, and the loader used to choose the nested table over
 the top level. A file like this one kept the consistency block and threw the
 other two settings away:
 
 ```toml
-handoff_doc = "README.md"
+primary_doc = "README.md"
 extra_docs = ["CONTRIBUTING.md"]
 
-[handoff.consistency.node_version]
+[extant.consistency.node_version]
 "README.md" = 'Node (\d+)'
 "package.json" = '"node": "\D*(\d+)'
 ```
@@ -42,7 +42,7 @@ right one sits there looking correct.
 ### Where the file is found
 
 The search walks upward from the starting directory and **stops at the
-repository root**, so a `.handoff.toml` belonging to a parent directory outside
+repository root**, so a `.extant.toml` belonging to a parent directory outside
 the repository is never inherited.
 
 Settings are re-read for the repository being checked rather than being fixed at
@@ -56,8 +56,8 @@ that has none of them.
 
 | Key | Default | Notes |
 |---|---|---|
-| `handoff_doc` | `NEXT_SESSION.md` | The document sessions read as ground truth. |
-| `archive_doc` | `docs/handoff-archive.md` | Where retired entries go. Validated too. |
+| `primary_doc` | `NEXT_SESSION.md` | The document sessions read as ground truth. |
+| `archive_doc` | `docs/status-archive.md` | Where retired entries go. Validated too. |
 | `retain_entries` | `3` | Entries kept in the live document. |
 | `plans_dir` | `docs/superpowers/plans` | Scanned for the current plan's checkboxes. |
 | `venv_python` | `.venv/Scripts/python.exe` | Interpreter, relative to the main working tree. |
@@ -128,7 +128,7 @@ branch_token = "`((?:feature|fix)/[^`]+)`"     # fails on any backslash
 
 Use `'''triple quotes'''` if the pattern itself contains a single quote.
 
-Plain values (`handoff_doc`, `trunk`, `entry_prefix`) have no backslashes, so
+Plain values (`primary_doc`, `trunk`, `entry_prefix`) have no backslashes, so
 double quotes are fine there.
 
 The loader detects this specific failure and explains it, rather than passing
@@ -160,16 +160,16 @@ document at all: it asks whether two files in the repository state different
 values for the same thing.
 
 ```toml
-[handoff.consistency.version]
+[extant.consistency.version]
 "package.json" = '"version":\s*"([^"]+)"'
 "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
 
-[handoff.consistency.node_version]
+[extant.consistency.node_version]
 "README.md" = 'Node (\d+)'
 ".nvmrc" = '^v?(\d+)'
 ```
 
-Each table under `[handoff.consistency]` is one named check. Each entry is a
+Each table under `[extant.consistency]` is one named check. Each entry is a
 file and a pattern whose **single capture group** is the value to compare. Every
 file in a check must produce the same value, or the rule names the check, the
 value, and which files hold which.
@@ -219,7 +219,7 @@ is, and only the denominator tells you.
 Then prove the rules fire, which `--selftest` now does for you:
 
 ```
-python tools/handoff_collect.py --selftest
+python tools/extant_collect.py --selftest
 ```
 
 It corrupts one REAL match per rule and reports which rules noticed. Probes

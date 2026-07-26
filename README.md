@@ -1,10 +1,10 @@
 <div align="center">
 
-# handoff-validator
+# extant
 
 **Your documentation makes claims. This checks whether they are still true.**
 
-[![tests](https://github.com/scooter-sensei/handoff-validator/actions/workflows/tests.yml/badge.svg)](https://github.com/scooter-sensei/handoff-validator/actions/workflows/tests.yml)
+[![tests](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml/badge.svg)](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
 [![dependencies: none](https://img.shields.io/badge/dependencies-none-success)](#before-you-start)
@@ -35,7 +35,7 @@ An ordinary project. A README, a `package.json`, a CONTRIBUTING file. **No
 special status document, no new habits to adopt.**
 
 ```console
-$ python tools/handoff_collect.py --verify
+$ python tools/extant_collect.py --verify
 
 line 5:  [dead-sha]                `deadbeef1234567` does not resolve in this repo
 line 3:  [dead-md-link]            links to `docs/setup.md`, which does not exist
@@ -50,8 +50,8 @@ Four lies in the docs you already have, found in under a second, with line
 numbers. That `checked` line is the count of things it **looked at**, which
 matters as much as the problems it found. More on that below.
 
-It also handles the harder case, if you keep one: a running status or handoff
-file, where entries make claims about branches and merges that go stale as work
+It also handles the harder case, if you keep one: a running status or
+progress file, where entries make claims about branches and merges that go stale as work
 lands. That is where this started, and it is now one use case rather than the
 price of entry.
 
@@ -110,7 +110,7 @@ different question with a definite answer. See below.
 | **Probably yes** | Your project uses Git and has documentation: a README, a CONTRIBUTING file, docs, architecture notes. That is enough. It matters more if an AI assistant reads those files, because it cannot tell an expired line from a current one. |
 | **Probably not** | Your project does not use Git, or your documentation is a single paragraph that never mentions a file, a commit, or a version. |
 
-Note what is **not** on that list: keeping a status or handoff file. This
+Note what is **not** on that list: keeping a status or progress file. This
 started as a tool for those and required one to exist, which turned out to be
 the single largest reason people could not use it. The rules were never
 specific to that shape - they work on any markdown.
@@ -148,13 +148,13 @@ few commands.
 Two lines, typed into Claude Code:
 
 ```
-/plugin marketplace add scooter-sensei/handoff-validator
-/plugin install handoff@handoff-validator
+/plugin marketplace add scooter-sensei/extant
+/plugin install status@extant
 ```
 
 That is the whole installation. Now open the project you want to protect and ask:
 
-> Set up the handoff validator in this project.
+> Set up extant in this project.
 
 It runs the setup, works out the right settings by looking at your project, and
 tells you what it found.
@@ -165,10 +165,10 @@ One block in your `.pre-commit-config.yaml`:
 
 ```yaml
 repos:
-  - repo: https://github.com/scooter-sensei/handoff-validator
-    rev: v0.5.0
+  - repo: https://github.com/scooter-sensei/extant
+    rev: v0.6.0
     hooks:
-      - id: handoff
+      - id: extant
 ```
 
 It runs on every commit, whether or not you touched any documentation. That is
@@ -180,17 +180,17 @@ line of prose, which is the case this exists for.
 Works with or without Claude Code.
 
 **1. Get the files.** Either download the ZIP from
-[the repository](https://github.com/scooter-sensei/handoff-validator) (green
+[the repository](https://github.com/scooter-sensei/extant) (green
 **Code** button, then **Download ZIP**, then unzip), or if you know Git:
 
 ```console
-$ git clone https://github.com/scooter-sensei/handoff-validator
+$ git clone https://github.com/scooter-sensei/extant
 ```
 
 **2. Preview it.** This changes nothing. Swap in the folder of your own project:
 
 ```console
-$ python handoff-validator/plugin/skills/handoff/install.py --repo /path/to/your/project --dry-run
+$ python extant/plugin/skills/extant/install.py --repo /path/to/your/project --dry-run
 ```
 
 Read what it prints. If it looks wrong, stop, and nothing has happened.
@@ -209,7 +209,7 @@ $ python .../install.py --repo /path/to/your/project --preset readme
 | `node` | the same, plus `package.json` and `CHANGELOG.md` version agreement |
 | `python` | the same, with `pyproject.toml` |
 | `rust` | the same, with `Cargo.toml` |
-| `handoff` | a running status file with dated entries |
+| `status` | a running status file with dated entries |
 
 A preset picks the documents and the shape. It never overrides something the
 setup measured from your project, because a measurement beats a template, and a
@@ -236,9 +236,9 @@ already saved, print what they found, and never stop you doing anything.
 | | |
 |:---|:---|
 | `tools/` | the checker itself |
-| `.handoff.toml` | settings, written by reading **your** project |
+| `.extant.toml` | settings, written by reading **your** project |
 | git hooks | the automatic checks (they report, they never block) |
-| `/handoff` command | only if you use Claude Code, written for your project |
+| `/extant` command | only if you use Claude Code, written for your project |
 
 ---
 
@@ -259,7 +259,7 @@ Anything it could not work out is left switched **off** rather than guessed.
 > **This is the part that matters.** If a setting is wrong, that check quietly
 > does nothing, and you get a tool reporting "all clear" forever without looking
 > at anything. It is the one way this fails badly. Read what setup prints, and
-> see [porting.md](plugin/skills/handoff/references/porting.md) to fill the gaps.
+> see [porting.md](plugin/skills/extant/references/porting.md) to fill the gaps.
 
 ---
 
@@ -270,7 +270,7 @@ Mostly you do nothing. The checks run by themselves when you save changes.
 To check on demand, from inside your project:
 
 ```console
-$ python tools/handoff_collect.py --verify
+$ python tools/extant_collect.py --verify
 ```
 
 The summary line counts **what it looked at**, not problems found:
@@ -290,7 +290,7 @@ and only one is good news.
 The worry above deserves more than a warning, so there is a command for it:
 
 ```console
-$ python tools/handoff_collect.py --selftest
+$ python tools/extant_collect.py --selftest
 ```
 
 It takes a real claim from your document, deliberately breaks it, and confirms
@@ -315,8 +315,8 @@ change, so the tool is not merely tested, it is watched failing.
 By default findings print as plain lines. Two other shapes exist for machines:
 
 ```console
-$ python tools/handoff_collect.py --verify --format=github
-$ python tools/handoff_collect.py --verify --format=sarif
+$ python tools/extant_collect.py --verify --format=github
+$ python tools/extant_collect.py --verify --format=sarif
 ```
 
 **`github`** prints GitHub Actions annotations, so each problem is highlighted
@@ -328,13 +328,13 @@ writes only JSON, so you can pipe it straight into a file. If you want the
 results in GitHub's Security tab, upload that file:
 
 ```yaml
-      - name: Check the handoff document
-        run: python tools/handoff_collect.py --verify --format=sarif > handoff.sarif
+      - name: Check the status document
+        run: python tools/extant_collect.py --verify --format=sarif > status.sarif
         continue-on-error: true
 
       - uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: handoff.sarif
+          sarif_file: status.sarif
 ```
 
 That upload step needs `permissions: security-events: write` on the job. This
@@ -381,7 +381,7 @@ stays short. That is helpful until you need to remember why a decision was made
 and cannot recall which file it ended up in.
 
 ```console
-$ python tools/handoff_collect.py --search "checkout"
+$ python tools/extant_collect.py --search "checkout"
 ```
 
 It searches the live file and the archive together, and prints whole entries
@@ -394,14 +394,14 @@ When a file has been renamed, the tool already tells you where it went. It can
 also write the correction out for you:
 
 ```console
-$ python tools/handoff_collect.py --verify --suggest-fixes
+$ python tools/extant_collect.py --verify --suggest-fixes
 ```
 
 This prints a **patch** and changes nothing. You can read it, and apply it with
 one command if you agree:
 
 ```console
-$ python tools/handoff_collect.py --verify --suggest-fixes | git apply -
+$ python tools/extant_collect.py --verify --suggest-fixes | git apply -
 ```
 
 It only offers changes for files git actually recorded as renamed. If a file is
@@ -417,10 +417,10 @@ nothing to check it against. But it can check whether two files in your project
 
 This project needed it: three files said the version was 0.1.0 while the
 changelog said 0.3.0, and anyone installing was told they were getting the first
-release. Add to `.handoff.toml`:
+release. Add to `.extant.toml`:
 
 ```toml
-[handoff.consistency.version]
+[extant.consistency.version]
 "package.json" = '"version":\s*"([^"]+)"'
 "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
 ```
@@ -464,7 +464,7 @@ status file at all, still gets something useful out of this.
   you when that happens rather than quietly using the wrong ones.
 - If the settings are wrong it checks nothing while appearing to work.
 - **It cannot tell a corrected claim from a deleted one.** Removing the sentence
-  it complained about makes a document pass. The `/handoff` workflow works
+  it complained about makes a document pass. The `/extant` workflow works
   around this by making the agent report its first-run findings even after
   fixing them, so a deletion is visible in both the report and the diff, but
   the checker on its own has no way to know.
@@ -511,7 +511,7 @@ setting needs adjusting. Both are worth knowing.
 
 <br>
 
-All under `plugin/skills/handoff/`:
+All under `plugin/skills/extant/`:
 
 | File | What is in it |
 |:---|:---|
@@ -531,7 +531,7 @@ All under `plugin/skills/handoff/`:
 .claude-plugin/marketplace.json   lets Claude Code install this
 plugin/
   .claude-plugin/plugin.json      plugin details
-  skills/handoff/
+  skills/extant/
     SKILL.md                      what Claude reads
     install.py, detect.py         the setup program
     payload/                      what gets copied into your project

@@ -15,11 +15,11 @@ import sys
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "handoff"
+SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 
 
 def located(path: str, line: int, kind: str, detail: str, primary: bool = True):
-    from handoff_collect import Finding, Located
+    from extant_collect import Finding, Located
     return Located(path, Finding(line, kind, detail), primary)
 
 
@@ -28,7 +28,7 @@ def located(path: str, line: int, kind: str, detail: str, primary: bool = True):
 def test_github_annotation_carries_file_line_and_rule() -> None:
     """Catches an annotation missing its location, which GitHub renders as a
     bare log line instead of attaching it to the diff."""
-    from handoff_collect import format_github
+    from extant_collect import format_github
 
     lines = format_github([located("NEXT_SESSION.md", 6, "dead-sha", "`abc` is gone")])
 
@@ -44,7 +44,7 @@ def test_github_escapes_commas_and_colons_in_properties() -> None:
     the property list early and the annotation lands on the wrong line, or
     nowhere. Silent, and invisible unless you read the rendered PR.
     """
-    from handoff_collect import format_github
+    from extant_collect import format_github
 
     line = format_github([located("docs/a,b:c.md", 2, "dead-sha", "x")])[0]
 
@@ -57,7 +57,7 @@ def test_github_escapes_commas_and_colons_in_properties() -> None:
 def test_github_escapes_newlines_in_the_message() -> None:
     """A newline in a detail would end the workflow command early, turning the
     rest of the message into an unrelated log line."""
-    from handoff_collect import format_github
+    from extant_collect import format_github
 
     line = format_github([located("a.md", 1, "k", "first\nsecond")])[0]
 
@@ -68,7 +68,7 @@ def test_github_escapes_newlines_in_the_message() -> None:
 # --- SARIF -------------------------------------------------------------------
 
 def sarif_of(items) -> dict:
-    from handoff_collect import format_sarif
+    from extant_collect import format_sarif
     return json.loads(format_sarif(items))
 
 
@@ -83,7 +83,7 @@ def test_sarif_has_every_field_github_requires() -> None:
     assert doc["version"] == "2.1.0"
     assert doc["$schema"]
     run = doc["runs"][0]
-    assert run["tool"]["driver"]["name"] == "handoff-validator"
+    assert run["tool"]["driver"]["name"] == "extant"
     assert run["tool"]["driver"]["rules"], "rule descriptors are required"
     result = run["results"][0]
     assert result["ruleId"] == "dead-sha"
@@ -101,7 +101,7 @@ def test_sarif_rule_descriptions_come_from_the_registry() -> None:
     apart silently. The admission test already forces every rule to state its
     question; this makes that statement the thing users read.
     """
-    from handoff_collect import RULES
+    from extant_collect import RULES
 
     doc = sarif_of([located("a.md", 1, "dead-sha", "x")])
     descriptor = doc["runs"][0]["tool"]["driver"]["rules"][0]
@@ -118,7 +118,7 @@ def test_fingerprint_helper_distinguishes_what_it_should() -> None:
     in before calling, which is the mutation that actually matters. The test
     below covers that; this one only pins the helper.
     """
-    from handoff_collect import _fingerprint
+    from extant_collect import _fingerprint
 
     baseline = _fingerprint("a.md", "dead-sha", "`abc` is gone")
     assert baseline == _fingerprint("a.md", "dead-sha", "`abc` is gone")
@@ -167,7 +167,7 @@ def test_sarif_of_a_clean_document_is_still_valid() -> None:
 
 def run_in(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(repo / "tools" / "handoff_collect.py"),
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
          "--repo", str(repo), *args],
         cwd=repo, capture_output=True, text=True, encoding="utf-8",
     )

@@ -31,8 +31,8 @@ measurement, and each answers one config value.
 ### 1. Name the documents
 
 ```
-handoff_doc   = "NEXT_SESSION.md"          # what sessions actually read
-archive_doc   = "docs/handoff-archive.md"  # where old entries go
+primary_doc   = "NEXT_SESSION.md"          # what sessions actually read
+archive_doc   = "docs/status-archive.md"  # where old entries go
 ```
 
 ### 2. Find the entry header shape
@@ -108,7 +108,7 @@ branch_token = '`((?:claude|feature|feat)/[^`]+)`'
 ## Validating the derived config
 
 ```bash
-python tools/handoff_collect.py --verify
+python tools/extant_collect.py --verify
 ```
 
 **Exit 0 alone is not good news** - it means the document is clean *or* your
@@ -132,7 +132,7 @@ A rule never observed failing has not been tested.
 - `sh tools/hooks/install` - wires `post-commit` and `post-merge`. **Both are
   needed**: git routes merges through `post-merge`, *not* `post-commit`, so a
   post-commit-only hook misses exactly the case where a merge falsifies a claim.
-- Add the entry-header contract to the `/handoff` command text. An entry with the
+- Add the entry-header contract to the `/extant` command text. An entry with the
   wrong header is silently invisible to archiving and live-claim checking.
 - Tell authors: **paraphrase past statuses, never quote or strike them through.**
   The rules cannot distinguish a quotation from a claim.

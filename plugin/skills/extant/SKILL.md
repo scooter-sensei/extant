@@ -1,13 +1,13 @@
 ---
-name: handoff
-description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /handoff command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.5.0
+name: extant
+description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
+version: 0.6.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
 ---
 
-# Handoff validator
+# extant
 
 Documentation makes claims - a version, a file path, a commit, a branch - and
 those claims decay. The decay is invisible until somebody acts on one. This
@@ -18,7 +18,7 @@ architecture note, anything in markdown. Requiring a dedicated status file was
 the largest barrier to using this and was never a real requirement.
 
 It does handle that shape too, and was built on one: a real repository whose
-handoff document had rotted to a false "not yet merged" claim about work that
+status document had rotted to a false "not yet merged" claim about work that
 shipped three days earlier, 40 dead commit references after a history rewrite, a
 pointer to a plan file that did not exist, and 1,782 lines of unbounded growth
 that every session was told to read end to end.
@@ -27,13 +27,13 @@ that every session was told to read end to end.
 
 | File | Role |
 |---|---|
-| `tools/handoff_collect.py` | Collector + validator. Five modes: `--collect`, `--archive`, `--validate`, `--verify`, `--selftest` |
-| `tools/handoff_config.py` | All project-specific values; reads `.handoff.toml` |
-| `tools/hooks/handoff-verify` | Re-checks the document after every commit and merge |
+| `tools/extant_collect.py` | Collector + validator. Five modes: `--collect`, `--archive`, `--validate`, `--verify`, `--selftest` |
+| `tools/extant_config.py` | All project-specific values; reads `.extant.toml` |
+| `tools/hooks/extant-verify` | Re-checks the document after every commit and merge |
 | `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
 | `tools/hooks/install` | Installs the git hooks |
-| `.claude/commands/handoff.md` | The `/handoff` slash command, rendered for this repo |
-| `.handoff.toml` | Project configuration |
+| `.claude/commands/extant.md` | The `/extant` slash command, rendered for this repo |
+| `.extant.toml` | Project configuration |
 
 `--search TEXT` finds past entries in the live document and the archive
 together, returning whole entries. `--suggest-fixes` prints a patch repointing
@@ -52,7 +52,7 @@ cd /path/to/repo && sh tools/hooks/install
 ```
 
 Presets: `readme` (any project, no status file needed), `node`, `python`,
-`rust`, `handoff` (a running status document). A preset chooses the documents
+`rust`, `status` (a running status document). A preset chooses the documents
 and the shape; detection still supplies trunk, branch naming and commit
 conventions, because those are measured rather than assumed.
 
@@ -86,7 +86,7 @@ and both destroy the tool's value.
 `inconsistent-artifact` is the one rule that reads no document. It compares
 files against EACH OTHER, which is why it does not breach the no-numbers
 guarantee: the forbidden question is whether a value is correct, and this asks
-whether two artifacts contradict each other. Off unless `[handoff.consistency]`
+whether two artifacts contradict each other. Off unless `[extant.consistency]`
 is configured.
 
 Three cross-cutting behaviours worth knowing:
@@ -107,7 +107,7 @@ dated entries.
 ## Proving the rules actually work
 
 ```
-python tools/handoff_collect.py --selftest
+python tools/extant_collect.py --selftest
 ```
 
 Corrupts one REAL claim per rule and reports which rules noticed. A rule that

@@ -1,8 +1,8 @@
 ---
-description: Draft, validate, and commit the end-of-phase session handoff
+description: Draft, validate, and commit the end-of-phase session status
 ---
 
-Produce the end-of-phase handoff for this repository.
+Produce the end-of-phase status for this repository.
 
 ## Step 1 - Friction summary (you, not the subagent)
 
@@ -20,7 +20,7 @@ Step 1, and these instructions.
 
 ---
 
-You are producing the end-of-phase handoff for {{PROJECT}}.
+You are producing the end-of-phase status for {{PROJECT}}.
 
 0. Resolve the interpreter FIRST and use it for every command below. If work
    happens in git worktrees, note that a virtualenv is usually gitignored and
@@ -40,7 +40,7 @@ You are producing the end-of-phase handoff for {{PROJECT}}.
    Substitute `$PY` wherever the commands below say `$PY`.
 
 1. Run the collector:
-   `$PY tools/handoff_collect.py --collect --out handoff_bundle.json`
+   `$PY tools/extant_collect.py --collect --out status_bundle.json`
 
    **If the suite cannot run here, pass `--suite-json <path>`** with an
    already-captured result rather than repeating a long run. The collector stops
@@ -50,11 +50,11 @@ You are producing the end-of-phase handoff for {{PROJECT}}.
    The bundle records whether the suite figure was `measured` or `supplied`.
    Say which in the entry you draft - a reused count is not a fresh measurement.
 
-   If `handoff_bundle.json` reports `nothing_to_hand_off` true, there are no
-   commits since the last handoff: report that plainly and stop. Do not draft
+   If `status_bundle.json` reports `nothing_to_hand_off` true, there are no
+   commits since the last status: report that plainly and stop. Do not draft
    an entry, run `--archive`, or commit.
 
-2. Read `handoff_bundle.json`. Prepend ONE new entry to `{{DOC}}`, above the
+2. Read `status_bundle.json`. Prepend ONE new entry to `{{DOC}}`, above the
    existing entries and below the title. The entry's header must be EXACTLY of
    the form `{{ENTRY_PREFIX}}<n> - <title> (<status>, <date>)`. Any other header
    silently disables archiving and live-claim validation for that entry.
@@ -64,14 +64,14 @@ You are producing the end-of-phase handoff for {{PROJECT}}.
 
    You may only write claims the bundle supports. Do not estimate, infer a
    merge that the bundle does not show, or describe work you cannot see. If the
-   suite is red, say so plainly in Status - a handoff that only describes green
+   suite is red, say so plainly in Status - a status that only describes green
    states lies exactly when the truth matters.
 
    If `plan.checkbox_tracking` is false, the plan's `remaining` list reflects
    an unmaintained file, not outstanding work - it MUST NOT be reported as
    such. Derive Next Tasks from the plan's prose and from `commits` instead.
 
-3. Run the archiver, AFTER drafting: `$PY tools/handoff_collect.py --archive`
+3. Run the archiver, AFTER drafting: `$PY tools/extant_collect.py --archive`
 
    Order matters. Archiving before the new entry exists means the entry does
    not count toward the retention cap, so the document is left holding one more
@@ -80,7 +80,7 @@ You are producing the end-of-phase handoff for {{PROJECT}}.
    in the same run and the document holds exactly the retained count.
 
 4. Validate:
-   `$PY tools/handoff_collect.py --validate {{DOC}}`
+   `$PY tools/extant_collect.py --validate {{DOC}}`
    Non-zero exit means fix the reported claims and re-run. **At most 2 attempts.**
 
    Fix claims by CORRECTING them, never by deleting them to pass. Report the
@@ -89,10 +89,10 @@ You are producing the end-of-phase handoff for {{PROJECT}}.
 5. If and only if validation exits 0, commit - and ONLY these paths:
    `{{DOC}}`, `{{ARCHIVE}}`, and any spec or plan doc you updated. Never source
    files. Never `--amend`. Never push.
-   Message: `docs: handoff - <phase> complete at top of {{DOC}}`
+   Message: `docs: status - <phase> complete at top of {{DOC}}`
 
    A RED SUITE DOES NOT BLOCK THIS COMMIT. Validation checks whether claims are
-   true, not whether tests pass. A handoff that accurately records a failing
+   true, not whether tests pass. A status that accurately records a failing
    suite is exactly what the next session needs; refusing to write one would
    withhold the truth at the moment it is most useful.
 
