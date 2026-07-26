@@ -15,6 +15,43 @@ An unknown key is **reported as a warning**, not silently ignored - a typo that
 quietly does nothing is the same class of failure as a pattern that matches
 nothing.
 
+### Both placements are merged, and a key may not use both
+
+The two placements are read together rather than one winning. This mattered
+once, badly: writing a sub-table such as `[handoff.consistency.version]` makes
+TOML create a `handoff` key, and the loader used to choose the nested table over
+the top level. A file like this one kept the consistency block and threw the
+other two settings away:
+
+```toml
+handoff_doc = "README.md"
+extra_docs = ["CONTRIBUTING.md"]
+
+[handoff.consistency.node_version]
+"README.md" = 'Node (\d+)'
+"package.json" = '"node": "\D*(\d+)'
+```
+
+The file looked configured and was not, which is precisely the failure this
+project exists to surface, sitting in its own loader.
+
+Setting the same key in **both** places is now an error rather than a silent
+resolution. Two homes for one setting is how the wrong value gets read while the
+right one sits there looking correct.
+
+### Where the file is found
+
+The search walks upward from the starting directory and **stops at the
+repository root**, so a `.handoff.toml` belonging to a parent directory outside
+the repository is never inherited.
+
+Settings are re-read for the repository being checked rather than being fixed at
+import. That matters when the tool is installed as a package - which the
+pre-commit framework does - because the file's own location is then
+site-packages, and a tool that read its configuration from there would validate
+some other project's filenames and report a healthy run for every repository
+that has none of them.
+
 ## Documents and layout
 
 | Key | Default | Notes |
@@ -115,6 +152,52 @@ Each was measured against one project's real prose. See `porting.md`.
 Markdown links and heading anchors are checked too, and have no setting. Link
 syntax is fixed by the format rather than by any project's habits, so there is
 no corpus to measure and nothing to configure.
+
+## Comparing files against each other
+
+`inconsistent-artifact` is the one rule with `scope = "repository"`. It reads no
+document at all: it asks whether two files in the repository state different
+values for the same thing.
+
+```toml
+[handoff.consistency.version]
+"package.json" = '"version":\s*"([^"]+)"'
+"CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
+
+[handoff.consistency.node_version]
+"README.md" = 'Node (\d+)'
+".nvmrc" = '^v?(\d+)'
+```
+
+Each table under `[handoff.consistency]` is one named check. Each entry is a
+file and a pattern whose **single capture group** is the value to compare. Every
+file in a check must produce the same value, or the rule names the check, the
+value, and which files hold which.
+
+**This does not weaken the guarantee.** The forbidden question is whether a
+value is CORRECT - "the suite was 2238" has nothing to check against. Whether
+two files disagree has a definite answer needing only the filesystem.
+
+Off unless configured, deliberately: the files and patterns are per-project, and
+a guessed default would accuse an innocent repository.
+
+Four shapes are refused at load rather than passing quietly, because each one
+would produce a check that can never fail:
+
+| Refused | Why |
+|:---|:---|
+| a check listing fewer than two files | it could only agree with itself |
+| a pattern with no capture group | nothing to extract, nothing to compare |
+| a pattern with more than one group | which group is the value is a guess |
+| the same file under two spellings | paths are normalised, so `docs/x.md` and `docs/./x.md` are caught as one file |
+
+A pattern that matches **nothing** is reported rather than treated as agreement.
+A file that is missing is reported too. Both would otherwise be a check that
+examined nothing and printed what success prints.
+
+The configuration comes from the repository **being checked**, not from the
+installed copy of the tool. A rule reading the installed copy's settings would
+pass everywhere and mean nothing.
 
 ## Verifying a config actually works
 

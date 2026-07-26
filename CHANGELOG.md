@@ -53,9 +53,9 @@ That last part needed a real fix. Configuration is read at import relative to
 the file, which under pip is site-packages - so the hook would have validated
 NEXT_SESSION.md in every project on earth and reported a healthy run for the
 ones with no such file. `reload_config` re-reads for the repository being
-checked, and a test parses this file for every `NAME = CONFIG.field` assignment
-and fails if one is not reloaded, so a future derived global cannot quietly keep
-a stale value.
+checked, and a test parses `handoff_collect.py` for every `NAME = CONFIG.field`
+assignment and fails if one is not reloaded, so a future derived global cannot
+quietly keep a stale value.
 
 ### Fixed
 
@@ -67,6 +67,47 @@ a stale value.
   environment and `language: python` needs something installable. Copying files
   into the target repository remains the primary install path, because the hooks
   and slash command have to live there.
+
+### What the pre-release audit changed
+
+All five harnesses were run before tagging. One assertion was genuinely wrong,
+and the documentation had drifted in four places.
+
+The hooks scenario asserted that a default install wires a `pre-commit` hook,
+which was the contract before the trunk guard became opt-in. The product was
+right and the assertion was for the retired shape. Passing the new flag would
+have left the DEFAULT untested, which is the half that matters: a documentation
+checker silently regaining the power to refuse a commit is the worse failure.
+Both directions are asserted now, plus a misspelled flag, which must be refused
+rather than quietly installing the advisory set.
+
+That failure only surfaced because a POSIX shell was on PATH. Without one, ten
+hook tests skip and the suite still prints green - and the hooks were the part
+that had just changed. The unit suite degraded into silence where the scenario
+harness crashed, which is the whole argument for keeping both.
+
+A third ASCII test now reads every shipped file whole. The existing two
+tokenize Python string literals and read the shell hooks, so neither had ever
+opened a markdown file, and prose is where an em dash actually arrives. It is
+allowlist-free deliberately: an extension filter is how such a check quietly
+stops covering things, which it proved by catching a hand-written scan of my own
+that had skipped the three extensionless hooks.
+
+Corrected, none of it catchable by any rule here, because no rule inspects a
+number:
+
+- This repository's own status document stopped at Phase 3. Its "Next Tasks"
+  listed `--search` and rename autofix, both of which 0.4.0 delivered, and its
+  "Known Issues" listed the settings-loading bug that this release fixed.
+- `references/config.md` documented every setting except the consistency block,
+  the one configuration feature 0.4.0 added. It now covers that, the merge of
+  top-level and `[handoff]` keys, and the upward search stopping at the
+  repository root.
+- `CONTRIBUTING.md` named two further audit harnesses beyond the mutation
+  campaign where there are four, and described the ASCII rule as applying to
+  string literals only.
+- The harness README claimed nine stress cases for a run of twelve, and
+  `scenarios.py` printed its own denominator as a hardcoded string.
 
 ## 0.4.0 (2026-07-26)
 

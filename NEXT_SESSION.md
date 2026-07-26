@@ -6,6 +6,110 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 5 - Any documentation, not just a status file (shipped, 2026-07-26)
+
+**Status.** Suite is 202 tests, all passing. The tool no longer asks a project
+to keep a status document: a README, a CONTRIBUTING file and a package manifest
+are enough, and that was already true before this phase changed a line of the
+engine. Five presets, a published pre-commit hook, and a trunk guard that is now
+opt-in.
+
+**What Shipped.**
+
+- Repositioning. Peer review made one point hard: most teams keep no running
+  status file, so the tool looked useless to them. Testing that rather than
+  accepting it showed the engine already handled an ordinary project and found
+  a dead commit reference, a dead link and a version disagreement with no code
+  changes at all. The barrier was the pitch, so the README, the skill manifest
+  and the marketplace entry now lead with the claim-checking question. The
+  audience table had been telling exactly the newly-targeted projects "probably
+  not for you".
+- Presets `readme`, `node`, `python`, `rust` and `handoff`. A preset chooses the
+  documents and the shape; detection still measures trunk and branch naming,
+  because a template would be guessing at those.
+- A hooks manifest for the pre-commit framework, and the packaging metadata it
+  needs to build an isolated environment. Verified by running the real
+  framework, not by writing YAML from its documentation.
+- The trunk guard became opt-in, wired only by
+  `sh tools/hooks/install --with-trunk-guard`. It is the one component that can
+  refuse a commit, and it arrives only when asked for.
+
+**Known Issues.**
+
+- No release tags exist in this repository yet, while the README, the CHANGELOG
+  and the hooks manifest all pin `rev: v0.5.0` for pre-commit users. That
+  instruction cannot resolve until the tag is created and pushed. The rule that
+  exists for exactly this claim cannot catch it, because the snippet lives in a
+  fenced block and fenced code is exempt from claim rules by design.
+- Gitflow-style release branches are still not modelled.
+
+**Next Tasks.**
+
+- Create and push the release tag, so the documented install path resolves.
+- An editor or LSP integration. Assessed and deferred: it is a second language,
+  a second maintenance surface, and it wants sub-100ms incremental checking
+  where a full run is about 400ms.
+
+**Gotchas.**
+
+- Configuration is loaded at import, relative to the file. Installed as a
+  package, which the pre-commit framework does, that location is site-packages,
+  so the tool must re-read settings for the repository it was pointed at.
+  Otherwise the hook validates a filename that belongs to some other project and
+  reports a healthy run wherever no such file exists. A test now parses the
+  source for every global derived from configuration and fails if one is not
+  refreshed.
+- A `[handoff.*]` sub-table silently discarded every top-level key. The config
+  file looked configured and was not, which is this project's own failure mode
+  sitting in its own loader. Both sources are merged now, and a key set in both
+  places is refused rather than resolved quietly.
+- Ten hook tests skip when no POSIX shell is on PATH, and the suite still prints
+  green. The hooks were the part that had just changed. What surfaced it was a
+  scenario harness that crashed where the unit suite had skipped: degrading
+  gracefully turned a gap into silence, and crashing turned it into a report.
+
+## Phase 4 - Files that contradict each other, and a way back to old decisions (shipped, 2026-07-26)
+
+**Status.** Ten rules now, up from nine. The tenth compares files against each
+other, which is a different question from the one this tool refuses to answer.
+
+**What Shipped.**
+
+- `inconsistent-artifact`, the tenth rule, and the first with repository scope.
+  It exists because this project advertised version 0.1.0 in three manifests
+  while the CHANGELOG documented 0.3.0, and nothing here could catch it. No rule
+  inspects whether a number is correct, and that restriction stands: whether two
+  files state DIFFERENT values for the same thing needs only the filesystem. Off
+  unless configured, because a guessed default would accuse an innocent
+  repository.
+- `--search`, which returns whole entries from the live document and the archive
+  together. That is the only reason it beats grep: a decision lives in a dated
+  entry with its reasoning, and a matching line tells you a phrase exists rather
+  than what was decided.
+- `--suggest-fixes`, which emits a patch on stdout and writes nothing. It
+  repoints references to files that moved, and touches only link targets and
+  backticked paths rather than prose.
+- A mutation-freshness check in CI, and a timing run on Linux.
+
+**Known Issues.**
+
+- A consistency check can name the same file by two different routes and then
+  always agree with itself. The two-file minimum catches the obvious shape and
+  not this one.
+
+**Next Tasks.**
+
+- Reach projects that keep no status document at all, which is most of them.
+
+**Gotchas.**
+
+- Claims live inside inline backticks, so stripping code before checking a
+  document turned eight tests red at once. Fenced blocks and inline spans need
+  opposite treatment: a fenced example is not a promise, while a claim is
+  routinely written inside single backticks. Link rules want the opposite again.
+- A rule whose configuration is read from the INSTALLED copy rather than from
+  the repository under test passes everywhere and means nothing.
+
 ## Phase 3 - Machine-readable output, and a mutation campaign (shipped, 2026-07-22)
 
 **Status.** Suite is 157 tests, all passing. Findings render as GitHub

@@ -63,19 +63,30 @@ does not reproduce the bug you meant to reproduce, the green run afterwards
 means nothing either.
 
 `tests/harnesses/mutate.py` does this mechanically for the whole suite, and
-`tests/harnesses/` holds two more audits that pytest cannot perform: a scenario
-matrix over project shapes unlike this one, and an adversarial smoke test. They
-are slow and run by hand. See `tests/harnesses/README.md`.
+`tests/harnesses/` holds four more audits that pytest cannot perform: a scenario
+matrix over project shapes unlike this one, an adversarial smoke test, a
+performance run, and a load test aimed at the known weak points rather than the
+comfortable ones. They are slow and run by hand. See `tests/harnesses/README.md`.
 
 They are worth running before a release, because between them they found every
-defect fixed in 0.3.0 and the unit suite found none of them.
+defect fixed in 0.3.0 and the unit suite found none of them. This sentence said
+"two more" for as long as it took the last two to be written, which is the drift
+the tool cannot catch: no rule inspects a number.
+
+Run the mutation campaign against a **copy**, never the working tree. It
+rewrites source in place, and a campaign interrupted part-way once left a
+mutation sitting in shipped code. It restores on exit and on a signal now, but
+an isolated copy is what makes that irrelevant.
 
 ## Style
 
-- ASCII only in string literals. Non-ASCII in printed output raises
-  `UnicodeEncodeError` on a cp437 console and terminates the process. A test
-  enforces this for the payload, scoped to string literals, since comments never
-  reach a console.
+- ASCII only, everywhere, including prose. Non-ASCII in printed output raises
+  `UnicodeEncodeError` on a cp437 console and terminates the process. Three
+  tests enforce it: one tokenizes the payload and reads string literals, one
+  reads the shell hooks, and one reads every shipped file whole. The third
+  exists because the first two never opened a markdown file, and an em dash
+  arrives in prose, pasted in with a sentence. Use `-` for an em dash, `...`
+  for an ellipsis, `->` for an arrow, and plain quotes.
 - `from __future__ import annotations` at the top of every module.
 - Narrow exception handlers. Bare `except:` and `except Exception:` hide the
   failures this project exists to surface.
