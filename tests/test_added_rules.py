@@ -899,6 +899,10 @@ def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
            "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
            "The Checkout Rewrite landed.\n\n## 1. Ref\n", "docs: live")
 
+    # The QUERY must carry mixed case, not just the document. Lowercasing an
+    # already-lowercase query is a no-op, so the original version of this test
+    # passed against a case-sensitive implementation - found by mutation.
+    assert len(search_entries(repo, "ChEcKoUt ReWrItE")) == 1
     assert len(search_entries(repo, "checkout rewrite")) == 1
     assert search_entries(repo, "kubernetes") == []
 
@@ -1032,3 +1036,96 @@ def test_the_suggested_patch_actually_applies(git_repo) -> None:
 
     assert applied.returncode == 0, f"git apply rejected the patch: {applied.stderr}"
     assert "docs/design.md" in (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")
+
+
+def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
+    """`a.md` and `./a.md` are one file, and a file always agrees with itself.
+
+    TOML keeps them as distinct keys, so the two-file minimum passes and the
+    check compares nothing while appearing configured. Found by an adversarial
+    probe rather than by reasoning about the format.
+    """
+    from handoff_config import load_config
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text(
+        "[handoff.consistency.version]\n"
+        "\"a.md\" = 'v: (.+)'\n\"./a.md\" = 'v: (.+)'\n", encoding="utf-8")
+
+    try:
+        load_config(tmp_path)
+    except ValueError as exc:
+        assert "same file twice" in str(exc), exc
+    else:
+        raise AssertionError("one file listed twice was accepted as a check")
+
+
+def test_two_genuinely_different_files_still_load(tmp_path) -> None:
+    """The guard must not reject a legitimate pair whose paths merely look
+    similar."""
+    from handoff_config import load_config
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text(
+        "[handoff.consistency.version]\n"
+        "\"a.md\" = 'v: (.+)'\n\"./docs/a.md\" = 'v: (.+)'\n", encoding="utf-8")
+
+    checks = load_config(tmp_path).consistency
+
+    assert len(checks["version"]) == 2
+
+
+def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
+    """Not merely "does not change the document" - writes NOTHING.
+
+    The earlier test asserted the document was untouched, so a version that
+    created some other file passed it. Found by mutation. The promise this
+    feature makes is that it emits a patch and touches the working tree not at
+    all, and that is what has to be pinned.
+    """
+    from handoff_collect import suggest_renames
+    import handoff_collect as hc
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    git(repo, "mv", "docs/plan.md", "docs/design.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._RENAMES.clear()
+    before = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
+
+    patch = suggest_renames(repo, repo, "See [plan](docs/plan.md).\n", "DOC.md")
+
+    after = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
+    assert patch, "the setup produced no patch, so this proves nothing"
+    assert after == before, f"files appeared or vanished: {after ^ before}"
+
+
+# --- configuration discovery -------------------------------------------------
+
+def test_config_is_found_by_searching_upward(tmp_path) -> None:
+    """Installed as tools/, the config sits beside the script. Run from
+    anywhere else it does not, and looking only beside the script found nothing
+    while reporting a healthy run against defaults - which is how this project
+    discovered it could not configure its own tool."""
+    from handoff_config import load_config
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".handoff.toml").write_text('handoff_doc = "FOUND.md"\n', encoding="utf-8")
+    nested = tmp_path / "plugin" / "skills" / "payload"
+    nested.mkdir(parents=True)
+
+    assert load_config(nested).handoff_doc == "FOUND.md"
+
+
+def test_config_search_stops_at_the_repository_root(tmp_path) -> None:
+    """A project nested inside another checkout must not inherit the outer
+    project's settings. Wrong settings that look deliberate are a worse failure
+    than the missing-config one this search was added to fix."""
+    from handoff_config import load_config
+    (tmp_path / ".handoff.toml").write_text('handoff_doc = "OUTER.md"\n', encoding="utf-8")
+    inner = tmp_path / "inner"
+    inner.mkdir()
+    (inner / ".git").mkdir()
+
+    cfg = load_config(inner)
+
+    assert cfg.source == "defaults", (
+        f"the search escaped the repository root and read {cfg.source}"
+    )
+    assert cfg.handoff_doc != "OUTER.md"

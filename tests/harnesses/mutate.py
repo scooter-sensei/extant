@@ -170,6 +170,73 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    hint = next((h for needle, h in _HINTS if needle in text), _GENERIC_HINT)",
          "    hint = _ESCAPE_HINT"),
 
+        # --- consistency (repository-scoped) -------------------------------------
+        ("consistency never reports a disagreement", collect,
+         "        if len(seen) > 1:",
+         "        if False:"),
+        ("consistency reports agreement AS disagreement", collect,
+         "        if len(seen) > 1:",
+         "        if len(seen) >= 1:"),
+        ("consistency ignores a missing file", collect,
+         "            if not target.is_file():\n"
+         "                findings.append(Finding(\n"
+         "                    1, \"inconsistent-artifact\",\n"
+         "                    f\"consistency check `{name}` reads `{relative}`, \"\n"
+         "                    f\"which does not exist\",\n"
+         "                ))\n"
+         "                continue",
+         "            if not target.is_file():\n                continue"),
+        ("consistency ignores a pattern that matches nothing", collect,
+         "            if match is None:",
+         "            if False and match is None:"),
+        ("consistency reads the INSTALLED config, not the target repo's", collect,
+         "        consistency = _consistency_for(repo)",
+         "        consistency = CONFIG.consistency"),
+
+        # --- search --------------------------------------------------------------
+        ("search only looks at the live document", collect,
+         "    for relative in (HANDOFF_DOC, ARCHIVE_DOC):\n"
+         "        path = repo / relative\n"
+         "        if not path.is_file():\n"
+         "            continue\n"
+         "        with open(path, encoding=\"utf-8\", newline=\"\") as fh:",
+         "    for relative in (HANDOFF_DOC,):\n"
+         "        path = repo / relative\n"
+         "        if not path.is_file():\n"
+         "            continue\n"
+         "        with open(path, encoding=\"utf-8\", newline=\"\") as fh:"),
+        ("search becomes case-sensitive", collect,
+         "    needle = query.lower()",
+         "    needle = query"),
+        ("search matches every entry regardless of content", collect,
+         '            if kind != "phase" or needle not in entry.lower():',
+         '            if kind != "phase":'),
+
+        # --- suggested fixes ------------------------------------------------------
+        ("suggest-fixes offers a guess for a merely missing file", collect,
+         "        moved = _renamed_to(repo, target)\n"
+         "        if moved:\n"
+         "            replacements.append((target, moved))",
+         "        moved = _renamed_to(repo, target) or target + \".guess\"\n"
+         "        if moved:\n"
+         "            replacements.append((target, moved))"),
+        ("suggest-fixes rewrites prose as well as references", collect,
+         '        updated = updated.replace(f"]({old})", f"]({new})")\n'
+         '        updated = updated.replace(f"`{old}`", f"`{new}`")',
+         "        updated = updated.replace(old, new)"),
+        ("suggest-fixes writes the file instead of emitting a patch", collect,
+         "    if not replacements:\n        return \"\"",
+         "    if not replacements:\n        return \"\"\n"
+         "    (base / 'SIDE_EFFECT.txt').write_text('written', encoding='utf-8')"),
+
+        # --- config discovery -----------------------------------------------------
+        ("config is no longer searched for upward", detect.parent / "payload/handoff_config.py",
+         "    for directory in (current, *current.parents):",
+         "    for directory in (current,):"),
+        ("config search runs past the repository root", detect.parent / "payload/handoff_config.py",
+         '        if (directory / ".git").exists():\n            return None',
+         '        if False:\n            return None'),
+
         # --- detect.py ----------------------------------------------------------
         ("find_documents returns only the first match", detect,
          "    return found",
@@ -178,6 +245,39 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    head = _git(repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD").strip()',
          '    head = ""'),
     ]
+
+
+def install_restore_guard(backups: dict[Path, str]) -> None:
+    """Put the source back if this process is killed part-way through.
+
+    try/finally covers exceptions and nothing else. A campaign interrupted
+    between writing a mutation and restoring it leaves BROKEN CODE ON DISK,
+    indistinguishable from a deliberate edit - and it happened: a run stopped
+    mid-mutation left `"dead-sha": 1` in the denominator, which would have been
+    committed as a validator that always claims to have examined one reference.
+
+    Restoring on SIGINT and SIGTERM closes the window that matters. A SIGKILL
+    cannot be caught by anything, which is why the finished run also verifies
+    the tree and says so.
+    """
+    import atexit
+    import signal
+
+    def restore(*_args: object) -> None:
+        for path, original in backups.items():
+            try:
+                if path.read_text(encoding="utf-8") != original:
+                    path.write_text(original, encoding="utf-8", newline="\n")
+                    print(f"\nrestored {path.name} after interruption", file=sys.stderr)
+            except OSError:
+                pass
+
+    atexit.register(restore)
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(sig, lambda *_a: (restore(), sys.exit(130)))
+        except (ValueError, OSError, AttributeError):
+            pass    # not the main thread, or the platform lacks the signal
 
 
 def run_suite(root: Path, python: str) -> bool:
@@ -228,6 +328,12 @@ def main() -> int:
             print("containing one reports a clean result it did not earn. Retarget")
             print("each of the above at the code that replaced what it named.")
         return 1 if stale else 0
+
+    install_restore_guard(backups)
+
+    print("NOTE: this rewrites the source in place, one mutation at a time.")
+    print("      Do not edit the repository while it runs, and do not run it")
+    print("      against a tree you have uncommitted work in.\n")
 
     print("baseline: ", end="", flush=True)
     if not run_suite(root, args.python):

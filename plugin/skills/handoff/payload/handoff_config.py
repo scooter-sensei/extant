@@ -34,6 +34,7 @@ rather than guessed. See references/porting.md in the skill.
 """
 from __future__ import annotations
 
+import os
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -290,6 +291,23 @@ def _compile_consistency(
                 f"compares files against each other, so it needs at least two; "
                 f"with one it can only ever agree with itself."
             )
+        # Two spellings of one file agree with themselves forever. TOML keeps
+        # "a.md" and "./a.md" as distinct keys, so the two-file minimum above
+        # passes and the check is vacuous - the exact shape of failure this
+        # project exists to make visible. Found by an adversarial probe, not by
+        # reasoning about the config format.
+        normalised: dict[str, str] = {}
+        for file_path in sources:
+            key = os.path.normpath(str(file_path)).replace("\\", "/")
+            if key in normalised:
+                raise ValueError(
+                    f"{path}: consistency.{name} lists the same file twice, as "
+                    f"{normalised[key]!r} and {str(file_path)!r}. A file always "
+                    f"agrees with itself, so the check would pass without "
+                    f"comparing anything."
+                )
+            normalised[key] = str(file_path)
+
         entries = []
         for file_path, pattern in sources.items():
             try:

@@ -314,11 +314,91 @@ def case_repeated() -> None:
            f"{elapsed / 40 * 1000:.0f} ms each")
 
 
+# ------------------------------------------------- new surfaces (0.4.0)
+def case_search_large_archive() -> None:
+    """Search reads BOTH documents fully and splits them into entries."""
+    print("\n[10] --search across a 2000-entry archive")
+    repo = new_repo("stress-search")
+    bulk_commits(repo, 3)
+    entries = "".join(
+        f"## Phase {n} - work {n} (shipped, 2026-01-01)\n\n"
+        f"Body for entry {n}. Some prose about decisions taken.\n"
+        f"{'The checkout rewrite happened here.' if n == 1500 else ''}\n\n"
+        for n in range(2000))
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 2001 - now (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
+    write(repo, "docs/handoff-archive.md", f"# Archive\n\n{entries}")
+    proc, elapsed = run_timed(repo, "--search", "checkout rewrite", budget=20)
+    report("search", "2000-entry archive", verdict_for(elapsed, 20))
+    if proc:
+        report("search", "found the one matching entry",
+               "yes" if "Phase 1500" in proc.stdout else "NO - missed it at scale")
+
+
+def case_consistency_many_files() -> None:
+    """The consistency rule opens and scans every configured file."""
+    print("\n[11] 200 files in one consistency check")
+    repo = new_repo("stress-consistency")
+    bulk_commits(repo, 3)
+    lines = ["[handoff.consistency.version]"]
+    for n in range(200):
+        write(repo, f"pkg/mod{n}/meta.json", '{"version": "1.2.3"}\n')
+        lines.append(f'"pkg/mod{n}/meta.json" = ' + "'" + r'"version": "([^"]+)"' + "'")
+    write(repo, ".handoff.toml", "\n".join(lines) + "\n")
+    write(repo, "NEXT_SESSION.md", "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
+    proc, elapsed = run_timed(repo, "--verify", budget=20)
+    report("consistency", "200 files agreeing", verdict_for(elapsed, 20))
+    if proc:
+        # Matched against FINDING lines, not against stdout as a whole. The
+        # rule's name appears in the denominator summary on every clean run
+        # too, so searching the raw output reported a false positive about
+        # false positives - the check was wrong in exactly the way it was
+        # written to detect.
+        findings = [ln for ln in proc.stdout.splitlines() if ln.startswith("line ")]
+        report("consistency", "no false positives across 200 files",
+               "none" if not findings else f"UNEXPECTED: {findings[0][:80]}")
+    # Now make exactly one disagree, and confirm it is still found at scale.
+    write(repo, "pkg/mod137/meta.json", '{"version": "9.9.9"}\n')
+    proc, elapsed = run_timed(repo, "--verify", budget=20)
+    if proc:
+        report("consistency", "the one odd file out of 200 is named",
+               "yes" if "mod137" in proc.stdout else "NO - lost at scale")
+
+
+def case_suggest_fixes_many_renames() -> None:
+    """A patch spanning hundreds of renamed references must still apply."""
+    print("\n[12] 500 renamed references in one document")
+    repo = new_repo("stress-fixes")
+    for n in range(500):
+        write(repo, f"docs/old{n}.md", f"# doc {n}\n")
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+          + "\n".join(f"See [doc {n}](docs/old{n}.md)." for n in range(500))
+          + "\n\n## 1. Ref\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "init")
+    for n in range(500):
+        sh(repo, "git", "mv", f"docs/old{n}.md", f"docs/new{n}.md")
+    sh(repo, "git", "commit", "-qm", "rename all")
+    proc, elapsed = run_timed(repo, "--verify", "--suggest-fixes", budget=60)
+    report("suggest-fixes", "500 renamed references", verdict_for(elapsed, 60))
+    if proc and proc.stdout.strip():
+        (repo / "big.patch").write_bytes(proc.stdout.encode("utf-8"))
+        applied = sh(repo, "git", "apply", "big.patch")
+        report("suggest-fixes", "the 500-change patch applies",
+               "yes" if applied.returncode == 0
+               else f"NO - {applied.stderr.strip()[:80]}")
+    else:
+        report("suggest-fixes", "a patch was produced at all", "NO - empty")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     cases = [case_distinct_shas, case_huge_document, case_large_repository,
              case_many_paths, case_huge_archive, case_many_extra_docs,
-             case_pathological_shapes, case_memory, case_repeated]
+             case_pathological_shapes, case_memory, case_repeated,
+             case_search_large_archive, case_consistency_many_files,
+             case_suggest_fixes_many_renames]
     for case in cases:
         try:
             case()

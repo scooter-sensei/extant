@@ -334,13 +334,132 @@ def p_library_link_base() -> None:
              res.stdout + res.stderr)
 
 
+# ------------------------------------------------- new surfaces (0.4.0)
+def p_consistency_abuse() -> None:
+    """The consistency rule reads arbitrary configured paths. What can that be
+    pointed at, and does it fail safely?"""
+    print("\n[consistency] paths outside the repo, and a self-referential check")
+    repo = new_repo("consistency-abuse")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing."))
+    write(repo, ".handoff.toml",
+          "[handoff.consistency.escape]\n"
+          "\"../../../etc/passwd\" = 'root:(x)'\n"
+          "\"NEXT_SESSION.md\" = 'Phase (1)'\n")
+    commit(repo, "init")
+    res = tool(repo, "--verify")
+    if "Traceback" in res.stderr:
+        note("CRASH", "consistency pointed outside the repository", res.stderr)
+    else:
+        ok("consistency pointed outside the repository",
+           f"exit {res.returncode}, reported rather than crashed")
+
+    # A check whose two files are the same file: it can only agree with itself.
+    write(repo, ".handoff.toml",
+          "[handoff.consistency.same]\n"
+          "\"NEXT_SESSION.md\" = 'Phase (1)'\n"
+          "\"./NEXT_SESSION.md\" = 'Phase (1)'\n")
+    commit(repo, "same file twice")
+    res = tool(repo, "--verify")
+    if "Traceback" in res.stderr:
+        note("CRASH", "consistency check listing one file twice", res.stderr)
+    else:
+        note("BY-DESIGN", "a check can list the same file under two spellings",
+             "it then always agrees, which is a vacuous pass. The two-file "
+             "minimum catches the obvious case and not this one.")
+
+
+def p_search_abuse() -> None:
+    print("\n[search] regex metacharacters, huge queries, empty archive")
+    repo = new_repo("search-abuse")
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+          "Costs $5.00 (approx) [bracketed] a.*b\n\n## 1. Ref\n")
+    commit(repo, "init")
+    for query, label in ((".*", "regex wildcard"), ("[", "unbalanced bracket"),
+                         ("$5.00 (approx)", "literal metacharacters"),
+                         ("x" * 5000, "5000-character query")):
+        res = tool(repo, "--search", query, timeout=60)
+        if "Traceback" in res.stderr:
+            note("CRASH", f"search: {label}", res.stderr)
+            return
+    ok("search survives metacharacters and huge queries",
+       "treated as literal text, never compiled as a pattern")
+
+    res = tool(repo, "--search", "nothing here at all")
+    if "0 match" in res.stdout:
+        ok("search reports its denominator on a miss")
+    else:
+        note("SILENT", "search miss prints no denominator", res.stdout)
+
+
+def p_suggest_fixes_abuse() -> None:
+    print("\n[suggest-fixes] does it ever write, and can the patch be trusted?")
+    repo = new_repo("fixes-abuse")
+    write(repo, "docs/plan.md", "# plan\n")
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+          "See [plan](docs/plan.md).\n\n## 1. Ref\n")
+    commit(repo, "init")
+    sh(repo, "git", "mv", "docs/plan.md", "docs/design.md")
+    sh(repo, "git", "commit", "-qm", "rename")
+
+    before = (repo / "NEXT_SESSION.md").read_bytes()
+    res = tool(repo, "--verify", "--suggest-fixes")
+    after = (repo / "NEXT_SESSION.md").read_bytes()
+    if before != after:
+        note("SECURITY", "suggest-fixes MODIFIED the document",
+             "it must only ever emit a patch")
+    else:
+        ok("suggest-fixes wrote nothing")
+
+    patch = repo / "p.patch"
+    patch.write_bytes(res.stdout.encode("utf-8"))
+    applied = sh(repo, "git", "apply", "p.patch")
+    if applied.returncode != 0:
+        note("BROKEN", "the emitted patch does not apply", applied.stderr)
+    else:
+        ok("the emitted patch applies cleanly")
+
+    # A document with no findings at all must not emit a stray patch.
+    repo2 = new_repo("fixes-clean")
+    write(repo2, "NEXT_SESSION.md", ENTRY.format("Nothing falsifiable."))
+    commit(repo2, "init")
+    res = tool(repo2, "--verify", "--suggest-fixes")
+    if res.stdout.strip():
+        note("NOISE", "suggest-fixes printed to stdout with nothing to fix",
+             res.stdout[:200])
+    else:
+        ok("nothing to fix produces an empty patch channel")
+
+
+def p_config_discovery_abuse() -> None:
+    """The upward search must not escape the repository."""
+    print("\n[config] does the upward search leak out of the repo?")
+    outer = ARENA / "config-outer"
+    shutil.rmtree(outer, ignore_errors=True)
+    (outer / "inner").mkdir(parents=True)
+    write(outer, ".handoff.toml", 'handoff_doc = "OUTER_WINS.md"\n')
+    repo = new_repo("config-outer/inner/repo")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing."))
+    commit(repo, "init")
+    res = tool(repo, "--verify")
+    if "OUTER_WINS" in res.stdout + res.stderr:
+        note("SECURITY", "a parent directory's config was inherited",
+             "the search escaped the repository root")
+    else:
+        ok("config search stops at the repository root",
+           "an outer .handoff.toml was not inherited")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     probes = [p_empty_repo, p_detached_head, p_no_git_at_all, p_binary_document,
               p_large_document, p_pathological_regex, p_claims_in_code_fences,
               p_case_sensitivity, p_symlink, p_wrong_entry_header,
               p_argument_injection, p_deleting_the_claim,
-              p_pattern_that_matches_nothing, p_library_link_base]
+              p_pattern_that_matches_nothing, p_library_link_base,
+              p_consistency_abuse, p_search_abuse, p_suggest_fixes_abuse,
+              p_config_discovery_abuse]
     for probe in probes:
         try:
             probe()
