@@ -200,3 +200,48 @@ def test_command_template_placeholders_are_all_rendered() -> None:
     assert "{{" not in rendered, f"unsubstituted placeholder survived: {notes}"
     assert "example-project" in rendered
     assert "STATUS.md" in rendered
+
+
+def test_no_invalid_escape_sequences_anywhere() -> None:
+    r"""No source file may contain an invalid string escape such as "\d".
+
+    Python still accepts these while warning that they will stop working, so
+    they are a latent break rather than a style nit. They are also nearly
+    invisible: the SyntaxWarning fires only when a module is COMPILED, so a
+    .pyc cache hides it after the first run and the file looks clean forever.
+
+    Absent from this package until now, and it cost four separate occurrences
+    in one session - every one written by a heredoc that consumed a backslash,
+    every one caught by hand rather than by the suite. The check that would
+    have caught them existed in the project this was extracted from and was
+    simply not carried across.
+    """
+    import warnings
+
+    offenders: list[str] = []
+    scanned = 0
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        parts = path.relative_to(PACKAGE_ROOT).parts
+        if {"__pycache__", ".venv", ".pytest_cache"} & set(parts):
+            continue
+        scanned += 1
+        source = path.read_text(encoding="utf-8")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                compile(source, str(path), "exec")
+            except SyntaxError as exc:
+                offenders.append(f"{path.relative_to(PACKAGE_ROOT)}: {exc}")
+                continue
+        offenders += [
+            f"{path.relative_to(PACKAGE_ROOT)}:{entry.lineno}: {entry.message}"
+            for entry in caught if issubclass(entry.category, SyntaxWarning)
+        ]
+
+    # A scan that examined nothing passes silently, which is how the equivalent
+    # check shipped broken elsewhere. Assert it looked at the codebase.
+    assert scanned > 10, f"only {scanned} files scanned; the skip list is wrong"
+    assert not offenders, (
+        "invalid escape sequences (use a raw string or double the backslash):\n  "
+        + "\n  ".join(offenders)
+    )

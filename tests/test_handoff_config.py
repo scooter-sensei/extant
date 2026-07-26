@@ -256,8 +256,8 @@ def test_top_level_keys_survive_a_handoff_subtable(tmp_path):
         'handoff_doc = "README.md"\n'
         'extra_docs = ["CONTRIBUTING.md"]\n'
         "\n[handoff.consistency.node]\n"
-        "\"README.md\" = 'Node (\d+)'\n"
-        "\"package.json\" = 'node.*?(\d+)'\n",
+        + r'"README.md" = ' + "'" + r'Node (\d+)' + "'\n"
+        + r'"package.json" = ' + "'" + r'node.*?(\d+)' + "'\n",
         encoding="utf-8")
 
     cfg = load_config(tmp_path)
