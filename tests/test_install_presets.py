@@ -458,3 +458,74 @@ def test_an_unrecognised_observation_still_renders_valid_toml(tmp_path) -> None:
     assert parsed["some_future_pattern"] == r"^\d+\.\d+\s+(\w+)$", (
         "the value survived quoting but did not round-trip intact"
     )
+
+
+# --- other agents -------------------------------------------------------------
+
+def test_the_installer_writes_the_cross_platform_skill(tmp_path) -> None:
+    """Agent Skills is an open standard, and `.agents/skills/` is where it lives.
+
+    One SKILL.md is read by Codex, Gemini CLI, Copilot, Cursor and Kimi Code as
+    well as Claude. The validator itself was never Claude-specific - it is
+    Python, git hooks and a pre-commit entry - but exactly one line of the
+    installer decided where the agent-facing instructions went, and it pointed
+    at `.claude/` alone. That single path was the whole of "only works with
+    Claude".
+
+    A wrong implementation that reverts to writing only the slash command
+    leaves every other agent with no instructions at all.
+    """
+    repo = make_repo(tmp_path, **{"README.md": CLEAN_README})
+
+    result = run_installer(repo, "--preset", "readme")
+
+    assert result.returncode == 0, result.stdout
+    skill = repo / ".agents" / "skills" / "extant" / "SKILL.md"
+    assert skill.is_file(), (
+        f"no cross-platform skill written:\n{result.stdout}"
+    )
+    text = skill.read_text(encoding="utf-8")
+    assert text.startswith("---"), "a skill needs YAML frontmatter to be discovered"
+    assert "name: extant" in text
+    assert "description:" in text, "the description is what an agent matches on"
+
+
+def test_the_cross_platform_skill_is_rendered_for_this_repo(tmp_path) -> None:
+    """Rendered from the same observations as the slash command, not copied.
+
+    A verbatim template would tell every project it was some other project, and
+    would leave `{{DOC}}` in the prose an agent reads as instructions. The
+    installer already had that bug once, for the Claude command file.
+    """
+    repo = make_repo(tmp_path, **{"README.md": CLEAN_README})
+
+    assert run_installer(repo, "--preset", "readme").returncode == 0
+
+    text = (repo / ".agents" / "skills" / "extant" / "SKILL.md").read_text(
+        encoding="utf-8")
+
+    assert repo.name in text, "the skill does not name the project it was written for"
+    assert "{{" not in text, f"unsubstituted placeholder left in the skill:\n{text}"
+    assert "README.md" in text, "the skill does not name the document it checks"
+
+
+def test_both_agent_files_describe_the_same_document(tmp_path) -> None:
+    """The Claude command and the portable skill must not diverge.
+
+    They are rendered from one set of observations for exactly this reason: two
+    files telling two agents to check two different documents is the failure
+    this project exists to surface, shipped by its own installer.
+    """
+    repo = make_repo(tmp_path, **{
+        "README.md": CLEAN_README,
+        "docs__STATUS.md": "# Status\n\n## Phase 1 - x (shipped, 2026-01-01)\n\nNothing.\n",
+    })
+
+    assert run_installer(repo, "--doc", "docs/STATUS.md").returncode == 0
+
+    command = (repo / ".claude" / "commands" / "extant.md").read_text(encoding="utf-8")
+    skill = (repo / ".agents" / "skills" / "extant" / "SKILL.md").read_text(
+        encoding="utf-8")
+
+    assert "docs/STATUS.md" in command, command[:400]
+    assert "docs/STATUS.md" in skill, skill[:400]

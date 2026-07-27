@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.10.0 (2026-07-27)
+
+Works with any coding agent, not only Claude Code.
+
+### What was actually Claude-specific
+
+Almost nothing. The validator is Python, git hooks and a pre-commit entry, and
+none of that ever cared which assistant was in the room. Exactly ONE line
+decided where the agent-facing instructions were written, and it named
+`.claude/commands/`.
+
+### Agent Skills is an open standard
+
+Anthropic released the Agent Skills format as an open standard in December 2025.
+One `SKILL.md` with YAML frontmatter is now read by OpenAI Codex, Gemini CLI,
+GitHub Copilot, Cursor, Kimi Code, OpenCode and twenty-odd other tools as well
+as Claude Code. `.agents/skills/` is the cross-platform location: Codex reads it
+natively, and Gemini CLI prefers it over its own `.gemini/skills/` when both
+exist.
+
+So setup now writes `.agents/skills/extant/SKILL.md`, rendered for your
+repository rather than copied. It names your document and your paths, and it
+carries the discipline that matters to an agent: read the denominator, and never
+make a document pass by deleting the claim it complained about.
+
+Claude Code still gets `/extant` for the end-to-end workflow. Both files are
+rendered from the same observations, so they cannot end up describing different
+documents - which is asserted by a test, because two agent files disagreeing
+about which document to check would be this project's own failure shipped by its
+own installer.
+
+### This repository now has an AGENTS.md
+
+It ships an `agent` preset whose whole premise is that these files must be
+checked, and it did not have one. It is in `extra_docs`, so the tool checks its
+own agent instructions on every run.
+
+### Nothing moved
+
+The Claude Code plugin, the marketplace entry and the pre-commit hook ids are
+unchanged. This release adds a file to what setup writes; it takes nothing away.
+
 ## 0.9.0 (2026-07-27)
 
 A baseline, so a project with years of existing prose can adopt this without a
@@ -372,7 +414,7 @@ positive has taught a lesson that is very hard to unteach.
 
     repos:
       - repo: https://github.com/scooter-sensei/extant
-        rev: v0.9.0
+        rev: v0.10.0
         hooks:
           - id: extant
 

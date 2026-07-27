@@ -28,6 +28,11 @@
 # of the three below currently examine nothing, which is honest rather than
 # useless - they carry no claims today and this catches the first one added.
 extra_docs = [
+    # The cross-tool agent instructions. Checked here for the reason the
+    # `agent` preset exists: an agent cannot tell an expired line from a
+    # current one, so a dead path in this file becomes wrong work rather than
+    # a puzzled reader.
+    "AGENTS.md",
     "CONTRIBUTING.md",
     "tests/harnesses/README.md",
     "plugin/skills/extant/references/design.md",

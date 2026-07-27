@@ -1,0 +1,65 @@
+---
+name: extant
+description: "Use when documentation in {{PROJECT}} makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit. Checks every falsifiable claim against git and the filesystem. Also use before editing documentation here, to see what is already false."
+license: MIT
+---
+
+# extant, in {{PROJECT}}
+
+Documentation makes claims - a version, a file path, a commit, a branch - and
+those claims decay. You cannot tell an expired line from a current one by
+reading it, and neither can any other agent. This checks them against git.
+
+Run it before you trust a document, and after you edit one.
+
+## Check the documentation
+
+```
+python tools/extant_collect.py --verify
+```
+
+Exit 0 means every falsifiable claim in `{{DOC}}` still holds. Exit 1 lists what
+does not, with line numbers.
+
+To check one file:
+
+```
+python tools/extant_collect.py --validate path/to/file.md
+```
+
+## Read the denominator, not just the verdict
+
+Every run ends with a line counting what it EXAMINED:
+
+```
+checked {{DOC}}: dead-sha 36, false-merge-claim 2, dead-md-link 5
+```
+
+A rule showing `0` found nothing to look at. That usually means a pattern is
+wrong rather than that the document is clean, and the run says so on a `NOTE:`
+line. Treat it as "investigate", never as "fine". A clean exit code from a rule
+that examined nothing is the failure this tool exists to prevent.
+
+## Never make a document pass by deleting the claim
+
+If a finding is real, fix the claim or remove the thing that made it false.
+Deleting the sentence also makes the run pass, and the tool cannot tell the two
+apart. If you do delete something, say so in your report: a silent deletion is
+indistinguishable from a repair, and the next reader inherits the difference.
+
+## What it will not tell you
+
+It never judges whether a number or a date is correct. "We had 2238 tests in
+March" was true in March. It is not wrong now, only old, and there is nothing to
+check it against. Do not add rules for that, and do not treat their absence as a
+gap.
+
+## Prove the checks work before relying on them
+
+```
+python tools/extant_collect.py --selftest
+```
+
+Breaks one real claim per rule, confirms the rule notices, and puts it back. A
+rule that stays silent after its own probe is broken, whatever the exit code
+said a moment ago.

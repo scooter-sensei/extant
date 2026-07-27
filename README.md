@@ -168,7 +168,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.9.0
+    rev: v0.10.0
     hooks:
       - id: extant
 ```
@@ -295,6 +295,25 @@ the *document* is your call, which is why passing a preset settles that one.
 by complaining about a file you do not have. A tool whose first act is a false
 positive has taught a lesson that is very hard to unteach.
 
+### Works with any coding agent
+
+The checker is Python, git hooks and a pre-commit entry, so it never depended on
+a particular assistant. What did was one line deciding where the agent-facing
+instructions went.
+
+Setup now writes them to `.agents/skills/extant/SKILL.md`, the location the
+[Agent Skills](https://agentskills.io) open standard defines. One file, read by
+**OpenAI Codex, Gemini CLI, GitHub Copilot, Cursor, Kimi Code, Claude Code** and
+the twenty-odd other tools that adopted it.
+
+It is rendered for your repository rather than copied, so it names your document
+and your paths, and it carries the discipline that matters: read the
+denominator, never make a document pass by deleting the claim.
+
+Claude Code additionally gets `/extant`, a slash command for the end-to-end
+workflow. Both are rendered from the same observations, so they cannot end up
+describing different documents.
+
 ### What lands in your project
 
 | | |
@@ -302,7 +321,8 @@ positive has taught a lesson that is very hard to unteach.
 | `tools/` | the checker |
 | `.extant.toml` | settings, written by reading **your** project |
 | git hooks | the automatic checks. They report, they never block |
-| `/extant` command | only with Claude Code, rendered for your project |
+| `.agents/skills/extant/SKILL.md` | instructions any agent reads, rendered for your project |
+| `/extant` command | Claude Code only, for the full workflow |
 
 ---
 

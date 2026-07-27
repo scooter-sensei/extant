@@ -41,6 +41,18 @@ PAYLOAD = [
 COMMAND_TEMPLATE = "payload/commands/extant.md.template"
 COMMAND_DEST = ".claude/commands/extant.md"
 
+# Agent Skills is an open standard: one SKILL.md, read by Claude Code, OpenAI
+# Codex, Gemini CLI, GitHub Copilot, Cursor, Kimi Code and twenty-odd others.
+# `.agents/skills/` is the cross-platform location - Codex reads it natively and
+# Gemini CLI prefers it over its own `.gemini/skills/` when both exist.
+#
+# The validator itself was never Claude-specific: it is Python, git hooks and a
+# pre-commit entry. Exactly one line of this installer was, and it was the line
+# that decided where the agent-facing instructions went. Writing them to the
+# standard location instead is the whole of "works with any agent".
+AGENT_SKILL_TEMPLATE = "payload/commands/agent-skill.md.template"
+AGENT_SKILL_DEST = ".agents/skills/extant/SKILL.md"
+
 
 def verify_hooks(repo: Path) -> list[str]:
     """Confirm every hook the shim wires is actually present on disk.
@@ -414,7 +426,8 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
     return out, notes
 
 
-def render_command(obs: list[Observation], project: str) -> tuple[str, list[str]]:
+def render_command(obs: list[Observation], project: str,
+                   template: str = COMMAND_TEMPLATE) -> tuple[str, list[str]]:
     """Render the /extant slash command for THIS repo.
 
     This file used to be copied verbatim. Every installation therefore told the
@@ -443,7 +456,7 @@ def render_command(obs: list[Observation], project: str) -> tuple[str, list[str]
         "{{ENTRY_PREFIX}}": str(entry_prefix),
     }
 
-    text = (SKILL_ROOT / COMMAND_TEMPLATE).read_text(encoding="utf-8")
+    text = (SKILL_ROOT / template).read_text(encoding="utf-8")
     for token, value in mapping.items():
         text = text.replace(token, value)
 
@@ -717,6 +730,23 @@ def main(argv: list[str] | None = None) -> int:
             with open(command_path, "w", encoding="utf-8", newline="") as fh:
                 fh.write(command_text)
     for note in command_notes:
+        print(f"  {note}")
+
+    # The same guidance, at the location every OTHER agent reads. Rendered from
+    # the same observations as the slash command above, so the two cannot end up
+    # describing different repositories.
+    skill_text, skill_notes = render_command(obs, repo.name, AGENT_SKILL_TEMPLATE)
+    skill_path = repo / AGENT_SKILL_DEST
+    if skill_path.exists() and not args.force:
+        print(f"  {AGENT_SKILL_DEST} already exists - left alone (use --force to replace)")
+    else:
+        print(f"  {'would write' if args.dry_run else 'wrote'} {AGENT_SKILL_DEST}, "
+              f"read by Codex, Gemini CLI, Copilot, Cursor and Kimi")
+        if not args.dry_run:
+            skill_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(skill_path, "w", encoding="utf-8", newline="") as fh:
+                fh.write(skill_text)
+    for note in skill_notes:
         print(f"  {note}")
 
     unresolved = [o.key for o in obs if o.confidence in (UNKNOWN, DEFAULT)]

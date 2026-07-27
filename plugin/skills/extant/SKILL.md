@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.9.0
+version: 0.10.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -32,6 +32,7 @@ that every session was told to read end to end.
 | `tools/hooks/extant-verify` | Re-checks the document after every commit and merge |
 | `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
 | `tools/hooks/install` | Installs the git hooks |
+| `.agents/skills/extant/SKILL.md` | Agent-facing instructions at the Agent Skills standard path, read by Codex, Gemini CLI, Copilot, Cursor and Kimi as well as Claude. Rendered for the repo. |
 | `.claude/commands/extant.md` | The `/extant` slash command, rendered for this repo |
 | `.extant.toml` | Project configuration |
 
