@@ -403,6 +403,42 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    if skill_path.exists() and not args.force:",
          "    if False:"),
 
+        # --- Git LFS storage -----------------------------------------------
+        # This rule talks to git through pipes, and both of its plumbing bugs
+        # were invisible in the result: the survey reported 1 of 4 governed
+        # files and still found the single real problem, so it looked perfect.
+        ("the raw-blob check never fires", collect,
+         "        if size is None or sha in pointers:", "        if True:"),
+        ("check-attr loses -z, so git quotes any path with a space", collect,
+         '["git", "check-attr", "-z", "--stdin", "filter"], cwd=repo,',
+         '["git", "check-attr", "--stdin", "filter"], cwd=repo,'),
+        ("the NUL join reverts to newlines (the Windows CR bug)", collect,
+         'payload = ("\\0".join(blobs) + "\\0").encode("utf-8")',
+         'payload = ("\\n".join(blobs) + "\\n").encode("utf-8")'),
+        ("the LFS survey reads the index instead of the committed tree", collect,
+         '            ["git", "ls-tree", "-r", "-z", "HEAD"], cwd=repo,',
+         '            ["git", "ls-files", "-z"], cwd=repo,'),
+        ("the LFS gate stops reading .gitattributes", collect,
+         '    return any("filter=lfs" in line and not line.lstrip().startswith("#")\n'
+         "               for line in text.splitlines())",
+         "    return False"),
+        # NOT a mutation on the size shortcut. Reading every governed blob
+        # instead of only the small ones changes cost, never behaviour, so it
+        # survives every time and reads as a gap the tests do not have.
+
+        # --- the game-engine presets ---------------------------------------
+        # Raw strings: these anchors contain regex escapes, and an unraw "\d"
+        # is a SyntaxWarning today and an error in a future Python. There is a
+        # lint in this repository for exactly that.
+        ("godot version check moves to the README",
+         detect.parent / "install.py",
+         r'                "doc/setup_instructions.md": r"Godot version is[^\d]*(\d+\.\d+)",',
+         r'                "README.md": r"Godot version is[^\d]*(\d+\.\d+)",'),
+        ("unity badge pattern loses the build suffix",
+         detect.parent / "install.py",
+         r'                "README.md": r"Unity%20Version:-([\d.]+f\d+)",',
+         r'                "README.md": r"Unity%20Version:-(\d+\.\d+)",'),
+
         # --- detect.py ----------------------------------------------------------
         ("find_documents returns only the first match", detect,
          "    return found",

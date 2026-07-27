@@ -1277,7 +1277,8 @@ def test_only_non_whole_file_rules_are_archive_exempt():
     from extant_collect import RULES
     exempt = {r.kind for r in RULES if not r.in_archive}
     not_whole_file = {r.kind for r in RULES if r.scope != "whole-file"}
-    assert exempt == {"stale-live-claim", "unknown-branch", "inconsistent-artifact"}, (
+    assert exempt == {"stale-live-claim", "unknown-branch", "inconsistent-artifact",
+                      "raw-lfs-blob"}, (
         f"unexpected archive exemptions: {exempt}"
     )
     assert exempt == not_whole_file, (

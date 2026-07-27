@@ -62,8 +62,8 @@ cd /path/to/repo && sh tools/hooks/install
 
 Presets: `readme` (any project, no status file needed), `node`, `python`,
 `rust`, `go`, `jvm`, `k8s`, `terraform`, `docker`, `monorepo`, `mobile`,
-`agent`, `enterprise`, `ml`, `legacy-web`, and `status` (a running status
-document). A preset chooses the documents and the shape; detection still
+`unity`, `godot`, `agent`, `enterprise`, `ml`, `legacy-web`, and `status` (a
+running status document). A preset chooses the documents and the shape; detection still
 supplies trunk, branch naming and commit conventions, because those are
 measured rather than assumed.
 
@@ -86,7 +86,7 @@ Then **derive the configuration from the real document - do not accept the
 defaults blindly.** See `references/porting.md`. This is the step that decides
 whether the tool works or silently does nothing.
 
-## The eleven validation rules
+## The twelve validation rules
 
 Each checks a different KIND of statement, and each is scoped differently. The
 scoping is not stylistic - getting it wrong produces either silence or noise,
@@ -103,6 +103,7 @@ and both destroy the tool's value.
 | `dead-md-link` | `[text](path)` whose file is gone | whole file |
 | `dead-md-anchor` | `[text](#fragment)` with no such heading | same document only |
 | `dead-pinned-ref` | an install snippet pinning a version of THIS repo that does not resolve | whole file, **inside code** |
+| `raw-lfs-blob` | a file `.gitattributes` routes through LFS, stored as a raw blob | repository |
 | `possible-secret` | credential-shaped tokens before they are committed | whole file |
 | `inconsistent-artifact` | configured files that state DIFFERENT values for the same thing | repository |
 

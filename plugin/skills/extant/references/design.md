@@ -210,6 +210,71 @@ The baseline for that check is the raw file bytes, **not** a reassembly of the
 splitter's own output. Deriving it from the splitter makes the check circular: a
 bug in the splitter corrupts both sides equally and they always agree.
 
+## Git LFS, and the direction that had to be refused
+
+`.gitattributes` is a document making a falsifiable claim: files matching these
+patterns are stored as LFS pointers. That claim can be false, and when it is,
+nothing says so. Git accepts the commit, the engine loads the asset, and the
+repository carries a real binary in its history forever.
+
+Two directions look identical and only one is usable.
+
+**A path under an LFS filter stored as a raw blob** is answerable from git
+alone: `check-attr` says what the filter governs, and the pointer header says
+how it is stored. No network, and the LFS binary is never invoked.
+
+**A pointer whose object is missing locally** cannot be a rule. Measured: a
+fresh CI checkout without `git lfs pull` holds ZERO objects, so that check
+would report every asset in the project as missing on every run. It is the
+false-positive class this project treats as worse than having no validator.
+
+Both of this rule's bugs were invisible in its output, which is why it has more
+mutations than any other. Paths were piped to `check-attr` with `text=True`, so
+Windows appended a carriage return to each, git read it as a literal path
+character, and answered `unspecified` for all but the LAST path. The survey
+reported 1 of 4 governed files, and the one that survived happened to be the
+one with the finding - so the rule looked perfect. Had the bad file sorted
+first it would have printed a clean result over an examined count of zero.
+
+It also read `git ls-files`, the index, which is empty on a repository whose
+checkout has not completed. On a real Unity project that meant zero examined
+while `.gitattributes` sat there declaring 47 LFS patterns. It reads HEAD's
+tree now, which is also the right semantics: this runs after a commit, so the
+committed state is what is being judged.
+
+And one subprocess per file cost 40 seconds on a 7802-file project. That is not
+a slow hook, it is an uninstalled one. Sizes come from one `cat-file
+--batch-check`, contents from one `cat-file --batch`, and only for blobs small
+enough to BE a pointer: 262 ms.
+
+## The game-engine presets, and the widening that was measured and refused
+
+The plan was to widen `path_pointer` with asset and source extensions. Measured
+against a real Unity project and a real shipped Godot game, that rule examines
+ZERO references in either. Game documentation writes paths as markdown links -
+`[ART_NOTES.md](Documentation/ART_NOTES.md)` - and `path_pointer` requires a
+BACKTICKED path introduced by an operative marker. Widening it would have been
+a no-op that looked like a feature. Neither preset touches it.
+
+`dead-md-link` is what carries these projects and needed no change: 257 links
+examined across the two, one reported, and that one is a genuine bug - a README
+linking to `/doc` with a leading slash, which GitHub resolves to the site root,
+while every other link in the same file uses the relative form.
+
+The version checks are keyed on different documents per engine, because that is
+where each project actually states it. Unity puts its editor version in a
+shields.io badge carrying the exact `6000.0.52f1`, matching
+`ProjectVersion.txt`; its prose two paragraphs later says only "6000.0 LTS", so
+a check keyed there needs major.minor on both sides and would miss a drift from
+`.52f1` to `.61f1`. Thrive's README states no Godot version at all, so that
+check reads `doc/setup_instructions.md` instead - keyed on the README it would
+have examined nothing forever while exiting 0.
+
+There is no `unreal` preset, deliberately: no corpus was measured for it, and
+`EngineAssociation` in a `.uproject` holds a GUID rather than a version for any
+studio on a custom engine build, so the obvious check would false-positive on
+exactly the teams most likely to want this.
+
 ## Integration branches, and why one trunk was not enough
 
 Three rules used to ask "is X an ancestor of trunk", and they meant three

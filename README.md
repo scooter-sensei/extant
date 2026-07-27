@@ -72,6 +72,7 @@ Eleven rules. Every one answers a question git or the filesystem can settle.
 | `dead-md-anchor` | a `#jump-to-section` link with no such heading |
 | `inconsistent-artifact` | two files in your project stating different values for the same thing |
 | `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |
+| `raw-lfs-blob` | an asset your `.gitattributes` says is in Git LFS, committed into git as a real binary instead |
 | `possible-secret` | a password or key pasted in by accident |
 
 Four details that are easy to miss:
@@ -261,6 +262,8 @@ configuration before you have seen the tool work once.
 | `docker` | images and compose. Also `DEPLOY.md`, `RUNBOOK.md`, `OPERATIONS.md` |
 | `monorepo` | a workspace root. Also `ARCHITECTURE.md`, `docs/README.md`, and the root version |
 | `mobile` | iOS and Android. Also `RELEASE_NOTES.md`, `PRIVACY.md`, and one marketing version across both stores |
+| `unity` | a Unity project. Checks the editor-version badge against `ProjectSettings/ProjectVersion.txt` |
+| `godot` | a Godot project. Checks the version in `doc/setup_instructions.md` against `project.godot` |
 | `agent` | files AI agents read as fact: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `copilot-instructions.md` |
 | `status` | a running status file with dated entries |
 

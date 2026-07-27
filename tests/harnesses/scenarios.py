@@ -795,6 +795,27 @@ ECOSYSTEMS: dict[str, dict[str, str]] = {
         "RELEASE_NOTES.md": "# Release notes\n\n1.2.3.\n",
         "PRIVACY.md": "# Privacy\n\nWhat we collect.\n",
     },
+    # Shaped from the real projects the presets were measured against: Unity
+    # BossRoom and Thrive. The version strings are verbatim, including the
+    # detail that Unity states its editor version in a shields.io badge while
+    # Godot's README states none at all.
+    "unity": {
+        "ProjectSettings/ProjectVersion.txt":
+            "m_EditorVersion: 6000.0.52f1\n"
+            "m_EditorVersionWithRevision: 6000.0.52f1 (9e4086222921)\n",
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+        "Documentation/ART_NOTES.md": "# Art notes\n\nPipeline.\n",
+        "Assets/Scripts/Game.cs": "public class Game {}\n",
+    },
+    "godot": {
+        "project.godot": 'config_version=5\n\n[application]\n\n'
+                         'config/features=PackedStringArray("4.7", "C#")\n',
+        "doc/setup_instructions.md":
+            "# Setup\n\nThe currently used Godot version is __4.7 .NET__. "
+            "The regular version will not work.\n",
+        "doc/architecture.md": "# Architecture\n\nSystems.\n",
+        "doc/style_guide.md": "# Style\n\nConventions.\n",
+    },
     "agent": {
         "AGENTS.md": "# Agent instructions\n\nRun the suite before editing.\n",
         "CLAUDE.md": "# Claude\n\nProject rules.\n",
@@ -850,6 +871,10 @@ DISAGREEMENTS: dict[str, tuple[str, str]] = {
     "ml": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
     "legacy-web": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
     "go": ("Dockerfile", "FROM golang:1.19\nWORKDIR /src\n"),
+    "unity": ("ProjectSettings/ProjectVersion.txt",
+              "m_EditorVersion: 2022.3.10f1\n"),
+    "godot": ("project.godot",
+              'config_version=5\n\nconfig/features=PackedStringArray("4.2", "C#")\n'),
     "mobile": ("ios/App.xcodeproj/project.pbxproj",
                "\tMARKETING_VERSION = 9.9.9;\n"),
 }
@@ -901,7 +926,15 @@ def s21_every_preset() -> None:
         for rel, body in ECOSYSTEMS[preset].items():
             write(repo, rel, body)
         if preset != "status":
-            write(repo, "README.md", README_WITH_A_FAULT.format(name=preset))
+            body = README_WITH_A_FAULT.format(name=preset)
+            if preset == "unity":
+                # A Unity README states its editor version in a shields.io
+                # badge. Without one the consistency check is correctly skipped
+                # as unmatched, and this scenario would prove nothing about it.
+                body = ("[![UnityVersion](https://img.shields.io/badge/"
+                        "Unity%20Version:-6000.0.52f1%20LTS-57b9d3.svg)]"
+                        "(https://unity.com)\n\n") + body
+            write(repo, "README.md", body)
         write(repo, "CONTRIBUTING.md", "# Contributing\n\nRun the suite.\n")
         write(repo, "docs/guide.md", "# Guide\n\nReal file.\n")
         commit(repo, "chore: init")
