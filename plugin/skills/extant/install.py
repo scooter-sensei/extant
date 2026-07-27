@@ -160,9 +160,16 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
         if existing is not None and existing.value == doc:
             notes.append(f"  primary_doc already {doc}")
         elif (repo / str(doc)).is_file():
-            out = [Observation("primary_doc", doc, DERIVED,
-                               f"chosen by preset '{name}'") if o.key == "primary_doc"
-                   else o for o in out]
+            chosen = Observation("primary_doc", doc, DERIVED,
+                                 f"chosen by preset '{name}'")
+            # Replace if present, APPEND if not. A comprehension that only
+            # substitutes drops the value silently when there is nothing to
+            # substitute, which is the same defect in miniature as the one
+            # that made this preset unusable: a value computed and discarded.
+            if existing is not None:
+                out = [chosen if o.key == "primary_doc" else o for o in out]
+            else:
+                out.append(chosen)
             notes.append(f"  primary_doc -> {doc}")
         else:
             notes.append(f"  {doc} does not exist here; kept the detected document")
@@ -271,14 +278,40 @@ def copy_payload(repo: Path, *, dry_run: bool, force: bool) -> list[str]:
     return actions
 
 
-def choose_document(repo: Path, explicit: str | None) -> tuple[Path | None, list[str]]:
-    """Pick the status document, and say so when the choice was ambiguous."""
+def choose_document(
+    repo: Path, explicit: str | None, preset_doc: str | None = None
+) -> tuple[Path | None, list[str]]:
+    """Pick the primary document, and say so when the choice was ambiguous.
+
+    `preset_doc` is the document a preset names, and it is settled HERE rather
+    than folded in afterwards. Two reasons, one of which was a bug:
+
+    Choosing a preset is an instruction, not a measurement, so it outranks
+    detection for the document. That is different from the rule in
+    `apply_preset`, where a preset must never override a MEASURED fact such as
+    the trunk name. Which file to check is the user's call; which branch is
+    trunk is the repository's.
+
+    And everything else is derived FROM this document - the archive is placed
+    beside it, the evidence quotes its length. Switching the document after
+    those were computed left them describing the previous file, so a preset
+    could point `primary_doc` at the README while the archive sat next to a
+    status document in `docs/`.
+
+    Before this, the `readme` preset was unusable on exactly the projects it
+    exists for: it names README.md, which is not a status-document name, so
+    detection found nothing and the installer exited before the preset was ever
+    read. It advertised "no status file needed" and then demanded one.
+    """
     notes: list[str] = []
     if explicit:
         path = repo / explicit
         if not path.is_file():
             return None, [f"--doc {explicit} does not exist"]
         return path, [f"using --doc {explicit}"]
+
+    if preset_doc and (repo / preset_doc).is_file():
+        return repo / preset_doc, [f"using {preset_doc}, named by the preset"]
 
     found = detect.find_documents(repo)
     if not found:
@@ -426,12 +459,14 @@ def main(argv: list[str] | None = None) -> int:
         for line in verify_hooks(repo):
             print(f"  {line}")
 
-    doc, notes = choose_document(repo, args.doc)
+    preset_doc = PRESETS[args.preset].get("primary_doc") if args.preset else None
+    doc, notes = choose_document(repo, args.doc, str(preset_doc) if preset_doc else None)
     print("\ndocument")
     for note in notes:
         print(f"  {note}")
     if doc is None:
-        print("\n  Create a status document, then rerun - or pass --doc.")
+        print("\n  No document to check. Pass --doc <path>, or --preset readme")
+        print("  to check the README and CONTRIBUTING file you already have.")
         return 1
 
     obs, _info = observe(repo, doc)
