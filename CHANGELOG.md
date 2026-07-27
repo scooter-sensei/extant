@@ -47,6 +47,43 @@ A missing baseline file is an error rather than an empty one: treating absence
 as "suppress nothing" would turn a ratcheted run back into an ordinary one
 without saying so.
 
+### Also in this release: Python 3.9 and 3.10
+
+RHEL 9 and Debian 11 ship Python 3.9; Ubuntu 22.04 LTS ships 3.10. Requiring
+3.11 excluded all three, and measuring showed it was for exactly one import.
+
+No syntax was given up. Every module already carries
+`from __future__ import annotations`, which makes annotations strings at
+runtime, so `str | None` in a signature has worked back to 3.7 the whole time.
+There are no `match` statements, no runtime unions, no 3.11 stdlib names.
+
+`tomllib` was the only real floor, and it is imported inside a try/except.
+Below 3.11 the tool uses `tomli` - not a substitute parser but the SAME one,
+since tomllib was adopted into the standard library from it, so a config file
+is read identically on every version. With neither available the tool runs on
+its defaults, because a repository with no config file never parses TOML at
+all; the failure is raised only when a config file is actually found, naming
+the remedy.
+
+`pyproject` declares `tomli` conditionally, so the packaged path that
+pre-commit builds from installs it automatically below 3.11 and pulls in
+nothing above. The copy-the-files-in path never reads that and degrades on its
+own.
+
+Two guards keep the floor where it is claimed to be, because a support claim
+decays silently: one parses every module and rejects syntax newer than 3.9, the
+other asserts the `__future__` import the first one's exemption depends on. CI
+runs 3.9 and 3.10 alongside 3.11, 3.12 and 3.13.
+
+Both of the bugs found here were found by that CI and by nothing else. The
+version guard referred to `ast.Match` and `ast.TryStar` by name, which do not
+exist before 3.10 and 3.11 - so the check asserting 3.9 support could not run
+on 3.9. And `Path.write_text(newline=...)` needs 3.10, with two of its nine
+call sites in the shipped installer, so the TOOL raised TypeError on 3.9 rather
+than only the suite. A guard for that existed for `read_text` and its own
+docstring explained why the write side was safe, which was true when the floor
+was 3.11 and stopped being true when it moved.
+
 ### Reviewable on purpose
 
 The file is JSON, and each entry carries the path, rule and message alongside
