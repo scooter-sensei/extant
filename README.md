@@ -254,7 +254,30 @@ configuration before you have seen the tool work once.
 | `enterprise` | long-lived projects. Also `SECURITY.md`, `SUPPORT.md`, `UPGRADING.md`, `MIGRATION.md` |
 | `ml` | data and model projects. Also `MODEL_CARD.md` and `DATA_CARD.md`, and that `pyproject.toml` and `environment.yml` pin the same Python |
 | `legacy-web` | older web apps. Also `INSTALL.md`, `DEPLOY.md`, `UPGRADING.md`, and that `.nvmrc` and `package.json` agree on Node |
+| `go` | a Go module. Also `SECURITY.md`, and that `go.mod` and your `Dockerfile` build with the same Go |
+| `jvm` | Gradle or Maven. Also `UPGRADING.md`, `MIGRATION.md`, and `gradle.properties` against the changelog |
+| `k8s` | Helm charts. Also `RUNBOOK.md`, and `Chart.yaml`'s chart version against the changelog |
+| `terraform` | Terraform modules. Also `UPGRADING.md` and `MIGRATION.md`, beside the terraform-docs README |
+| `docker` | images and compose. Also `DEPLOY.md`, `RUNBOOK.md`, `OPERATIONS.md` |
+| `monorepo` | a workspace root. Also `ARCHITECTURE.md`, `docs/README.md`, and the root version |
+| `mobile` | iOS and Android. Also `RELEASE_NOTES.md`, `PRIVACY.md`, and one marketing version across both stores |
+| `agent` | files AI agents read as fact: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `copilot-instructions.md` |
 | `status` | a running status file with dated entries |
+
+**`agent` is worth a note.** [AGENTS.md](https://agents.md) is the cross-tool
+standard for instructing AI coding agents, and `CLAUDE.md` and `GEMINI.md` are
+the vendor-native equivalents. Those files are mostly paths and commands, and an
+agent cannot tell an expired line from a current one. A dead path in a README
+wastes somebody's afternoon; a dead path in an `AGENTS.md` becomes confidently
+wrong work.
+
+**Where two files look like they should agree and do not, no check is written.**
+Helm documents `appVersion` as unrelated to the chart `version`. Terraform's
+`required_version` is a constraint (`">= 1.5.0"`) while `.terraform-version` is
+an exact pin. Go's `go` directive is a minimum and `toolchain` is exact. A mobile
+`versionCode` is a build counter, not the version anyone sees. Every one of those
+pairs would report a correct repository, so `docker` and `terraform` carry no
+cross-check at all, and the rest compare only what genuinely must match.
 
 The last three exist because long-lived documentation rots in a particular
 place. An enterprise project rarely has a stale README. It has a `MIGRATION.md`

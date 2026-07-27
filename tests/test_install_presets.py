@@ -217,6 +217,67 @@ CONSISTENCY_CASES = {
         },
         (".nvmrc", "v20.11.0", "v18.19.0"),
     ),
+    # Each fixture below carries the neighbouring field that must NOT be
+    # captured, because that is where these ecosystems trap a naive pattern.
+    "go": (
+        {
+            "README.md": CLEAN_README,
+            # `toolchain` is an EXACT build version beside `go`, which is a
+            # minimum language version. Capturing the wrong one compares an
+            # exact pin against a floor.
+            "go.mod": ("module github.com/acme/widget\n\ngo 1.22\n\n"
+                       "toolchain go1.22.5\n"),
+            # Written the modern way: syntax directive, --platform, stage name.
+            "Dockerfile": ("# syntax=docker/dockerfile:1\n"
+                           "FROM --platform=$BUILDPLATFORM golang:1.22 AS build\n"
+                           "WORKDIR /src\n"),
+        },
+        ("Dockerfile", "golang:1.22", "golang:1.21"),
+    ),
+    "jvm": (
+        {
+            "README.md": CLEAN_README,
+            "gradle.properties": "org.gradle.jvmargs=-Xmx2g\ngroup=com.acme\nversion=3.4.1\n",
+            "CHANGELOG.md": "# Changelog\n\n## 3.4.1 (2026-01-01)\n\nstuff\n",
+        },
+        ("gradle.properties", "version=3.4.1", "version=3.5.0"),
+    ),
+    "k8s": (
+        {
+            "README.md": CLEAN_README,
+            # appVersion is 4.2.1 and the chart version is 1.8.0. Helm's own
+            # documentation says these are unrelated, so a check that paired
+            # them would fire on this perfectly correct chart.
+            "Chart.yaml": ("apiVersion: v2\nname: widget\ntype: application\n"
+                           'version: 1.8.0\nappVersion: "4.2.1"\n'),
+            "CHANGELOG.md": "# Changelog\n\n## 1.8.0 (2026-01-01)\n\nstuff\n",
+        },
+        ("Chart.yaml", "version: 1.8.0", "version: 1.9.0"),
+    ),
+    "monorepo": (
+        {
+            "README.md": CLEAN_README,
+            "package.json": ('{\n  "name": "root",\n  "private": true,\n'
+                             '  "version": "3.4.1",\n  "workspaces": ["packages/*"]\n}\n'),
+            "CHANGELOG.md": "# Changelog\n\n## 3.4.1 (2026-01-01)\n\nstuff\n",
+        },
+        ("CHANGELOG.md", "## 3.4.1", "## 3.5.0"),
+    ),
+    "mobile": (
+        {
+            "README.md": CLEAN_README,
+            # versionCode and CURRENT_PROJECT_VERSION are build counters that
+            # differ between platforms by design. Only the marketing version is
+            # the same app, and only it is compared.
+            "android__app__build.gradle": ("android {\n    defaultConfig {\n"
+                                           "        versionCode 412\n"
+                                           '        versionName "4.2.1"\n    }\n}\n'),
+            "ios__App.xcodeproj__project.pbxproj": (
+                "\t\t\t\tCURRENT_PROJECT_VERSION = 412;\n"
+                "\t\t\t\tMARKETING_VERSION = 4.2.1;\n"),
+        },
+        ("android/app/build.gradle", 'versionName "4.2.1"', 'versionName "4.3.0"'),
+    ),
 }
 
 
@@ -329,8 +390,23 @@ def test_enterprise_preset_collects_the_long_lived_documents(tmp_path) -> None:
     assert "MIGRATION.md" not in extras
 
 
-@pytest.mark.parametrize("preset", ["readme", "node", "python", "rust",
-                                    "enterprise", "ml", "legacy-web"])
+def _document_presets() -> list[str]:
+    """Every preset that names its own document, read from PRESETS itself.
+
+    Derived rather than listed. The hardcoded version went three releases
+    without the presets added after it, so a new preset shipped untested by the
+    one test whose whole job is "does this preset produce a config the tool can
+    read". A list of names in a test is a claim about the code, and it rots the
+    same way any other claim does.
+    """
+    sys.path.insert(0, str(SKILL_ROOT))
+    from install import PRESETS
+
+    return sorted(name for name, preset in PRESETS.items()
+                  if preset.get("primary_doc"))
+
+
+@pytest.mark.parametrize("preset", _document_presets())
 def test_every_document_preset_writes_loadable_toml(preset, tmp_path) -> None:
     """Catches an installer that emits a config the tool then refuses to read.
 

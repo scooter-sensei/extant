@@ -194,6 +194,143 @@ PRESETS: dict[str, dict[str, object]] = {
             },
         },
     },
+    # The eight below were shaped by reading each ecosystem's conventions rather
+    # than by pattern-matching on the four above, and that research repeatedly
+    # ruled out the obvious pair. Four times the two files that look like they
+    # should agree are documented as deliberately NOT agreeing:
+    #
+    #   Helm       `version` is the chart, `appVersion` is the app, and the
+    #              documentation says outright they are unrelated.
+    #   Terraform  `required_version` is a CONSTRAINT (">= 1.5.0");
+    #              `.terraform-version` is an exact pin. ">= 1.5.0" and "1.5.7"
+    #              disagree as strings and agree in fact.
+    #   Go         `go` is a minimum language version, `toolchain` an exact
+    #              build version. `.go-version` is a third-party convention, not
+    #              Go's.
+    #   Mobile     `versionName`/`MARKETING_VERSION` are what a user sees;
+    #              `versionCode`/`CURRENT_PROJECT_VERSION` are build counters
+    #              that change every upload.
+    #
+    # Each of those would have produced a check that fires on a correct
+    # repository. Where no honest pair exists the preset carries none, and the
+    # document set is the whole value - which for most of these is the point:
+    # a runbook, a chart README or an agent instruction file is mostly paths and
+    # commands, and paths and commands are what rot.
+    "agent": {
+        "summary": "instruction files that AI coding agents read as fact",
+        "primary_doc": "README.md",
+        # AGENTS.md is the cross-tool standard, stewarded by the Linux
+        # Foundation and read natively by Codex, Copilot, Cursor, Windsurf,
+        # Aider, Zed and others; CLAUDE.md and GEMINI.md are the vendor-native
+        # equivalents. These matter more than ordinary prose: an agent cannot
+        # tell an expired line from a current one, so a dead path here becomes
+        # confidently wrong work rather than a puzzled human.
+        "extra_docs": ["AGENTS.md", "CLAUDE.md", "GEMINI.md",
+                       ".github/copilot-instructions.md", "CONTRIBUTING.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+    },
+    "go": {
+        "summary": "a Go module: docs, and the Go version the build actually uses",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "SECURITY.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            # Go modules carry no version of their own - releases are git tags -
+            # so there is nothing to cross-check a CHANGELOG against. What does
+            # drift is the language version the module requires against the one
+            # the image builds with, and that only shows up in CI.
+            "go_version": {
+                "go.mod": r"^go (\d+\.\d+)",
+                "Dockerfile": r"^FROM (?:--\S+ )?golang:(\d+\.\d+)",
+            },
+        },
+    },
+    "docker": {
+        "summary": "images and compose files: runbooks, and the paths in them",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "DEPLOY.md", "RUNBOOK.md",
+                       "OPERATIONS.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        # No consistency check. An image tag in a compose file is the deployed
+        # version, a tag in a Dockerfile is a base image, and a version in a
+        # manifest is the application: three different things that a naive pair
+        # would demand agree. The value here is the runbook, which is mostly
+        # paths and commands and rots faster than anything else in the repo.
+    },
+    "jvm": {
+        "summary": "Gradle or Maven: docs, plus the published version",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "SECURITY.md", "UPGRADING.md",
+                       "MIGRATION.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            "version": {
+                "gradle.properties": r"^version\s*=\s*(\S+)",
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
+    "k8s": {
+        "summary": "Helm charts and manifests: chart docs and chart version",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "UPGRADING.md", "RUNBOOK.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            # Chart.yaml `version` against the chart's own changelog. NOT
+            # against `appVersion`: Helm's documentation states plainly that
+            # appVersion is unrelated to version and moves independently, so
+            # pairing them would report every correctly-maintained chart.
+            "chart_version": {
+                "Chart.yaml": r"^version:\s*v?(\d+\.\d+\.\d+)",
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
+    "monorepo": {
+        "summary": "a workspace root: shared docs and the root version",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "ARCHITECTURE.md", "docs/README.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            # Root package.json against the root changelog. NOT lerna.json,
+            # whose `version` is the literal string "independent" whenever a
+            # project versions packages separately - the common case, and one
+            # where a numeric pattern would match nothing and be reported as a
+            # blind check on every run.
+            "version": {
+                "package.json": r'"version":\s*"([^"]+)"',
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
+    "terraform": {
+        "summary": "Terraform modules: the generated README and its neighbours",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "UPGRADING.md", "MIGRATION.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        # No consistency check, and the reason is worth knowing: `required_version`
+        # in versions.tf is a CONSTRAINT and `.terraform-version` is an exact
+        # pin, so ">= 1.5.0" and "1.5.7" differ as strings while agreeing
+        # perfectly in fact. A module README is generated by terraform-docs and
+        # goes stale the moment a variable is renamed, which is what this checks.
+    },
+    "mobile": {
+        "summary": "iOS and Android: store docs, and one marketing version",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "CHANGELOG.md", "RELEASE_NOTES.md",
+                       "PRIVACY.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            # The one number a user sees, which must be the same app on both
+            # stores. NOT versionCode or CURRENT_PROJECT_VERSION: those are
+            # build counters that change on every upload and are expected to
+            # differ between platforms.
+            "marketing_version": {
+                "android/app/build.gradle": r'versionName\s+"([^"]+)"',
+                "ios/App.xcodeproj/project.pbxproj": r"MARKETING_VERSION = ([^;]+);",
+            },
+        },
+    },
     "status": {
         "summary": "a running status document with dated entries (the original shape)",
         "primary_doc": None,      # detected

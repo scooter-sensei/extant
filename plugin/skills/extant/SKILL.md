@@ -60,11 +60,22 @@ cd /path/to/repo && sh tools/hooks/install
 ```
 
 Presets: `readme` (any project, no status file needed), `node`, `python`,
-`rust`, `enterprise` (policy, support and upgrade notes), `ml` (model and data
-cards, environment pins), `legacy-web` (install and deploy notes, runtime
-pins), and `status` (a running status document). A preset chooses the documents
-and the shape; detection still supplies trunk, branch naming and commit
-conventions, because those are measured rather than assumed.
+`rust`, `go`, `jvm`, `k8s`, `terraform`, `docker`, `monorepo`, `mobile`,
+`agent`, `enterprise`, `ml`, `legacy-web`, and `status` (a running status
+document). A preset chooses the documents and the shape; detection still
+supplies trunk, branch naming and commit conventions, because those are
+measured rather than assumed.
+
+`agent` covers `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and
+`copilot-instructions.md` - the files an agent reads as fact, where a dead path
+becomes confidently wrong work rather than a puzzled human.
+
+Several presets deliberately carry NO cross-file check, because the two files
+that look like they should agree are documented as independent: Helm's
+`appVersion` against its chart `version`, Terraform's `required_version`
+constraint against a `.terraform-version` pin, Go's minimum `go` directive
+against an exact `toolchain`, and a mobile `versionCode` against the marketing
+version. Do not add them.
 
 **Most projects want `readme`.** Requiring a status document to exist was the
 single largest barrier to using this at all, and it was never a real
