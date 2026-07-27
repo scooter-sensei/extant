@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.8.0
+version: 0.9.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -44,6 +44,14 @@ carries only the patch so it can be piped to `git apply`.
 for Actions annotations, or `--format=sarif`. SARIF puts nothing but JSON on
 stdout; every human diagnostic moves to stderr.
 
+**Adopting on an old repository.** `--write-baseline` records every current
+finding once; `--baseline` then checks only NEW claims. Use it when the first
+run reports a wall of findings on documentation nobody has time to fix today,
+which is the normal state of a long-lived project. The suppressed count is
+printed on every run, nothing is ever recorded implicitly, and `--baseline-check`
+reports entries whose finding no longer occurs so an amnesty cannot outlive it.
+Never write a baseline on a user's behalf to make a run pass.
+
 ## Installing into a repo
 
 ```
@@ -66,7 +74,7 @@ Then **derive the configuration from the real document - do not accept the
 defaults blindly.** See `references/porting.md`. This is the step that decides
 whether the tool works or silently does nothing.
 
-## The nine validation rules
+## The eleven validation rules
 
 Each checks a different KIND of statement, and each is scoped differently. The
 scoping is not stylistic - getting it wrong produces either silence or noise,
@@ -82,6 +90,7 @@ and both destroy the tool's value.
 | `dead-path-pointer` | "Plan: X" / "see X" where X does not exist | operative references only |
 | `dead-md-link` | `[text](path)` whose file is gone | whole file |
 | `dead-md-anchor` | `[text](#fragment)` with no such heading | same document only |
+| `dead-pinned-ref` | an install snippet pinning a version of THIS repo that does not resolve | whole file, **inside code** |
 | `possible-secret` | credential-shaped tokens before they are committed | whole file |
 | `inconsistent-artifact` | configured files that state DIFFERENT values for the same thing | repository |
 

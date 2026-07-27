@@ -2025,6 +2025,63 @@ def _fingerprint(path: str, kind: str, detail: str) -> str:
     return hashlib.sha256(payload).hexdigest()[:32]
 
 
+BASELINE_NAME = ".extant-baseline.json"
+
+
+def _baseline_entry(item: Located) -> dict[str, str]:
+    """One recorded finding, written so a human can review the diff.
+
+    The fingerprint alone would be enough to match on, and would make the file
+    unreadable. A baseline is a list of things a project has agreed to leave
+    broken for now, which is exactly the kind of file that must be legible in
+    review - otherwise it becomes a place to hide things, which is the fair
+    objection to having one at all.
+    """
+    return {
+        "fingerprint": _fingerprint(item.path, item.finding.kind, item.finding.detail),
+        "path": item.path,
+        "kind": item.finding.kind,
+        "detail": item.finding.detail,
+    }
+
+
+def load_baseline(path: Path) -> dict[str, dict[str, str]]:
+    """Recorded findings, keyed by fingerprint.
+
+    A missing file is an error rather than an empty baseline. Treating it as
+    empty would silently suppress nothing while the caller believed suppression
+    was active, so a typo'd path would turn a ratcheted run back into an
+    ordinary one without saying so.
+    """
+    if not path.is_file():
+        raise ValueError(
+            f"no baseline at {path}. Record one with --write-baseline, or drop "
+            f"--baseline to check everything."
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        entries = data["findings"]
+        return {e["fingerprint"]: e for e in entries}
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ValueError(f"{path} is not a baseline this version can read: {exc}") from exc
+
+
+def write_baseline(path: Path, located: list[Located]) -> int:
+    """Record every current finding. Returns how many were written."""
+    entries = [_baseline_entry(item) for item in located]
+    document = {
+        "version": 1,
+        "tool": "extant",
+        "note": ("Findings this project has accepted for now. Each is still "
+                 "wrong; they are simply not new. Prune with --baseline-check."),
+        "findings": sorted(entries, key=lambda e: (e["path"], e["kind"], e["detail"])),
+    }
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(document, fh, indent=2, ensure_ascii=True)
+        fh.write("\n")
+    return len(entries)
+
+
 def _gh_escape(value: str, *, prop: bool = False) -> str:
     """Escape a workflow-command string.
 
@@ -2318,6 +2375,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repo", metavar="PATH", default=str(REPO_ROOT))
     parser.add_argument("--format", choices=FORMATS, default="text",
                         help="findings output: text, github annotations, or SARIF")
+    # A ratchet, for adopting on a repository that already has years of prose.
+    # The first run on an old project reports everything at once, CI goes red,
+    # and the tool comes back out. Recording what is already there means new
+    # claims are checked from day one without a week of archaeology first.
+    parser.add_argument("--baseline", metavar="PATH", nargs="?",
+                        const=BASELINE_NAME,
+                        help=f"suppress findings recorded in PATH "
+                             f"(default {BASELINE_NAME}). New ones still fail.")
+    parser.add_argument("--write-baseline", metavar="PATH", nargs="?",
+                        const=BASELINE_NAME,
+                        help=f"record every current finding to PATH (default "
+                             f"{BASELINE_NAME}) and exit 0. Never implicit.")
+    parser.add_argument("--baseline-check", action="store_true",
+                        help="report baseline entries that no longer occur, so "
+                             "a granted amnesty cannot outlive its finding")
     return parser
 
 
@@ -2487,23 +2559,51 @@ def main(argv: list[str] | None = None) -> int:
                     fh.write(text)
                 diag(f"translated {changed} stale SHA reference(s) in {target}")
         located: list[Located] = []
+        # Recording a baseline must see everything, so suppression is off while
+        # writing one. Otherwise a second --write-baseline against an existing
+        # baseline would record only what that baseline had missed, quietly
+        # shrinking it each time it was run.
+        baselined: dict[str, dict[str, str]] = {}
+        # --baseline-check implies reading one, so it does not also need
+        # --baseline. Both fall back to the conventional filename.
+        baseline_path = Path(args.baseline or BASELINE_NAME)
+        if (args.baseline or args.baseline_check) and not args.write_baseline:
+            try:
+                baselined = load_baseline(baseline_path)
+            except ValueError as exc:
+                print(exc, file=sys.stderr)
+                return 2
+        matched: set[str] = set()
+        suppressed = 0
 
-        def record(path: str, items: list[Finding], *, primary: bool) -> None:
+        def record(path: str, items: list[Finding], *, primary: bool) -> int:
             """Collect for the machine formats; print inline for the human one.
 
             Text output stays interleaved with its summaries, which is what a
             reader following along expects and what the existing tests pin. The
             machine formats are emitted in one block at the end instead.
+
+            Returns the count of findings that were NOT baselined, which is what
+            decides the exit code. A baselined finding is still wrong; it is
+            simply not new.
             """
+            nonlocal suppressed
+            new = 0
             for finding in items:
                 item = Located(path, finding, primary)
+                fingerprint = _fingerprint(path, finding.kind, finding.detail)
+                if fingerprint in baselined:
+                    matched.add(fingerprint)
+                    suppressed += 1
+                    continue
+                new += 1
                 located.append(item)
                 if args.format == "text":
                     print(format_text([item])[0], file=stream)
+            return new
 
         findings = validate(repo, text)
-        record(_rel(repo, target), findings, primary=True)
-        exit_code = 1 if findings else 0
+        exit_code = 1 if record(_rel(repo, target), findings, primary=True) else 0
 
         # The denominator. Without it a clean run and a run that checked nothing
         # print identically - the failure that recurred five times in one day.
@@ -2534,8 +2634,7 @@ def main(argv: list[str] | None = None) -> int:
                         fh.write(archive_text)
                     diag(f"translated {archive_changed} stale SHA reference(s) in {ARCHIVE_DOC}")
             archive_findings = validate(repo, archive_text, in_archive=True)
-            record(ARCHIVE_DOC, archive_findings, primary=False)
-            if archive_findings:
+            if record(ARCHIVE_DOC, archive_findings, primary=False):
                 exit_code = 1
 
         # Extra documents: CLAUDE.md, AGENTS.md, a README. They carry the same
@@ -2551,17 +2650,17 @@ def main(argv: list[str] | None = None) -> int:
                 # a log line: a machine consumer has to see it too, or a broken
                 # extra_docs entry disappears from every format but the human
                 # one. Line 1, because there is no file to point into.
-                record(relative, [Finding(
+                if record(relative, [Finding(
                     1, "missing-document",
                     "listed in extra_docs but does not exist",
-                )], primary=False)
-                exit_code = 1
+                )], primary=False):
+                    exit_code = 1
                 continue
             with open(extra, encoding="utf-8", newline="") as fh:
                 extra_text = fh.read()
             _LINK_BASE = extra.parent
             extra_findings = validate(repo, extra_text, has_entries=False)
-            record(relative, extra_findings, primary=False)
+            new_extra = record(relative, extra_findings, primary=False)
             examined_extra = count_examined(repo, extra_text)
             # Repository-scoped rules do not run for an extra document, so
             # reporting their candidate count here claims coverage that was
@@ -2572,7 +2671,7 @@ def main(argv: list[str] | None = None) -> int:
                                 if kind != "possible-secret" and n
                                 and kind not in skipped)
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
-            if extra_findings:
+            if new_extra:
                 exit_code = 1
         _LINK_BASE = None
 
@@ -2598,6 +2697,39 @@ def main(argv: list[str] | None = None) -> int:
         if args.format != "text":
             for line in render_findings(located, args.format)[0]:
                 print(line)
+
+        if args.write_baseline:
+            # Explicit, never implicit. A baseline that rewrote itself on every
+            # verify would ratchet the wrong way: each run would forgive
+            # whatever it had just found, and the check would decay to nothing
+            # while continuing to report success.
+            path = Path(args.write_baseline)
+            written = write_baseline(path, located)
+            diag(f"recorded {written} finding(s) in {_rel(repo, path)}")
+            diag("Each is still wrong. They are excluded from future runs so "
+                 "that NEW ones are visible; prune them with --baseline-check.")
+            return 0
+
+        if baselined:
+            # Stated on every run, in both directions. "no findings" and "no new
+            # findings, 40 suppressed" are different facts, and a baseline that
+            # hides its own size is the denominator failure this project exists
+            # to surface, reintroduced by one of its own features.
+            diag(f"{len(located)} new finding(s), {suppressed} suppressed by "
+                 f"{_rel(repo, baseline_path)}")
+
+        if args.baseline_check:
+            stale = [entry for fingerprint, entry in sorted(baselined.items())
+                     if fingerprint not in matched]
+            diag(f"\nbaseline: {len(baselined)} entr(y/ies), {len(matched)} still "
+                 f"occur, {len(stale)} do not")
+            for entry in stale:
+                diag(f"  STALE  {entry['path']}: [{entry['kind']}] {entry['detail']}")
+            if stale:
+                diag("\nThese no longer happen: the claim was fixed, or deleted. "
+                     "Remove them, or the baseline keeps forgiving something that "
+                     "is not there.")
+                exit_code = 1
 
         return exit_code
     # M-a: unreachable. The mutually-exclusive group is required, and every

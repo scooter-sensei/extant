@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.9.0 (2026-07-27)
+
+A baseline, so a project with years of existing prose can adopt this without a
+week of archaeology first.
+
+### The problem it solves
+
+Point this at a ten-year-old repository and the first run reports everything at
+once. That is accurate and useless: CI goes red, nobody has a week for
+decade-old documentation, and the tool comes back out. Every linter that
+survived enterprise adoption solved this - RuboCop's todo file, mypy's baseline,
+Sonar's new-code focus - and it bites this tool harder than most, because the
+pitch is "use it on the documentation you already have" and that is precisely
+what has accumulated the most rot.
+
+```console
+$ extant --verify --write-baseline
+recorded 47 finding(s) in .extant-baseline.json
+
+$ extant --verify --baseline
+1 new finding(s), 47 suppressed by .extant-baseline.json
+```
+
+### Three constraints, which are the actual design
+
+A baseline is a place to hide things, and this tool's authority rests on not
+hiding things. The feature is only defensible because of what stops it
+loosening, so every one of these is tested and mutation-probed:
+
+**It always states how much it is hiding.** "No findings" and "no new findings,
+47 suppressed" are different facts. A baseline that concealed its own size would
+be the denominator failure this project exists to surface, reintroduced by one
+of its own features.
+
+**Nothing is recorded implicitly.** `--write-baseline` is separate and
+deliberate. One that rewrote itself on every run would forgive whatever it had
+just found, and the check would decay to nothing while still reporting success.
+
+**An amnesty cannot outlive its finding.** `--baseline-check` reports entries
+that no longer occur, because once the claim is fixed its entry forgives
+something that is not there - a stale claim, which this project is not entitled
+to keep.
+
+A missing baseline file is an error rather than an empty one: treating absence
+as "suppress nothing" would turn a ratcheted run back into an ordinary one
+without saying so.
+
+### Reviewable on purpose
+
+The file is JSON, and each entry carries the path, rule and message alongside
+its fingerprint. Fingerprints alone would match correctly and tell a reviewer
+nothing about what a colleague just agreed to leave broken. It is a tracked
+file; it belongs in review like any other change.
+
+The fingerprint deliberately excludes the line number, which it already did for
+GitHub's `partialFingerprints`. An entry therefore survives edits above it,
+rather than every recorded finding becoming new the moment text shifts.
+
 ## 0.8.0 (2026-07-27)
 
 An eleventh rule: `dead-pinned-ref`, for install snippets pinning a version that
@@ -277,7 +335,7 @@ positive has taught a lesson that is very hard to unteach.
 
     repos:
       - repo: https://github.com/scooter-sensei/extant
-        rev: v0.8.0
+        rev: v0.9.0
         hooks:
           - id: extant
 

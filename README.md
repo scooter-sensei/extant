@@ -168,7 +168,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.8.0
+    rev: v0.9.0
     hooks:
       - id: extant
 ```
@@ -425,6 +425,55 @@ extra_docs = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md"]
 
 They get every rule that does not depend on dated entries, which is most of
 them.
+
+### Adopting on a project that already has years of prose
+
+Point this at a ten-year-old repository and the first run reports everything at
+once. That is accurate and useless: CI goes red, nobody has a week for
+decade-old documentation, and the tool comes back out.
+
+Record what is already there, once:
+
+```console
+$ python tools/extant_collect.py --verify --write-baseline
+recorded 47 finding(s) in .extant-baseline.json
+```
+
+Then every run checks **new** claims and ignores the recorded ones:
+
+```console
+$ python tools/extant_collect.py --verify --baseline
+1 new finding(s), 47 suppressed by .extant-baseline.json
+```
+
+New documentation is held to the standard from day one; the backlog waits.
+
+**It always says how much it is hiding.** "No findings" and "no new findings, 47
+suppressed" are different facts, and a baseline that concealed its own size
+would be exactly the failure this tool exists to surface, reintroduced by one of
+its own features.
+
+**Nothing is ever recorded implicitly.** `--write-baseline` is a separate,
+deliberate command. A baseline that rewrote itself on every run would forgive
+whatever it had just found, and the check would decay to nothing while still
+reporting success.
+
+**An amnesty must not outlive its finding:**
+
+```console
+$ python tools/extant_collect.py --verify --baseline-check
+baseline: 47 entr(y/ies), 45 still occur, 2 do not
+  STALE  docs/setup.md: [dead-md-link] links to `scripts/old.sh`, ...
+```
+
+Those two were fixed. Their entries now forgive something that is not there, so
+they are reported and should be deleted. A baseline nobody prunes becomes a
+permanent exemption, and it is itself a stale claim.
+
+The file is JSON, and deliberately readable: each entry carries the path, the
+rule and the message alongside its fingerprint. It is a list of things your
+project has agreed to leave broken for now, so it belongs in review like any
+other change.
 
 ### The optional wrong-branch guard
 

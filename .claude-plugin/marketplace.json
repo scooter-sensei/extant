@@ -9,7 +9,7 @@
     {
       "name": "extant",
       "description": "Verifies every falsifiable claim in your documentation against git and the filesystem, with git hooks that re-check after each commit and merge. Eleven rules: dead commit references, false merge claims, stale 'not yet merged' statements, branches git never saw, release tags that never shipped, dead file pointers, broken markdown links and heading anchors, files that contradict each other, install snippets pinning a version that does not exist, and committed secrets. Needs no special status document - presets configure it for a plain README, or for Node, Python and Rust projects. Findings render as text, GitHub annotations or SARIF.",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "author": {
         "name": "scooter-sensei"
       },

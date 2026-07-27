@@ -306,6 +306,28 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    for key in preset.get("disable", []):          # type: ignore[union-attr]',
          "    for key in []:"),
 
+        # --- the baseline -------------------------------------------------------
+        # A ratchet is only as good as the things that stop it loosening, so
+        # every mutation here breaks a CONSTRAINT rather than the suppression.
+        # Suppression working is easy; suppression that cannot quietly grow to
+        # cover everything is the whole design.
+        ("baseline suppresses by kind, so every future finding is forgiven", collect,
+         "                if fingerprint in baselined:",
+         "                if any(e[\"kind\"] == finding.kind for e in baselined.values()):"),
+        ("baseline stops stating how much it is hiding", collect,
+         '            diag(f"{len(located)} new finding(s), {suppressed} suppressed by "',
+         '            diag("" or f"{len(located)} new finding(s), {suppressed} hidden by "'),
+        ("a missing baseline becomes an empty one", collect,
+         "    if not path.is_file():\n        raise ValueError(",
+         "    if not path.is_file():\n        return {}\n    if False:\n        raise ValueError("),
+        ("re-recording honours the active baseline and shrinks the file", collect,
+         "        if (args.baseline or args.baseline_check) and not args.write_baseline:",
+         "        if args.baseline or args.baseline_check:"),
+        ("baseline-check stops reporting entries that no longer occur", collect,
+         "            stale = [entry for fingerprint, entry in sorted(baselined.items())\n"
+         "                     if fingerprint not in matched]",
+         "            stale = []"),
+
         # --- detect.py ----------------------------------------------------------
         ("find_documents returns only the first match", detect,
          "    return found",
