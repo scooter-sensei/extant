@@ -7,7 +7,7 @@
 [![tests](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml/badge.svg)](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![python: 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org)
-[![dependencies: none](https://img.shields.io/badge/dependencies-none-success)](#requirements)
+[![dependencies: none on 3.11+](https://img.shields.io/badge/dependencies-none%20on%203.11%2B-success)](#requirements)
 
 *extant (adj.) - still in existence; surviving.*
 
