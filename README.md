@@ -58,7 +58,7 @@ as much as the findings, and [there is a section about why](#every-check-reports
 
 ## What it covers
 
-Ten rules. Every one answers a question git or the filesystem can settle.
+Eleven rules. Every one answers a question git or the filesystem can settle.
 
 | Rule | Catches |
 |:---|:---|
@@ -71,9 +71,10 @@ Ten rules. Every one answers a question git or the filesystem can settle.
 | `dead-md-link` | `[a link](to/a/file.md)` whose target is gone |
 | `dead-md-anchor` | a `#jump-to-section` link with no such heading |
 | `inconsistent-artifact` | two files in your project stating different values for the same thing |
+| `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |
 | `possible-secret` | a password or key pasted in by accident |
 
-Three details that are easy to miss:
+Four details that are easy to miss:
 
 **Case matters, and only on some machines.** Windows and macOS open
 `docs/PLAN.md` happily when the file is `docs/plan.md`. Linux does not. Without
@@ -85,6 +86,12 @@ reported on every platform.
 promises, so a README showing what a claim looks like is not accused of making
 one. A password inside a fence is still reported, because that one is about what
 the file contains rather than what it promises.
+
+**Install snippets are the exception.** `dead-pinned-ref` is the one rule that
+reads *inside* code blocks, because an install snippet is the opposite of an
+example: it is the block a reader copies verbatim, and a version that does not
+exist fails for them on first use. It only checks pins whose `repo:` names your
+repository, so documenting somebody else's hook is never flagged.
 
 **Renames are followed.** When a file has moved, you get told where:
 
@@ -153,7 +160,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.7.0
+    rev: v0.8.0
     hooks:
       - id: extant
 ```

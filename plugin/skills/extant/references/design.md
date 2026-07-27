@@ -156,6 +156,24 @@ secret scan reads everything. Inline backticks are treated differently again:
 kept for claim rules, because claims are written inside them, and blanked for
 link rules, because an example link is written inside them too.
 
+**One rule reads inside fences, and the exception is instructive.** The
+exemption above cost this project two broken instructions before it was
+qualified. A README pinned `rev: v0.5.0` for a fortnight while the repository
+had no tags at all, and a Claude Code install line named a plugin id that never
+existed. Both sat in fenced blocks. `dead-release-tag` is the rule for the
+first and could not see it, by design.
+
+The distinction the exemption was missing: a fence usually holds an EXAMPLE,
+which is not a promise, but an install snippet is the one block on a page a
+reader copies verbatim. It is closer to a promise than ordinary prose is.
+
+`dead-pinned-ref` therefore reads inside code and asks only the narrowest
+answerable question: does the version pinned for THIS repository resolve? The
+governing `repo:` line is what keeps it honest, because a project documenting a
+third-party hook pins a tag living in somebody else's repository, and checking
+that would report a finding on a correct line. Measured before it was written:
+three pins in this corpus, all resolving, no false positives.
+
 ## Anti-gaming
 
 **The subagent gets at most 2 validation attempts and must report its FIRST-run

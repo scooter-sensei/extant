@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.8.0 (2026-07-27)
+
+An eleventh rule: `dead-pinned-ref`, for install snippets pinning a version that
+does not exist.
+
+### Why this one had to exist
+
+Fenced code has always been exempt from claim rules, on the sound reasoning that
+an example in a fence is not a promise. That exemption cost this project two
+broken instructions:
+
+- A README told people to pin `rev: v0.5.0` for a fortnight while the repository
+  had **no tags at all**. `dead-release-tag` is the rule for exactly that claim
+  and could not see it.
+- A Claude Code install line named a plugin id that never existed at any point
+  in this project's history.
+
+Both sat in fenced blocks. Both were copied verbatim by anyone following the
+instructions, and both failed on first use.
+
+The distinction the exemption was missing: a fence usually holds an example, but
+an **install snippet is the one block on a page a reader copies verbatim**. It
+is closer to a promise than ordinary prose is.
+
+### What it checks, and what it refuses to
+
+`dead-pinned-ref` reads inside code blocks, fenced and indented alike, and asks
+the narrowest answerable question: does the version pinned for **this**
+repository resolve?
+
+```yaml
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0        # ignored: not this repository
+  - repo: https://github.com/you/yours
+    rev: v9.9.9        # checked: does v9.9.9 exist here?
+```
+
+That governing `repo:` line is what keeps the rule honest. A project documenting
+somebody else's hook pins a tag living in somebody else's repository, and
+checking it would report a finding on a line that is perfectly correct. Only
+pins aimed at you are answerable, so only those are asked about. SSH and HTTPS
+spellings of the same remote compare equal.
+
+A repository with no `origin` reports **0 examined** rather than a clean run,
+because without a remote there is no way to know which pins are yours.
+
+Nothing to configure. `repo:` and `rev:` are pre-commit's fixed syntax rather
+than any project's habit, which is the same reason markdown link syntax has no
+setting.
+
+### Measured first
+
+Three pins across this corpus, in both fenced and indented blocks, all
+resolving, zero false positives. The rule was written to fit that measurement
+rather than to a guess about what pins look like, and the third-party case was
+found by looking rather than by reasoning.
+
+Six tests, including the two that matter most: a third-party pin must not even
+be **counted** as examined, and an SSH origin must match the HTTPS URL a README
+shows. A comparison done on the raw URL string passes every other test and
+silently checks nothing.
+
+It then caught this repository's own README within minutes of being written.
+Bumping the documented pin to `v0.8.0` before that tag existed is precisely the
+state it exists to report.
+
+### One thing to know when you release
+
+Between bumping the pin in your documentation and pushing the tag, your
+documentation promises a version that does not exist, and this rule will say so.
+That is the rule working rather than misfiring: during that window anyone
+reading your repository is given an instruction that fails.
+
+If your README is in `extra_docs`, either tag as part of the release or bump the
+pin after tagging. The window is real either way; the only question is whether
+anything tells you about it.
+
 ## 0.7.0 (2026-07-27)
 
 Three more presets, for audiences whose documentation ages hardest.
@@ -199,7 +277,7 @@ positive has taught a lesson that is very hard to unteach.
 
     repos:
       - repo: https://github.com/scooter-sensei/extant
-        rev: v0.7.0
+        rev: v0.8.0
         hooks:
           - id: extant
 

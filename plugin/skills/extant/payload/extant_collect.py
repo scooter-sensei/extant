@@ -1421,6 +1421,89 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
     return findings
 
 
+# An install snippet pins a version. `repo:` and `rev:` are pre-commit's fixed
+# syntax rather than any project's habit, so like markdown link syntax there is
+# nothing here to measure and nothing to configure.
+_PIN_REPO = re.compile(r"^\s*(?:-\s*)?repo:\s*(\S+)")
+_PIN_REV = re.compile(r"^\s*rev:\s*([^\s#]+)")
+
+
+def _normalise_remote(url: str) -> str | None:
+    """A remote URL reduced to `owner/name`, lowercased.
+
+    Both spellings of the same repository must compare equal: an SSH remote
+    reads `git@github.com:owner/name.git` and the URL a README tells people to
+    use reads `https://github.com/owner/name`.
+    """
+    url = url.strip().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    parts = [p for p in url.replace(":", "/").split("/") if p]
+    return "/".join(parts[-2:]).lower() if len(parts) >= 2 else None
+
+
+def _own_remote(repo: Path) -> str | None:
+    """This repository as `owner/name`, or None when it has no origin."""
+    return _normalise_remote(_git_soft(repo, "remote", "get-url", "origin"))
+
+
+def _pinned_refs(repo: Path, text: str) -> list[tuple[int, str]]:
+    """Every `rev:` pin governed by a `repo:` naming THIS repository.
+
+    The governing `repo:` is what keeps this rule honest. A project documenting
+    somebody else's pre-commit hook writes `rev: v4.5.0` for a tag that lives in
+    somebody else's repository, and checking that here would report a finding on
+    a line that is perfectly correct. Only pins aimed at us are answerable, so
+    only those are asked about.
+    """
+    own = _own_remote(repo)
+    if own is None:
+        return []
+    found: list[tuple[int, str]] = []
+    governing: str | None = None
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = _PIN_REPO.match(line)
+        if match:
+            governing = _normalise_remote(match.group(1))
+            continue
+        match = _PIN_REV.match(line)
+        if match and governing == own:
+            found.append((number, match.group(1)))
+    return found
+
+
+def validate_pinned_refs(repo: Path, text: str) -> list[Finding]:
+    """An install snippet pinning a version of THIS repository that does not exist.
+
+    The one rule that deliberately reads INSIDE code blocks. Every other claim
+    rule blanks them first, because an example in a fence is not a promise - but
+    an install snippet is the opposite of an example. It is the one block on the
+    page a reader will copy verbatim, and a version that does not exist fails
+    for them on first use.
+
+    This exists because it happened twice here. A README pinned `rev: v0.5.0`
+    for a fortnight while the repository had no tags at all, and the rule that
+    would have caught the claim in prose - `dead-release-tag` - cannot see into
+    a fence by design. The blind spot was documented, understood, and still cost
+    two broken instructions.
+
+    Fenced and indented blocks both work, and neither is parsed: the `repo:` and
+    `rev:` shape does not occur in prose, so matching them line by line covers
+    every block style without needing to know where blocks begin.
+    """
+    findings: list[Finding] = []
+    for number, ref in _pinned_refs(repo, text):
+        try:
+            _git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+        except (subprocess.CalledProcessError, OSError):
+            findings.append(Finding(
+                number, "dead-pinned-ref",
+                f"install snippet pins `{ref}`, which does not exist here; "
+                f"anyone copying this block gets an error",
+            ))
+    return findings
+
+
 def _consistency_for(repo: Path) -> dict[str, tuple[tuple[str, object], ...]]:
     """The consistency block belonging to the repository being checked."""
     try:
@@ -1570,6 +1653,24 @@ def _probe_tag(repo: Path, text: str) -> str | None:
     return _sub_group(text, _RELEASE_TAG, 1, "v0.0.0-extant-selftest")
 
 
+def _probe_pinned_ref(repo: Path, text: str) -> str | None:
+    """Repoint a real install pin at a version that does not exist.
+
+    Located by line rather than by pattern, because only a pin governed by a
+    `repo:` naming this repository is checked at all. Corrupting the first
+    `rev:` on the page would prove nothing if that one belongs to somebody
+    else's hook, and would report a working rule as broken.
+    """
+    pins = _pinned_refs(repo, text)
+    if not pins:
+        return None
+    number, ref = pins[0]
+    lines = text.splitlines(keepends=True)
+    target = lines[number - 1]
+    lines[number - 1] = target.replace(ref, "v0.0.0-extant-selftest", 1)
+    return "".join(lines)
+
+
 def _probe_md_link(repo: Path, text: str) -> str | None:
     for match in _MD_LINK.finditer(_strip_code(text)):
         raw = match.group(1)
@@ -1701,6 +1802,9 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),
         "inconsistent-artifact": sum(
             len(sources) for sources in _consistency_for(repo).values()),
+        # Counted the same way the rule finds them, so a repository with no
+        # origin remote reports 0 examined rather than a silent pass.
+        "dead-pinned-ref": len(_pinned_refs(repo, text)),
         "possible-secret": len(text.splitlines()),
     }
 
@@ -1782,6 +1886,14 @@ RULES: tuple[Rule, ...] = (
         in_archive=False,
         falsifiable="do the configured files state the same value?",
         probe=_probe_consistency,
+    ),
+    Rule(
+        kind="dead-pinned-ref",
+        check=validate_pinned_refs,
+        scope="whole-file",
+        in_archive=True,
+        falsifiable="does `git rev-parse <ref>` resolve, for a pin naming this repository?",
+        probe=_probe_pinned_ref,
     ),
     Rule(
         kind="possible-secret",

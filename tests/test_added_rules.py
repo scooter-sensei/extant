@@ -7,6 +7,7 @@ positives on the first corpus it was measured against.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1129,3 +1130,168 @@ def test_config_search_stops_at_the_repository_root(tmp_path) -> None:
         f"the search escaped the repository root and read {cfg.source}"
     )
     assert cfg.primary_doc != "OUTER.md"
+
+
+# --- install snippets --------------------------------------------------------
+#
+# The one rule that reads INSIDE code blocks. Every other claim rule blanks them
+# first, because an example in a fence is not a promise. An install snippet is
+# the opposite: the one block on the page a reader copies verbatim.
+
+
+def _pinned(repo: Path, doc: str,
+            remote: str | None = "https://github.com/acme/widget") -> None:
+    """A repo whose origin is `remote`, with `doc` as its primary document.
+
+    The payload is copied in as `tools/`, because that is the shape it is
+    installed in and the only one where settings resolve to the repository
+    being checked rather than to wherever the script happens to live.
+    """
+    git(repo, "init", "-b", "main")
+    git(repo, "config", "user.email", "t@t")
+    git(repo, "config", "user.name", "T")
+    if remote:
+        git(repo, "remote", "add", "origin", remote)
+    (repo / "README.md").write_text(doc, encoding="utf-8", newline="")
+    (repo / ".extant.toml").write_text('primary_doc = "README.md"\n',
+                                       encoding="utf-8", newline="")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-m", "init")
+
+
+def run_installed(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """The installed copy, which reads the checked repository's own settings."""
+    return subprocess.run(
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
+         "--repo", str(repo), *args],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+
+
+OWN_SNIPPET = (
+    "# Widget\n\n"
+    "```yaml\n"
+    "repos:\n"
+    "  - repo: https://github.com/acme/widget\n"
+    "    rev: {ref}\n"
+    "    hooks:\n"
+    "      - id: widget\n"
+    "```\n"
+)
+
+
+def test_a_pin_naming_this_repo_must_resolve(tmp_path) -> None:
+    """The bug this rule exists for, twice over in this project's own history.
+
+    A README pinned a tag for a fortnight while the repository had no tags at
+    all. `dead-release-tag` cannot see it, because the snippet is fenced and
+    fences are exempt from claim rules by design.
+    """
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _pinned(repo, OWN_SNIPPET.format(ref="v9.9.9"))
+
+    result = run_installed(repo, "--verify")
+
+    assert result.returncode == 1, result.stdout
+    assert "dead-pinned-ref" in result.stdout
+    assert "v9.9.9" in result.stdout
+
+
+def test_a_pin_naming_someone_elses_repo_is_left_alone(tmp_path) -> None:
+    """The false-positive guard, and the reason the rule tracks `repo:` at all.
+
+    A project documenting a third-party hook pins a tag living in somebody
+    else's repository. Checking it here reports a finding on a line that is
+    perfectly correct, which is how a validator earns a reputation for noise.
+
+    A wrong implementation that matches `rev:` alone fails here.
+    """
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _pinned(repo,
+            "# Widget\n\n"
+            "```yaml\n"
+            "repos:\n"
+            "  - repo: https://github.com/pre-commit/pre-commit-hooks\n"
+            "    rev: v4.5.0\n"
+            "```\n")
+
+    result = run_installed(repo, "--verify")
+
+    assert result.returncode == 0, result.stdout
+    assert "dead-pinned-ref 0" in result.stdout, (
+        "a third-party pin must not even be counted as examined"
+    )
+
+
+def test_an_ssh_remote_matches_the_https_url_a_readme_shows(tmp_path) -> None:
+    """Catches a comparison done on the raw URL string.
+
+    Clones over SSH have `git@github.com:acme/widget.git` as their origin while
+    the README tells people to use the https URL. Compared literally these are
+    different repositories, and the rule would silently check nothing.
+    """
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _pinned(repo, OWN_SNIPPET.format(ref="v9.9.9"),
+            remote="git@github.com:acme/widget.git")
+
+    result = run_installed(repo, "--verify")
+
+    assert result.returncode == 1, result.stdout
+    assert "dead-pinned-ref" in result.stdout
+
+
+def test_a_pin_that_resolves_is_not_reported(tmp_path) -> None:
+    """The other direction. A rule that fires on everything is not a rule."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _pinned(repo, OWN_SNIPPET.format(ref="v1.0.0"))
+    git(repo, "tag", "-a", "v1.0.0", "-m", "release")
+
+    result = run_installed(repo, "--verify")
+
+    assert result.returncode == 0, result.stdout
+    assert "dead-pinned-ref 1" in result.stdout, (
+        "the pin must be examined, not merely absent from the findings"
+    )
+
+
+def test_indented_snippets_are_checked_too(tmp_path) -> None:
+    """A CHANGELOG written with four-space blocks rather than fences.
+
+    Both styles carry install instructions, and this project's own CHANGELOG
+    uses the indented one, so a fence-only implementation would miss the file
+    where half its pins live.
+    """
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _pinned(repo,
+            "# Widget\n\n"
+            "Install:\n\n"
+            "    repos:\n"
+            "      - repo: https://github.com/acme/widget\n"
+            "        rev: v9.9.9\n")
+
+    result = run_installed(repo, "--verify")
+
+    assert result.returncode == 1, result.stdout
+    assert "dead-pinned-ref" in result.stdout
+
+
+def test_a_repo_with_no_origin_reports_nothing_examined(tmp_path) -> None:
+    """Without an origin there is no way to know which pins are ours.
+
+    The honest answer is 0 examined, which the denominator line then shows,
+    rather than a clean run that looks like a verdict.
+    """
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _pinned(repo, OWN_SNIPPET.format(ref="v9.9.9"), remote=None)
+
+    result = run_installed(repo, "--verify")
+
+    assert result.returncode == 0, result.stdout
+    assert "dead-pinned-ref 0" in result.stdout

@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.7.0
+version: 0.8.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -96,7 +96,10 @@ Three cross-cutting behaviours worth knowing:
 - **Fenced code is exempt from claim rules, never from the secret scan.** An
   example in a fence is not a promise; a credential in one is still committed.
   Inline backticks are kept for claim rules, because claims are written inside
-  them, and blanked for link rules, because example links are too.
+  them, and blanked for link rules, because example links are too. The single
+  exception is `dead-pinned-ref`, which reads inside code precisely because an
+  install snippet is copied verbatim rather than read as an example, and checks
+  only pins whose `repo:` names the repository being validated.
 - **Wrong-case paths are reported** even on Windows and macOS, by comparing
   against the real directory entry. Otherwise a document passes on a laptop and
   fails on Linux CI.
