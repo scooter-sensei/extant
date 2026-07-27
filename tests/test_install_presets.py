@@ -42,7 +42,8 @@ def make_repo(tmp_path: Path, **files: str) -> Path:
     for name, body in files.items():
         path = repo / name.replace("__", "/")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(body, encoding="utf-8", newline="")
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(body)
     for cmd in (["init", "-b", "main"], ["config", "user.email", "t@t"],
                 ["config", "user.name", "T"], ["add", "-A"],
                 ["commit", "-m", "init"]):
@@ -244,7 +245,8 @@ def test_preset_consistency_check_fires_when_the_files_disagree(preset, tmp_path
     path = repo / target
     text = path.read_text(encoding="utf-8")
     assert before in text, f"fixture anchor {before!r} missing from {target}"
-    path.write_text(text.replace(before, after), encoding="utf-8", newline="")
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text.replace(before, after))
 
     broken = run_validator(repo)
     assert broken.returncode == 1, (

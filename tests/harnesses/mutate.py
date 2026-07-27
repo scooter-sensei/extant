@@ -346,7 +346,8 @@ def install_restore_guard(backups: dict[Path, str]) -> None:
         for path, original in backups.items():
             try:
                 if path.read_text(encoding="utf-8") != original:
-                    path.write_text(original, encoding="utf-8", newline="\n")
+                    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                        fh.write(original)
                     print(f"\nrestored {path.name} after interruption", file=sys.stderr)
             except OSError:
                 pass
@@ -429,11 +430,13 @@ def main() -> int:
             not_applied.append(f"{label} (matched {original.count(old)}x)")
             print(f"{i:>2}/{len(mutations)}  NOT APPLIED  {label}")
             continue
-        path.write_text(original.replace(old, new, 1), encoding="utf-8", newline="\n")
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(original.replace(old, new, 1))
         try:
             green = run_suite(root, args.python)
         finally:
-            path.write_text(original, encoding="utf-8", newline="\n")
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(original)
         (survived if green else killed).append(label)
         print(f"{i:>2}/{len(mutations)}  "
               f"{'SURVIVED **' if green else 'killed     '}  {label}")

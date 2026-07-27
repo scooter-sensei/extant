@@ -1030,7 +1030,8 @@ def test_the_suggested_patch_actually_applies(git_repo) -> None:
          "--repo", str(repo), "--verify", "--suggest-fixes"],
         cwd=repo, capture_output=True, encoding="utf-8", text=True,
     )
-    (repo / "fix.patch").write_text(produced.stdout, encoding="utf-8", newline="")
+    with open((repo / "fix.patch"), "w", encoding="utf-8", newline="") as fh:
+        fh.write(produced.stdout)
 
     applied = subprocess.run(["git", "apply", "fix.patch"], cwd=repo,
                              capture_output=True, text=True, encoding="utf-8")
@@ -1152,9 +1153,10 @@ def _pinned(repo: Path, doc: str,
     git(repo, "config", "user.name", "T")
     if remote:
         git(repo, "remote", "add", "origin", remote)
-    (repo / "README.md").write_text(doc, encoding="utf-8", newline="")
-    (repo / ".extant.toml").write_text('primary_doc = "README.md"\n',
-                                       encoding="utf-8", newline="")
+    with open((repo / "README.md"), "w", encoding="utf-8", newline="") as fh:
+        fh.write(doc)
+    with open(repo / ".extant.toml", "w", encoding="utf-8", newline="") as fh:
+        fh.write('primary_doc = "README.md"\n')
     shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
     git(repo, "add", "-A")
     git(repo, "commit", "-m", "init")

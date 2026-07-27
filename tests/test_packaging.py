@@ -51,25 +51,32 @@ def test_no_publication_placeholders_remain() -> None:
     )
 
 
-def test_no_read_text_newline_argument() -> None:
-    """`Path.read_text(newline=...)` requires Python 3.13 and breaks below it.
+def test_no_pathlib_newline_argument() -> None:
+    """`newline=` on pathlib's text helpers postdates the floor this claims.
 
-    pathlib gained that argument in 3.13. On 3.11 and 3.12 it raises
-    TypeError, and it shipped: `detect.py` used it, so `install.py` crashed
-    outright on the two oldest versions this project claims to support. The test
-    suite ran on both in CI and stayed green on that file, because nothing
-    called into it.
+    `read_text` gained it in 3.13; `write_text` gained it in **3.10**. The floor
+    here is 3.9, so both are out of reach.
 
-    `write_text` took the same argument back in 3.10, which is why only the read
-    side broke, and why this is easy to write without noticing.
+    The read side had this guard already, and its own docstring said "write_text
+    took the same argument back in 3.10, which is why only the read side broke".
+    That sentence was true when written and stopped being true the moment the
+    floor moved to 3.9 - so the guard covered one of two methods, and nine
+    `write_text(newline=...)` calls sailed past it. Two were in the shipped
+    installer, so the TOOL raised TypeError on 3.9, not merely the suite. CI on
+    3.9 caught it; nothing local could.
+
+    The read side shipped once already: `detect.py` used it, so `install.py`
+    crashed outright on 3.11 and 3.12. The suite ran on both in CI and stayed
+    green on that file, because nothing called into it.
 
     Parsed rather than grepped, so a call split across lines cannot slip past.
     """
     import ast
 
+    needs = {"read_text": "3.13", "write_text": "3.10"}
     offenders: list[str] = []
     files = 0
-    read_text_calls = 0
+    calls = 0
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         parts = path.relative_to(PACKAGE_ROOT).parts
         if {"__pycache__", ".venv", ".pytest_cache"} & set(parts):
@@ -79,17 +86,18 @@ def test_no_read_text_newline_argument() -> None:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if isinstance(node.func, ast.Attribute) and node.func.attr == "read_text":
-                read_text_calls += 1
+            if isinstance(node.func, ast.Attribute) and node.func.attr in needs:
+                calls += 1
                 if any(kw.arg == "newline" for kw in node.keywords):
                     offenders.append(
-                        f"{path.relative_to(PACKAGE_ROOT).as_posix()}:{node.lineno}"
+                        f"{path.relative_to(PACKAGE_ROOT).as_posix()}:{node.lineno}: "
+                        f"{node.func.attr}(newline=...) needs {needs[node.func.attr]}"
                     )
 
     assert files > 3, f"only {files} Python files parsed"
-    assert read_text_calls > 0, "no read_text calls found at all; this proves nothing"
+    assert calls > 0, "no read_text/write_text calls found at all; this proves nothing"
     assert not offenders, (
-        "read_text(newline=...) needs Python 3.13. Use "
+        "pathlib's newline argument postdates the supported floor. Use "
         "open(path, encoding=..., newline=...) instead:\n  " + "\n  ".join(offenders)
     )
 

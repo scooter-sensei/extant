@@ -565,7 +565,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"  {'would write' if args.dry_run else 'wrote'} .extant.toml")
         if not args.dry_run:
-            cfg.write_text(render_config(obs), encoding="utf-8", newline="")
+            with open(cfg, "w", encoding="utf-8", newline="") as fh:
+                fh.write(render_config(obs))
 
     command_text, command_notes = render_command(obs, repo.name)
     command_path = repo / COMMAND_DEST
@@ -576,7 +577,8 @@ def main(argv: list[str] | None = None) -> int:
               f"rendered for '{repo.name}'")
         if not args.dry_run:
             command_path.parent.mkdir(parents=True, exist_ok=True)
-            command_path.write_text(command_text, encoding="utf-8", newline="")
+            with open(command_path, "w", encoding="utf-8", newline="") as fh:
+                fh.write(command_text)
     for note in command_notes:
         print(f"  {note}")
 
