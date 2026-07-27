@@ -468,7 +468,7 @@ positive has taught a lesson that is very hard to unteach.
 
     repos:
       - repo: https://github.com/scooter-sensei/extant
-        rev: v0.11.0
+        rev: v0.5.0
         hooks:
           - id: extant
 

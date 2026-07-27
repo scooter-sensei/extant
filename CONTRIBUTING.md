@@ -94,3 +94,22 @@ an isolated copy is what makes that irrelevant.
 - `from __future__ import annotations` at the top of every module.
 - Narrow exception handlers. Bare `except:` and `except Exception:` hide the
   failures this project exists to surface.
+
+## Cutting a release
+
+Bump the version in four manifests - `.claude-plugin/marketplace.json`,
+`plugin/.claude-plugin/plugin.json`, `plugin/skills/extant/SKILL.md`,
+`pyproject.toml` - and the `rev:` pin in the two places that are live install
+INSTRUCTIONS: `README.md` and `.pre-commit-hooks.yaml`.
+
+**Never bump a `rev:` inside `CHANGELOG.md`.** A changelog entry records what
+was true at that release, so a pin in one is history, not instruction. A
+first-occurrence replace across the changelog silently rewrote the 0.5.0
+entry's pin at every release from 0.6.0 through 0.11.0, so it ended up
+promising a version that did not exist when it was written. Caught by reading
+the file before tagging, not by any rule here: both the old and new pins
+resolve once tagged, so nothing is falsifiable about it.
+
+The changelog's other `rev:` lines are prose about past mistakes and
+illustrative examples of `dead-pinned-ref`. Leave those alone too - a pin is
+only an instruction when it sits under an install snippet.
