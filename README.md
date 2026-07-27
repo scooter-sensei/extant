@@ -7,7 +7,9 @@
 [![tests](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml/badge.svg)](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
-[![dependencies: none](https://img.shields.io/badge/dependencies-none-success)](#before-you-start)
+[![dependencies: none](https://img.shields.io/badge/dependencies-none-success)](#requirements)
+
+*extant (adj.) - still in existence; surviving.*
 
 </div>
 
@@ -16,23 +18,23 @@
 ## The problem
 
 Your README says the project needs Node 18. Your `package.json` says 20. Your
-CONTRIBUTING file links to a script that was deleted in March. Somewhere a
-document says a rewrite "landed in `8f2a91c`", and that commit no longer exists.
+CONTRIBUTING file links to a script deleted in March. An architecture note says
+a rewrite "landed in `8f2a91c`", and that commit no longer exists.
 
 Every one of those sentences was true the day it was written.
 
 Nothing complains, because documentation is just writing. Tests check code. Type
 checkers check types. Nothing checks whether your prose is still accurate, so it
-drifts quietly until somebody follows it and wastes an afternoon.
+drifts quietly until somebody follows it and loses an afternoon.
 
-This matters more than it used to. AI coding assistants read these files and
-treat them as fact. An assistant cannot tell that a line expired, so it plans
-around something untrue, and you get confidently wrong work.
+This matters more than it used to. AI assistants read these files and treat them
+as fact. An assistant cannot tell that a line expired, so it plans around
+something untrue and hands back confidently wrong work.
 
-## What it looks like when it works
+## What it looks like
 
-An ordinary project. A README, a `package.json`, a CONTRIBUTING file. **No
-special status document, no new habits to adopt.**
+An ordinary project. A README, a `package.json`, a CONTRIBUTING file. No status
+document, no new habits.
 
 ```console
 $ python tools/extant_collect.py --verify
@@ -46,43 +48,45 @@ checked README.md: dead-sha 1, dead-md-link 1, inconsistent-artifact 2
 CONTRIBUTING.md: line 3: [dead-md-link] links to `scripts/gone.sh`
 ```
 
-Four lies in the docs you already have, found in under a second, with line
-numbers. That `checked` line is the count of things it **looked at**, which
-matters as much as the problems it found. More on that below.
+Four false statements in the docs you already have, with line numbers, in under
+a second.
 
-It also handles the harder case, if you keep one: a running status or
-progress file, where entries make claims about branches and merges that go stale as work
-lands. That is where this started, and it is now one use case rather than the
-price of entry.
+That `checked` line counts what it **looked at**, not what it found. It matters
+as much as the findings, and [there is a section about why](#every-check-reports-its-denominator).
 
 ---
 
-## What it checks
+## What it covers
 
-| It notices when you wrote | Because it checks |
+Ten rules. Every one answers a question git or the filesystem can settle.
+
+| Rule | Catches |
 |:---|:---|
-| "released in commit `abc1234`" but that commit is gone | whether the commit really exists |
-| "merged into main" when it never was | whether it actually got merged |
-| "not merged yet" about something merged last week | whether it is still waiting |
-| "see the file at this path" but the file moved | whether the file is there |
-| `[a link](to/a/file.md)` whose file is gone | whether the linked file is there |
-| a `#jump-to-section` link with no such section | whether the heading exists |
-| "work is on branch X" and there is no such branch | whether git has ever seen it |
-| "released in v2.1" and there is no such tag | whether the tag exists and shipped |
-| a path spelled `Docs/Plan.md` when the file is `docs/plan.md` | whether the spelling matches the real file |
-| a password or key pasted in by accident | whether anything looks like a secret |
+| `dead-sha` | "released in commit `abc1234`" when that commit does not exist |
+| `false-merge-claim` | "merged into main at `abc1234`" when it never landed |
+| `stale-live-claim` | "not merged yet" about something merged last week |
+| `unknown-branch` | "work is on branch X" when git has never seen that name |
+| `dead-release-tag` | "released in v2.1" when no such tag exists, or it never shipped |
+| `dead-path-pointer` | "see the file at this path" when the file moved |
+| `dead-md-link` | `[a link](to/a/file.md)` whose target is gone |
+| `dead-md-anchor` | a `#jump-to-section` link with no such heading |
+| `inconsistent-artifact` | two files in your project stating different values for the same thing |
+| `possible-secret` | a password or key pasted in by accident |
 
-That fifth-from-last row is not fussiness. Windows and macOS open
-`docs/PLAN.md` quite happily when the file is `docs/plan.md`; Linux does not.
-Without the check, a document passes on your laptop and fails on the server, or
-worse, passes everywhere while misleading every Linux reader.
+Three details that are easy to miss:
 
-Examples inside code blocks and backticks are left alone, so a README showing
-what a claim looks like is not read as making one. A password inside a code
-block is still reported, because that one is about what the file **contains**
-rather than what it promises.
+**Case matters, and only on some machines.** Windows and macOS open
+`docs/PLAN.md` happily when the file is `docs/plan.md`. Linux does not. Without
+the check a document passes on your laptop and fails on the server, or worse,
+passes everywhere while misleading every Linux reader. Wrong-case paths are
+reported on every platform.
 
-When a file has simply moved, it tells you where it went:
+**Examples are left alone.** Claims inside fenced code blocks are not read as
+promises, so a README showing what a claim looks like is not accused of making
+one. A password inside a fence is still reported, because that one is about what
+the file contains rather than what it promises.
+
+**Renames are followed.** When a file has moved, you get told where:
 
 ```
 line 5: [dead-md-link] links to `docs/old-name.md`, which does not exist;
@@ -91,15 +95,16 @@ line 5: [dead-md-link] links to `docs/old-name.md`, which does not exist;
 
 ### What it deliberately ignores
 
-It never judges whether a number or date is *right*. "We had 2238 tests in
-March" was true in March. It is not wrong now, just old, and there is nothing to
+It never judges whether a number or a date is *right*. "We had 2238 tests in
+March" was true in March. It is not wrong now, only old, and there is nothing to
 check it against.
 
-That restraint is the point. **A tool that cries wolf gets ignored**, and an
-ignored tool is worse than none. It only reports what it can prove is wrong.
+That restraint is the whole design. A tool that cries wolf gets ignored, and an
+ignored tool is worse than none. This one reports only what it can prove.
 
-The one thing it will compare is **two files against each other**, which is a
-different question with a definite answer. See below.
+The single exception proves the rule: it will compare **two files against each
+other**, because that has a definite answer. See
+[files that contradict each other](#files-that-contradict-each-other).
 
 ---
 
@@ -107,61 +112,43 @@ different question with a definite answer. See below.
 
 | | |
 |:---|:---|
-| **Probably yes** | Your project uses Git and has documentation: a README, a CONTRIBUTING file, docs, architecture notes. That is enough. It matters more if an AI assistant reads those files, because it cannot tell an expired line from a current one. |
-| **Probably not** | Your project does not use Git, or your documentation is a single paragraph that never mentions a file, a commit, or a version. |
+| **Probably yes** | Your project uses git and has documentation: a README, a CONTRIBUTING file, docs, architecture notes. That is enough. It matters more if an AI assistant reads those files, because it cannot tell an expired line from a current one. |
+| **Probably not** | Your project does not use git, or your documentation is one paragraph that never mentions a file, a commit, or a version. |
 
-Note what is **not** on that list: keeping a status or progress file. This
-started as a tool for those and required one to exist, which turned out to be
-the single largest reason people could not use it. The rules were never
-specific to that shape - they work on any markdown.
+Note what is **not** required: a status file, a changelog, a particular
+workflow, or any change to how you work.
 
 ---
 
-## Before you start
+## Requirements
 
-You need two things. Open a terminal (Command Prompt or PowerShell on Windows,
-Terminal on Mac or Linux) and type these one at a time:
+Git, and Python 3.11 or newer. Check both:
 
 ```console
 $ git --version
 $ python --version
 ```
 
-Each should print a version number.
-
-| If this is missing | Get it here |
+| If missing | Get it |
 |:---|:---|
 | Git | https://git-scm.com |
-| Python (needs 3.11 or newer) | https://www.python.org |
+| Python 3.11+ | https://www.python.org |
 
-On Mac and Linux you may need to type `python3` rather than `python`.
+On macOS and Linux you may need `python3` rather than `python`.
 
-You do not need to know how to program. You do need to be comfortable typing a
-few commands.
+**The tool itself has no third-party dependencies.** Standard library and git,
+nothing else. Nothing is installed into your project that needs anything.
 
 ---
 
 ## Install
 
-### Option A: through Claude Code
+Three ways in. Pick one.
 
-Two lines, typed into Claude Code:
+### Option A: pre-commit
 
-```
-/plugin marketplace add scooter-sensei/extant
-/plugin install extant@extant
-```
-
-That is the whole installation. Now open the project you want to protect and ask:
-
-> Set up extant in this project.
-
-It runs the setup, works out the right settings by looking at your project, and
-tells you what it found.
-
-### Option B: pre-commit, if you already use it
-
-One block in your `.pre-commit-config.yaml`:
+If you already use [pre-commit](https://pre-commit.com), this is the whole
+setup. Add to `.pre-commit-config.yaml`:
 
 ```yaml
 repos:
@@ -171,23 +158,50 @@ repos:
       - id: extant
 ```
 
-It runs on every commit, whether or not you touched any documentation. That is
-deliberate: merging a branch can make a sentence false without editing a single
-line of prose, which is the case this exists for.
+Then `pre-commit install`, and create a `.extant.toml` naming the document to
+check:
 
-### Option C: download it yourself
+```toml
+primary_doc = "README.md"
+extra_docs = ["CONTRIBUTING.md"]
+```
+
+It runs on every commit whether or not you touched documentation. That is
+deliberate: merging a branch can make a sentence false without editing a line of
+prose, and that is the case this exists for.
+
+A second hook id, `extant-annotate`, emits GitHub Actions annotations instead of
+plain text.
+
+### Option B: Claude Code
+
+Two lines:
+
+```
+/plugin marketplace add scooter-sensei/extant
+/plugin install extant@extant
+```
+
+Then open the project you want to protect and ask:
+
+> Set up extant in this project.
+
+It inspects your repository, works out the settings, and reports what it found
+and how confident it is about each value.
+
+### Option C: by hand
 
 Works with or without Claude Code.
 
-**1. Get the files.** Either download the ZIP from
-[the repository](https://github.com/scooter-sensei/extant) (green
-**Code** button, then **Download ZIP**, then unzip), or if you know Git:
+**1. Get the files.** Download the ZIP from
+[the repository](https://github.com/scooter-sensei/extant) (green **Code**
+button, then **Download ZIP**), or clone it:
 
 ```console
 $ git clone https://github.com/scooter-sensei/extant
 ```
 
-**2. Preview it.** This changes nothing. Swap in the folder of your own project:
+**2. Preview.** This changes nothing:
 
 ```console
 $ python extant/plugin/skills/extant/install.py --repo /path/to/your/project --dry-run
@@ -195,32 +209,11 @@ $ python extant/plugin/skills/extant/install.py --repo /path/to/your/project --d
 
 Read what it prints. If it looks wrong, stop, and nothing has happened.
 
-**3. Do it for real.** Same command, without `--dry-run`.
-
-If you want it configured for you, add a preset:
+**3. Do it for real.** The same command without `--dry-run`, plus a preset:
 
 ```console
-$ python .../install.py --repo /path/to/your/project --preset readme
+$ python extant/plugin/skills/extant/install.py --repo /path/to/your/project --preset readme
 ```
-
-| Preset | For |
-|:---|:---|
-| `readme` | any project. Checks your README and CONTRIBUTING. Nothing else needed. |
-| `node` | the same, plus `package.json` and `CHANGELOG.md` version agreement |
-| `python` | the same, with `pyproject.toml` |
-| `rust` | the same, with `Cargo.toml` |
-| `enterprise` | long-lived projects: also checks `SECURITY.md`, `SUPPORT.md`, `UPGRADING.md` and `MIGRATION.md` |
-| `ml` | data and model projects: also checks `MODEL_CARD.md` and `DATA_CARD.md`, and that `pyproject.toml` and `environment.yml` pin the same Python |
-| `legacy-web` | older web apps: also checks `INSTALL.md`, `DEPLOY.md` and `UPGRADING.md`, and that `.nvmrc` and `package.json` agree on Node |
-| `status` | a running status file with dated entries |
-
-A preset picks the documents and the shape. It never overrides something the
-setup measured from your project, because a measurement beats a template, and a
-preset that quietly replaced your real branch name would be the copied-config
-problem this tool was built around.
-
-Checks whose files are not present are skipped and reported, so a preset never
-opens by complaining about a file you do not have.
 
 **4. Turn on the automatic checks.**
 
@@ -229,75 +222,80 @@ $ cd /path/to/your/project
 $ sh tools/hooks/install
 ```
 
-From now on it re-checks your notes file every time you save a change.
+They run after a commit is already recorded, print what they found, and never
+stop you doing anything.
 
-These checks only ever **tell you** things. They run after your change is
-already saved, print what they found, and never stop you doing anything.
+### Presets
+
+A preset picks the documents and the shape, so you are not deriving
+configuration before you have seen the tool work once.
+
+| Preset | For |
+|:---|:---|
+| `readme` | any project. Your README and CONTRIBUTING. Nothing else needed. |
+| `node` | the same, plus `package.json` and `CHANGELOG.md` version agreement |
+| `python` | the same, with `pyproject.toml` |
+| `rust` | the same, with `Cargo.toml` |
+| `enterprise` | long-lived projects. Also `SECURITY.md`, `SUPPORT.md`, `UPGRADING.md`, `MIGRATION.md` |
+| `ml` | data and model projects. Also `MODEL_CARD.md` and `DATA_CARD.md`, and that `pyproject.toml` and `environment.yml` pin the same Python |
+| `legacy-web` | older web apps. Also `INSTALL.md`, `DEPLOY.md`, `UPGRADING.md`, and that `.nvmrc` and `package.json` agree on Node |
+| `status` | a running status file with dated entries |
+
+The last three exist because long-lived documentation rots in a particular
+place. An enterprise project rarely has a stale README. It has a `MIGRATION.md`
+last edited in 2021 pointing at three files that have since moved.
+
+Two rules govern every preset:
+
+**A preset never overrides something measured.** Detection reads your repository
+for the trunk name, branch naming and commit conventions. A template would be
+guessing at those, and a preset that quietly replaced your real branch name
+would be the copied-configuration problem this tool was built around. Choosing
+the *document* is your call, which is why passing a preset settles that one.
+
+**Checks whose files are absent are skipped and reported.** A preset never opens
+by complaining about a file you do not have. A tool whose first act is a false
+positive has taught a lesson that is very hard to unteach.
 
 ### What lands in your project
 
 | | |
 |:---|:---|
-| `tools/` | the checker itself |
+| `tools/` | the checker |
 | `.extant.toml` | settings, written by reading **your** project |
-| git hooks | the automatic checks (they report, they never block) |
-| `/extant` command | only if you use Claude Code, written for your project |
+| git hooks | the automatic checks. They report, they never block |
+| `/extant` command | only with Claude Code, rendered for your project |
 
 ---
 
-## Read the settings it writes
+## Features
 
-Setup works out your project's habits by reading it, and prints what it found
-with how sure it is:
+### Every check reports its denominator
 
-```console
-  trunk         [derived ] origin/HEAD -> main
-  branch_token  [derived ] 128 branches sampled
-  entry_prefix  [guessed ] highest-scoring header '## Release'
-  merge_claim   [unknown ] no matching phrasing found
-```
-
-Anything it could not work out is left switched **off** rather than guessed.
-
-> **This is the part that matters.** If a setting is wrong, that check quietly
-> does nothing, and you get a tool reporting "all clear" forever without looking
-> at anything. It is the one way this fails badly. Read what setup prints, and
-> see [porting.md](plugin/skills/extant/references/porting.md) to fill the gaps.
-
----
-
-## Day to day
-
-Mostly you do nothing. The checks run by themselves when you save changes.
-
-To check on demand, from inside your project:
-
-```console
-$ python tools/extant_collect.py --verify
-```
-
-The summary line counts **what it looked at**, not problems found:
+The summary line counts what was **examined**, not what was found:
 
 ```console
 checked STATUS.md: dead-sha 36, stale-live-claim 1, false-merge-claim 2,
   dead-path-pointer 5 (907 lines scanned for secrets)
 ```
 
-If one of those reads `0`, that check found nothing to examine, which usually
-means a setting is wrong rather than that your file is spotless. The tool says
-so out loud, because "found no problems" and "did not look" are easy to confuse
-and only one is good news.
+If one of those reads `0`, that check found nothing to look at, which usually
+means a setting is wrong rather than that your file is spotless. Any rule that
+examined nothing is named on a `NOTE:` line.
 
-### Prove the checks actually work
+This is the single most important line in the output. "Found no problems" and
+"did not look" print identically otherwise, and only one of them is good news.
 
-The worry above deserves more than a warning, so there is a command for it:
+### It can prove its own checks fire
+
+The worry above deserves more than a warning, so there is a command:
 
 ```console
 $ python tools/extant_collect.py --selftest
 ```
 
-It takes a real claim from your document, deliberately breaks it, and confirms
-the matching check notices. Then it puts everything back. Nothing is written.
+It takes a real claim from your document, breaks it on purpose, confirms the
+matching rule notices, and puts everything back. Nothing is written.
 
 ```console
   dead-sha             FIRED
@@ -310,117 +308,47 @@ the matching check notices. Then it puts everything back. Nothing is written.
 ```
 
 **A check that stays silent after you break something it should catch is
-broken.** That is the one line worth reading. This runs in CI here on every
-change, so the tool is not merely tested, it is watched failing.
+broken.** This runs in CI here on every change, so the tool is not merely
+tested, it is watched failing.
 
-### Show the problems inside pull requests
-
-By default findings print as plain lines. Two other shapes exist for machines:
+### Findings inside pull requests
 
 ```console
 $ python tools/extant_collect.py --verify --format=github
 $ python tools/extant_collect.py --verify --format=sarif
 ```
 
-**`github`** prints GitHub Actions annotations, so each problem is highlighted
-on its own line in the pull request, instead of sitting in a log nobody opens.
-Add `--format=github` to the step that runs the check. Nothing else is needed.
+**`github`** emits GitHub Actions annotations, so each problem is highlighted on
+its own line in the pull request diff rather than buried in a log nobody opens.
+Add the flag to your existing step. Nothing else is needed, and it requires no
+extra permissions.
 
-**`sarif`** prints the standard format that code-scanning tools exchange. It
-writes only JSON, so you can pipe it straight into a file. If you want the
-results in GitHub's Security tab, upload that file:
+**`sarif`** emits the standard format code-scanning tools exchange, as pure JSON
+on stdout, so it pipes straight to a file. To get results into GitHub's Security
+tab:
 
 ```yaml
-      - name: Check the status document
-        run: python tools/extant_collect.py --verify --format=sarif > status.sarif
+      - name: Check the documentation
+        run: python tools/extant_collect.py --verify --format=sarif > extant.sarif
         continue-on-error: true
 
       - uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: status.sarif
+          sarif_file: extant.sarif
 ```
 
-That upload step needs `permissions: security-events: write` on the job. This
-repository does not use it, so treat it as a starting point rather than
-something proven here: the annotation route above is what runs on every commit.
+That upload needs `permissions: security-events: write`. This repository uses
+the annotation route instead, so treat the SARIF upload as a starting point
+rather than something proven here.
 
-### An optional extra: the wrong-branch guard
+### Files that contradict each other
 
-There is one more check you can switch on. It is **off unless you ask for it**,
-because unlike everything else here it can **refuse to save your work**.
+The tool never asks whether a number is *correct*. It will ask whether two files
+disagree, which has a definite answer needing only the filesystem.
 
-```console
-$ sh tools/hooks/install --with-trunk-guard
-```
-
-**What problem it solves.** Git lets you keep several versions of a project
-going at once, called branches. There is usually one "real" version everyone
-shares, and side versions where work happens before joining it. If you forget
-which one you are looking at, you can save work onto the wrong version. The
-work is not lost, but it is filed in the wrong place, and finding that out
-later is unpleasant.
-
-This guard notices that situation and stops the save, with a message telling
-you where you actually are.
-
-**Why it is off by default.** It has nothing to do with your notes file. You
-came here for a tool that checks whether your writing is still true, and a tool
-that suddenly refuses to save your work for an unrelated reason is a tool people
-uninstall. So you get it only if you want it.
-
-**Should you turn it on?** If you work on one branch and rarely switch, no; it
-will never trigger and is just another moving part. If you juggle several
-branches, or you have ever pushed work and found it on the wrong one, yes. It is
-also worth it if AI assistants make commits in your project, because they are
-particularly good at losing track of which branch they are on.
-
-You can remove it later by deleting the `pre-commit` file inside your project's
-`.git/hooks` folder, or bypass it once with `git commit --no-verify`.
-
-### Find something you wrote months ago
-
-Old entries get moved out of your notes file into an archive so the live file
-stays short. That is helpful until you need to remember why a decision was made
-and cannot recall which file it ended up in.
-
-```console
-$ python tools/extant_collect.py --search "checkout"
-```
-
-It searches the live file and the archive together, and prints whole entries
-rather than single matching lines, so you get the decision and its date rather
-than a phrase out of context. Add `--full` for the complete entry.
-
-### Fix moved files without editing by hand
-
-When a file has been renamed, the tool already tells you where it went. It can
-also write the correction out for you:
-
-```console
-$ python tools/extant_collect.py --verify --suggest-fixes
-```
-
-This prints a **patch** and changes nothing. You can read it, and apply it with
-one command if you agree:
-
-```console
-$ python tools/extant_collect.py --verify --suggest-fixes | git apply -
-```
-
-It only offers changes for files git actually recorded as renamed. If a file is
-simply gone, it says nothing, because guessing where it went would mean writing
-something that might not be true, and that is the one thing this tool refuses
-to do.
-
-### Catch two files disagreeing with each other
-
-This tool never checks whether a number is *correct* - "we had 2238 tests" has
-nothing to check it against. But it can check whether two files in your project
-**contradict each other**, which has a definite answer.
-
-This project needed it: three files said the version was 0.1.0 while the
-changelog said 0.3.0, and anyone installing was told they were getting the first
-release. Add to `.extant.toml`:
+This project shipped the bug that motivated it: three manifests said the version
+was 0.1.0 while the changelog said 0.3.0, and everyone installing was told they
+were getting the first release.
 
 ```toml
 [extant.consistency.version]
@@ -428,63 +356,154 @@ release. Add to `.extant.toml`:
 "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
 ```
 
-Each line names a file and how to find the value in it. If they disagree, you
+Each line names a file and how to find the value inside it. Disagree, and you
 are told which file says what.
 
-### Check your other files too
+Four shapes are refused when the settings load, because each would produce a
+check that can never fail: a check listing one file, a pattern with no capture
+group, a pattern with more than one, and the same file named twice under
+different spellings. A pattern that matches nothing is reported rather than
+passing quietly.
 
-Your status file is not the only one that rots. A `CLAUDE.md`, an `AGENTS.md`,
-a `README` all make the same kinds of claim. Add them:
+### Corrections as a patch, never an edit
 
-```toml
-extra_docs = ["CLAUDE.md", "AGENTS.md", "README.md"]
+When a file has been renamed, the tool already tells you where it went. It can
+also write the correction:
+
+```console
+$ python tools/extant_collect.py --verify --suggest-fixes
 ```
 
-They get every check that does not depend on dated entries, which is most of
-them. This is also how a team that tracks work in Jira or Linear, and keeps no
-status file at all, still gets something useful out of this.
+This prints a **patch** and changes nothing. Read it, and apply it if you agree:
 
----
+```console
+$ python tools/extant_collect.py --verify --suggest-fixes | git apply -
+```
 
-## What it cannot do
+It only offers corrections for files git actually recorded as renamed. If a file
+is simply gone it says nothing, because guessing where it went means writing
+something that might not be true, and that is the one thing this refuses to do.
+Its authority rests on checking claims and never authoring them.
 
-- Only catches sentences that can be **proven** wrong. Vague writing like
-  "nearly finished" is beyond it, on purpose.
-- Cannot judge whether your summary is a *good* summary.
-- Expects consistent headings for each entry. A heading that does not match gets
-  skipped silently.
-- Assumes one main branch. More elaborate branching is not handled.
-- **Checks links to your own files, not links to the web.** Nothing here uses
-  the internet. Checking external links would make a passing run depend on
-  someone else's uptime and rate limits, turning a definite answer into a
-  coin flip. Issue and pull request links go unchecked for the same reason.
-- **Does not complain about a branch that was merged and then deleted.** That
-  is normal tidying, not a mistake, and the branch is still named in the merge
-  commit. Only a name git has never seen at all is reported.
-- **Settings are read next to the tool, not next to the folder you point it
-  at.** That is right once it is installed in your project, and wrong if you
-  run it from somewhere else, where your settings would be skipped. It tells
-  you when that happens rather than quietly using the wrong ones.
-- If the settings are wrong it checks nothing while appearing to work.
-- **It cannot tell a corrected claim from a deleted one.** Removing the sentence
-  it complained about makes a document pass. The `/extant` workflow works
-  around this by making the agent report its first-run findings even after
-  fixing them, so a deletion is visible in both the report and the diff, but
-  the checker on its own has no way to know.
-- **A pattern you write yourself can hang it.** The settings take regular
-  expressions, and a badly shaped one can take effectively forever on certain
-  text. That is your own configuration doing it, and the fix is to simplify the
-  pattern, but the failure looks like the tool freezing rather than complaining.
+### Search across the archive
 
-## Works with any language
+If you keep a status document, old entries get archived so the live file stays
+short. That helps until you need to remember why a decision was made.
 
-The checking part does not care what your project is written in. Only the
-optional "run the tests" step does, and you tell it the command:
+```console
+$ python tools/extant_collect.py --search "checkout"
+```
+
+It searches the live document and the archive together and returns whole
+**entries** rather than matching lines. That is the only reason it beats grep: a
+decision lives in a dated entry with its reasoning, and a line from the middle
+tells you a phrase exists rather than what was decided.
+
+### Every other document you keep
+
+Your primary document is not the only one that rots. A `CLAUDE.md`, an
+`AGENTS.md`, a `CONTRIBUTING.md` all make the same kinds of claim:
+
+```toml
+extra_docs = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md"]
+```
+
+They get every rule that does not depend on dated entries, which is most of
+them.
+
+### The optional wrong-branch guard
+
+One check is **off unless you ask for it**, because unlike everything else here
+it can refuse to save your work:
+
+```console
+$ sh tools/hooks/install --with-trunk-guard
+```
+
+**What it solves.** Git lets you keep several versions of a project going at
+once. If you lose track of which one you are on, you can commit to the wrong
+branch. The work is not lost, but it is filed in the wrong place, and finding
+out later is unpleasant.
+
+**Why it is off by default.** It has nothing to do with your documentation. You
+came for a tool that checks whether your writing is still true, and a tool that
+suddenly refuses to save your work for an unrelated reason is a tool people
+uninstall.
+
+**Should you?** If you work on one branch, no. If you juggle several, or have
+ever pushed work and found it on the wrong branch, yes. It is also worth it if
+AI assistants commit in your project, because they are particularly good at
+losing track of which branch they are on.
+
+Remove it by deleting `pre-commit` from your project's `.git/hooks`, or bypass
+it once with `git commit --no-verify`.
+
+### Any language
+
+The checking does not care what your project is written in. Only the optional
+"run the tests" step does, and you name the command:
 
 ```toml
 suite_command = ["npm", "test"]
 suite_command = ["cargo", "test"]
 ```
+
+### Fast enough to leave on
+
+A 16,000-line document validates in under a second. A 100,000-line document in
+about four. The rules that query git batch their questions, so a document
+naming two thousand distinct commits asks git once per commit rather than twice
+per claim.
+
+---
+
+## Read the settings it writes
+
+Setup works out your project's habits by reading it, and prints each value with
+how confident it is:
+
+```console
+  trunk         [derived ] origin/HEAD -> main
+  branch_token  [derived ] 128 branches sampled
+  entry_prefix  [guessed ] highest-scoring header '## Release'
+  merge_claim   [unknown ] no matching phrasing found
+```
+
+Anything it could not work out is left **switched off** rather than guessed.
+
+> **This is the part that matters.** If a setting is wrong, that rule quietly
+> does nothing and you get a tool reporting "all clear" forever without looking
+> at anything. It is the one way this fails badly. Read what setup prints, and
+> see [porting.md](plugin/skills/extant/references/porting.md) to fill gaps.
+
+---
+
+## What it cannot do
+
+- Only catches sentences that can be **proven** wrong. "Nearly finished" is
+  beyond it, on purpose.
+- Cannot judge whether a summary is a *good* summary.
+- Expects consistent headings for dated entries. A heading that does not match
+  is skipped.
+- Assumes one main branch. Gitflow-style release branches are not modelled.
+- **Checks links to your own files, not to the web.** Nothing here touches the
+  network. Checking external links would make a passing run depend on someone
+  else's uptime and rate limits, turning a definite answer into a coin flip.
+  Issue and pull request links go unchecked for the same reason.
+- **Does not complain about a branch merged and then deleted.** That is normal
+  tidying, and the branch is still named in the merge commit. Only a name git
+  has never seen is reported.
+- **Settings load next to the tool, not next to the folder you point at.**
+  Correct once installed in your project, wrong if you run it from elsewhere. It
+  says so on stderr rather than quietly using the wrong ones.
+- **It cannot tell a corrected claim from a deleted one.** Removing the sentence
+  it complained about makes a document pass. The `/extant` workflow works around
+  this by reporting first-run findings even after fixing them, so a deletion is
+  visible in both the report and the diff. The checker alone cannot know.
+- **A pattern you write yourself can hang it.** Settings take regular
+  expressions, and a badly shaped one can take effectively forever on some text.
+  The fix is to simplify the pattern, but the failure looks like a freeze rather
+  than a complaint.
 
 ---
 
@@ -493,16 +512,14 @@ suite_command = ["cargo", "test"]
 
 <br>
 
-**"python is not recognised"** on Windows, or **"command not found"** on Mac and
-Linux: try `python3` instead of `python`, or reinstall Python and tick the
-"add to PATH" box.
+**"python is not recognised"** on Windows, or **"command not found"** on macOS
+and Linux: try `python3`, or reinstall Python with the "add to PATH" box ticked.
 
-**The checks never run.** Make sure you did step 4. Confirm by running the
-`--verify` command by hand.
+**The checks never run.** Confirm you did step 4, then run `--verify` by hand.
 
 **It flags something you think is fine.** Do not silence it by deleting the
-sentence it complained about. Either that sentence really is out of date, or a
-setting needs adjusting. Both are worth knowing.
+sentence. Either that sentence really is out of date, or a setting needs
+adjusting. Both are worth knowing.
 
 **Everything reports 0.** A setting is almost certainly wrong. See
 [Read the settings it writes](#read-the-settings-it-writes).
@@ -520,7 +537,7 @@ All under `plugin/skills/extant/`:
 |:---|:---|
 | `references/porting.md` | Getting the settings right for your project. Read first. |
 | `references/config.md` | Every setting explained. |
-| `references/design.md` | Why each check works as it does, and the real mistake behind each decision. |
+| `references/design.md` | Why each rule works as it does, and the real mistake behind each decision. |
 | `SKILL.md` | What Claude reads. |
 
 </details>
@@ -532,6 +549,7 @@ All under `plugin/skills/extant/`:
 
 ```
 .claude-plugin/marketplace.json   lets Claude Code install this
+.pre-commit-hooks.yaml            lets pre-commit install this
 plugin/
   .claude-plugin/plugin.json      plugin details
   skills/extant/
@@ -539,21 +557,25 @@ plugin/
     install.py, detect.py         the setup program
     payload/                      what gets copied into your project
     references/                   the deeper documentation
-tests/                            the test suite
+tests/                            219 tests
 tests/harnesses/                  five slow audits, run by hand
-NEXT_SESSION.md                   this project's own notes file
+NEXT_SESSION.md                   this project's own status document
 ```
 
-That last one is not decoration. This project runs its own tool on its own notes
-file, on every change, in CI. If it stopped working, this repository would be
-the first to find out.
+That last one is not decoration. This project runs its own tool on its own
+document, on every change, in CI. If it stopped working, this repository would
+be the first to find out.
 
-`tests/harnesses/` holds the checks pytest cannot perform: one that breaks the
-code on purpose to see whether any test notices, one that installs into a dozen
-unlike projects, one that tries to abuse the tool, and two that measure speed
-and load. They found every bug fixed in the most recent release. The unit suite
-found none of them, because the unit suite was the thing being audited. See
-`tests/harnesses/README.md`.
+`tests/harnesses/` holds the audits pytest cannot perform: one that breaks the
+code on purpose to see whether any test notices (46 mutations, all caught), one
+that installs into a dozen unlike projects (12 scenarios, 65 assertions), one
+that tries to abuse the tool (18 adversarial probes), and two that measure speed
+and load. Between them they found every defect fixed in 0.3.0, and the stale
+assertion caught in the audit before 0.6.0. The unit suite found none of them,
+because the unit suite was the thing being audited.
+
+The bug fixed in 0.6.1 was found by none of them. It took installing the
+published release and using it as a stranger would, which is its own lesson.
 
 </details>
 
@@ -564,9 +586,9 @@ found none of them, because the unit suite was the thing being audited. See
 
 When you write a rule that checks something, **look at your real data first and
 shape the rule to fit it**, rather than writing what the rule ought to look like
-and hoping. Done the second way, the file-path check produced 23 false alarms on
-the very first project it ran against. Done the first way it produced none, and
-still caught the real problem.
+and hoping. Done the second way, the file-path rule produced 23 false alarms on
+the first project it ran against. Done the first way it produced none, and still
+caught the real problem.
 
 And always report how many things you looked at. "Found no problems" and "did
 not look" print exactly the same otherwise.
