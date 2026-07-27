@@ -451,6 +451,337 @@ def p_config_discovery_abuse() -> None:
            "an outer .extant.toml was not inherited")
 
 
+# ------------------------------------------------- new surfaces (0.7.0-0.10.0)
+# The baseline is the most abusable thing here by a wide margin. Every other
+# feature reports MORE; this one reports less on purpose, which makes every
+# probe below a question about whether the amnesty can quietly grow to cover
+# everything. "Does suppression work" is the easy half and is already a unit
+# test. What follows is the other half.
+SECRET = "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+DEAD_SHA = "0" * 40
+
+
+def p_baseline_and_a_live_credential() -> None:
+    """A baseline records findings into a file that gets COMMITTED.
+
+    Two separate questions, and they have different answers. Writing the
+    credential itself into that file would turn the secret scanner into a
+    secret publisher, which is the worse of the two. Suppressing the finding
+    leaves a live credential in the document with nothing ever mentioning it
+    again.
+    """
+    print("\n[baseline] a credential, recorded and then suppressed")
+    repo = new_repo("baseline-secret")
+    write(repo, "NEXT_SESSION.md", ENTRY.format(
+        f"Token `{SECRET}` is in use.\nReference `{DEAD_SHA}`."))
+    commit(repo, "init")
+
+    res = tool(repo, "--validate", "NEXT_SESSION.md", "--write-baseline")
+    recorded = repo / ".extant-baseline.json"
+    if not recorded.is_file():
+        note("HARNESS", "no baseline was written", res.stdout + res.stderr)
+        return
+    body = recorded.read_text(encoding="utf-8")
+    if SECRET in body:
+        note("SECURITY", "the baseline file contains the credential in full",
+             "the finding detail is written verbatim into a file whose whole "
+             "purpose is to be committed and reviewed, so recording a secret "
+             "once publishes it permanently")
+    else:
+        ok("the recorded credential is truncated, not stored",
+           "the detail is abbreviated, so the baseline cannot become a "
+           "committed secret store")
+
+    after = tool(repo, "--validate", "NEXT_SESSION.md", "--baseline")
+    if after.returncode == 0 and "possible-secret" not in after.stdout:
+        note("BY-DESIGN", "a baseline can suppress a live credential",
+             "possible-secret is treated as ordinary debt, so a token still "
+             "sitting in the document is silenced by the same mechanism that "
+             "forgives a dead link. Every other rule describes something that "
+             "is merely wrong; this one describes something that is still "
+             "dangerous.")
+    else:
+        ok("a credential survives the baseline", f"exit {after.returncode}")
+
+
+def p_baseline_forgives_a_repaste() -> None:
+    """The fingerprint excludes the line number on purpose, so that reflowing a
+    paragraph does not un-suppress everything. The cost of that choice is that
+    the SAME claim pasted somewhere new is also already forgiven."""
+    print("\n[baseline] the same dead claim, pasted again after recording")
+    repo = new_repo("baseline-repaste")
+    write(repo, "NEXT_SESSION.md", ENTRY.format(f"Reference `{DEAD_SHA}`."))
+    commit(repo, "init")
+    tool(repo, "--validate", "NEXT_SESSION.md", "--write-baseline")
+
+    write(repo, "NEXT_SESSION.md", ENTRY.format(
+        f"Reference `{DEAD_SHA}`.\n\n"
+        f"A paragraph added today, citing `{DEAD_SHA}` all over again."))
+    res = tool(repo, "--validate", "NEXT_SESSION.md", "--baseline")
+    if res.returncode == 0:
+        note("BY-DESIGN", "a recorded finding forgives future copies of itself",
+             "the fingerprint is (path, kind, detail) with no line number, so "
+             "one amnesty covers every future occurrence of that exact claim "
+             "in that file. Line-number fingerprints would trade this for "
+             "un-suppressing on every reflow, which is worse.")
+    else:
+        ok("a new copy of a recorded claim is still reported",
+           f"exit {res.returncode}")
+
+
+def p_baseline_failure_modes() -> None:
+    """Every way of getting a baseline wrong must be LOUD.
+
+    This is the project's own core failure mode aimed at itself: if a typo'd
+    path or a corrupt file degraded to "suppress nothing" or "suppress
+    everything", CI would stay green and nobody would learn that the ratchet
+    had stopped working. Exit codes are asserted rather than message text,
+    because the exit code is what CI reads.
+    """
+    print("\n[baseline] corrupt, missing and empty baselines")
+    repo = new_repo("baseline-broken")
+    write(repo, "NEXT_SESSION.md", ENTRY.format(f"Reference `{DEAD_SHA}`."))
+    commit(repo, "init")
+
+    plain = tool(repo, "--validate", "NEXT_SESSION.md")
+    if plain.returncode != 1:
+        note("HARNESS", "the unsuppressed document did not report a finding",
+             f"exit {plain.returncode}; nothing below can be trusted")
+        return
+
+    write(repo, "bad.json", "not json at all\n")
+    write(repo, "empty.json", '{"version": 1, "findings": []}\n')
+    cases = [
+        ("corrupt", ("--baseline", "bad.json"), 2),
+        ("missing", ("--baseline", "nope.json"), 2),
+        ("empty", ("--baseline", "empty.json"), 1),
+    ]
+    for label, args, expected in cases:
+        res = tool(repo, "--validate", "NEXT_SESSION.md", *args)
+        if res.returncode == expected:
+            ok(f"a {label} baseline exits {expected}, not 0")
+        elif res.returncode == 0:
+            note("SILENT", f"a {label} baseline makes the run pass",
+                 "a broken suppression file turned a failing document green, "
+                 "which is indistinguishable from having fixed it")
+        else:
+            note("UNEXPECTED", f"a {label} baseline exits {res.returncode}",
+                 f"expected {expected}: {res.stderr.strip()[:200]}")
+
+
+def p_baseline_theatre() -> None:
+    """A baseline recorded on a clean document protects nothing, and looks
+    exactly like one that protects a great deal."""
+    print("\n[baseline] a baseline with nothing in it")
+    repo = new_repo("baseline-theatre")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing falsifiable here."))
+    commit(repo, "init")
+    res = tool(repo, "--validate", "NEXT_SESSION.md", "--write-baseline")
+    body = (repo / ".extant-baseline.json").read_text(encoding="utf-8")
+    empty = '"findings": []' in body.replace("\n", "").replace("  ", "")
+    said_zero = "0 finding" in (res.stdout + res.stderr)
+    if empty and not said_zero:
+        note("SILENT", "an empty baseline is written without saying it is empty",
+             "the file exists, the flag was accepted, and the project now "
+             "believes it has a ratchet")
+    else:
+        ok("recording nothing is reported as nothing",
+           f"empty={empty}, stated={said_zero}")
+
+
+def p_sarif_stdout_purity() -> None:
+    """SARIF's contract is that stdout is JSON and NOTHING else.
+
+    A single stray diagnostic makes the file unparseable, and the way that
+    surfaces is a CI upload step failing days later with no obvious cause. The
+    document here carries content designed to break a naive serialiser.
+    """
+    print("\n[sarif] hostile content, and whether stdout stays parseable")
+    repo = new_repo("sarif-purity")
+    write(repo, "NEXT_SESSION.md", ENTRY.format(
+        'See [a](docs/quote"and\\backslash.md).\n'
+        "See [b](docs/inj%0A::add-mask::hidden.md).\n"
+        "See [c](docs/tab\tand-control.md).\n"
+        f"Reference `{DEAD_SHA}`.\n"))
+    commit(repo, "init")
+    res = tool(repo, "--validate", "NEXT_SESSION.md", "--format=sarif")
+    import json as _json
+    try:
+        parsed = _json.loads(res.stdout)
+        results = parsed["runs"][0]["results"]
+    except (ValueError, KeyError, IndexError) as exc:
+        note("BROKEN", "SARIF stdout is not parseable JSON",
+             f"{exc}\nfirst 200 bytes: {res.stdout[:200]!r}")
+        return
+    if not results:
+        note("HARNESS", "SARIF parsed but contained no results",
+             "the probe document produced nothing to serialise, so purity was "
+             "not actually exercised")
+        return
+    ok("SARIF stdout parses with hostile content in the findings",
+       f"{len(results)} results")
+    if res.stderr.strip():
+        ok("human diagnostics went to stderr", f"{len(res.stderr)} bytes")
+    else:
+        note("SILENT", "SARIF mode printed no diagnostics anywhere",
+             "the denominator is the thing that distinguishes a clean run from "
+             "a blind one, and in SARIF mode it has nowhere to go but stderr")
+
+
+def p_github_annotation_injection() -> None:
+    """Can a DOCUMENT forge a GitHub workflow command?
+
+    Findings are interpolated into `::error ...::message`, and the document
+    controls both the path and the detail. A command must begin at the start
+    of a line, so forgery reduces to injecting a newline.
+
+    The first version of this probe proved NOTHING. It put `%0A` in a link and
+    called that a newline, but that is already the escaped spelling: it passed
+    through unchanged, and passed just as happily with the escaper deleted. A
+    markdown link cannot contain a raw newline in the first place, so the
+    payload was unreachable by construction.
+
+    What IS reachable, and what this asserts, is that the escaper demonstrably
+    ran: a literal `%` in a path must come out as `%25`. That is the same
+    function that neutralises `\\n`, so observing it work on the character a
+    document CAN carry is the evidence available. Asserting the absence of
+    forged commands alone would be a check that passes when nothing happened.
+    """
+    print("\n[github] a document trying to write its own workflow commands")
+    repo = new_repo("gh-inject")
+    write(repo, "NEXT_SESSION.md", ENTRY.format(
+        "See [a](docs/pct%0A-and-colon:comma,x.md).\n"
+        "See [b](docs/y%25::add-mask::PWNED.md).\n"
+        f"Reference `{DEAD_SHA}`.\n"))
+    commit(repo, "init")
+    res = tool(repo, "--validate", "NEXT_SESSION.md", "--format=github")
+    lines = res.stdout.splitlines()
+    commands = [ln for ln in lines if ln.startswith("::")]
+    if not commands:
+        note("HARNESS", "no annotations were emitted at all",
+             "nothing below was exercised; the probe document produced no "
+             "findings to interpolate")
+        return
+
+    escaped = [ln for ln in commands if "%250A" in ln or "%2525" in ln]
+    if not escaped:
+        note("BROKEN", "the annotation escaper did not run",
+             "a path containing a literal % came through unescaped, so the "
+             "same function is not neutralising newlines either")
+    else:
+        ok("the escaper demonstrably ran", f"{len(escaped)} annotation(s) "
+           "carry an escaped %, proving the path was not interpolated raw")
+
+    forged = [ln for ln in commands
+              if not ln.startswith("::error") and not ln.startswith("::warning")]
+    multiline = [ln for ln in commands if "\n" in ln or "\r" in ln]
+    if forged or multiline:
+        note("SECURITY", "a document forged a GitHub workflow command",
+             "\n".join((forged + multiline)[:3]))
+    else:
+        ok("document content cannot start a new workflow command",
+           f"{len(commands)} annotations, every one an ::error")
+
+
+def p_offline() -> None:
+    """The tool must never reach the network.
+
+    It runs in a post-commit hook. A hook that resolves a pin by asking a
+    remote would hang behind a corporate proxy, leak repository names to
+    whoever answers, and fail closed on a plane. `dead-pinned-ref` is the rule
+    that would be tempting to implement that way, since it validates an
+    install snippet pointing at a real forge.
+
+    Probed two ways, because either alone is weak: a source scan can miss a
+    call it does not know the shape of, and a behavioural run can pass because
+    the network happened to be reachable.
+    """
+    print("\n[network] does anything phone home?")
+    source = (PKG / "plugin/skills/extant/payload/extant_collect.py").read_text(
+        encoding="utf-8")
+    remote_ops = ("ls-remote", "fetch", "clone", "urlopen", "http.client",
+                  "requests.", "socket.create_connection", "git.push")
+    hits = [op for op in remote_ops if op in source]
+    call_sites = source.count("_git(repo,")
+    if call_sites < 5:
+        note("HARNESS", "the git call-site scan found almost nothing",
+             f"{call_sites} sites; the pattern is probably wrong, so a clean "
+             "result here means nothing")
+    elif hits:
+        note("SECURITY", "a network operation appears in the validator",
+             f"found {hits} across {call_sites} git call sites")
+    else:
+        ok("no network operation in the validator",
+           f"scanned {call_sites} git call sites for {len(remote_ops)} shapes")
+
+    repo = new_repo("offline")
+    write(repo, "README.md",
+          "# P\n\n```yaml\nrepos:\n  - repo: https://github.com/nobody/extant\n"
+          "    rev: v9.9.9-does-not-exist\n    hooks:\n      - id: extant\n```\n")
+    write(repo, ".extant.toml", 'primary_doc = "README.md"\n')
+    commit(repo, "init")
+    sh(repo, "git", "remote", "add", "origin",
+       "https://github.com/nobody/extant.git")
+    env = dict(os.environ, http_proxy="http://127.0.0.1:1",
+               https_proxy="http://127.0.0.1:1", GIT_TERMINAL_PROMPT="0")
+    start = time.time()
+    try:
+        res = subprocess.run(
+            [PY, str(repo / "tools/extant_collect.py"), "--repo", str(repo),
+             "--validate", "README.md"],
+            cwd=repo, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=45, env=env)
+        elapsed = time.time() - start
+        if "dead-pinned-ref" not in res.stdout:
+            note("HARNESS", "the pin probe produced no pinned-ref output",
+                 "the rule did not engage, so this proved nothing about the "
+                 "network")
+        else:
+            ok("a dead pin behind a black-hole proxy resolves locally",
+               f"{elapsed:.1f}s, exit {res.returncode}")
+    except subprocess.TimeoutExpired:
+        note("HANG", "validating a pin hung with the network unavailable",
+             "the rule is reaching a remote, which makes every commit depend "
+             "on connectivity")
+
+
+def p_install_over_existing_agent_files() -> None:
+    """Setup writes agent instructions to two paths. Both are files a human
+    edits afterwards, so the question is what a re-run does to that work."""
+    print("\n[install] re-running setup over hand-edited agent files")
+    repo = new_repo("reinstall")
+    write(repo, "README.md", "# P\n\nSee [docs](docs/guide.md).\n")
+    write(repo, "docs/guide.md", "# guide\n")
+    commit(repo, "init")
+    first = sh(repo, PY, str(PKG / "plugin/skills/extant/install.py"),
+               "--repo", str(repo), "--preset", "readme")
+    skill = repo / ".agents/skills/extant/SKILL.md"
+    command = repo / ".claude/commands/extant.md"
+    if not skill.is_file():
+        note("HARNESS", "setup did not write the cross-platform skill",
+             (first.stdout + first.stderr)[:400])
+        return
+    ok("setup wrote both agent files",
+       f"{skill.relative_to(repo).as_posix()}, "
+       f"{command.relative_to(repo).as_posix()}")
+
+    marker = "\n\nLOCAL NOTE: our team also checks the release notes.\n"
+    skill.write_text(skill.read_text(encoding="utf-8") + marker,
+                     encoding="utf-8")
+    second = sh(repo, PY, str(PKG / "plugin/skills/extant/install.py"),
+                "--repo", str(repo), "--preset", "readme")
+    kept = marker.strip() in skill.read_text(encoding="utf-8")
+    if kept:
+        ok("a re-run preserved the local edit")
+    else:
+        note("BY-DESIGN", "a re-run overwrites hand-edited agent instructions",
+             "setup is idempotent by rewriting, so local additions to the "
+             "generated skill are lost without warning. Whether that is right "
+             "depends on whether these files are generated artifacts or "
+             "starting points, and nothing states which. "
+             f"(re-run exit {second.returncode})")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     probes = [p_empty_repo, p_detached_head, p_no_git_at_all, p_binary_document,
@@ -459,7 +790,11 @@ def main() -> int:
               p_argument_injection, p_deleting_the_claim,
               p_pattern_that_matches_nothing, p_library_link_base,
               p_consistency_abuse, p_search_abuse, p_suggest_fixes_abuse,
-              p_config_discovery_abuse]
+              p_config_discovery_abuse,
+              p_baseline_and_a_live_credential, p_baseline_forgives_a_repaste,
+              p_baseline_failure_modes, p_baseline_theatre,
+              p_sarif_stdout_purity, p_github_annotation_injection,
+              p_offline, p_install_over_existing_agent_files]
     for probe in probes:
         try:
             probe()

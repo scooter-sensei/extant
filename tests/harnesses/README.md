@@ -15,6 +15,16 @@ minutes, and each answers a question `python -m pytest` structurally cannot.
 Between them they found every defect fixed in 0.3.0. The unit suite found none
 of those, because the unit suite was the thing being audited.
 
+Each grew again for 0.10.0, to cover the surfaces added since: the baseline,
+`dead-pinned-ref`, the SARIF and GitHub output formats, all sixteen presets,
+and the cross-platform agent instructions. The rule applied throughout was the
+one this project keeps relearning - a check must be observed FAILING before it
+is trusted. Every addition below was verified by breaking the product and
+confirming the check went red. Three did not, and all three were repaired:
+two smoke probes whose payloads were unreachable by construction, and a
+scenario assertion that was reading the denominator line and calling it a
+finding.
+
 ## `mutate.py` - does the suite pin anything?
 
 ```sh
@@ -50,6 +60,17 @@ that behaviour had quietly stopped being probed. It surfaced only because a
 mismatch is a HARNESS FAULT here rather than a silent skip. Re-run this after
 any change to the code it targets, and repair what it reports.
 
+`--check-only` re-verifies every mutation against the current source in
+seconds, running no tests. It is cheap enough for CI, which is where that rot
+should be caught rather than at the next half-hour campaign.
+
+The cross-platform group is aimed at the failure that would be least visible:
+setup renders agent instructions to two paths from one set of observations, so
+the mutation that matters is not either file vanishing but the two of them
+describing different documents. This project shipping a document that
+contradicts another document, through its own installer, is the exact thing it
+exists to catch.
+
 ## `scenarios.py` - does it work on projects unlike this one?
 
 ```sh
@@ -84,6 +105,30 @@ what is tested is what would actually ship.
 It found that the installed slash command named the source project, and that a
 file path was being reported as a phantom branch.
 
+A third set covers what setup PRODUCES rather than what it reads. Every preset
+is installed onto a repository shaped like the ecosystem it claims to serve -
+a `Chart.yaml` for `k8s`, a `go.mod` and a `Dockerfile` for `go`, an
+`ios/App.xcodeproj` and a `build.gradle` for `mobile` - and each is required to
+name a document that exists, to examine a nonzero denominator, and to report a
+planted fault. A preset naming documents a project does not have installs a
+configuration that examines nothing forever while every run exits 0, which is
+this project's own core failure mode aimed at its own defaults. The fixtures
+are checked against `install.PRESETS` in both directions, so a new preset
+without a fixture fails rather than passing unnoticed.
+
+That set found a defect in itself before it found one anywhere else. The
+consistency assertion read `"inconsistent-artifact" in stdout`, which is true
+on every run: the denominator line names every rule, and so does the NOTE
+listing rules that matched nothing. Deleting the preset's entire consistency
+block left the scenario green. Findings are now matched as `line N: [kind]`,
+and the same mutation turns ten assertions red. An assertion that reads the
+denominator and calls it a finding is the most comfortable way to pin nothing.
+
+The cross-platform scenario checks the agent instructions setup writes for
+tools other than Claude Code: the file lands at the Agent Skills standard path,
+its frontmatter parses as a non-Claude tool would read it, it is rendered
+rather than copied, and both agent files name the same document.
+
 It later went red for a better reason: after the trunk guard became opt-in, the
 hooks scenario still asserted that a default install wires a `pre-commit` hook.
 The product was right and the assertion was for the retired contract. The fix
@@ -109,11 +154,37 @@ ways of gaming the validator.
 Each probe reports what happened, so a loophole appears as a finding rather than
 as an absence of noise. It found seven; five were fixed and the rest are
 recorded in `references/design.md` as known limits, alongside two more that
-later probes turned up. A clean run today is 18 probes, 23 observations, three
-of them flagged: the regex hang, deletion-as-repair, and a consistency check
-that names one file twice. Flagged is not the same as unknown - each of the
-three points at a paragraph in `design.md`, and a fourth appearing would mean
-something genuinely new.
+later probes turned up. Flagged is not the same as unknown - each points at a
+paragraph in `design.md`, and one appearing that does not would mean something
+genuinely new.
+
+The baseline gets the most attention here, because it is the only feature that
+reports LESS on purpose, and every question worth asking about it is whether
+that amnesty can quietly grow to cover everything. Whether suppression works is
+the easy half and is already a unit test. These probe the other half: a
+credential is recorded truncated rather than in full, so the baseline cannot
+become a committed secret store; a corrupt, missing or empty baseline exits
+loudly rather than turning a failing document green; and two consequences that
+are flagged as by-design rather than fixed - a baseline can suppress a live
+credential, and one recorded finding forgives every future copy of itself,
+because the fingerprint deliberately excludes the line number.
+
+The other newer surfaces get a probe each. SARIF stdout must stay parseable
+JSON with hostile content in the findings, since a stray diagnostic surfaces
+days later as a failed CI upload. A document must not be able to forge a
+GitHub workflow command. And nothing may touch the network: this runs in a
+post-commit hook, so a rule that resolved a pin by asking a remote would hang
+behind a proxy and fail on a plane, and `dead-pinned-ref` is exactly the rule
+that would be tempting to write that way.
+
+That injection probe is worth reading as a cautionary tale. Its first version
+put `%0A` in a markdown link and called that a newline - but that is already
+the escaped spelling, so it passed through unchanged and passed just as
+happily with the escaper deleted. A markdown link cannot carry a raw newline
+at all, so the payload was unreachable by construction. It now asserts that
+the escaper demonstrably RAN, by requiring a literal `%` to come out as `%25`.
+Every new probe here was checked by breaking the product and confirming the
+probe went red; two did not, and both were repaired.
 
 ## `perf.py` - is it fast enough to leave installed?
 
@@ -121,9 +192,20 @@ something genuinely new.
 python tests/harnesses/perf.py <extracted-package> <scratch-dir>
 ```
 
-Four questions in descending order of importance: what the hooks add to every
-commit, whether validation scales with document size, whether it scales with
-repository size, and which rule spends the time.
+Asked in descending order of importance: what the hooks add to every commit,
+whether validation scales with document size, whether it scales with
+repository size, which rule spends the time, what a baseline costs on every
+run, and what each output format costs.
+
+The baseline measurement matters more than its size suggests. A baseline is
+adopted by big neglected repositories, which are precisely the ones where a
+slow hook gets uninstalled, so the cost would land where it is least
+affordable. Measured at 1000 findings it is under the noise floor.
+
+The per-rule table also names the rules the probe document never exercised. A
+rule with nothing to examine is timed as free, which is true and misleading:
+its cost is unmeasured, not zero, and a table that omitted the distinction
+would read as full coverage of the rule set.
 
 It found that one rule was 98 percent of total validation time - two git
 subprocesses per merge claim, where the reference rule had batched the same
@@ -148,16 +230,29 @@ path component and caches nothing, so the case that matters is thousands of
 links in a deep tree. A load test that avoids a tool's known weak spots is
 measuring the wrong thing.
 
-Twelve cases: 2000 distinct merge claims, a 100,000-line document, 5000 commits
+The cases: 2000 distinct merge claims, a 100,000-line document, 5000 commits
 with 500 branches and 200 tags, 3000 links across a deep tree, a 500-entry
 archive, 50 extra documents, a 1 MB single line, peak memory, 40 back-to-back
-runs, `--search` over a 2000-entry archive, a 200-file consistency check, and
-500 renamed references in one document.
+runs, `--search` over a 2000-entry archive, a 200-file consistency check, 500
+renamed references in one document, a 5000-entry baseline, SARIF and GitHub
+output for 5000 findings, and 500 install snippets pinning this repository.
 
-This section said "Nine cases" for as long as it took the last three to be
-written, which is the same drift the tool exists to catch and cannot: no rule
-here inspects a number. The count in the output is derived from the case list;
-this sentence is prose, and prose is what rots.
+The last three follow the same principle as the rest, aimed at the newer
+surfaces. A baseline is read on every run including the hook, so the scale
+that matters is the one it exists for; the case also plants one NEW claim
+among 5000 forgiven ones, because a ratchet that loses the new finding at
+scale is worse than no ratchet, the project having been told it is covered.
+SARIF's size is a real limit rather than a curiosity, since GitHub rejects an
+upload over 10 MB and the failure arrives long after the run that caused it.
+And `dead-pinned-ref` is the one rule that reads INSIDE code fences, so a page
+dense with install snippets is its worst case and nothing else here touches
+it.
+
+This section said "Nine cases" for as long as it took three of them to be
+written, and then "Twelve" while three more were added, which is the same
+drift the tool exists to catch and cannot: no rule here inspects a number. The
+count in the output is derived from the case list. This sentence is prose, and
+prose is what rots - so the literal is gone rather than corrected.
 
 Peak memory is reported alongside time. A tool that is fast because it holds the
 whole document and every intermediate list at once has moved the problem rather

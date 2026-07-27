@@ -392,13 +392,142 @@ def case_suggest_fixes_many_renames() -> None:
         report("suggest-fixes", "a patch was produced at all", "NO - empty")
 
 
+# ------------------------------------------------------- 13. a large baseline
+def case_huge_baseline() -> None:
+    """The baseline exists FOR big neglected repositories, so the scale that
+    matters is the one it was built for.
+
+    It is read on every run, including the post-commit hook, and every finding
+    is fingerprinted against it. A baseline that made the tool slow would be
+    slowest exactly where it is most needed, which is the shape of failure
+    worth measuring rather than assuming.
+    """
+    print("\n[13] a 5000-entry baseline, read on every run")
+    repo = new_repo("stress-baseline")
+    shas = bulk_commits(repo, 3)
+    body = "\n".join(f"Ref {n} at `{n:040d}`." for n in range(5000))
+    write(repo, "NEXT_SESSION.md",
+          f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
+
+    proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md",
+                              "--write-baseline", budget=30)
+    report("huge-baseline", "recording 5000 findings", verdict_for(elapsed, 30))
+    path = repo / ".extant-baseline.json"
+    if not path.is_file():
+        report("huge-baseline", "the baseline was written", "NO - absent")
+        return
+    size_mb = path.stat().st_size / 1_048_576
+    entries = path.read_text(encoding="utf-8").count('"fingerprint"')
+    report("huge-baseline", f"{entries} entries, {size_mb:.1f} MB",
+           "ok" if entries >= 4900 else f"only {entries} recorded")
+
+    proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md",
+                              "--baseline", budget=20)
+    report("huge-baseline", "validating against it", verdict_for(elapsed, 20))
+    if proc:
+        report("huge-baseline", "everything recorded is suppressed",
+               "yes" if proc.returncode == 0
+               else f"NO - exit {proc.returncode}")
+
+    # One NEW claim among 5000 forgiven ones must still surface. A ratchet that
+    # loses the new finding at scale is worse than no ratchet, because the
+    # project believes it is covered.
+    text = (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")
+    write(repo, "NEXT_SESSION.md",
+          text.replace("## 1. Ref", "Added today: `abcdefabcdefabcdefabcdef1234567890abcdef`.\n\n## 1. Ref"))
+    proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md",
+                              "--baseline", budget=20)
+    if proc:
+        found = "abcdefabcdef" in proc.stdout and proc.returncode == 1
+        report("huge-baseline", "one new claim among 5000 forgiven",
+               "still reported" if found else "NO - lost in the baseline")
+
+    proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md",
+                              "--baseline", "--baseline-check", budget=25)
+    report("huge-baseline", "--baseline-check over 5000 entries",
+           verdict_for(elapsed, 25))
+
+
+# ------------------------------------------------------ 14. large SARIF output
+def case_huge_sarif() -> None:
+    """SARIF is what a CI upload consumes, so its SIZE is a real limit.
+
+    GitHub rejects a SARIF file over 10 MB, and the failure arrives as a red
+    upload step long after the run that produced it. Serialising thousands of
+    findings is also the one path where the whole result set is held in memory
+    as objects and again as JSON.
+    """
+    print("\n[14] SARIF and GitHub output for 5000 findings")
+    repo = new_repo("stress-sarif")
+    bulk_commits(repo, 3)
+    body = "\n".join(f"See [doc {n}](docs/missing-{n}.md)." for n in range(5000))
+    write(repo, "NEXT_SESSION.md",
+          f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
+
+    proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md",
+                              "--format=sarif", budget=40)
+    report("huge-sarif", "serialising 5000 findings", verdict_for(elapsed, 40))
+    if not proc:
+        return
+    size_mb = len(proc.stdout.encode("utf-8")) / 1_048_576
+    report("huge-sarif", f"SARIF payload {size_mb:.1f} MB",
+           "ok (under the 10 MB upload limit)" if size_mb < 10
+           else f"HIGH - {size_mb:.1f} MB exceeds GitHub's 10 MB limit")
+    import json as _json
+    try:
+        results = _json.loads(proc.stdout)["runs"][0]["results"]
+        report("huge-sarif", f"{len(results)} results parsed back",
+               "ok" if len(results) >= 4900 else f"only {len(results)}")
+    except (ValueError, KeyError, IndexError) as exc:
+        report("huge-sarif", "the payload parses as JSON", f"NO - {exc}")
+
+    proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md",
+                              "--format=github", budget=40)
+    report("huge-sarif", "5000 GitHub annotations", verdict_for(elapsed, 40))
+    if proc:
+        annotations = sum(1 for ln in proc.stdout.splitlines()
+                          if ln.startswith("::"))
+        report("huge-sarif", f"{annotations} annotation lines",
+               "ok" if annotations >= 4900 else f"only {annotations}")
+
+
+# -------------------------------------------------------- 15. many pinned refs
+def case_many_pinned_refs() -> None:
+    """A README documenting many install routes.
+
+    This rule reads INSIDE code fences, which the others skip, so a page dense
+    with install snippets is its worst case and nothing else here exercises
+    it. Each pin governed by this repository costs a `rev-parse`.
+    """
+    print("\n[15] 500 install snippets pinning this repository")
+    repo = new_repo("stress-pins")
+    bulk_commits(repo, 3)
+    sh(repo, "git", "remote", "add", "origin",
+       "https://github.com/example/extant.git")
+    blocks = []
+    for n in range(500):
+        blocks.append(
+            "```yaml\nrepos:\n  - repo: https://github.com/example/extant\n"
+            f"    rev: v0.{n}.0\n    hooks:\n      - id: extant\n```\n")
+    write(repo, "README.md", "# P\n\n" + "\n".join(blocks))
+    write(repo, ".extant.toml", 'primary_doc = "README.md"\n')
+    proc, elapsed = run_timed(repo, "--validate", "README.md", budget=45)
+    report("many-pins", "500 pins, none resolving", verdict_for(elapsed, 45))
+    if proc:
+        fired = [ln for ln in proc.stdout.splitlines()
+                 if ln.startswith("line ") and "[dead-pinned-ref]" in ln]
+        report("many-pins", f"{len(fired)} dead pins reported",
+               "ok" if len(fired) >= 450 else f"only {len(fired)} of 500")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     cases = [case_distinct_shas, case_huge_document, case_large_repository,
              case_many_paths, case_huge_archive, case_many_extra_docs,
              case_pathological_shapes, case_memory, case_repeated,
              case_search_large_archive, case_consistency_many_files,
-             case_suggest_fixes_many_renames]
+             case_suggest_fixes_many_renames, case_huge_baseline,
+             case_huge_sarif, case_many_pinned_refs]
     for case in cases:
         try:
             case()

@@ -210,6 +210,40 @@ The baseline for that check is the raw file bytes, **not** a reassembly of the
 splitter's own output. Deriving it from the splitter makes the check circular: a
 bug in the splitter corrupts both sides equally and they always agree.
 
+## The baseline, and the two things it deliberately does not do
+
+A baseline is an amnesty: a list of findings a project has agreed to leave
+broken so that NEW ones stay visible. Every design question about it is
+whether that amnesty can quietly grow to cover everything, so the constraints
+matter more than the suppression does.
+
+It is never written implicitly, the suppressed count is printed on every run,
+`--baseline-check` reports entries whose finding no longer occurs, and a
+corrupt or missing baseline is an error rather than an empty one. That last
+point is the important one: treating a missing file as "suppress nothing"
+would let a typo'd path turn a ratcheted run back into an ordinary one without
+saying so.
+
+Two consequences are accepted rather than fixed, and the smoke harness flags
+both on every run so they stay visible rather than becoming folklore.
+
+**A baseline can suppress a live credential.** `possible-secret` is treated as
+ordinary debt, so a token still sitting in the document is silenced by the same
+mechanism that forgives a dead link. Every other rule describes something that
+is merely wrong; this one describes something that is still dangerous. It is
+not special-cased because a secret that is genuinely a false positive - an
+example key, a test fixture, a documented placeholder - is common enough that
+an unsuppressable rule would push projects to disable the scanner entirely,
+which is worse. The mitigation is that the finding detail is recorded
+TRUNCATED, so the baseline file cannot become a committed secret store.
+
+**One recorded finding forgives every future copy of itself.** The fingerprint
+is `(path, kind, detail)` and deliberately excludes the line number, so the
+same claim pasted somewhere new in the same file is already forgiven. The
+alternative is worse: line-number fingerprints un-suppress the entire baseline
+on any reflow, which makes the file useless within a week and teaches people
+to regenerate it wholesale, which defeats the point of having one.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

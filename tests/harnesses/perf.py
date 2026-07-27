@@ -194,7 +194,13 @@ total = sum(r[1] for r in rows)
 for kind, secs, n in sorted(rows, key=lambda r: -r[1]):
     share = 100 * secs / total if total else 0
     print(f"  {{kind:<20}} {{secs:7.3f}}s  {{share:5.1f}}%  {{n:>5}} findings")
-print(f"  {{'TOTAL':<20}} {{total:7.3f}}s")
+print(f"  {{'TOTAL':<20}} {{total:7.3f}}s   over {{len(rows)}} rules")
+# A rule with nothing to examine is timed as free, which is true and
+# misleading: its real cost is unmeasured, not zero. Naming them keeps this
+# table from reading as full coverage of the rule set.
+idle = [kind for kind, _, n in rows if n == 0]
+if idle:
+    print(f"  unexercised by this document ({{len(idle)}}/{{len(rows)}}): {{', '.join(idle)}}")
 start = time.perf_counter()
 h.count_examined(repo, text)
 print(f"  {{'count_examined':<20}} {{time.perf_counter()-start:7.3f}}s  (denominator)")
@@ -203,12 +209,79 @@ print(f"  {{'count_examined':<20}} {{time.perf_counter()-start:7.3f}}s  (denomin
     print(res.stdout.rstrip() or res.stderr[:600])
 
 
+# ------------------------------------------------------- 5. the baseline's cost
+def baseline_cost() -> None:
+    """What suppression adds to a run that pays it on every commit.
+
+    A baseline is adopted by big neglected repositories, which are exactly the
+    ones where a slow hook gets uninstalled. Reading and fingerprinting cannot
+    be free, so the question is whether it is close enough to free to leave
+    switched on.
+    """
+    print("\n=== 5. What a baseline costs per run ===")
+    repo = new_repo("perf-baseline")
+    write(repo, "NEXT_SESSION.md", "# S\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "init")
+    body = "\n".join(f"Ref {n} at `{n:040d}`." for n in range(1000))
+    write(repo, "NEXT_SESSION.md",
+          f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
+
+    def validate(*extra: str):
+        def run():
+            sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
+               str(repo), "--validate", "NEXT_SESSION.md", *extra)
+        return run
+
+    plain = timed(validate(), runs=3)
+    sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo", str(repo),
+       "--validate", "NEXT_SESSION.md", "--write-baseline")
+    recorded = (repo / ".extant-baseline.json")
+    entries = recorded.read_text(encoding="utf-8").count('"fingerprint"') \
+        if recorded.is_file() else 0
+    suppressed = timed(validate("--baseline"), runs=3)
+    print(f"  1000 findings, no baseline : {plain*1000:7.0f} ms")
+    print(f"  same, {entries:>4} suppressed     : {suppressed*1000:7.0f} ms")
+    delta = suppressed - plain
+    print(f"  cost of suppression        : {delta*1000:+7.0f} ms")
+    if entries == 0:
+        print("  verdict                    : NOT MEASURED - no baseline written")
+    else:
+        print("  verdict                    : "
+              + ("negligible" if abs(delta) < 0.1 else
+                 "noticeable" if abs(delta) < 0.5 else "SIGNIFICANT"))
+
+
+# ------------------------------------------------------ 6. output format cost
+def format_cost() -> None:
+    """Formatting is pure CPU on the way out, and SARIF builds a whole object
+    graph the text path never constructs."""
+    print("\n=== 6. What each output format costs (1000 findings) ===")
+    repo = new_repo("perf-format")
+    write(repo, "NEXT_SESSION.md", "# S\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "init")
+    body = "\n".join(f"See [d {n}](docs/gone-{n}.md)." for n in range(1000))
+    write(repo, "NEXT_SESSION.md",
+          f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
+    for fmt in ("text", "github", "sarif"):
+        elapsed = timed(lambda f=fmt: sh(
+            repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
+            str(repo), "--validate", "NEXT_SESSION.md", f"--format={f}"), runs=3)
+        out = sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
+                 str(repo), "--validate", "NEXT_SESSION.md", f"--format={fmt}")
+        kb = len(out.stdout.encode("utf-8")) / 1024
+        print(f"  {fmt:<8} {elapsed:6.2f}s   {kb:8.0f} KB on stdout")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     hook_latency()
     document_scaling()
     repo_scaling()
     per_rule()
+    baseline_cost()
+    format_cost()
     return 0
 
 

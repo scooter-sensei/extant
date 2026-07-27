@@ -529,3 +529,43 @@ def test_both_agent_files_describe_the_same_document(tmp_path) -> None:
 
     assert "docs/STATUS.md" in command, command[:400]
     assert "docs/STATUS.md" in skill, skill[:400]
+
+
+def test_a_hand_edited_agent_skill_is_not_overwritten(tmp_path) -> None:
+    """Re-running setup must not silently discard local edits.
+
+    The generated skill is a file humans then add to: a team's own conventions,
+    an extra document to watch, a note about which suite to run. Setup is
+    otherwise idempotent by rewriting, so without this guard a second run - and
+    every hook-triggered one after it - would erase that work with no warning
+    and no diff to notice. `--force` remains the way to take the new version.
+
+    Added because a mutation campaign deleted the guard and the whole suite
+    stayed green: the smoke harness noticed, but nothing in pytest did, and a
+    behaviour only a hand-run harness pins is a behaviour that regresses
+    between campaigns.
+    """
+    repo = make_repo(tmp_path, **{"README.md": CLEAN_README})
+    assert run_installer(repo, "--preset", "readme").returncode == 0
+
+    skill = repo / ".agents" / "skills" / "extant" / "SKILL.md"
+    edited = skill.read_text(encoding="utf-8") + "\nLOCAL: also check RELEASES.md\n"
+    skill.write_text(edited, encoding="utf-8")
+
+    second = run_installer(repo, "--preset", "readme")
+
+    assert second.returncode == 0, second.stdout
+    assert skill.read_text(encoding="utf-8") == edited, (
+        "a re-run overwrote a hand-edited skill:\n" + second.stdout
+    )
+    assert "already exists" in second.stdout, (
+        "the run said nothing about leaving the existing file alone:\n"
+        + second.stdout
+    )
+
+    forced = run_installer(repo, "--preset", "readme", "--force")
+
+    assert forced.returncode == 0, forced.stdout
+    assert skill.read_text(encoding="utf-8") != edited, (
+        "--force did not replace the file, so there is no way to take an update"
+    )

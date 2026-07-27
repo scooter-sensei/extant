@@ -328,6 +328,39 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                     if fingerprint not in matched]",
          "            stale = []"),
 
+        # --- the cross-platform agent skill --------------------------------------
+        # The newest code, which is where every gap starts. Setup writes agent
+        # instructions to two paths from ONE set of observations, so the failure
+        # that matters is not either file going missing: it is the two of them
+        # describing different documents. This project shipping a document that
+        # contradicts another document, via its own installer, would be the exact
+        # thing it exists to catch.
+        ("the cross-platform skill is never written",
+         detect.parent / "install.py",
+         "    skill_path = repo / AGENT_SKILL_DEST",
+         "    skill_path = repo / (AGENT_SKILL_DEST + '.disabled')"),
+        # Renders the Claude template to the standard path. Both files still
+        # appear, both name the right document, and the only thing wrong is that
+        # a non-Claude agent gets a file whose frontmatter it cannot use - which
+        # is invisible to any check that merely counts files.
+        ("the agent skill is rendered from the Claude template",
+         detect.parent / "install.py",
+         "    skill_text, skill_notes = render_command(obs, repo.name, AGENT_SKILL_TEMPLATE)",
+         "    skill_text, skill_notes = render_command(obs, repo.name, COMMAND_TEMPLATE)"),
+        ("render_command ignores the template it is given",
+         detect.parent / "install.py",
+         "    text = (SKILL_ROOT / template).read_text(encoding=\"utf-8\")",
+         "    text = (SKILL_ROOT / COMMAND_TEMPLATE).read_text(encoding=\"utf-8\")"),
+        ("the skill is copied verbatim, so placeholders survive",
+         detect.parent / "install.py",
+         "    skill_text, skill_notes = render_command(obs, repo.name, AGENT_SKILL_TEMPLATE)",
+         "    skill_text, skill_notes = (SKILL_ROOT / AGENT_SKILL_TEMPLATE).read_text("
+         "encoding=\"utf-8\"), []"),
+        ("an existing hand-edited skill is silently overwritten",
+         detect.parent / "install.py",
+         "    if skill_path.exists() and not args.force:",
+         "    if False:"),
+
         # --- detect.py ----------------------------------------------------------
         ("find_documents returns only the first match", detect,
          "    return found",

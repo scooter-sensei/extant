@@ -704,6 +704,322 @@ def s20_maven() -> None:
           "inconsistent-artifact" in res.stdout and "3.4.0" in res.stdout, res.stdout)
 
 
+# --------------------------------------------------------------------------
+# Every preset, against a repository shaped like the ecosystem it claims to
+# serve. A preset is a promise about a KIND of project, and the way that
+# promise fails is silent: a preset naming documents the project does not have
+# installs a configuration that examines nothing, forever, while every run
+# exits 0 and looks healthy. That is this project's own core failure mode
+# aimed at its own defaults, so each preset is asserted to examine a nonzero
+# denominator and to actually report a planted fault.
+#
+# Derived from install.PRESETS at runtime rather than listed here, so a new
+# preset is covered the moment it is added. A hand-written list would have to
+# be remembered, and the eight presets added in 0.9.0 are the evidence that it
+# would not have been.
+ECOSYSTEMS: dict[str, dict[str, str]] = {
+    "readme": {},
+    "node": {
+        "package.json": '{"name": "app", "version": "1.2.3"}\n',
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+    },
+    "python": {
+        "pyproject.toml": '[project]\nname = "app"\nversion = "1.2.3"\n',
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+    },
+    "rust": {
+        "Cargo.toml": '[package]\nname = "app"\nversion = "1.2.3"\n',
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+    },
+    "go": {
+        "go.mod": "module example.com/app\n\ngo 1.22\n",
+        "Dockerfile": "FROM golang:1.22\nWORKDIR /src\n",
+        "SECURITY.md": "# Security\n\nReport issues privately.\n",
+    },
+    "docker": {
+        "Dockerfile": "FROM alpine:3.19\n",
+        "compose.yaml": "services:\n  app:\n    build: .\n",
+        "DEPLOY.md": "# Deploy\n\nSteps.\n",
+        "RUNBOOK.md": "# Runbook\n\nOn call.\n",
+        "OPERATIONS.md": "# Operations\n\nDaily.\n",
+    },
+    "jvm": {
+        "build.gradle": "plugins { id 'java' }\n",
+        "gradle.properties": "version = 1.2.3\n",
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+        "SECURITY.md": "# Security\n\nReport privately.\n",
+        "UPGRADING.md": "# Upgrading\n\nFrom 1.1.\n",
+        "MIGRATION.md": "# Migration\n\nSteps.\n",
+    },
+    "k8s": {
+        "Chart.yaml": "apiVersion: v2\nname: app\nversion: 1.2.3\nappVersion: \"4.5.6\"\n",
+        "values.yaml": "replicaCount: 1\n",
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+        "UPGRADING.md": "# Upgrading\n\nHelm notes.\n",
+        "RUNBOOK.md": "# Runbook\n\nOn call.\n",
+    },
+    "monorepo": {
+        "package.json": '{"name": "root", "version": "1.2.3", "workspaces": ["packages/*"]}\n',
+        "turbo.json": '{"$schema": "https://turbo.build/schema.json"}\n',
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+        "ARCHITECTURE.md": "# Architecture\n\nPackages.\n",
+        "docs/README.md": "# Docs\n\nIndex.\n",
+    },
+    "terraform": {
+        "main.tf": 'resource "null_resource" "x" {}\n',
+        "versions.tf": 'terraform {\n  required_version = ">= 1.5"\n}\n',
+        "UPGRADING.md": "# Upgrading\n\nState moves.\n",
+        "MIGRATION.md": "# Migration\n\nSteps.\n",
+    },
+    "mobile": {
+        "android/app/build.gradle": 'android {\n  defaultConfig {\n    versionName "1.2.3"\n    versionCode 42\n  }\n}\n',
+        "ios/App.xcodeproj/project.pbxproj": "\tMARKETING_VERSION = 1.2.3;\n",
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+        "RELEASE_NOTES.md": "# Release notes\n\n1.2.3.\n",
+        "PRIVACY.md": "# Privacy\n\nWhat we collect.\n",
+    },
+    "agent": {
+        "AGENTS.md": "# Agent instructions\n\nRun the suite before editing.\n",
+        "CLAUDE.md": "# Claude\n\nProject rules.\n",
+        "GEMINI.md": "# Gemini\n\nProject rules.\n",
+        ".github/copilot-instructions.md": "# Copilot\n\nProject rules.\n",
+    },
+    "ml": {
+        "pyproject.toml": '[project]\nname = "model"\nversion = "1.2.3"\nrequires-python = ">=3.11"\n',
+        "environment.yml": "name: model\ndependencies:\n  - python=3.11\n",
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+        "MODEL_CARD.md": "# Model card\n\nIntended use.\n",
+        "DATA_CARD.md": "# Data card\n\nProvenance.\n",
+    },
+    "enterprise": {
+        "SECURITY.md": "# Security\n\nReport privately.\n",
+        "SUPPORT.md": "# Support\n\nChannels.\n",
+        "UPGRADING.md": "# Upgrading\n\nFrom 1.1.\n",
+        "MIGRATION.md": "# Migration\n\nSteps.\n",
+    },
+    "legacy-web": {
+        "package.json": '{"name": "site", "version": "1.2.3", "engines": {"node": ">=18"}}\n',
+        ".nvmrc": "18\n",
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\nFirst.\n",
+        "INSTALL.md": "# Install\n\nSteps.\n",
+        "DEPLOY.md": "# Deploy\n\nSteps.\n",
+        "UPGRADING.md": "# Upgrading\n\nFrom 1.1.\n",
+    },
+    # The status document must carry real claims. An earlier version of this
+    # fixture said only "Work continues", which examines to a denominator of
+    # zero and failed the assertion below - correctly, and for a reason that
+    # had nothing to do with the preset. A fixture with nothing to check
+    # cannot tell a working configuration from a blind one.
+    "status": {
+        "NEXT_SESSION.md": "# Status\n\n## Phase 1 - setup (in progress, 2026-01-01)\n\n"
+                           "Work continues on `feature/setup`.\n"
+                           "The design is in [the plan](docs/plan-that-is-gone.md).\n"
+                           "Merged at `0000000000000000000000000000000000000000`.\n\n"
+                           "## 1. Reference\n",
+    },
+}
+
+# Where a preset declares a consistency check, this is the edit that must make
+# the two files disagree. Checking that the check EXISTS is not enough: a
+# consistency block naming files that do not parse is exactly as quiet as no
+# block at all.
+DISAGREEMENTS: dict[str, tuple[str, str]] = {
+    "node": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "python": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "rust": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "jvm": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "k8s": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "monorepo": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "ml": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "legacy-web": ("CHANGELOG.md", "# Changelog\n\n## 9.9.9\n\nDrifted.\n"),
+    "go": ("Dockerfile", "FROM golang:1.19\nWORKDIR /src\n"),
+    "mobile": ("ios/App.xcodeproj/project.pbxproj",
+               "\tMARKETING_VERSION = 9.9.9;\n"),
+}
+
+README_WITH_A_FAULT = (
+    "# {name}\n\n"
+    "Setup lives in [the guide](docs/guide.md).\n"
+    "The design is recorded in [the plan](docs/plan-that-is-gone.md).\n"
+)
+
+
+def _findings(stdout: str, kind: str) -> list[str]:
+    """Real finding lines of one kind: `line N: [kind] ...`.
+
+    Never `kind in stdout`. The denominator line names EVERY rule on every
+    run, and so does the NOTE listing rules that matched nothing, so a
+    substring test against the whole output is true whether the rule fired or
+    not. A mutation campaign caught exactly that here: deleting the preset's
+    consistency block left this scenario green, because the assertion was
+    reading the denominator and calling it a finding.
+    """
+    return [ln for ln in stdout.splitlines()
+            if ln.startswith("line ") and f"[{kind}]" in ln]
+
+
+def _examined(stdout: str) -> int:
+    """Total claims examined, read off the denominator line the tool prints.
+
+    Parsed rather than assumed. The whole point of the line is that a run
+    which examined nothing prints the same reassuring nothing as a clean one,
+    so a scenario that only checked the exit code would pass on a blind config.
+    """
+    total = 0
+    for line in stdout.splitlines():
+        if not line.startswith("checked "):
+            continue
+        # The line ends `... dead-pinned-ref 0 (8 lines scanned for secrets)`.
+        # Splitting on commas alone leaves that parenthetical attached to the
+        # LAST rule, whose count is then silently dropped - so a document
+        # whose only examined rule happened to be last would read as zero.
+        body = line.split(":", 1)[-1].split("(")[0]
+        for chunk in body.split(","):
+            parts = chunk.strip().split()
+            if len(parts) >= 2 and parts[-1].isdigit():
+                total += int(parts[-1])
+    return total
+
+
+def s21_every_preset() -> None:
+    """Install each preset onto a repository shaped like its ecosystem."""
+    name = "s21-presets"
+    print(f"\n[{name}] every preset, on a repo shaped like its ecosystem")
+    sys.path.insert(0, str(PKG / "plugin/skills/extant"))
+    import install as installer_module
+
+    presets = sorted(installer_module.PRESETS)
+    check(name, f"every preset has a fixture ({len(presets)} presets)",
+          set(presets) <= set(ECOSYSTEMS),
+          f"missing: {sorted(set(presets) - set(ECOSYSTEMS))}")
+
+    for preset in presets:
+        repo = new_repo(f"{name}-{preset}")
+        for rel, body in ECOSYSTEMS[preset].items():
+            write(repo, rel, body)
+        if preset != "status":
+            write(repo, "README.md", README_WITH_A_FAULT.format(name=preset))
+        write(repo, "CONTRIBUTING.md", "# Contributing\n\nRun the suite.\n")
+        write(repo, "docs/guide.md", "# Guide\n\nReal file.\n")
+        commit(repo, "chore: init")
+
+        out = install(repo, "--preset", preset)
+        if out.returncode != 0:
+            # Every remaining assertion for this preset is reported as failed
+            # rather than skipped. A skip subtracts from the denominator
+            # silently, so a mutation that breaks installation for six presets
+            # would shrink the assertion count instead of turning anything red.
+            for pending in ("primary_doc exists on disk",
+                            "the installed config examines something",
+                            "the planted dead link is reported"):
+                check(name, f"{preset}: {pending}", False,
+                      f"installer exited {out.returncode}, so this never ran\n"
+                      + (out.stdout + out.stderr)[:300])
+            continue
+
+        cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
+        primary = ""
+        for line in cfg.splitlines():
+            if line.startswith("primary_doc"):
+                primary = line.split("=", 1)[1].strip().strip('"')
+        check(name, f"{preset}: primary_doc exists on disk",
+              bool(primary) and (repo / primary).is_file(),
+              f"primary_doc={primary!r}\n{cfg}")
+
+        res = tool(repo, "--verify")
+        examined = _examined(res.stdout)
+        check(name, f"{preset}: the installed config examines something",
+              examined > 0,
+              f"denominator totalled {examined}\n{res.stdout[:400]}")
+
+        planted = [ln for ln in _findings(res.stdout, "dead-md-link")
+                   if "plan-that-is-gone" in ln]
+        check(name, f"{preset}: the planted dead link is reported",
+              bool(planted), res.stdout[:400])
+
+        if preset in DISAGREEMENTS:
+            rel, body = DISAGREEMENTS[preset]
+            clean = _findings(tool(repo, "--verify").stdout,
+                              "inconsistent-artifact")
+            check(name, f"{preset}: agreeing files produce no drift finding",
+                  not clean, "\n".join(clean))
+            write(repo, rel, body)
+            drifted = _findings(tool(repo, "--verify").stdout,
+                                "inconsistent-artifact")
+            check(name, f"{preset}: the consistency check catches a drift",
+                  bool(drifted), "no inconsistent-artifact finding line")
+
+    covered = sorted(set(ECOSYSTEMS) - set(presets))
+    check(name, "no fixture describes a preset that no longer exists",
+          not covered, f"stale fixtures: {covered}")
+
+
+def s22_cross_platform_agents() -> None:
+    """Setup writes instructions for agents other than Claude Code.
+
+    The two files are rendered from the same observations, so the failure that
+    matters is not one of them missing: it is the two of them describing
+    DIFFERENT documents, which would have this project shipping the exact
+    contradiction it exists to catch, via its own installer.
+    """
+    name = "s22-agents"
+    print(f"\n[{name}] cross-platform agent instructions")
+    repo = new_repo(name)
+    write(repo, "README.md", "# Widgetworks\n\nSee [the guide](docs/guide.md).\n")
+    write(repo, "docs/guide.md", "# Guide\n")
+    commit(repo, "chore: init")
+
+    out = install(repo, "--preset", "readme")
+    check(name, "installer succeeded", out.returncode == 0, out.stdout + out.stderr)
+
+    skill = repo / ".agents/skills/extant/SKILL.md"
+    command = repo / ".claude/commands/extant.md"
+    check(name, "the skill lands at the Agent Skills standard path",
+          skill.is_file(), f"missing {skill}")
+    if not skill.is_file():
+        return
+    body = skill.read_text(encoding="utf-8")
+
+    # Frontmatter, checked as a non-Claude tool would read it: the file opens
+    # with a fenced YAML block carrying a name and a description.
+    lines = body.splitlines()
+    check(name, "the skill opens with YAML frontmatter",
+          bool(lines) and lines[0].strip() == "---", repr(lines[:1]))
+    closing = next((i for i, ln in enumerate(lines[1:], start=1)
+                    if ln.strip() == "---"), -1)
+    check(name, "the frontmatter block is closed", closing > 0, repr(lines[:12]))
+    front = "\n".join(lines[1:closing]) if closing > 0 else ""
+    check(name, "frontmatter declares a name and a description",
+          "name:" in front and "description:" in front, front)
+
+    check(name, "the skill is rendered, not copied",
+          "{{" not in body and "}}" not in body,
+          "\n".join(ln for ln in lines if "{{" in ln)[:300])
+    check(name, "the skill names this project's document",
+          "README.md" in body, body[:400])
+
+    # The assertion this scenario exists for.
+    cmd = command.read_text(encoding="utf-8") if command.is_file() else ""
+    check(name, "both agent files name the same document",
+          ("README.md" in body) == ("README.md" in cmd) and "README.md" in cmd,
+          f"skill mentions README.md: {'README.md' in body}\n"
+          f"command mentions README.md: {'README.md' in cmd}")
+
+    check(name, "neither agent file names the source project",
+          "Cerene" not in body + cmd and "NEXT_SESSION" not in body + cmd)
+
+    # ASCII, for the same reason every shipped file is: a cp437 console.
+    try:
+        body.encode("ascii")
+        command_ascii = True
+        cmd.encode("ascii")
+    except UnicodeEncodeError as exc:
+        command_ascii = False
+        check(name, "the rendered agent files are ASCII", False, str(exc))
+    if command_ascii:
+        check(name, "the rendered agent files are ASCII", True)
+
+
 # Counted, never spelled out. The README beside this file claimed "Three tools"
 # for two commits after the fourth and fifth arrived, and this line said
 # "12 scenarios" as a literal - a hand-maintained denominator in a harness whose
@@ -714,7 +1030,7 @@ SCENARIOS = (s1_node_master_status, s2_release_tags, s3_ticket_branches,
              s10_archive_roundtrip, s11_hooks, s12_empty_repo,
              s13_monorepo, s14_adr, s15_github_dir, s16_alternate_trunks,
              s17_tag_shapes, s18_encodings, s19_deep_relative_links,
-             s20_maven)
+             s20_maven, s21_every_preset, s22_cross_platform_agents)
 
 
 def main() -> int:
