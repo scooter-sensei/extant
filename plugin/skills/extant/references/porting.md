@@ -124,7 +124,7 @@ called out on a `NOTE:` line, and is either genuinely absent from that project's
 prose or a broken pattern. Know which - an inert rule reports "clean" forever.
 
 Then prove the rules fire: temporarily introduce a false claim - repoint a merge
-claim at a commit that is not an ancestor of trunk - and confirm it is reported.
+claim at a commit that is on no integration branch - and confirm it is reported.
 A rule never observed failing has not been tested.
 
 ## After installing

@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.11.0 (2026-07-27)
+
+More than one integration branch, which is what most enterprises actually run.
+
+### One trunk was answering three different questions
+
+Three rules asked "is X an ancestor of trunk", and they meant different things
+by it. On a gitflow repository each answer was wrong, in a different direction,
+at the same time. Measured on a real fixture rather than reasoned about:
+
+- with `trunk = main`, a FALSE claim about develop was not judged wrong, it was
+  never examined. The pattern interpolated the trunk name, so the line did not
+  match at all. Two false claims in one document, one per branch, and either
+  setting caught exactly one of them.
+- with `trunk = develop`, a genuinely shipped `v1.0.0` was reported dead. The
+  tag sits on main's release merge; develop received the release branch back,
+  not that commit.
+
+### A merge claim now names its own ref
+
+"Merged to `develop` at `abc1234`" says which branch it means, so that is what
+gets checked. This needs no configuration and is strictly MORE precise than
+comparing against one configured trunk, which is what makes it the right fix
+rather than a loosening. A trunk *list* would have made the rule ask "an
+ancestor of any of these", which drifts toward `dead-sha` wearing another
+rule's name.
+
+`stale-live-claim` and `dead-release-tag` cannot name a ref, so they ask about
+the integration branches the repository actually has: the configured trunk plus
+whichever of `main`, `master`, `develop`, `development`, `trunk` exist.
+
+### Faster, not just more correct
+
+Ancestry is indexed per ref and reused across all three rules. Previously every
+tag and branch cost its own `merge-base` subprocess. Measured on the fixture,
+two `rev-list` calls cost 61 ms together against 29 ms for a single
+`merge-base`, so this pays for itself from three examined items onward - and a
+document naming branches at all names more than three.
+
+### Nothing to change in your config
+
+`trunk` still means what it meant. A `merge_claim` pattern customised before
+this release keeps working: one capture group is the old contract, two means
+(ref, sha). Setup writes the two-group form.
+
+### Notes
+
+An unbackticked word where a branch would go is not reported as a missing
+branch, so "merged to production at `abc1234`" stays quiet while
+`` merged to `develp` at `abc1234` `` does not. A branch that no longer exists
+is only reported when the commit is on no integration branch either: gitflow
+deletes release branches, and a squash merge erases the name from history, so
+"missing" cannot be read as "invented".
+
 ## 0.10.0 (2026-07-27)
 
 Works with any coding agent, not only Claude Code.
@@ -414,7 +468,7 @@ positive has taught a lesson that is very hard to unteach.
 
     repos:
       - repo: https://github.com/scooter-sensei/extant
-        rev: v0.10.0
+        rev: v0.11.0
         hooks:
           - id: extant
 

@@ -572,9 +572,20 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
         # Emitted into a TOML *literal* string, so backslashes are written once
         # and not escaped. A basic (double-quoted) string would reject `\s` and
         # `\d` outright - the generated file simply would not parse.
+        # TWO groups: the ref the claim names, then the commit. The verbs are
+        # still measured from this project's own prose; only the target stopped
+        # being hard-coded to the configured trunk.
+        #
+        # This line is why the collector's fix alone was not enough. The
+        # installer writes its own pattern into `.extant.toml`, which overrides
+        # the default, so every freshly installed project would have kept the
+        # old single-trunk behaviour no matter what the rule supported. Unit
+        # tests missed it because they exercise the default; the gitflow
+        # scenario runs the real installer and caught it immediately.
         obs.append(Observation(
             "merge_claim",
-            rf"(?:{alt})\s+(?:to|into|in|on)\s+`?{{trunk}}`?\s+(?:at|in|as)\s+`([0-9a-f]{{7,40}})`",
+            rf"(?:{alt})\s+(?:to|into|in|on)\s+(`[^`\n]+`|[\w.\-/]+)"
+            rf"\s+(?:at|in|as)\s+`([0-9a-f]{{7,40}})`",
             DERIVED,
             f"{info['merge_count']} example(s) using: {', '.join(verbs)}",
         ))

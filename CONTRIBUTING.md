@@ -34,7 +34,7 @@ Rule(
     check=validate_merge_claims,
     scope="whole-file",
     in_archive=True,
-    falsifiable="is the claimed commit an ancestor of trunk?",
+    falsifiable="is the claimed commit an ancestor of the ref the claim names?",
 )
 ```
 

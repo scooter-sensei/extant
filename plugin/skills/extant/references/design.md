@@ -51,7 +51,7 @@ Rule(
     check=validate_merge_claims,
     scope="whole-file",
     in_archive=True,
-    falsifiable="is the claimed commit an ancestor of trunk?",
+    falsifiable="is the claimed commit an ancestor of the ref the claim names?",
 )
 ```
 
@@ -209,6 +209,66 @@ it.
 The baseline for that check is the raw file bytes, **not** a reassembly of the
 splitter's own output. Deriving it from the splitter makes the check circular: a
 bug in the splitter corrupts both sides equally and they always agree.
+
+## Integration branches, and why one trunk was not enough
+
+Three rules used to ask "is X an ancestor of trunk", and they meant three
+different things by it. On a repository with two integration branches each
+answer was wrong, in a different direction, at the same time.
+
+Measured on a gitflow fixture - main and develop, a release branch merged to
+both and tagged, a feature merged to develop after that release:
+
+- with `trunk = main`, a FALSE claim about develop was not judged wrong, it was
+  never examined. The pattern interpolated the trunk name, so the line did not
+  match at all. Two false claims in one document, one about each branch, and
+  either setting caught exactly one.
+- with `trunk = develop`, a genuinely shipped `v1.0.0` was reported dead. The
+  tag sits on main's release merge; develop received the release BRANCH back,
+  not that commit.
+
+**A merge claim names its own ref, so that is what is checked.** "Merged to
+`X` at `Y`" is self-describing, and asking git whether Y is on X needs no
+configuration at all. This is strictly MORE precise than comparing against one
+trunk, which is what makes it the right answer rather than a loosening: a
+trunk *list* would have made the rule ask "an ancestor of any of these", which
+trends toward `dead-sha` wearing another rule's name.
+
+The two rules that cannot name a ref use a measured set: the configured trunk
+plus whichever of `main`, `master`, `develop`, `development`, `trunk` exist.
+
+**Not a shape rule.** The first version asked only whether a branch name had a
+slash in it, reasoning that topic branches are prefixed and long-lived ones are
+bare. That is true of the prefixes and useless in reverse: an existing test
+cuts a tag on a branch called `abandoned`, and the shape rule promoted it to an
+integration branch and reported the release as shipped. Every `gh-pages`,
+`experiment` or `old-master` is the same trap. The narrower list degrades
+safely, because the rule this all exists for does not consult it.
+
+**A missing branch is not a false claim.** Gitflow deletes every release and
+feature branch on merge, and a squash merge or a custom `-m` erases the name
+from history, so neither `rev-parse` nor the merge-message rescue can tell
+"deleted" from "invented". Reporting those produced a false positive on the
+fixture. The rule asks the substantive question instead: a missing branch plus
+an integrated commit is a stale name on a claim that is true, and silence is
+right; a missing branch plus a commit on no integration branch is a claim that
+work landed when it did not. This also keeps the rule from being defeated by a
+typo, since evading it requires the commit to be genuinely integrated - at
+which point there is no false claim left to hide.
+
+**Backticks decide whether an unresolvable name is reported.** The pattern no
+longer anchors on a known branch name, so it can match a word of prose sitting
+where a branch would go. `` merged to `develp` at `abc` `` is a claim about a
+specific branch; "merged to production at `abc`" is not necessarily one.
+Requiring backticks outright would lose every project that writes the name
+bare, so both match and only the backticked form is accused.
+
+**The installer writes its own `merge_claim`, and that is the line that
+matters.** The generated pattern overrides the default, so a collector that
+supports named refs still ships single-trunk behaviour if the installer
+regresses. That is exactly what happened during this change: every unit test
+passed, because they exercise the default, and the gitflow scenario caught it
+because it runs the real installer.
 
 ## The baseline, and the two things it deliberately does not do
 

@@ -22,6 +22,13 @@ def git(repo: Path, *args: str) -> str:
                           text=True, encoding="utf-8", check=True).stdout
 
 
+def _ancestor_of(repo: Path, rev: str, ref: str) -> bool:
+    """Ask git directly. An oracle built from the code under test proves only
+    that the code agrees with itself."""
+    return subprocess.run(["git", "merge-base", "--is-ancestor", rev, ref],
+                          cwd=repo, capture_output=True).returncode == 0
+
+
 def run_tool(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, str(TOOL), "--repo", str(repo), *args],
                           cwd=repo, capture_output=True, text=True, encoding="utf-8")
@@ -304,7 +311,10 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo) -> None:
     findings = validate_release_tags(repo, "Released in v2.0 last week.\n")
 
     assert [f.kind for f in findings] == ["dead-release-tag"]
-    assert "not an ancestor" in findings[0].detail
+    # `abandoned` is slashless, and an earlier version of the integration-ref
+    # rule counted any slashless branch - which silenced exactly this case.
+    assert "on no integration branch" in findings[0].detail
+    assert "abandoned" not in findings[0].detail
 
 
 def test_existing_tag_on_trunk_is_silent(git_repo) -> None:
@@ -648,7 +658,7 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
                  for n in range(3)]
     git(repo, "checkout", "-q", "main")
 
-    index = hc._trunk_ancestor_index(repo)
+    index = hc._ancestor_index(repo, "main")
     assert index, "no ancestor index built; the rest would prove nothing"
 
     def batched(sha: str) -> bool:
@@ -656,13 +666,14 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
 
     for sha in on_trunk:
         assert batched(sha) is True, f"{sha} is on trunk but the batch said no"
-        assert hc._is_merged(repo, sha) is True
+        # Independent oracle: git itself, not another product function.
+        assert _ancestor_of(repo, sha, "main") is True
     for sha in off_trunk:
         assert batched(sha) is False, (
             f"{sha} is NOT on trunk but the batch said yes; false-merge-claim "
             f"would go silently blind"
         )
-        assert hc._is_merged(repo, sha) is False
+        assert _ancestor_of(repo, sha, "main") is False
 
 
 def test_a_false_merge_claim_is_still_reported_through_the_batch(git_repo) -> None:

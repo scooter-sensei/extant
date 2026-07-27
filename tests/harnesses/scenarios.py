@@ -79,6 +79,20 @@ def check(scenario: str, label: str, condition: bool, evidence: str = "") -> Non
             print(f"         | {line}")
 
 
+def _findings(stdout: str, kind: str) -> list[str]:
+    """Real finding lines of one kind: `line N: [kind] ...`.
+
+    Never `kind in stdout`. The denominator line names EVERY rule on every
+    run, and so does the NOTE listing rules that matched nothing, so a
+    substring test against the whole output is true whether the rule fired or
+    not. A mutation campaign caught exactly that here: deleting the preset's
+    consistency block left this scenario green, because the assertion was
+    reading the denominator and calling it a finding.
+    """
+    return [ln for ln in stdout.splitlines()
+            if ln.startswith("line ") and f"[{kind}]" in ln]
+
+
 # --------------------------------------------------------------------------
 def s1_node_master_status() -> None:
     """A JavaScript project: master trunk, STATUS.md, npm test, no Python."""
@@ -154,8 +168,11 @@ def s2_release_tags() -> None:
           "Released in v2.0 last week.\n\n## 1. Ref\n")
     commit(repo, "docs: claim v2.0")
     res = tool(repo, "--validate", "NEXT_SESSION.md")
-    check(name, "tag that never reached trunk is flagged",
-          "not an ancestor" in res.stdout, res.stdout)
+    # `abandoned` is slashless, and an early version of the integration-ref
+    # rule counted every slashless branch - which silenced exactly this case.
+    check(name, "tag that never reached an integration branch is flagged",
+          bool(_findings(res.stdout, "dead-release-tag"))
+          and "v2.0" in res.stdout, res.stdout)
 
 
 # --------------------------------------------------------------------------
@@ -844,20 +861,6 @@ README_WITH_A_FAULT = (
 )
 
 
-def _findings(stdout: str, kind: str) -> list[str]:
-    """Real finding lines of one kind: `line N: [kind] ...`.
-
-    Never `kind in stdout`. The denominator line names EVERY rule on every
-    run, and so does the NOTE listing rules that matched nothing, so a
-    substring test against the whole output is true whether the rule fired or
-    not. A mutation campaign caught exactly that here: deleting the preset's
-    consistency block left this scenario green, because the assertion was
-    reading the denominator and calling it a finding.
-    """
-    return [ln for ln in stdout.splitlines()
-            if ln.startswith("line ") and f"[{kind}]" in ln]
-
-
 def _examined(stdout: str) -> int:
     """Total claims examined, read off the denominator line the tool prints.
 
@@ -1020,6 +1023,87 @@ def s22_cross_platform_agents() -> None:
         check(name, "the rendered agent files are ASCII", True)
 
 
+def s23_gitflow() -> None:
+    """Two integration branches, which is where one configured trunk broke.
+
+    Built as gitflow prescribes: main and develop, a release branch merged to
+    both and tagged, a feature merged to develop AFTER that release. That last
+    window is the whole problem - before a release, develop's history is
+    already inside main and the two agree, so nothing is exposed. A document
+    about active work talks about the commits that landed after it.
+
+    The measurement that produced this scenario found both settings wrong in
+    opposite directions, so the assertion that matters most is the LAST one:
+    the answers must no longer depend on which branch is configured as trunk.
+    """
+    name = "s23-gitflow"
+    print(f"\n[{name}] gitflow: two integration branches")
+    repo = new_repo(name)
+    write(repo, "a.txt", "a\n")
+    commit(repo, "chore: init")
+    git(repo, "branch", "develop")
+
+    git(repo, "checkout", "-q", "develop")
+    git(repo, "checkout", "-q", "-b", "release/1.0.0")
+    write(repo, "VERSION", "1.0.0\n")
+    commit(repo, "chore: bump")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge: release 1.0.0", "release/1.0.0")
+    git(repo, "tag", "v1.0.0")
+    on_main = git(repo, "rev-parse", "--short", "main").strip()
+    git(repo, "checkout", "-q", "develop")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge: release back", "release/1.0.0")
+
+    git(repo, "checkout", "-q", "-b", "feature/search")
+    write(repo, "search.txt", "s\n")
+    commit(repo, "feat: search")
+    git(repo, "checkout", "-q", "develop")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge: search", "feature/search")
+    on_develop = git(repo, "rev-parse", "--short", "develop").strip()
+
+    git(repo, "checkout", "-q", "-b", "feature/payments")
+    write(repo, "pay.txt", "p\n")
+    commit(repo, "feat: wip")
+    git(repo, "checkout", "-q", "develop")
+
+    # Two TRUE claims and two FALSE ones, one of each about either branch.
+    write(repo, "STATUS.md",
+          "# Status\n\n## Phase 1 - search (in progress, 2026-07-27)\n\n"
+          f"Merged to `develop` at `{on_develop}`.\n"
+          f"Merged to `main` at `{on_main}`.\n"
+          f"Merged to `develop` at `{on_main}`.\n"
+          f"Merged to `main` at `{on_develop}`.\n"
+          "Released in v1.0.0 already.\n"
+          "Work is NOT yet merged on `feature/payments`.\n\n"
+          "## 1. Reference\n")
+    commit(repo, "docs: status")
+    install(repo, "--doc", "STATUS.md")
+
+    seen = {}
+    for trunk in ("main", "develop"):
+        cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
+        lines = [ln for ln in cfg.splitlines() if not ln.startswith("trunk")]
+        write(repo, ".extant.toml", "\n".join(lines) + f'\ntrunk = "{trunk}"\n')
+        res = tool(repo, "--validate", "STATUS.md")
+        found = _findings(res.stdout, "false-merge-claim")
+
+        check(name, f"trunk={trunk}: both false claims reported, neither true one",
+              len(found) == 2 and {f.split(":")[0] for f in found} ==
+              {"line 7", "line 8"},
+              "\n".join(found) or res.stdout[:400])
+        check(name, f"trunk={trunk}: the shipped tag is not called dead",
+              not _findings(res.stdout, "dead-release-tag"),
+              "\n".join(_findings(res.stdout, "dead-release-tag")))
+        check(name, f"trunk={trunk}: the unmerged feature is still open",
+              not _findings(res.stdout, "stale-live-claim"),
+              "\n".join(_findings(res.stdout, "stale-live-claim")))
+        seen[trunk] = _examined(res.stdout)
+
+    check(name, "every merge claim is examined, not the fraction naming trunk",
+          seen["main"] == seen["develop"] and seen["main"] > 0,
+          f"examined main={seen['main']} develop={seen['develop']}")
+
+
 # Counted, never spelled out. The README beside this file claimed "Three tools"
 # for two commits after the fourth and fifth arrived, and this line said
 # "12 scenarios" as a literal - a hand-maintained denominator in a harness whose
@@ -1030,7 +1114,8 @@ SCENARIOS = (s1_node_master_status, s2_release_tags, s3_ticket_branches,
              s10_archive_roundtrip, s11_hooks, s12_empty_repo,
              s13_monorepo, s14_adr, s15_github_dir, s16_alternate_trunks,
              s17_tag_shapes, s18_encodings, s19_deep_relative_links,
-             s20_maven, s21_every_preset, s22_cross_platform_agents)
+             s20_maven, s21_every_preset, s22_cross_platform_agents,
+             s23_gitflow)
 
 
 def main() -> int:

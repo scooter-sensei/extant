@@ -195,12 +195,15 @@ for kind, secs, n in sorted(rows, key=lambda r: -r[1]):
     share = 100 * secs / total if total else 0
     print(f"  {{kind:<20}} {{secs:7.3f}}s  {{share:5.1f}}%  {{n:>5}} findings")
 print(f"  {{'TOTAL':<20}} {{total:7.3f}}s   over {{len(rows)}} rules")
-# A rule with nothing to examine is timed as free, which is true and
-# misleading: its real cost is unmeasured, not zero. Naming them keeps this
-# table from reading as full coverage of the rule set.
-idle = [kind for kind, _, n in rows if n == 0]
-if idle:
-    print(f"  unexercised by this document ({{len(idle)}}/{{len(rows)}}): {{', '.join(idle)}}")
+# Findings, not work: a rule can examine two hundred claims and
+# correctly report none. This line said "unexercised", which was wrong
+# in exactly the way the project warns about - conflating "found
+# nothing" with "did nothing". The denominator is what separates them,
+# and --verify prints that.
+quiet = [kind for kind, _, n in rows if n == 0]
+if quiet:
+    print(f"  produced no findings ({{len(quiet)}}/{{len(rows)}}), which is not the same as")
+    print(f"  having examined nothing - run --verify for the denominator")
 start = time.perf_counter()
 h.count_examined(repo, text)
 print(f"  {{'count_examined':<20}} {{time.perf_counter()-start:7.3f}}s  (denominator)")

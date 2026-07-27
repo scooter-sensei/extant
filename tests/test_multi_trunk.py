@@ -1,0 +1,303 @@
+"""Repositories with more than one integration branch.
+
+Every test here was derived from a measurement against a real gitflow fixture
+rather than from what gitflow is supposed to look like. The measurement found
+two defects, and they pointed in opposite directions: with `trunk = main` a
+FALSE claim about develop was never examined, and with `trunk = develop` a
+genuinely shipped release tag was reported dead. Neither setting was correct,
+so the fix was not a longer trunk list - it was to stop asking one configured
+branch three different questions.
+"""
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True,
+                          text=True, encoding="utf-8", check=True).stdout.strip()
+
+
+def short(repo: Path, ref: str) -> str:
+    return git(repo, "rev-parse", "--short", ref)
+
+
+@pytest.fixture()
+def gitflow(git_repo):
+    """main and develop, a feature merged to develop AFTER the last release.
+
+    That window is the whole problem: before a release, develop's history is
+    already inside main via the release merge, so the two branches agree and
+    nothing is exposed. A document describing active work talks about the
+    commits that landed after it, which are on develop alone.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    git(repo, "branch", "develop")
+
+    git(repo, "checkout", "-q", "develop")
+    git(repo, "checkout", "-q", "-b", "release/1.0.0")
+    commit("VERSION", "1.0.0\n", "chore: bump")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge: release 1.0.0", "release/1.0.0")
+    git(repo, "tag", "v1.0.0")
+    on_main = short(repo, "main")
+    git(repo, "checkout", "-q", "develop")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge: release back", "release/1.0.0")
+
+    git(repo, "checkout", "-q", "-b", "feature/search")
+    commit("search.py", "s = 1\n", "feat: search")
+    git(repo, "checkout", "-q", "develop")
+    git(repo, "merge", "-q", "--no-ff", "-m", "merge: search", "feature/search")
+    on_develop = short(repo, "develop")
+
+    git(repo, "checkout", "-q", "-b", "feature/payments")
+    commit("pay.py", "p = 1\n", "feat: wip")
+    unmerged = short(repo, "HEAD")
+    git(repo, "checkout", "-q", "develop")
+    return repo, on_main, on_develop, unmerged
+
+
+def test_a_false_claim_about_a_non_trunk_branch_is_caught(gitflow) -> None:
+    """The defect this whole change exists for.
+
+    `on_main` is not an ancestor of develop, so "merged to `develop` at
+    <on_main>" is false. The old rule interpolated the configured trunk into
+    its pattern, so with trunk=main this line did not match at all: the claim
+    was not judged wrong, it was never examined. A wrong implementation that
+    still compares against the configured trunk reports nothing here.
+    """
+    from extant_collect import validate_merge_claims
+    repo, on_main, _on_develop, _unmerged = gitflow
+
+    findings = validate_merge_claims(repo, f"Merged to `develop` at `{on_main}`.\n")
+
+    assert [f.kind for f in findings] == ["false-merge-claim"], findings
+    assert "develop" in findings[0].detail
+
+
+def test_a_true_claim_about_a_non_trunk_branch_is_silent(gitflow) -> None:
+    """The other direction, which is what stops the fix above from being a
+    rule that simply flags everything it did not used to see."""
+    from extant_collect import validate_merge_claims
+    repo, _on_main, on_develop, _unmerged = gitflow
+
+    assert validate_merge_claims(repo, f"Merged to `develop` at `{on_develop}`.\n") == []
+
+
+def test_both_directions_are_checked_in_one_pass(gitflow) -> None:
+    """A document naming both branches. Measured on the fixture, either trunk
+    setting caught exactly one of these two and was blind to the other."""
+    from extant_collect import validate_merge_claims
+    repo, on_main, on_develop, _unmerged = gitflow
+
+    findings = validate_merge_claims(
+        repo,
+        f"Merged to `develop` at `{on_main}`.\n"
+        f"Merged to `main` at `{on_develop}`.\n"
+    )
+
+    assert len(findings) == 2, [f.detail for f in findings]
+    assert {f.line for f in findings} == {1, 2}
+
+
+def test_prose_after_merged_to_is_not_read_as_a_branch(gitflow) -> None:
+    """The cost of letting the claim name its own ref is that the pattern no
+    longer anchors on a known branch name, so an unbacticked word sitting where
+    a branch would go must not be reported as a missing branch.
+
+    The first version of this test used "merged to the release branch at
+    `sha`", which proved nothing: the pattern requires ` at ` to follow the
+    word directly, so it never matched and the guard was never reached. A
+    mutation campaign removed the guard entirely and this test stayed green.
+    `production` is the shape that actually reaches it - one bare word, in
+    exactly the right place, that is not a branch here.
+    """
+    from extant_collect import validate_merge_claims
+    repo, _on_main, on_develop, unmerged = gitflow
+
+    # Reaches the guard: the pattern matches and `production` does not resolve.
+    assert validate_merge_claims(
+        repo, f"Merged to production at `{unmerged}`.\n") == []
+    assert validate_merge_claims(
+        repo, f"Merged to the release branch at `{on_develop}`.\n") == []
+
+
+def test_a_bare_word_that_IS_a_branch_is_still_checked(gitflow) -> None:
+    """Ignoring unbackticked words must not become ignoring unbackticked
+    CLAIMS. Plenty of documents write the branch name plain, and dropping those
+    would trade a false positive for exactly the blindness this change removes.
+    """
+    from extant_collect import validate_merge_claims
+    repo, on_main, _on_develop, _unmerged = gitflow
+
+    findings = validate_merge_claims(repo, f"Merged to develop at `{on_main}`.\n")
+
+    assert [f.kind for f in findings] == ["false-merge-claim"], findings
+
+
+def test_a_backticked_branch_that_never_existed_is_reported(gitflow) -> None:
+    """A typo must not become a way to make a claim unverifiable AND silent.
+
+    The commit here is on no integration branch, so the claim is false in
+    substance as well as misspelt.
+    """
+    from extant_collect import validate_merge_claims
+    repo, _on_main, _on_develop, unmerged = gitflow
+
+    findings = validate_merge_claims(repo, f"Merged to `devlop` at `{unmerged}`.\n")
+
+    assert [f.kind for f in findings] == ["false-merge-claim"], findings
+    assert "no such branch" in findings[0].detail
+
+
+def test_a_deleted_branch_whose_work_landed_is_not_accused(gitflow) -> None:
+    """Gitflow deletes every release branch on merge, and a squash merge or a
+    custom `-m` erases the name from history entirely. Reporting those as
+    invented produced a false positive on the fixture. The rule asks the
+    substantive question instead: did this work land anywhere?
+    """
+    from extant_collect import validate_merge_claims
+    repo, on_main, _on_develop, _unmerged = gitflow
+    git(repo, "branch", "-D", "release/1.0.0")
+
+    assert validate_merge_claims(repo, f"Merged to `release/1.0.0` at `{on_main}`.\n") == []
+
+
+def test_a_deleted_branch_whose_work_never_landed_still_fires(gitflow) -> None:
+    """The other half of the case above. Silence there must come from the
+    commit being integrated, not from the branch being missing - otherwise
+    deleting a branch would launder every claim that named it."""
+    from extant_collect import validate_merge_claims
+    repo, _on_main, _on_develop, unmerged = gitflow
+    git(repo, "branch", "-D", "release/1.0.0")
+
+    findings = validate_merge_claims(repo, f"Merged to `release/1.0.0` at `{unmerged}`.\n")
+
+    assert [f.kind for f in findings] == ["false-merge-claim"], findings
+
+
+def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(gitflow, monkeypatch) -> None:
+    """The measured false positive.
+
+    `v1.0.0` sits on main's release merge. develop received the release BRANCH
+    back, not that commit, so the tag is not an ancestor of develop - and with
+    trunk=develop the old rule called a genuinely shipped release dead. An
+    implementation that still asks about one configured trunk fails here.
+    """
+    import extant_collect as ec
+    repo, _on_main, _on_develop, _unmerged = gitflow
+    monkeypatch.setattr(ec, "TRUNK", "develop")
+
+    assert ec.validate_release_tags(repo, "Released in v1.0.0 last week.\n") == []
+
+
+def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow, monkeypatch) -> None:
+    """With trunk=main, `feature/search` is not an ancestor of main, so the old
+    rule accepted "not yet merged" about work that shipped to develop weeks
+    ago. Merged means landed on an integration branch, not on one of them."""
+    import extant_collect as ec
+    repo, _on_main, _on_develop, _unmerged = gitflow
+    monkeypatch.setattr(ec, "TRUNK", "main")
+    text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+            "Work is NOT yet merged on `feature/search`.\n\n## 1. Ref\n")
+
+    findings = ec.validate_live_claims(repo, text)
+
+    assert [f.kind for f in findings] == ["stale-live-claim"], findings
+    assert "develop" in findings[0].detail
+
+
+def test_an_unmerged_feature_is_still_reported_as_open(gitflow) -> None:
+    """The false positive the test above could easily buy. `feature/payments`
+    is on nothing, and widening what counts as merged must not make every live
+    claim stale."""
+    import extant_collect as ec
+    repo, _on_main, _on_develop, _unmerged = gitflow
+    text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+            "Work is NOT yet merged on `feature/payments`.\n\n## 1. Ref\n")
+
+    assert ec.validate_live_claims(repo, text) == []
+
+
+def test_an_integration_branch_is_not_merged_into_itself(gitflow, monkeypatch) -> None:
+    """`develop` is trivially an ancestor of `develop`, so without excluding the
+    branch under test every live claim about an integration branch reports as
+    already merged. Reachable only with a `branch_token` that matches slashless
+    names, which is a configuration choice several projects make, and a
+    mutation campaign confirmed nothing else pinned it.
+    """
+    import re
+
+    import extant_collect as ec
+    repo, _on_main, _on_develop, _unmerged = gitflow
+    monkeypatch.setattr(ec, "TRUNK", "main")
+    monkeypatch.setattr(ec, "_BRANCH_TOKEN", re.compile(r"`([\w.\-/]+)`"))
+    text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+            "Work is NOT yet merged on `develop`.\n\n## 1. Ref\n")
+
+    # develop genuinely has not reached main here, so the claim is true.
+    assert ec.validate_live_claims(repo, text) == []
+
+
+def test_integration_refs_ignore_unconventional_branches(gitflow) -> None:
+    """An earlier version treated any slashless branch as an integration
+    branch, which silently reclassified `gh-pages`, `experiment` and every
+    abandoned spike. A tag cut on one of those would then count as shipped."""
+    import extant_collect as ec
+    repo, _on_main, _on_develop, _unmerged = gitflow
+    git(repo, "branch", "gh-pages")
+    git(repo, "branch", "experiment")
+
+    refs = ec._integration_refs(repo)
+
+    assert "develop" in refs and "main" in refs
+    assert "gh-pages" not in refs and "experiment" not in refs
+
+
+def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow, monkeypatch) -> None:
+    """Back-compat. A project that customised `merge_claim` before claims
+    became self-describing wrote one group, the sha, and meant trunk. Breaking
+    those configs would turn a working rule into one that matches nothing."""
+    import re
+
+    import extant_collect as ec
+    repo, on_main, on_develop, _unmerged = gitflow
+    monkeypatch.setattr(ec, "TRUNK", "main")
+    monkeypatch.setattr(ec, "_MERGE_CLAIM",
+                        re.compile(r"landed at `([0-9a-f]{7,40})`"))
+
+    assert ec.validate_merge_claims(repo, f"landed at `{on_main}`.\n") == []
+    findings = ec.validate_merge_claims(repo, f"landed at `{on_develop}`.\n")
+    assert [f.kind for f in findings] == ["false-merge-claim"], findings
+
+
+def test_the_ancestry_cache_does_not_leak_between_repositories(git_repo, tmp_path) -> None:
+    """Two repositories, both with a branch called `main`.
+
+    The first version keyed the index by ref name alone. Rules are also called
+    directly, without validate() resetting anything, so the second repository
+    was answered from the first one's history and a TRUE merge claim came back
+    false. Caught by the existing suite, and pinned here so it stays caught.
+    """
+    import extant_collect as ec
+    first, commit = git_repo
+    first_sha = commit("a.py", "a = 1\n", "feat: a")[:9]
+
+    second = tmp_path / "second"
+    second.mkdir()
+    git(second, "init", "-b", "main")
+    git(second, "config", "user.email", "t@t")
+    git(second, "config", "user.name", "T")
+    (second / "b.py").write_text("b = 1\n", encoding="utf-8")
+    git(second, "add", "-A")
+    git(second, "commit", "-m", "feat: b")
+    second_sha = short(second, "HEAD")
+
+    assert ec.validate_merge_claims(first, f"Merged to `main` at `{first_sha}`.\n") == []
+    assert ec.validate_merge_claims(second, f"Merged to `main` at `{second_sha}`.\n") == [], (
+        "the second repository was answered from the first one's index"
+    )

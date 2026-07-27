@@ -33,13 +33,53 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # so this mutation silently stopped probing anything - reported as a
         # HARNESS FAULT rather than as a pass, which is the only reason it was
         # noticed. Mutations rot alongside the code they point at.
+        # Retargeted a second time when claims became self-describing and the
+        # ancestry map became keyed by (ref, sha) rather than by sha alone.
         ("merge-claim never fires", collect,
-         "        if not merged[sha]:\n            findings.append(Finding(",
+         "        if not merged[key]:\n            findings.append(Finding(",
          "        if False:\n            findings.append(Finding("),
+        # Retargeted when ancestry became per-ref: the index is keyed by
+        # (repo, ref) now and the prefix lookup moved into _reachable_from.
         ("batched ancestry always answers yes", collect,
-         "                merged[sha] = any(full.startswith(sha)\n"
-         "                                  for full in index.get(sha[:7], ()))",
-         "                merged[sha] = True"),
+         "        return any(full.startswith(rev) for full in index.get(rev[:7], ()))",
+         "        return True"),
+        # The three rules that used to ask about trunk now ask about the
+        # measured integration set, so its two failure directions each get a
+        # mutation: naming nothing makes them blind, naming everything makes
+        # them permissive.
+        ("integration refs collapse to the configured trunk alone", collect,
+         "    present = set(out.split())",
+         "    present = set()"),
+        ("any branch counts as an integration branch", collect,
+         "    for name in _INTEGRATION_NAMES:\n"
+         "        if name in present and name not in refs:\n"
+         "            refs.append(name)",
+         "    for name in sorted(present):\n"
+         "        if name not in refs:\n"
+         "            refs.append(name)"),
+        ("merge claims stop checking the ref the claim names", collect,
+         "            merged[key] = _reachable_from(repo, sha, ref)",
+         "            merged[key] = _reachable_from(repo, sha, TRUNK)"),
+        ("a bare word after the merge verb is treated as a branch", collect,
+         "            if not quoted:\n"
+         "                continue        # a bare word, likelier prose than a ref",
+         "            if False:\n"
+         "                continue        # a bare word, likelier prose than a ref"),
+        ("the ancestry cache stops distinguishing repositories", collect,
+         "    key = (str(repo), ref)\n    if key in _ANCESTORS:",
+         '    key = ("", ref)\n    if key in _ANCESTORS:'),
+        ("a branch counts as merged into itself", collect,
+         "    return [ref for ref in _integration_refs(repo)\n"
+         "            if ref != exclude and _reachable_from(repo, rev, ref)]",
+         "    return [ref for ref in _integration_refs(repo)\n"
+         "            if _reachable_from(repo, rev, ref)]"),
+        # The installer writes its own merge_claim, which OVERRIDES the default,
+        # so a collector that supports named refs still ships single-trunk
+        # behaviour if this line regresses. That is exactly what happened.
+        ("the installer emits a single-trunk merge_claim again",
+         detect.parent / "install.py",
+         'rf"(?:{alt})\\s+(?:to|into|in|on)\\s+(`[^`\\n]+`|[\\w.\\-/]+)"',
+         'rf"(?:{alt})\\s+(?:to|into|in|on)\\s+`?{{trunk}}`?"'),
         ("live-claim checks EVERY entry, not just the newest", collect,
          '        if kind != "phase" or newest_checked:\n            continue\n'
          "        newest_checked = True\n        if not _LIVE_PHRASES.search(entry):",
@@ -48,8 +88,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("branch rule loses the merge-history rescue", collect,
          "            if _branch_exists(repo, branch) or _named_in_merge_history(repo, branch):",
          "            if _branch_exists(repo, branch):"),
+        # Retargeted when the tag rule stopped asking about trunk and started
+        # asking whether the tag is on ANY integration branch.
         ("release-tag ancestry check dropped", collect,
-         '            if not _is_merged(repo, f"refs/tags/{tag}"):',
+         '            if not _integrated_by(repo, f"refs/tags/{tag}"):',
          "            if False:"),
         ("path/branch guard removed (a file becomes a phantom branch)", collect,
          "            if _looks_like_a_path(repo, branch):\n"

@@ -89,13 +89,23 @@ DEFAULTS: dict[str, object] = {
     "phase_bare": r"\bPhase (\d+\.\d+[a-z]?)",
     "branch_token": r"`((?:claude|feature|feat)/[^`]+)`",
     "live_phrases": r"NOT yet merged|awaiting (?:user )?merge|pending merge|still unmerged",
-    # `{trunk}` is substituted by str.replace, NOT str.format - so the repetition
-    # braces are written literally. Doubling them (as .format would require)
-    # produced a pattern that compiled fine and matched nothing, which is the
-    # precise failure this module's docstring warns about: a rule that looks
-    # healthy while validating nothing. Caught only by counting matches against
-    # the real documents.
-    "merge_claim": r"(?:merged|shipped)\s+(?:to|into)\s+`?{trunk}`?\s+at\s+`([0-9a-f]{7,40})`",
+    # TWO groups: the ref the claim names, then the commit. The rule checks the
+    # commit against THAT ref, so nothing here is substituted and `{trunk}` no
+    # longer appears - a claim like "merged to `develop` at `abc1234`" says
+    # which branch it means, and comparing it against a single configured trunk
+    # was measurably wrong in both directions on a two-trunk repository.
+    #
+    # The backticks are kept INSIDE group 1 on purpose. They are what separates
+    # a deliberate ref (report a typo in it) from a word of prose (say
+    # nothing); see `_claimed_ref`. Writing `` `([^`]+)` `` instead would drop
+    # every project that spells the branch name bare.
+    #
+    # A one-group pattern remains supported and keeps the old meaning, checked
+    # against trunk, so a customised `merge_claim` does not break.
+    "merge_claim": (
+        r"(?:merged|shipped)\s+(?:to|into)\s+"
+        r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`([0-9a-f]{7,40})`"
+    ),
     "path_pointer": (
         r"(?:\*\*(?:Plan|Design|Spec|Authority|Source)s?:?\*\*|\bsee\b|\bread\b)"
         r"[^`\n]{0,40}`([\w:.\\/-]+\.(?:py|qml|md|txt|json|toml|cfg|ini))`"
@@ -401,7 +411,11 @@ def load_config(repo: Path) -> StatusConfig:
         source = str(path)
 
     trunk = str(values["trunk"])
-    # merge_claim embeds the trunk name, so it is formatted rather than fixed.
+    # The default pattern no longer embeds the trunk name, but a project that
+    # customised `merge_claim` before this change may still write `{trunk}`, and
+    # substituting it costs nothing when the token is absent. Dropping the
+    # substitution would turn those configs into a pattern that compiles and
+    # matches nothing, which is this module's named failure mode.
     merge_src = str(values["merge_claim"]).replace("{trunk}", re.escape(trunk))
 
     def optional(key: str) -> re.Pattern[str] | None:

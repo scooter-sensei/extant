@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.10.0
+version: 0.11.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -95,10 +95,10 @@ and both destroy the tool's value.
 | Rule | What it checks | Scope |
 |---|---|---|
 | `dead-sha` | every referenced commit still resolves | whole file, backticked **and** bare |
-| `stale-live-claim` | "not yet merged" about work that merged | **newest entry only** |
+| `stale-live-claim` | "not yet merged" about work that reached an integration branch | **newest entry only** |
 | `unknown-branch` | a branch git has never seen, in refs or any merge commit | **newest entry only** |
-| `false-merge-claim` | "merged at X" where X is not an ancestor of trunk | whole file, **including the archive** |
-| `dead-release-tag` | "released in v2.1" where the tag is missing or never reached trunk | whole file |
+| `false-merge-claim` | "merged to X at Y" where Y is not an ancestor of **X** | whole file, **including the archive** |
+| `dead-release-tag` | "released in v2.1" where the tag is missing or on no integration branch | whole file |
 | `dead-path-pointer` | "Plan: X" / "see X" where X does not exist | operative references only |
 | `dead-md-link` | `[text](path)` whose file is gone | whole file |
 | `dead-md-anchor` | `[text](#fragment)` with no such heading | same document only |
@@ -111,6 +111,22 @@ files against EACH OTHER, which is why it does not breach the no-numbers
 guarantee: the forbidden question is whether a value is correct, and this asks
 whether two artifacts contradict each other. Off unless `[extant.consistency]`
 is configured.
+
+**More than one integration branch is normal, and one configured trunk was not
+enough.** A merge claim names its own ref - "merged to `develop` at `abc1234`"
+says which branch it means - so that is what gets checked, which needs no
+configuration and is more precise than comparing against a single trunk. The
+two rules that cannot name a ref, `stale-live-claim` and `dead-release-tag`,
+ask about the integration branches this repository actually has: the configured
+trunk plus whichever of `main`, `master`, `develop`, `development` and `trunk`
+exist.
+
+Measured on a gitflow repository, the old single-trunk question was wrong in
+both directions at once. With `trunk = main` a FALSE claim about develop was
+never examined, because the pattern interpolated the trunk name and did not
+match. With `trunk = develop` a genuinely shipped `v1.0.0` was reported dead,
+because the tag sits on main's release merge. Neither setting was correct, so
+the fix was not a longer trunk list.
 
 Three cross-cutting behaviours worth knowing:
 

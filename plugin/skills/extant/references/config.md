@@ -144,7 +144,7 @@ Each was measured against one project's real prose. See `porting.md`.
 | `branch_token` | How branch names appear in prose. |
 | `merge_claim` | "merged to `{trunk}` at `<sha>`". Requires the SHA to FOLLOW the phrase, so a SHA belonging to a neighbouring clause is not misread. |
 | `path_pointer` | Paths introduced by `Plan:`, `Design:`, `see`, `read`. Keyed on operative use, never on path shape. |
-| `release_tag` | "released in v2.1". Checks the tag exists AND is an ancestor of trunk. Measured as ABSENT from the corpus this was built on, so its denominator reads 0 here; it is the common shape in CHANGELOG-keeping projects. |
+| `release_tag` | "released in v2.1". Checks the tag exists AND is on an integration branch. Measured as ABSENT from the corpus this was built on, so its denominator reads 0 here; it is the common shape in CHANGELOG-keeping projects. |
 | `todo_markers` | `TODO`/`FIXME`/`XXX`. |
 | `code_suffixes` | Extensions scanned for TODOs. Excludes docs deliberately - a spec discussing TODO is not a TODO. |
 | `todo_exclude_files` / `todo_exclude_dirs` | Paths exempt from the TODO scan, so the tool does not report its own source. |
@@ -230,7 +230,7 @@ A rule reported as DID NOT FIRE has a pattern that does not match what it claims
 to check.
 
 The manual version of the same idea: repoint a merge claim at a commit that is
-not an ancestor of trunk and confirm it is reported. **A rule never observed
+on no integration branch and confirm it is reported. **A rule never observed
 failing has not been tested** - this exact gap shipped once, where the config held the
 right values and three rules never read them, so a foreign project got a clean
 run against another project's vocabulary.

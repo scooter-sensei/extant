@@ -62,10 +62,16 @@ def test_toml_overrides_are_applied(tmp_path):
     assert cfg.retain_entries == 5
     assert cfg.entry_prefix == "## Release "
     assert cfg.source.endswith(".extant.toml")
-    # trunk is interpolated into merge_claim, so overriding it must retarget the rule
-    assert "trunk" in cfg.merge_claim.pattern
-    assert cfg.merge_claim.search("shipped to `trunk` at `abc1234`")
-    assert not cfg.merge_claim.search("shipped to `main` at `abc1234`")
+    # merge_claim no longer embeds the trunk name: a claim says which branch it
+    # means, and the rule checks that branch. So the pattern must match BOTH,
+    # capturing the ref, where the old trunk-interpolated one matched only the
+    # configured branch and was blind to every claim about any other.
+    assert cfg.merge_claim.groups == 2, "the ref must be captured alongside the sha"
+    for branch in ("trunk", "main", "develop"):
+        match = cfg.merge_claim.search(f"shipped to `{branch}` at `abc1234`")
+        assert match, f"a claim about `{branch}` was not matched at all"
+        assert match.group(1) == f"`{branch}`", "group 1 must be the ref, backticks kept"
+        assert match.group(2) == "abc1234"
 
 
 def test_unknown_keys_are_reported_not_swallowed(tmp_path):

@@ -794,14 +794,6 @@ _LIVE_PHRASES = CONFIG.live_phrases
 _BRANCH_TOKEN = CONFIG.branch_token
 
 
-def _is_merged(repo: Path, branch: str) -> bool:
-    try:
-        _git(repo, "merge-base", "--is-ancestor", branch, TRUNK)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
 def _branch_exists(repo: Path, branch: str) -> bool:
     try:
         _git(repo, "rev-parse", "--verify", branch)
@@ -820,8 +812,22 @@ def _branch_exists(repo: Path, branch: str) -> bool:
 _MERGE_CLAIM = CONFIG.merge_claim
 
 
-def _trunk_ancestor_index(repo: Path) -> dict[str, list[str]] | None:
-    """Every commit reachable from trunk, indexed by its 7-character prefix.
+# Ancestry indexes and resolved refs, for the duration of ONE validate() call.
+# Saved and restored rather than cleared, exactly as _DIRCACHE is: git state can
+# change between validations, so an index that outlived the call would answer
+# from a repository that no longer exists in that shape.
+#
+# Keyed by (repo, ref), never by ref alone. Keying by name looked sufficient and
+# was not: rules are also called directly, without going through validate(), so
+# nothing resets the cache between two repositories that both have a branch
+# called `main` - and the second one is then answered from the first one's
+# history. The suite caught it as a TRUE merge claim reported false.
+_ANCESTORS: dict[tuple[str, str], dict[str, list[str]] | None] = {}
+_REFS: dict[tuple[str, str], str | None] = {}
+
+
+def _ancestor_index(repo: Path, ref: str) -> dict[str, list[str]] | None:
+    """Every commit reachable from `ref`, indexed by its 7-character prefix.
 
     ONE `git rev-list` answers what would otherwise be one
     `git merge-base --is-ancestor` per claim. Measured on a 5000-commit
@@ -834,18 +840,127 @@ def _trunk_ancestor_index(repo: Path) -> dict[str, list[str]] | None:
     size-based switch would create a second path that only runs on large inputs,
     which is precisely the code that never gets exercised by a test.
 
-    Returns None when trunk cannot be resolved - an unborn branch, or a
-    misconfigured trunk name - so the caller can fall back to asking per commit
-    and get the same answer it always did.
+    Keyed by ref because "integrated" is no longer one question about one
+    branch. Re-measured on the gitflow fixture: two rev-lists cost 61 ms
+    together while a single merge-base costs 29 ms, so indexing every
+    integration ref pays for itself from three examined items onward - and a
+    document that names branches and tags at all names more than three.
+
+    Returns None when the ref cannot be resolved - an unborn branch, a deleted
+    one, or a misconfigured name - so the caller can fall back to asking per
+    commit and get the same answer it always did.
     """
+    key = (str(repo), ref)
+    if key in _ANCESTORS:
+        return _ANCESTORS[key]
     try:
-        out = _git(repo, "rev-list", TRUNK)
+        out = _git(repo, "rev-list", ref)
     except (subprocess.CalledProcessError, OSError):
+        _ANCESTORS[key] = None
         return None
     index: dict[str, list[str]] = {}
     for full in out.split():
         index.setdefault(full[:7], []).append(full)
+    _ANCESTORS[key] = index
     return index
+
+
+def _reachable_from(repo: Path, rev: str, ref: str) -> bool:
+    """Is `rev` an ancestor of `ref`? Batched through the index when possible."""
+    index = _ancestor_index(repo, ref)
+    if index is None:
+        try:
+            _git(repo, "merge-base", "--is-ancestor", rev, ref)
+            return True
+        except (subprocess.CalledProcessError, OSError):
+            return False
+    if _SHA_SHAPE.match(rev):
+        # A document carries an abbreviated commit; rev-list returns full ones.
+        # `startswith` covers the 40-character case too, which is its own prefix.
+        return any(full.startswith(rev) for full in index.get(rev[:7], ()))
+    # A branch or tag name: resolve it once, then answer from the index.
+    resolved = _resolve_ref(repo, rev)
+    return bool(resolved) and resolved in index.get(resolved[:7], ())
+
+
+def _resolve_ref(repo: Path, ref: str) -> str | None:
+    """The full commit SHA a ref points at, or None if it does not resolve.
+
+    `^{commit}` dereferences an annotated tag to the commit it tags, which is
+    what every ancestry question here means. Without it a tag object's own SHA
+    is returned and never appears in any rev-list.
+
+    Memoised for the same reason the index is: a document repeats the same
+    branch name on every claim, and resolving it once per MENTION reintroduced
+    exactly the per-claim subprocess that batching exists to remove. There is a
+    test asserting the process count, and it caught this.
+    """
+    key = (str(repo), ref)
+    if key in _REFS:
+        return _REFS[key]
+    try:
+        resolved = _git(repo, "rev-parse", "--verify", "--quiet",
+                        f"{ref}^{{commit}}").strip() or None
+    except (subprocess.CalledProcessError, OSError):
+        resolved = None
+    _REFS[key] = resolved
+    return resolved
+
+
+# The branch names the mainstream flows actually integrate into: gitflow and
+# git-flow-avh use main/master plus develop/development, GitHub flow uses
+# main/master alone, and `trunk` appears in Subversion-descended repositories.
+# Only names that EXIST in the repository are used.
+_INTEGRATION_NAMES = ("main", "master", "develop", "development", "trunk")
+
+
+def _integration_refs(repo: Path) -> list[str]:
+    """The branches this repository integrates work INTO.
+
+    Why this exists: three rules used to ask "is X an ancestor of trunk",
+    meaning three different things by it, and on a two-trunk repository each
+    answer was wrong in a different direction. Measured on a gitflow fixture,
+    with trunk=main a false "merged to develop" claim was invisible; with
+    trunk=develop a genuinely shipped release tag was reported dead.
+
+    A CONVENTIONAL NAME LIST, not a shape rule. The first version of this asked
+    only whether the name had a slash in it, on the reasoning that topic
+    branches are prefixed and long-lived ones are bare. That is true of the
+    prefixes, and useless in the other direction: an existing test cuts a tag
+    on a branch called `abandoned` and expects the release to be reported as
+    never shipped. Slashless, so the shape rule called it an integration branch
+    and went silent - turning a caught falsehood into a missed one. Every
+    `gh-pages`, `experiment` or `old-master` is the same trap.
+
+    The narrower list degrades safely. A project whose second integration
+    branch has an unconventional name simply gets today's behaviour, and the
+    rule this all exists for - false-merge-claim - does not consult this list
+    at all, because a merge claim names its own ref.
+
+    The configured trunk is always included, even if it is unconventional or
+    has a slash, because a project that named its trunk has said so.
+    """
+    refs = [TRUNK]
+    try:
+        out = _git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    except (subprocess.CalledProcessError, OSError):
+        return refs
+    present = set(out.split())
+    for name in _INTEGRATION_NAMES:
+        if name in present and name not in refs:
+            refs.append(name)
+    return refs
+
+
+def _integrated_by(repo: Path, rev: str, *, exclude: str = "") -> list[str]:
+    """Which integration refs contain `rev`.
+
+    `exclude` drops one ref from consideration, and it is load-bearing rather
+    than tidy: without it a slashless topic branch is trivially an ancestor of
+    itself, so every live claim about one would be reported as already merged.
+    """
+    return [ref for ref in _integration_refs(repo)
+            if ref != exclude and _reachable_from(repo, rev, ref)]
 
 
 def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
@@ -865,12 +980,33 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
     `validate_references` already flags it as a dead reference, and "this
     commit is not an ancestor of main" would be a confusing second finding
     about a commit that does not exist.
+
+    THE CLAIM NAMES ITS OWN REF, and that is what gets checked. "Merged to `X`
+    at `Y`" is self-describing, so asking git whether Y is on X needs no
+    configuration and is strictly more precise than comparing against one
+    globally configured trunk. Measured on a gitflow fixture, the old form was
+    blind to half of a real project's claims in either setting: with
+    trunk=main a false "merged to develop" claim went unexamined, and with
+    trunk=develop a false "merged to main" claim did. Both are caught now, and
+    the denominator counts every claim rather than the fraction that happened
+    to name the configured branch.
+
+    A two-group pattern means (ref, sha). A one-group pattern is the older
+    contract and still means (sha), checked against trunk exactly as before, so
+    a project that customised `merge_claim` keeps working.
     """
     # Claims inside code are examples, not promises. See _prose.
     text = _prose(text)
-    claims = [(number, match.group(1))
-              for number, line in enumerate(text.splitlines(), start=1)
-              for match in _MERGE_CLAIM.finditer(line)]
+    named = _MERGE_CLAIM.groups >= 2
+    claims: list[tuple[int, str, str]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        for match in _MERGE_CLAIM.finditer(line):
+            if named:
+                # The pattern keeps any backticks so the rule can tell a
+                # deliberate ref from a word of prose. See _claimed_ref.
+                claims.append((number, match.group(1), match.group(2)))
+            else:
+                claims.append((number, TRUNK, match.group(1)))
     if not claims:
         return []
 
@@ -886,28 +1022,66 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
     # this call rather than memoised across the process: git state can change
     # between validations, and a cache that outlives the run would answer from
     # a repository that no longer exists in that shape.
-    resolved = _resolve_shas(repo, [sha for _n, sha in claims])
-    index = _trunk_ancestor_index(repo)
-    merged: dict[str, bool] = {}
+    resolved = _resolve_shas(repo, [sha for _n, _r, sha in claims])
+    merged: dict[tuple[str, str], bool] = {}
     findings: list[Finding] = []
-    for number, sha in claims:
+    for number, raw_ref, sha in claims:
+        ref, quoted = _claimed_ref(raw_ref)
         if sha not in resolved:
             continue
-        if sha not in merged:
-            if index is None:
-                merged[sha] = _is_merged(repo, sha)
-            else:
-                # A claim carries an abbreviated commit; rev-list returns full
-                # ones. Compare against the candidates sharing its prefix.
-                merged[sha] = any(full.startswith(sha)
-                                  for full in index.get(sha[:7], ()))
-        if not merged[sha]:
+        if _resolve_ref(repo, ref) is None:
+            # The named branch is not here NOW, which is not the same as never
+            # having been: gitflow deletes every release and feature branch on
+            # merge. Asking git for the branch by name cannot tell those apart,
+            # and neither can the merge-message rescue `unknown-branch` uses -
+            # a squash merge or a custom `-m` erases the name entirely. This
+            # probe reported a legitimately deleted `release/1.2.0` as invented.
+            #
+            # So ask the SUBSTANTIVE question instead: did this work land
+            # anywhere at all? A missing branch plus an integrated commit is a
+            # stale or misspelt name on a claim that is true in substance, and
+            # silence is right. A missing branch plus a commit on no
+            # integration branch is a claim that work landed when it did not,
+            # which is the whole point of the rule.
+            #
+            # This also keeps the rule from being defeated by a typo. Evading
+            # it requires the commit to be genuinely integrated, at which point
+            # there is no false claim left to hide.
+            if not quoted:
+                continue        # a bare word, likelier prose than a ref
+            if not _integrated_by(repo, sha):
+                findings.append(Finding(
+                    number, "false-merge-claim",
+                    f"claims work merged to `{ref}` at `{sha}`, but this "
+                    f"repository has no such branch and that commit is on no "
+                    f"integration branch either",
+                ))
+            continue
+        key = (ref, sha)
+        if key not in merged:
+            merged[key] = _reachable_from(repo, sha, ref)
+        if not merged[key]:
             findings.append(Finding(
                 number, "false-merge-claim",
-                f"claims work merged to {TRUNK} at `{sha}`, but that commit "
-                f"is not an ancestor of {TRUNK}",
+                f"claims work merged to {ref} at `{sha}`, but that commit "
+                f"is not an ancestor of {ref}",
             ))
     return findings
+
+
+def _claimed_ref(raw: str) -> tuple[str, bool]:
+    """The ref a merge claim names, and whether the author backticked it.
+
+    Backticks are the whole signal. `` merged to `develp` at `abc` `` is a
+    claim about a specific branch and a typo in it must be reported; "merged to
+    the branch at `abc`" is prose, and treating `the` as a missing branch would
+    be the noise that gets a validator ignored. Requiring backticks outright
+    would instead lose every project that writes the branch name bare, so the
+    pattern accepts both and the rule distinguishes them here.
+    """
+    if len(raw) >= 2 and raw.startswith("`") and raw.endswith("`"):
+        return raw[1:-1], True
+    return raw, False
 
 
 # Keyed on OPERATIVE markers, not on path shape. Measured against the real
@@ -1002,11 +1176,18 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
             if _looks_like_a_path(repo, branch):
                 continue
             exists = _branch_exists(repo, branch)
-            if exists and not _is_merged(repo, branch):
+            # "Merged" means landed on an integration branch, and which one is
+            # measured rather than configured. Against a single-trunk repo that
+            # is the same question as before; on a gitflow repo with trunk=main
+            # it is the difference between noticing that a feature reached
+            # develop and silently accepting a stale claim about it.
+            holders = _integrated_by(repo, branch, exclude=branch) if exists else []
+            if exists and not holders:
                 continue  # genuinely still open: the claim is true
             line = text.count("\n", 0, start + match.start()) + 1
             if exists:
-                detail = f"claims `{branch}` unmerged, but it is an ancestor of {TRUNK}"
+                detail = (f"claims `{branch}` unmerged, but it is an ancestor of "
+                          f"{', '.join(holders)}")
             else:
                 detail = (
                     f"claims `{branch}` unmerged, but that branch no longer exists "
@@ -1393,12 +1574,21 @@ _RELEASE_TAG = CONFIG.release_tag
 
 
 def validate_release_tags(repo: Path, text: str) -> list[Finding]:
-    """"Released in v2.1" where no such tag exists, or it is not on trunk.
+    """"Released in v2.1" where no such tag exists, or it shipped on nothing.
 
     Measured as absent from the corpus this was built against, so its
     denominator honestly reports 0 here. It is included for projects that keep
     a CHANGELOG, where this is the usual way a release is claimed, and it is
     falsifiable in exactly the way a merge claim is.
+
+    "On an integration branch" rather than "an ancestor of trunk", because a
+    release tag lives on the RELEASE line and that is not always the branch a
+    project integrates into day to day. Measured on a gitflow fixture with
+    trunk=develop, the old question reported a genuinely shipped `v1.2.0` as
+    dead: the tag sits on main's release merge, and develop received the
+    release branch rather than that commit. A tag reachable from no integration
+    branch at all is still reported, which is the case this rule exists for -
+    a tag created for a release that was abandoned or rewritten away.
     """
     # Claims inside code are examples, not promises. See _prose.
     text = _prose(text)
@@ -1413,10 +1603,11 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
                     f"claims release `{tag}`, but no such tag exists",
                 ))
                 continue
-            if not _is_merged(repo, f"refs/tags/{tag}"):
+            if not _integrated_by(repo, f"refs/tags/{tag}"):
                 findings.append(Finding(
                     number, "dead-release-tag",
-                    f"tag `{tag}` exists but is not an ancestor of {TRUNK}",
+                    f"tag `{tag}` exists but is on no integration branch "
+                    f"({', '.join(_integration_refs(repo))})",
                 ))
     return findings
 
@@ -1627,22 +1818,34 @@ def _probe_sha(repo: Path, text: str) -> str | None:
 
 
 def _probe_merge(repo: Path, text: str) -> str | None:
-    """Repoint a real merge claim at a commit that is NOT an ancestor of trunk.
+    """Repoint a real merge claim at a commit that is on NO integration branch.
 
     A nonexistent SHA will not do. The rule deliberately skips claims whose
     commit does not resolve, leaving those to `dead-sha`, so probing with zeros
     proves nothing and reports a working rule as broken. Found by running the
     selftest and watching this rule stay silent, which is the entire point of
     having one.
+
+    The SHA moved to group 2 when claims became self-describing, and this probe
+    kept corrupting group 1 - which is now the branch NAME. It replaced
+    `develop` with a commit hash, the pattern stopped matching, and the rule
+    went quiet. The selftest reported `false-merge-claim DID NOT FIRE` against
+    a rule that was working perfectly, which is the failure a selftest is
+    supposed to make impossible rather than cause. The group index is derived
+    from the pattern now, so a one-group custom pattern still probes correctly.
+
+    Excluding every integration ref rather than only trunk, because a commit
+    merged to `develop` is a true claim there and would prove nothing.
     """
+    excluded = _integration_refs(repo)
     try:
-        out = _git(repo, "rev-list", "--all", "--not", TRUNK, "-n", "1")
+        out = _git(repo, "rev-list", "--all", "--not", *excluded, "-n", "1")
     except (subprocess.CalledProcessError, OSError):
         return None
     other = out.strip().splitlines()
     if not other:
         return None  # nothing off-trunk exists here to probe with
-    return _sub_group(text, _MERGE_CLAIM, 1, other[0])
+    return _sub_group(text, _MERGE_CLAIM, _MERGE_CLAIM.groups, other[0])
 
 
 def _probe_pointer(repo: Path, text: str) -> str | None:
@@ -1828,7 +2031,7 @@ RULES: tuple[Rule, ...] = (
         check=validate_live_claims,
         scope="newest-entry",
         in_archive=False,
-        falsifiable="is the named branch an ancestor of trunk, or gone entirely?",
+        falsifiable="is the named branch on an integration branch, or gone entirely?",
         probe=_probe_live_claim,
     ),
     Rule(
@@ -1844,7 +2047,7 @@ RULES: tuple[Rule, ...] = (
         check=validate_merge_claims,
         scope="whole-file",
         in_archive=True,
-        falsifiable="is the claimed commit an ancestor of trunk?",
+        falsifiable="is the claimed commit an ancestor of the ref the claim names?",
         probe=_probe_merge,
     ),
     Rule(
@@ -1852,7 +2055,7 @@ RULES: tuple[Rule, ...] = (
         check=validate_release_tags,
         scope="whole-file",
         in_archive=True,
-        falsifiable="does the tag exist, and is it an ancestor of trunk?",
+        falsifiable="does the tag exist, and is it on an integration branch?",
         probe=_probe_tag,
     ),
     Rule(
@@ -1973,13 +2176,20 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     makes the two agree, and leaving it None keeps the old repo-root behaviour
     for callers that have no particular file in mind.
     """
-    global _LINK_BASE, _DIRCACHE
+    global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS
     previous, previous_cache = _LINK_BASE, _DIRCACHE
+    previous_ancestors, previous_refs = _ANCESTORS, _REFS
     if base is not None:
         _LINK_BASE = base
     # Directory listings may be reused for the duration of this call and no
     # longer. Restoring rather than clearing keeps a nested call honest.
     _DIRCACHE = {}
+    # Ancestry indexes have exactly the same lifetime and the same reason for
+    # it: three rules now ask about the same handful of refs, so building each
+    # index once per call is the whole performance argument, and holding one
+    # any longer would answer from a repository that may have moved on.
+    _ANCESTORS = {}
+    _REFS = {}
     try:
         findings: list[Finding] = []
         primary = not in_archive and has_entries
@@ -1995,6 +2205,8 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     finally:
         _LINK_BASE = previous
         _DIRCACHE = previous_cache
+        _ANCESTORS = previous_ancestors
+        _REFS = previous_refs
 
 
 FORMATS = ("text", "github", "sarif")
