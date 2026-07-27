@@ -378,3 +378,106 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
     finally:
         hc.reload_config(PACKAGE_ROOT)
     assert hc.PRIMARY_DOC == before
+
+
+def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
+    """The floor is 3.9, and nothing mechanical kept it there.
+
+    A support claim decays the first time somebody writes a `match` statement,
+    and the decay is invisible on a modern interpreter: the file compiles, the
+    suite passes, and the only symptom appears on a machine nobody testing has.
+    RHEL 9 and Debian 11 ship 3.9; Ubuntu 22.04 LTS ships 3.10.
+
+    Annotations are exempt because every module imports `annotations` from
+    `__future__`, which makes them strings at runtime - so `str | None` in a
+    signature is fine all the way back to 3.7. That is asserted separately
+    below, because the exemption depends on it.
+    """
+    import ast
+
+    # (attribute or name, the version that introduced it)
+    TOO_NEW = {
+        "pairwise": "3.10 (itertools.pairwise)",
+        "StrEnum": "3.11 (enum.StrEnum)",
+        "ExceptionGroup": "3.11",
+        "UTC": "3.11 (datetime.UTC)",
+        "tomllib": "3.11 - import it inside a try/except, as extant_config does",
+    }
+
+    offenders: list[str] = []
+    files = 0
+    nodes = 0
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        parts = path.relative_to(PACKAGE_ROOT).parts
+        if {"__pycache__", ".venv", ".pytest_cache"} & set(parts):
+            continue
+        if path.name == "test_packaging.py":        # names the constructs above
+            continue
+        files += 1
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+
+        # Imports of a too-new module are fine when guarded by a try/except,
+        # which is how a fallback is spelled. Collect the guarded ones first.
+        guarded = {
+            alias.name
+            for node in ast.walk(tree) if isinstance(node, ast.Try)
+            for child in ast.walk(node) if isinstance(child, (ast.Import, ast.ImportFrom))
+            for alias in child.names
+        }
+
+        rel = path.relative_to(PACKAGE_ROOT)
+        for node in ast.walk(tree):
+            nodes += 1
+            if isinstance(node, ast.Match):
+                offenders.append(f"{rel}:{node.lineno}: match statement needs 3.10")
+            elif isinstance(node, ast.TryStar):
+                offenders.append(f"{rel}:{node.lineno}: except* needs 3.11")
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    why = TOO_NEW.get(alias.name)
+                    if why and alias.name not in guarded:
+                        offenders.append(f"{rel}:{node.lineno}: unguarded import of "
+                                         f"{alias.name}, needs {why}")
+            elif isinstance(node, ast.Attribute) and node.attr in TOO_NEW:
+                offenders.append(f"{rel}:{node.lineno}: .{node.attr} needs "
+                                 f"{TOO_NEW[node.attr]}")
+
+    # Denominators. An rglob that matched nothing, or an exclusion that grew,
+    # would otherwise pass in exactly the same silence as a clean scan.
+    assert files > 10, f"only {files} Python files scanned"
+    assert nodes > 1000, f"only {nodes} AST nodes visited"
+    assert not offenders, (
+        "syntax newer than the Python floor this project claims to support:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_every_module_defers_annotations() -> None:
+    """The exemption the check above depends on, asserted rather than assumed.
+
+    `from __future__ import annotations` makes every annotation a string at
+    runtime, which is what lets `str | None` appear in a signature on 3.9. Drop
+    it from one module and that module raises TypeError on import there, while
+    remaining perfectly fine on the interpreter it was written on.
+    """
+    import ast
+
+    missing: list[str] = []
+    files = 0
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        parts = path.relative_to(PACKAGE_ROOT).parts
+        if {"__pycache__", ".venv", ".pytest_cache"} & set(parts):
+            continue
+        files += 1
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if not any(isinstance(n, ast.ImportFrom) and n.module == "__future__"
+                   and any(a.name == "annotations" for a in n.names)
+                   for n in tree.body):
+            missing.append(str(path.relative_to(PACKAGE_ROOT)))
+
+    assert files > 10, f"only {files} Python files scanned"
+    assert not missing, (
+        "modules without `from __future__ import annotations`, so a `X | Y` "
+        "annotation in them fails on Python 3.9:\n  " + "\n  ".join(missing)
+    )

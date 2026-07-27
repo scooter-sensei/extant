@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:      # Python < 3.11, see requirements-dev.txt
+    import tomli as tomllib
 from pathlib import Path
 
 import pytest
@@ -362,7 +365,6 @@ def test_an_unrecognised_observation_still_renders_valid_toml(tmp_path) -> None:
     A wrong implementation writes the value bare and this fails to parse.
     """
     import sys
-    import tomllib
 
     sys.path.insert(0, str(SKILL_ROOT))
     from detect import DERIVED, Observation

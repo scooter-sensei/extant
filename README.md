@@ -6,7 +6,7 @@
 
 [![tests](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml/badge.svg)](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
+[![python: 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org)
 [![dependencies: none](https://img.shields.io/badge/dependencies-none-success)](#requirements)
 
 *extant (adj.) - still in existence; surviving.*
@@ -129,7 +129,7 @@ workflow, or any change to how you work.
 
 ## Requirements
 
-Git, and Python 3.11 or newer. Check both:
+Git, and Python 3.9 or newer. Check both:
 
 ```console
 $ git --version
@@ -139,12 +139,20 @@ $ python --version
 | If missing | Get it |
 |:---|:---|
 | Git | https://git-scm.com |
-| Python 3.11+ | https://www.python.org |
+| Python 3.9+ | https://www.python.org |
 
 On macOS and Linux you may need `python3` rather than `python`.
 
 **The tool itself has no third-party dependencies.** Standard library and git,
-nothing else. Nothing is installed into your project that needs anything.
+nothing else.
+
+3.9 and 3.10 are supported for the enterprise distributions that ship them:
+RHEL 9 and Debian 11 are on 3.9, Ubuntu 22.04 LTS on 3.10. The one thing
+newer than 3.9 anywhere in the tool is `tomllib`, which joined the standard
+library in 3.11. Below that the tool runs on its defaults with no parser at
+all, and reading a `.extant.toml` wants `pip install tomli` - the same
+parser under its original name, so a config file is read identically on
+every version.
 
 ---
 

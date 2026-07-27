@@ -282,3 +282,91 @@ def test_a_key_set_in_both_places_is_refused(tmp_path):
         assert "both at the top level" in str(exc), exc
     else:
         raise AssertionError("a key defined twice was accepted")
+
+
+# --- older interpreters -------------------------------------------------------
+#
+# `tomllib` arrived in 3.11 and enterprise distributions are years behind it:
+# RHEL 9 and Debian 11 ship 3.9, Ubuntu 22.04 LTS ships 3.10. Nothing else in
+# the payload needs 3.11, so requiring it would exclude those for one import.
+#
+# Run as SUBPROCESSES with the module blocked at import, because that is the
+# only honest way to exercise a fallback on an interpreter that does not need
+# it. Monkeypatching the name after import tests a different thing entirely.
+
+import subprocess
+import sys
+import textwrap
+
+PAYLOAD = str(Path(__file__).resolve().parents[1]
+              / "plugin" / "skills" / "extant" / "payload")
+
+_BLOCK = textwrap.dedent('''
+    import sys
+    class _Blocker:
+        def find_spec(self, name, target=None, path=None):
+            if name in ("tomllib", "tomli"):
+                raise ModuleNotFoundError("No module named " + repr(name))
+            return None
+    sys.meta_path.insert(0, _Blocker())
+    sys.path.insert(0, %r)
+''') % PAYLOAD
+
+
+def _without_toml(script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, "-c", _BLOCK + textwrap.dedent(script)],
+                          capture_output=True, text=True)
+
+
+def test_the_module_imports_with_no_toml_parser_at_all() -> None:
+    """Failing at import would deny the whole tool to someone who needs no config.
+
+    A wrong implementation with a bare `import tomllib` raises here, and every
+    command becomes unavailable on 3.9 and 3.10 over a file the user may not
+    even have.
+    """
+    result = _without_toml("import extant_config as c; print('TOMLLIB', c.tomllib)")
+
+    assert result.returncode == 0, result.stderr
+    assert "TOMLLIB None" in result.stdout
+
+
+def test_defaults_work_with_no_parser_and_no_config_file(tmp_path) -> None:
+    """A repository with no config never parses TOML: the defaults are Python.
+
+    So the degradation is precise rather than wholesale - the tool is fully
+    usable on 3.9 for anyone who has not written a config file.
+    """
+    result = _without_toml(f"""
+        import pathlib, extant_config as c
+        cfg = c.load_config(pathlib.Path({str(tmp_path)!r}))
+        print("DOC", cfg.primary_doc, "SOURCE", cfg.source)
+    """)
+
+    assert result.returncode == 0, result.stderr
+    assert "DOC NEXT_SESSION.md" in result.stdout
+    assert "SOURCE defaults" in result.stdout
+
+
+def test_a_config_file_with_no_parser_names_the_remedy(tmp_path) -> None:
+    """The one case that must fail, and it must fail with a sentence.
+
+    Silently ignoring a config file the user wrote would be the worst outcome
+    available: the tool would run on defaults while they believed it was
+    running on their settings, which is this project's defining failure. A bare
+    ModuleNotFoundError naming a module they never imported is barely better.
+    """
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".extant.toml").write_text('primary_doc = "README.md"\n',
+                                           encoding="utf-8")
+
+    result = _without_toml(f"""
+        import pathlib, extant_config as c
+        c.load_config(pathlib.Path({str(tmp_path)!r}))
+    """)
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "pip install tomli" in combined, combined
+    assert "3.11" in combined, combined
+    assert ".extant.toml" in combined, combined

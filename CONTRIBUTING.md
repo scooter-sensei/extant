@@ -7,7 +7,11 @@ python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Python 3.11 or newer (for `tomllib`) and git.
+Python 3.9 or newer and git. `tomllib` is the only thing in the payload
+newer than 3.9, and it is imported inside a try/except: below 3.11 the tool
+falls back to `tomli`, and without either it runs on defaults and says so
+when a config file is actually present. Two tests in `test_packaging.py`
+keep the floor where it is claimed to be.
 
 **The tool has no third-party dependencies**, and nothing installed into your
 repository needs any. The test suite is a separate question: it needs pytest.

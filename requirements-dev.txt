@@ -6,3 +6,8 @@
 # a CI step that ran `python -m pytest` on a runner with no pytest. All six jobs
 # failed identically before a single test ran.
 pytest>=8
+# The SUITE parses TOML to check what the installer wrote. On 3.11+ that is
+# `tomllib` in the standard library; below it, the same parser under its
+# original name. The TOOL still needs neither: it falls back, and works on
+# defaults when no parser is present at all.
+tomli>=2; python_version < "3.11"

@@ -36,9 +36,41 @@ from __future__ import annotations
 
 import os
 import re
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# `tomllib` arrived in 3.11, and enterprise distributions are years behind it:
+# RHEL 9 and Debian 11 ship 3.9, Ubuntu 22.04 LTS ships 3.10. Nothing else here
+# needs 3.11, so requiring it would exclude those for one import.
+#
+# `tomli` is not a substitute parser, it is the SAME parser: tomllib was adopted
+# into the standard library from tomli, same author, same code. So an old
+# interpreter reads a config file exactly the way a new one does, which matters
+# more here than usual - a loader that parsed subtly differently by Python
+# version would produce a config that looks right and is not, and that failure
+# has already cost this project twice.
+#
+# Absent both, the value is None rather than an error at import. A repository
+# with no config file never parses TOML at all: the defaults below are Python.
+# Failing at import would deny the whole tool to someone who needs none of this,
+# so the failure is raised at the point a config file is actually found.
+try:
+    import tomllib
+except ModuleNotFoundError:                              # Python < 3.11
+    try:
+        import tomli as tomllib                          # type: ignore[no-redef]
+    except ModuleNotFoundError:
+        tomllib = None                                   # type: ignore[assignment]
+
+_NO_PARSER = (
+    "reading {path} needs a TOML parser.\n\n"
+    "This interpreter is older than 3.11, where `tomllib` joined the standard\n"
+    "library. Either run the tool on Python 3.11 or newer, or install the same\n"
+    "parser under its original name:\n\n"
+    "    python -m pip install tomli\n\n"
+    "Deleting the config file also works: every setting has a default, and the\n"
+    "tool runs on those without parsing anything."
+)
 
 CONFIG_NAME = ".extant.toml"
 
@@ -216,6 +248,12 @@ def _explain(path: Path, exc: Exception) -> str:
 
 
 def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
+    # Raised HERE rather than at import, because this is the first moment the
+    # parser is genuinely needed. Someone on 3.9 with no config file gets a
+    # working tool; someone on 3.9 WITH one gets a sentence naming the remedy,
+    # rather than a ModuleNotFoundError naming a module they never imported.
+    if tomllib is None:
+        raise ValueError(_NO_PARSER.format(path=path))
     try:
         with open(path, "rb") as fh:
             data = tomllib.load(fh)

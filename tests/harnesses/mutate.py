@@ -236,6 +236,17 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("config search runs past the repository root", detect.parent / "payload/extant_config.py",
          '        if (directory / ".git").exists():\n            return None',
          '        if False:\n            return None'),
+        # The 3.9/3.10 fallback. Both mutations are invisible on a modern
+        # interpreter, which is the whole difficulty: the tests block the module
+        # at import in a subprocess, so they fail here and would not otherwise.
+        ("no parser is a hard import error again, not a fallback",
+         detect.parent / "payload/extant_config.py",
+         "        tomllib = None                                   # type: ignore[assignment]",
+         "        raise"),
+        ("a config file with no parser fails without saying how to fix it",
+         detect.parent / "payload/extant_config.py",
+         "    if tomllib is None:\n        raise ValueError(_NO_PARSER.format(path=path))",
+         "    if False:\n        raise ValueError(_NO_PARSER.format(path=path))"),
 
         # --- install snippets ----------------------------------------------------
         # This rule is the newest and had no mutations at all, which is the state
