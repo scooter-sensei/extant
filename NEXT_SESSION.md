@@ -6,6 +6,56 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 8 - Five releases, and the measurements that overturned three designs (shipped, 2026-07-27)
+
+**Status.** Suite is 305 tests, all passing. Twelve rules, eighteen presets.
+`v0.11.0` is tagged and released. One change is unreleased on `main`: the game
+engine work, recorded under Unreleased in the changelog.
+
+**What Shipped.**
+
+- Python 3.9 and 3.10 support, losing no syntax, at `e9e2c71`.
+- A baseline, so a long-lived repository can adopt this without fixing every
+  finding first, at `343c4b1`. Nothing is ever recorded implicitly and the
+  suppressed count prints on every run.
+- Eight ecosystem presets, and the four cross-checks the research explicitly
+  ruled out, at `addd8c7`.
+- Works with any coding agent, not only Claude Code, at `3119b9c`. Agent Skills
+  is an open standard, and exactly one line of this codebase was Claude-only.
+- Every harness expanded to cover the surfaces added since 0.6.0, at `233cceb`.
+- Merge claims now name their own ref, so more than one integration branch
+  works, at `121bbe4`. This is what closes the gitflow gap the last entry
+  listed as outstanding.
+- Game engines: a `raw-lfs-blob` rule and `unity` / `godot` presets, at
+  `8ee2339`, unreleased.
+
+**What was learned.** Measuring first overturned the design three separate
+times, and in each case the plan would have shipped something that did nothing:
+
+- A trunk LIST was the obvious fix for gitflow and the wrong one. A merge claim
+  names its own ref, which is strictly more precise and needs no configuration.
+- Widening `path_pointer` with asset extensions for game projects was measured
+  as a no-op. Game documentation writes paths as markdown links, so the rule
+  examines zero references either way.
+- Keying the Godot version check on the README would have examined nothing
+  forever. A real shipped Godot game states its engine version only in its
+  setup document.
+
+**Known Issues.**
+
+- A user-supplied regex can still hang, as recorded in the design notes.
+- `README.md` is not self-checked, so `dead-pinned-ref` never sees this
+  project's own install snippet. Including it produces four false positives,
+  all illustrative examples. The release procedure confirms the tag instead.
+- A baseline can suppress a live credential, and one recorded finding forgives
+  every future copy of itself. Both are documented in the design notes.
+
+**Next Tasks.**
+
+- Decide whether to release the game engine work as 0.12.0.
+- Nothing else outstanding. The next change should still be driven by someone
+  using this on a repository that is not this one.
+
 ## Phase 7 - Published, and the install path finally walked (shipped, 2026-07-27)
 
 **Status.** Suite is 213 tests, all passing. The repository is renamed on

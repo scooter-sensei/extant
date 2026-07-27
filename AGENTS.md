@@ -41,6 +41,15 @@ edit landed, then read the outcome.
 before writing a rule for it. A rule keyed on what a path looked like produced
 23 findings on its first real run, every one wrong.
 
+The failure is not always noise. Three designs here were overturned by
+measuring a real corpus first, and each would have shipped something that did
+NOTHING: widening `path_pointer` for game projects (that rule examines zero
+references in real game documentation, which uses markdown links), keying the
+Godot version check on the README (a shipped Godot game states its version only
+in its setup document), and fixing gitflow with a trunk list (a merge claim
+names its own ref, which is strictly more precise). A no-op that looks like a
+feature is the expensive kind, because nothing ever reports it.
+
 ## The admission test for a new rule
 
 A rule belongs only if both hold:

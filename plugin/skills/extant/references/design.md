@@ -210,7 +210,7 @@ The baseline for that check is the raw file bytes, **not** a reassembly of the
 splitter's own output. Deriving it from the splitter makes the check circular: a
 bug in the splitter corrupts both sides equally and they always agree.
 
-## Git LFS, and the direction that had to be refused
+## `raw-lfs-blob`: Git LFS, and the direction that had to be refused
 
 `.gitattributes` is a document making a falsifiable claim: files matching these
 patterns are stored as LFS pointers. That claim can be false, and when it is,

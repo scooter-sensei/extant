@@ -113,7 +113,7 @@ The installer leaves these unset when it detects no convention.
 | `base_header` | `^## \d+[a-z]?\. ` | Where per-entry history stops and permanent reference begins. Never archived. |
 | `pointer_prefix` | `## Archive pointer` | The tool-generated pointer. Stripped and regenerated each run, so it cannot accumulate. |
 | `archive_header` | *(project name)* | Header written at the top of the archive. |
-| `trunk` | `main` | Branch that merge claims are checked against. Interpolated into `merge_claim` as `{trunk}`. |
+| `trunk` | `main` | The integration branch. Merge claims check the ref the CLAIM names, so this is no longer interpolated into `merge_claim`; it is the branch `stale-live-claim` and `dead-release-tag` fall back to, alongside whichever of `main`, `master`, `develop`, `development`, `trunk` exist. |
 
 ## Quoting: regexes need SINGLE quotes
 
@@ -142,7 +142,7 @@ Each was measured against one project's real prose. See `porting.md`.
 |---|---|
 | `live_phrases` | Present-tense "not done yet" claims. Keep the set **small and closed**; widening reintroduces false positives. Checked in the newest entry only. |
 | `branch_token` | How branch names appear in prose. |
-| `merge_claim` | "merged to `{trunk}` at `<sha>`". Requires the SHA to FOLLOW the phrase, so a SHA belonging to a neighbouring clause is not misread. |
+| `merge_claim` | "merged to `<ref>` at `<sha>`". TWO groups: the ref the claim names, then the commit, which is then checked against THAT ref rather than against `trunk`. A one-group pattern is the older contract and still means (sha) checked against trunk. Requires the SHA to FOLLOW the phrase, so a SHA belonging to a neighbouring clause is not misread. |
 | `path_pointer` | Paths introduced by `Plan:`, `Design:`, `see`, `read`. Keyed on operative use, never on path shape. |
 | `release_tag` | "released in v2.1". Checks the tag exists AND is on an integration branch. Measured as ABSENT from the corpus this was built on, so its denominator reads 0 here; it is the common shape in CHANGELOG-keeping projects. |
 | `todo_markers` | `TODO`/`FIXME`/`XXX`. |

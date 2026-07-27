@@ -16,7 +16,7 @@ Between them they found every defect fixed in 0.3.0. The unit suite found none
 of those, because the unit suite was the thing being audited.
 
 Each grew again for 0.10.0, to cover the surfaces added since: the baseline,
-`dead-pinned-ref`, the SARIF and GitHub output formats, all sixteen presets,
+`dead-pinned-ref`, the SARIF and GitHub output formats, every preset,
 and the cross-platform agent instructions. The rule applied throughout was the
 one this project keeps relearning - a check must be observed FAILING before it
 is trusted. Every addition below was verified by breaking the product and
@@ -24,6 +24,15 @@ confirming the check went red. Three did not, and all three were repaired:
 two smoke probes whose payloads were unreachable by construction, and a
 scenario assertion that was reading the denominator line and calling it a
 finding.
+
+They grew once more for the multi-trunk and game-engine work, and both times
+the harness found what the unit suite structurally could not. The gitflow
+scenario caught that the INSTALLER writes its own `merge_claim`, overriding the
+default, so a collector that had been taught to check the ref a claim names
+would still have shipped single-trunk behaviour to every new project. The
+preset matrix caught that a Unity project whose README carries no version badge
+got a permanent "the pattern matches nothing" finding, because the installer
+verified its consistency FILES existed and never that its patterns matched.
 
 ## `mutate.py` - does the suite pin anything?
 
@@ -52,6 +61,18 @@ substring of the real line once a block moves inward, so it keeps matching and
 mutates something adjacent. That happened when `validate()` gained a
 try/finally: one mutation stopped matching outright, and the other kept matching
 by accident.
+
+The `raw-lfs-blob` group is the largest for one rule, because both of that
+rule's bugs were invisible in its output. Paths were piped to `git check-attr`
+with `text=True`, so Windows appended a carriage return to each and git
+answered `unspecified` for all but the last: the survey reported 1 of 4
+governed files and the survivor happened to be the one carrying the finding, so
+the rule looked perfect. Its mutations therefore aim at the plumbing - the NUL
+join, the `-z` flag, the tree-versus-index read - rather than at the verdict.
+
+One mutation was deliberately NOT added there. Reading every governed blob
+instead of only the small ones changes cost, never behaviour, so it survives
+every campaign and reads as a gap the tests do not have.
 
 **Mutations rot alongside the code they point at.** A later run reported
 `merge-claim never fires (matched 0x)` after ancestry moved from a per-claim

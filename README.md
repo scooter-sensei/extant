@@ -58,12 +58,12 @@ as much as the findings, and [there is a section about why](#every-check-reports
 
 ## What it covers
 
-Eleven rules. Every one answers a question git or the filesystem can settle.
+Twelve rules. Every one answers a question git or the filesystem can settle.
 
 | Rule | Catches |
 |:---|:---|
 | `dead-sha` | "released in commit `abc1234`" when that commit does not exist |
-| `false-merge-claim` | "merged into main at `abc1234`" when it never landed |
+| `false-merge-claim` | "merged into `develop` at `abc1234`" when that commit is not on `develop` |
 | `stale-live-claim` | "not merged yet" about something merged last week |
 | `unknown-branch` | "work is on branch X" when git has never seen that name |
 | `dead-release-tag` | "released in v2.1" when no such tag exists, or it never shipped |
@@ -75,7 +75,13 @@ Eleven rules. Every one answers a question git or the filesystem can settle.
 | `raw-lfs-blob` | an asset your `.gitattributes` says is in Git LFS, committed into git as a real binary instead |
 | `possible-secret` | a password or key pasted in by accident |
 
-Four details that are easy to miss:
+Five details that are easy to miss:
+
+**More than one integration branch works.** A merge claim names the branch it
+means, so "merged to `develop` at `abc1234`" is checked against `develop` and
+"merged to `main` at ..." against `main`. Nothing to configure. Gitflow teams
+write both kinds, and against a single configured trunk half of those claims
+were never examined at all - not judged and found true, simply not read.
 
 **Case matters, and only on some machines.** Windows and macOS open
 `docs/PLAN.md` happily when the file is `docs/plan.md`. Linux does not. Without

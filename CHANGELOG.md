@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased
+
+Game engines: a Git LFS rule, and `unity` / `godot` presets.
+
+Derived by measuring two real projects - Unity BossRoom and Thrive, a shipped
+Godot game - rather than from what those engines are supposed to look like. The
+measurement contradicted the design four times, and the corrections are the
+interesting part.
+
+### raw-lfs-blob
+
+`.gitattributes` is a document making a falsifiable claim: files matching these
+patterns are stored as LFS pointers. When that is false nothing says so. Git
+accepts the commit, the engine loads the asset, and the repository carries a
+real binary in its history forever, where removing it means rewriting history.
+
+It happens two ways, both ordinary: a binary committed before `.gitattributes`
+covered its extension, and a commit made from a clone with no LFS filter
+installed.
+
+The opposite direction was refused, on measurement rather than taste: "is the
+LFS object present locally" would report every asset in the project as missing
+on any CI checkout without `git lfs pull`.
+
+No network, and the LFS binary is never invoked. A repository that does not use
+LFS pays nothing behind a one-file gate; a 7802-file project that does costs
+262 ms.
+
+### The widening that was measured and refused
+
+The plan was to widen `path_pointer` with asset and source extensions. Against
+both real projects that rule examines ZERO references: game documentation
+writes paths as markdown links, and `path_pointer` needs a backticked path
+after an operative marker. Widening it would have been a no-op that looked like
+a feature, so neither preset touches it. `dead-md-link` already carries these
+projects unchanged.
+
+### Presets keyed on where the version really is
+
+Unity states its editor version in a shields.io badge carrying the exact
+`6000.0.52f1`, matching `ProjectSettings/ProjectVersion.txt`. Thrive's README
+states no Godot version at all, so that check reads `doc/setup_instructions.md`
+against `project.godot`. Keyed on the README, as originally planned, it would
+have examined nothing forever while exiting 0.
+
+There is no `unreal` preset: no corpus was measured for it, and
+`EngineAssociation` holds a GUID rather than a version for any studio on a
+custom engine build.
+
+### A preset now verifies its patterns match, not only that its files exist
+
+A Unity project whose README has no badge was getting a permanent "the pattern
+matches nothing" finding, because both files existed and the file check waved
+it through. Present-but-unmatched is the same failure as absent, and now gets
+the same treatment: the check is skipped and the reason is printed.
+
 ## 0.11.0 (2026-07-27)
 
 More than one integration branch, which is what most enterprises actually run.
