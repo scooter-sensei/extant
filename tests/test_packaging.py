@@ -7,6 +7,7 @@ character in printed output are both invisible until they are expensive.
 from __future__ import annotations
 
 import io
+import sys
 import tokenize
 from pathlib import Path
 
@@ -404,6 +405,18 @@ def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
         "tomllib": "3.11 - import it inside a try/except, as extant_config does",
     }
 
+    # Looked up rather than named. `ast.Match` does not exist before 3.10 and
+    # `ast.TryStar` does not exist before 3.11, so referring to either directly
+    # raises AttributeError on precisely the versions this check exists to
+    # protect. That shipped: the guard asserting 3.9 support was itself
+    # 3.11-only code, and it failed in CI on 3.9 and 3.10 while passing
+    # locally. `isinstance(x, ())` is False everywhere, so an absent class
+    # simply never matches.
+    too_new_nodes = [
+        (getattr(ast, "Match", ()), "match statement needs 3.10"),
+        (getattr(ast, "TryStar", ()), "except* needs 3.11"),
+    ]
+
     offenders: list[str] = []
     files = 0
     nodes = 0
@@ -415,7 +428,17 @@ def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
             continue
         files += 1
         source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=str(path))
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as exc:
+            # On an old interpreter a too-new construct does not parse at all,
+            # and the parser is then a better oracle than any node list: it
+            # knows every construct, including ones added after this was
+            # written. Report it rather than erroring out.
+            offenders.append(f"{path.relative_to(PACKAGE_ROOT)}:{exc.lineno}: "
+                             f"does not parse on Python "
+                             f"{sys.version_info.major}.{sys.version_info.minor}: {exc.msg}")
+            continue
 
         # Imports of a too-new module are fine when guarded by a try/except,
         # which is how a fallback is spelled. Collect the guarded ones first.
@@ -429,10 +452,10 @@ def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
         rel = path.relative_to(PACKAGE_ROOT)
         for node in ast.walk(tree):
             nodes += 1
-            if isinstance(node, ast.Match):
-                offenders.append(f"{rel}:{node.lineno}: match statement needs 3.10")
-            elif isinstance(node, ast.TryStar):
-                offenders.append(f"{rel}:{node.lineno}: except* needs 3.11")
+            gated = next((why for cls, why in too_new_nodes
+                          if cls and isinstance(node, cls)), None)
+            if gated:
+                offenders.append(f"{rel}:{node.lineno}: {gated}")
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
                     why = TOO_NEW.get(alias.name)
