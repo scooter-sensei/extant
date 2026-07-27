@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.6.1 (2026-07-27)
+
+Fixes the `readme` preset, which did not work on the projects it exists for.
+
+### The bug
+
+```
+install.py --repo . --preset readme
+-> "no status document found in the usual places"   exit 1
+```
+
+The preset names `README.md`, which is not one of the status-document names
+detection looks for. Detection found nothing and the installer exited **before
+the preset was ever consulted**, so a preset documented as "no status file
+needed" refused to run without one. Passing `--doc README.md` alongside it
+worked, which is what made the cause visible.
+
+### A second defect underneath it
+
+Folding the preset in after detection was wrong even when detection succeeded.
+Everything else is derived FROM the chosen document: the archive is placed
+beside it, and the recorded evidence quotes its length. Switching the document
+afterwards left those describing the previous file, so a repository with
+`docs/NEXT_SESSION.md` could end up with `primary_doc = README.md` at the root
+while the archive stayed in `docs/`, beside a document no longer being checked.
+
+The document is now settled before anything derives from it.
+
+### Which wins
+
+An explicit preset outranks detection for the **document**. That is not in
+tension with the existing rule that a preset never overrides something
+MEASURED: that rule is about the trunk name and branch shape, which the
+repository owns and a template would only be guessing at. Which file to check
+is the user's call, made by passing the flag.
+
+### Why it shipped
+
+Presets had no tests. All five were checked by hand before 0.5.0, every one of
+them in a repository that already had a detectable status document - so the
+preset whose entire purpose is a project *without* one was never exercised in
+the only situation it exists for.
+
+`tests/test_install_presets.py` now runs the installer as a subprocess, because
+the exit code and the file it leaves behind are the contract, and pins seven
+behaviours including the no-document case and the archive following the chosen
+document. Four of them were watched failing with the fix removed.
+
+Found by installing 0.6.0 from the published marketplace and running it the way
+a new user would, which was the first time that path had been exercised.
+
 ## 0.6.0 (2026-07-27)
 
 Renamed to **extant**. No behaviour changed; every name did.
@@ -96,7 +147,7 @@ positive has taught a lesson that is very hard to unteach.
 
     repos:
       - repo: https://github.com/scooter-sensei/extant
-        rev: v0.6.0
+        rev: v0.6.1
         hooks:
           - id: extant
 

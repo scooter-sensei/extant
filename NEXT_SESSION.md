@@ -6,6 +6,48 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 7 - Published, and the install path finally walked (shipped, 2026-07-27)
+
+**Status.** Suite is 213 tests, all passing. The repository is renamed on
+GitHub, `v0.6.0` is tagged and released, and both documented install paths have
+now been exercised from the published repository rather than from a local
+checkout.
+
+**What Shipped.**
+
+- The release, and proof that the pre-commit path works: a fresh project, a real
+  pre-commit run against the published tag, failing on planted problems and then
+  passing once they were fixed. The second half matters as much as the first, as
+  a hook that fails on everything looks identical to one that works.
+- The marketplace path, exercised end to end for the first time: both manifests
+  validated, the marketplace added from GitHub, the plugin installed, and the
+  skill delivered with its payload on disk.
+- A fix for the `readme` preset, at `4068181`, and the tests that preset never
+  had.
+
+**Known Issues.**
+
+- Gitflow-style release branches are still not modelled.
+- A user-supplied regex can still hang, as recorded in the design notes.
+
+**Next Tasks.**
+
+- Nothing outstanding. The next change should be driven by someone using this
+  on a repository that is not this one.
+
+**Gotchas.**
+
+- A feature verified only where it is incidental is not verified. All five
+  presets were checked by hand before 0.5.0, every one in a repository that
+  already had a status document, so the preset that exists FOR projects without
+  one was never run in that case. It was broken in both releases that followed.
+  This is the same shape as the hooks scenario that asserted the retired
+  contract: the test exercised the configuration where the feature did not
+  matter.
+- Installing from the published artifact found what running from a checkout
+  could not. Everything passed locally, and the first genuinely new information
+  came from walking in as a stranger.
+
 ## Phase 6 - Renamed to extant (shipped, 2026-07-27)
 
 **Status.** Suite is 203 tests, all passing. Nothing about the engine changed;

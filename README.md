@@ -166,7 +166,7 @@ One block in your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.6.0
+    rev: v0.6.1
     hooks:
       - id: extant
 ```
