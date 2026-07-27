@@ -132,3 +132,91 @@ def test_detect_trunk_reads_git_rather_than_prose(git_repo) -> None:
 
     assert observation.value == "main"
     assert observation.evidence
+
+
+# --- release-tag shape -------------------------------------------------------
+#
+# The default pattern recognises `v1.2.3` and `1.2.3`, which is what the corpus
+# it was built against used. A project tagging `release-1.2.3` or `api@2.0.0`
+# got a pattern matching NOTHING: the rule examined zero candidates and never
+# checked a release claim, while the run looked perfectly healthy. Found by a
+# scenario, not by reasoning about tag conventions.
+
+import re
+import subprocess
+
+from detect import detect_release_tag
+
+
+def _tagged(tmp_path: Path, *tags: str) -> Path:
+    repo = tmp_path / "r"
+    repo.mkdir()
+    for cmd in (["init", "-b", "main"], ["config", "user.email", "t@t"],
+                ["config", "user.name", "T"]):
+        subprocess.run(["git", *cmd], cwd=repo, capture_output=True, check=True)
+    (repo / "a.txt").write_text("a\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "i"], cwd=repo, capture_output=True, check=True)
+    for tag in tags:
+        subprocess.run(["git", "tag", "-a", tag, "-m", "r"], cwd=repo,
+                       capture_output=True, check=True)
+    return repo
+
+
+def _captures(observation, prose: str) -> str | None:
+    match = re.search(str(observation.value), prose, re.I)
+    return match.group(1) if match else None
+
+
+def test_release_prefixed_tags_are_matched(tmp_path) -> None:
+    """`release-1.2.3`, common in the JVM and .NET worlds.
+
+    A wrong implementation that keeps the default pattern captures nothing here
+    and the rule silently checks no release claim at all.
+    """
+    obs = detect_release_tag(_tagged(tmp_path, "release-1.2.3"))
+
+    assert _captures(obs, "shipped in `release-1.2.3`") == "release-1.2.3"
+    assert obs.confidence == "derived"
+
+
+def test_monorepo_package_tags_are_matched(tmp_path) -> None:
+    """`api@2.0.0`, how a monorepo tags one package's release."""
+    obs = detect_release_tag(_tagged(tmp_path, "api@2.0.0", "web@1.0.0"))
+
+    assert _captures(obs, "shipped as `api@2.0.0`") == "api@2.0.0"
+
+
+def test_a_conventional_repo_keeps_the_default_pattern(tmp_path) -> None:
+    """The false-widening guard, and the reason prefixes are read off the repo.
+
+    A repository tagging `v1.2.3` must get exactly the default back. Widening
+    the pattern for everyone would be a guess, and a looser pattern is where
+    false positives come from.
+    """
+    obs = detect_release_tag(_tagged(tmp_path, "v1.2.3", "v1.3.0"))
+
+    assert _captures(obs, "released in `v1.2.3`") == "v1.2.3"
+    # Asserted by BEHAVIOUR, not by searching the pattern for "release-".
+    # `re.escape` writes that prefix as `release\-`, so the substring check
+    # this replaced could never fail: a mutation that widened the pattern for
+    # every repository survived it untouched.
+    assert _captures(obs, "shipped in `release-9.9.9`") is None, (
+        "the pattern widened to a convention this repository does not use"
+    )
+
+
+def test_no_tags_falls_back_and_says_so(tmp_path) -> None:
+    """No tags is not the same as no convention, and must not be guessed at."""
+    obs = detect_release_tag(_tagged(tmp_path))
+
+    assert obs.confidence == "default"
+    assert _captures(obs, "released in `v1.2.3`") == "v1.2.3"
+
+
+def test_non_version_tags_are_ignored(tmp_path) -> None:
+    """A tag like `latest` carries no version, so it shapes nothing."""
+    obs = detect_release_tag(_tagged(tmp_path, "latest", "stable"))
+
+    assert obs.confidence == "default"
+    assert "latest" not in str(obs.value)

@@ -395,6 +395,7 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
         Observation("primary_doc", rel, DERIVED, f"{info['lines']} lines"),
         detect.detect_trunk(repo),
         detect.detect_branch_pattern(repo),
+        detect.detect_release_tag(repo),
         *detect.detect_commit_convention(repo),
     ]
 
@@ -454,7 +455,8 @@ def render_config(obs: list[Observation]) -> str:
     # the whole file fails to parse - which is exactly what the first generated
     # config did, caught only by parsing the output rather than reading it.
     regexy = {"branch_token", "merge_claim", "phase_task", "live_phrases",
-              "base_header", "path_pointer", "phase_bare", "todo_markers"}
+              "base_header", "path_pointer", "phase_bare", "todo_markers",
+              "release_tag"}
     plain = {"primary_doc", "archive_doc", "trunk", "entry_prefix", "pointer_prefix"}
     # `consistency` is a nested table, so it must be emitted AFTER every plain
     # key: in TOML everything following a table header belongs to that table,
@@ -484,6 +486,17 @@ def render_config(obs: list[Observation]) -> str:
             # to read. An installer that emits a broken config is worse than one
             # that emits none.
             lines.append(f"{o.key} = ''")
+        elif isinstance(o.value, str):
+            # Any string not named in a set above. Quoting it is the only safe
+            # default: writing a string bare is never valid TOML, and this
+            # branch is where an observation added later lands by definition.
+            # `release_tag` landed here the day it was added and produced a
+            # config the tool then refused to read, silencing every rule at
+            # once - the same defect as the `plans_dir = ` case below, reached
+            # from the opposite direction. An allowlist of keys cannot protect
+            # a key nobody has thought of yet; a safe fallback can.
+            lines.append(f"{o.key} = '''{o.value}'''"
+                         if "'" in o.value else f"{o.key} = '{o.value}'")
         else:
             lines.append(f"{o.key} = {o.value}")
         lines.append("")

@@ -574,8 +574,8 @@ document, on every change, in CI. If it stopped working, this repository would
 be the first to find out.
 
 `tests/harnesses/` holds the audits pytest cannot perform: one that breaks the
-code on purpose to see whether any test notices (46 mutations, all caught), one
-that installs into a dozen unlike projects (12 scenarios, 65 assertions), one
+code on purpose to see whether any test notices (57 mutations, all caught), one
+that installs into twenty unlike projects (20 scenarios, 87 assertions), one
 that tries to abuse the tool (18 adversarial probes), and two that measure speed
 and load. Between them they found every defect fixed in 0.3.0, and the stale
 assertion caught in the audit before 0.6.0. The unit suite found none of them,

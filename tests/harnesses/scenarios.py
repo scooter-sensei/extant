@@ -484,6 +484,226 @@ def s12_empty_repo() -> None:
           "stayed silent" in st.stdout, st.stdout)
 
 
+# --------------------------------------------------------------------------
+# Shapes drawn from how real projects are actually laid out, rather than from
+# variations on this one. Each was chosen because it stresses a DIFFERENT
+# assumption: where documents live, what trunk is called, what a tag looks
+# like, how deep a relative link reaches, and what encoding a file arrives in.
+
+
+def s13_monorepo() -> None:
+    """packages/*/CHANGELOG.md, a root docs/, and links that cross packages.
+
+    The convention every JS and polyglot monorepo converges on. It matters here
+    because a relative link inside `packages/api/README.md` resolves against
+    that package, not the repository root, and a rule that resolves everything
+    from the root reports working links as dead across the whole tree.
+    """
+    name = "s13-monorepo"
+    print(f"\n[{name}] monorepo: per-package docs and a root docs/")
+    repo = new_repo(name)
+    write(repo, "README.md", "# Platform\n\nSee [the API package](packages/api/README.md).\n")
+    write(repo, "packages/api/README.md",
+          "# api\n\nChangelog: [CHANGELOG.md](CHANGELOG.md).\n"
+          "Design: [architecture](../../docs/architecture.md).\n"
+          "Gone: [old notes](./NOTES.md).\n")
+    write(repo, "packages/api/CHANGELOG.md", "# Changelog\n\n## 2.1.0\n")
+    write(repo, "packages/web/README.md", "# web\n\nSee [api](../api/README.md).\n")
+    write(repo, "docs/architecture.md", "# Architecture\n")
+    commit(repo, "chore: init")
+    install(repo, "--preset", "readme")
+
+    res = tool(repo, "--validate", "packages/api/README.md")
+    check(name, "sibling link inside a package resolves",
+          "CHANGELOG.md`, which does not exist" not in res.stdout, res.stdout)
+    check(name, "a link climbing out to the root docs/ resolves",
+          "architecture.md`, which does not exist" not in res.stdout, res.stdout)
+    check(name, "a genuinely missing sibling is still reported",
+          "NOTES.md" in res.stdout, res.stdout)
+
+    res = tool(repo, "--validate", "packages/web/README.md")
+    check(name, "a link across packages resolves",
+          res.returncode == 0, res.stdout)
+
+
+def s14_adr() -> None:
+    """docs/adr/NNNN-title.md, the near-universal decision-record layout.
+
+    Numbered ADRs supersede one another by linking, so a directory of them is
+    mostly cross-references between siblings. It is the densest link graph a
+    documentation tree normally has.
+    """
+    name = "s14-adr"
+    print(f"\n[{name}] architecture decision records in docs/adr/")
+    repo = new_repo(name)
+    write(repo, "README.md", "# Service\n\nDecisions live in [docs/adr](docs/adr/0001-record-decisions.md).\n")
+    write(repo, "docs/adr/0001-record-decisions.md",
+          "# 1. Record architecture decisions\n\nStatus: superseded by "
+          "[ADR-0003](0003-use-postgres.md).\n")
+    write(repo, "docs/adr/0002-use-mysql.md",
+          "# 2. Use MySQL\n\nStatus: superseded by [ADR-0003](0003-use-postgres.md).\n")
+    write(repo, "docs/adr/0003-use-postgres.md",
+          "# 3. Use Postgres\n\nSupersedes [ADR-0002](0002-use-mysql.md).\n"
+          "See also [ADR-0009](0009-never-written.md).\n")
+    commit(repo, "docs: adrs")
+    install(repo, "--preset", "readme")
+
+    res = tool(repo, "--validate", "docs/adr/0003-use-postgres.md")
+    check(name, "sibling ADR link resolves", "0002-use-mysql" not in res.stdout, res.stdout)
+    check(name, "a link to an ADR nobody wrote is reported",
+          "0009-never-written.md" in res.stdout, res.stdout)
+    check(name, "exit 1 on the dangling decision", res.returncode == 1)
+
+
+def s15_github_dir() -> None:
+    """Community health files in .github/, which GitHub treats as canonical.
+
+    A dot-directory is easy for a scanner to skip by accident, and a project
+    that keeps CONTRIBUTING and SECURITY there has all of its policy documents
+    in the one place a naive walk ignores.
+    """
+    name = "s15-github-dir"
+    print(f"\n[{name}] community health files under .github/")
+    repo = new_repo(name)
+    write(repo, "README.md", "# Tool\n\nSee [contributing](.github/CONTRIBUTING.md).\n")
+    write(repo, ".github/CONTRIBUTING.md",
+          "# Contributing\n\nRun [the setup script](../scripts/gone.sh).\n")
+    write(repo, ".github/SECURITY.md", "# Security\n\nReport privately.\n")
+    commit(repo, "chore: init")
+    install(repo, "--doc", "README.md")
+
+    with open(repo / ".extant.toml", "a", encoding="utf-8") as fh:
+        fh.write('extra_docs = [".github/CONTRIBUTING.md", ".github/SECURITY.md"]\n')
+
+    res = tool(repo, "--verify")
+    check(name, "a document inside .github/ is actually read",
+          "CONTRIBUTING.md" in res.stdout, res.stdout)
+    check(name, "its broken link is reported", "gone.sh" in res.stdout, res.stdout)
+
+
+def s16_alternate_trunks() -> None:
+    """develop, trunk and mainline, all of which are somebody's main branch.
+
+    Trunk is MEASURED rather than assumed, and this is the assertion that keeps
+    it that way. A default of `main` would make merge and tag ancestry silently
+    wrong on every repository that never adopted it.
+    """
+    name = "s16-alt-trunks"
+    print(f"\n[{name}] develop / trunk / mainline as the main branch")
+    for branch in ("develop", "trunk", "mainline"):
+        repo = new_repo(f"{name}-{branch}", trunk=branch)
+        write(repo, "README.md", "# App\n\nNothing falsifiable.\n")
+        commit(repo, "chore: init")
+        out = install(repo, "--preset", "readme")
+        cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
+        check(name, f"trunk measured as {branch}",
+              f'trunk = "{branch}"' in cfg, out.stdout + cfg)
+
+
+def s17_tag_shapes() -> None:
+    """release-1.2.3 and package@1.2.3 alongside plain v1.2.3.
+
+    Three tag conventions in wide use. The release-tag rule looks up whatever
+    token the document names, so the question is whether an unusual shape is
+    resolved rather than assumed dead.
+    """
+    name = "s17-tag-shapes"
+    print(f"\n[{name}] release- and package@ tag conventions")
+    repo = new_repo(name)
+    write(repo, "CHANGELOG.md", "# Changelog\n\nShipped in `release-1.2.3`.\n")
+    commit(repo, "chore: init")
+    sh(repo, "git", "tag", "-a", "release-1.2.3", "-m", "release")
+    sh(repo, "git", "tag", "-a", "api@2.0.0", "-m", "package release")
+    install(repo, "--doc", "CHANGELOG.md")
+
+    res = tool(repo, "--verify")
+    # Two assertions, because either alone is satisfied by a broken rule. Exit 0
+    # is what a pattern matching NOTHING also produces, and a denominator of 1
+    # only says it looked. Together they say it looked and found the tag real.
+    # The first version of this checked `"dead-release-tag" not in stdout`, which
+    # can never pass: the denominator line names every rule on every run.
+    check(name, "the release- tag shape is examined, not skipped",
+          "dead-release-tag 1" in res.stdout, res.stdout)
+    check(name, "and the tag that exists is not reported dead",
+          res.returncode == 0, res.stdout)
+
+    write(repo, "CHANGELOG.md", "# Changelog\n\nShipped in `release-9.9.9`.\n")
+    res = tool(repo, "--verify")
+    check(name, "a tag that was never cut is reported",
+          "release-9.9.9" in res.stdout, res.stdout)
+
+
+def s18_encodings() -> None:
+    """A UTF-8 byte-order mark, which Windows editors add without asking.
+
+    A BOM sits before the first character, so a document that opens with `# `
+    no longer does. Anything anchored to the start of the file stops matching,
+    and the failure is invisible in every editor that hides the mark.
+    """
+    name = "s18-encodings"
+    print(f"\n[{name}] UTF-8 BOM at the start of a document")
+    repo = new_repo(name)
+    body = "# Status\n\nSee [the plan](docs/plan.md).\n"
+    (repo / "README.md").write_bytes(b"\xef\xbb\xbf" + body.encode("utf-8"))
+    commit(repo, "chore: init")
+    install(repo, "--doc", "README.md")
+
+    res = tool(repo, "--verify")
+    check(name, "a BOM does not crash the run",
+          "Traceback" not in res.stderr, res.stderr)
+    check(name, "the broken link is still found past the BOM",
+          "docs/plan.md" in res.stdout, res.stdout + res.stderr)
+
+
+def s19_deep_relative_links() -> None:
+    """Links climbing several directories, as a docs site accumulates depth."""
+    name = "s19-deep-links"
+    print(f"\n[{name}] relative links climbing out of a deep tree")
+    repo = new_repo(name)
+    write(repo, "docs/guides/advanced/tuning/index.md",
+          "# Tuning\n\nBack to [the guide](../../index.md).\n"
+          "Root: [readme](../../../../README.md).\n"
+          "Missing: [gone](../../../nowhere.md).\n")
+    write(repo, "docs/guides/index.md", "# Guides\n")
+    write(repo, "README.md", "# Root\n")
+    commit(repo, "docs: deep tree")
+    install(repo, "--doc", "README.md")
+
+    res = tool(repo, "--validate", "docs/guides/advanced/tuning/index.md")
+    check(name, "a link climbing two levels resolves",
+          "../../index.md" not in res.stdout, res.stdout)
+    check(name, "a link climbing to the repository root resolves",
+          "README.md`, which does not exist" not in res.stdout, res.stdout)
+    check(name, "a genuinely missing target is still reported",
+          "nowhere.md" in res.stdout, res.stdout)
+
+
+def s20_maven() -> None:
+    """A Java project: pom.xml against CHANGELOG, the JVM world's manifest."""
+    name = "s20-maven"
+    print(f"\n[{name}] Maven pom.xml version agreement")
+    repo = new_repo(name)
+    write(repo, "README.md", "# Service\n\nNothing falsifiable.\n")
+    write(repo, "pom.xml",
+          '<project>\n  <groupId>com.acme</groupId>\n'
+          "  <artifactId>service</artifactId>\n  <version>3.4.0</version>\n</project>\n")
+    write(repo, "CHANGELOG.md", "# Changelog\n\n## 3.4.0\n")
+    commit(repo, "chore: init")
+    install(repo, "--doc", "README.md")
+
+    with open(repo / ".extant.toml", "a", encoding="utf-8") as fh:
+        fh.write("\n[extant.consistency.version]\n"
+                 '"pom.xml" = \'<version>([^<]+)</version>\'\n'
+                 '"CHANGELOG.md" = \'^## (\\d+\\.\\d+\\.\\d+)\'\n')
+    res = tool(repo, "--verify")
+    check(name, "agreeing pom and changelog pass", res.returncode == 0, res.stdout)
+
+    write(repo, "CHANGELOG.md", "# Changelog\n\n## 3.5.0\n")
+    res = tool(repo, "--verify")
+    check(name, "a pom disagreeing with the changelog is reported",
+          "inconsistent-artifact" in res.stdout and "3.4.0" in res.stdout, res.stdout)
+
+
 # Counted, never spelled out. The README beside this file claimed "Three tools"
 # for two commits after the fourth and fifth arrived, and this line said
 # "12 scenarios" as a literal - a hand-maintained denominator in a harness whose
@@ -491,7 +711,10 @@ def s12_empty_repo() -> None:
 SCENARIOS = (s1_node_master_status, s2_release_tags, s3_ticket_branches,
              s4_no_document, s5_extra_docs, s6_everything_broken,
              s7_clean_project, s8_crlf_and_nested, s9_worktree,
-             s10_archive_roundtrip, s11_hooks, s12_empty_repo)
+             s10_archive_roundtrip, s11_hooks, s12_empty_repo,
+             s13_monorepo, s14_adr, s15_github_dir, s16_alternate_trunks,
+             s17_tag_shapes, s18_encodings, s19_deep_relative_links,
+             s20_maven)
 
 
 def main() -> int:

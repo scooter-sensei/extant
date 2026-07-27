@@ -250,6 +250,56 @@ def test_preset_consistency_check_fires_when_the_files_disagree(preset, tmp_path
     assert "inconsistent-artifact" in broken.stdout
 
 
+def test_a_preset_skips_a_consistency_check_whose_files_are_absent(tmp_path) -> None:
+    """Found by mutation: emitting the check regardless left the suite green.
+
+    A check naming a file the project does not have reports a finding on the
+    very first run, about a document the reader never claimed to keep. That is
+    the fastest way to teach somebody to ignore a validator, and no test noticed
+    it was possible.
+
+    Here the `ml` preset wants `pyproject.toml` and `environment.yml` for its
+    Python-version check. Only one is present, so the check must not be written.
+    """
+    repo = make_repo(tmp_path, **{
+        "README.md": CLEAN_README,
+        "pyproject.toml": '[project]\nname = "m"\nversion = "1.0.0"\nrequires-python = ">=3.11"\n',
+        # environment.yml deliberately absent
+    })
+
+    result = run_installer(repo, "--preset", "ml")
+
+    assert result.returncode == 0, result.stdout
+    checks = config_of(repo).get("consistency", {})
+    assert "python_version" not in checks, (
+        "a check was emitted naming environment.yml, which does not exist here"
+    )
+    assert "skipped" in result.stdout, "the skip must be reported, not silent"
+
+
+def test_a_preset_actually_switches_off_what_it_disables(tmp_path) -> None:
+    """Also found by mutation: nothing asserted the `disable` list did anything.
+
+    A README has no dated entries, so the phase-grouping and plan-scanning
+    settings have nothing to act on. Left switched ON they are patterns that
+    match nothing, which is this project's defining failure: a rule reporting a
+    clean run forever while examining zero candidates.
+
+    An empty string means OFF, distinct from the key being absent, which would
+    fall back to the default and switch the feature back on.
+    """
+    repo = make_repo(tmp_path, **{"README.md": CLEAN_README})
+
+    assert run_installer(repo, "--preset", "readme").returncode == 0
+
+    cfg = config_of(repo)
+    for key in ("phase_task", "phase_bare", "plans_dir"):
+        assert cfg.get(key) == "", (
+            f"{key} is {cfg.get(key)!r}, so a feature with nothing to act on "
+            f"is still switched on"
+        )
+
+
 def test_enterprise_preset_collects_the_long_lived_documents(tmp_path) -> None:
     """Its value is the document set, so that is what is pinned.
 
@@ -297,3 +347,34 @@ def test_every_document_preset_writes_loadable_toml(preset, tmp_path) -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert config_of(repo)["primary_doc"] == "README.md"
+
+
+def test_an_unrecognised_observation_still_renders_valid_toml(tmp_path) -> None:
+    """The renderer quotes by an allowlist of KEY NAMES, which cannot cover a
+    key nobody has thought of yet.
+
+    `release_tag` landed in the fallback branch the day it was added and was
+    written unquoted. That is not valid TOML, so the tool refused to read the
+    config and every rule in it went silent at once, on a run that otherwise
+    looked entirely normal. The allowlist was updated, but the trap is the
+    fallback: the next observation added lands there too.
+
+    A wrong implementation writes the value bare and this fails to parse.
+    """
+    import sys
+    import tomllib
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    from detect import DERIVED, Observation
+    from install import render_config
+
+    rendered = render_config([
+        Observation("primary_doc", "README.md", DERIVED, "measured"),
+        # A regex-valued key the allowlist has never heard of.
+        Observation("some_future_pattern", r"^\d+\.\d+\s+(\w+)$", DERIVED, "invented"),
+    ])
+
+    parsed = tomllib.loads(rendered)["extant"]
+    assert parsed["some_future_pattern"] == r"^\d+\.\d+\s+(\w+)$", (
+        "the value survived quoting but did not round-trip intact"
+    )

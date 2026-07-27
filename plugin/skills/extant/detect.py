@@ -52,6 +52,50 @@ def _git(repo: Path, *args: str) -> str:
 _TRUNK_CANDIDATES = ("main", "master", "develop", "trunk", "default")
 
 
+_TAG_SHAPE = re.compile(r"^(.*?)(\d+\.\d+[\w.-]*)$")
+
+
+def detect_release_tag(repo: Path) -> Observation:
+    """The `release_tag` pattern, measured from the tags this repo actually has.
+
+    The default recognises `v1.2.3` and `1.2.3`, which is what the corpus it was
+    built against used. Plenty of projects do not: `release-1.2.3` is common in
+    the JVM and .NET worlds, and a monorepo tags `api@2.0.0` per package. On
+    those, the default captures nothing, the rule examines zero candidates, and
+    a release claim is never checked at all - a rule that is inert while looking
+    healthy, which is this project's defining failure.
+
+    So the prefixes are read off the repository rather than assumed. Only
+    prefixes that really occur become alternatives, which keeps the pattern as
+    narrow as the evidence: a repo tagging `v1.2.3` gets exactly the default
+    back, and one tagging `release-1.2.3` gets that shape and nothing wider.
+    """
+    tags = [t.strip() for t in _git(repo, "tag", "--list").splitlines() if t.strip()]
+    prefixes: dict[str, int] = {}
+    for tag in tags:
+        match = _TAG_SHAPE.match(tag)
+        if match:
+            prefixes[match.group(1)] = prefixes.get(match.group(1), 0) + 1
+
+    default = r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+[\w.-]*)`?"
+    if not prefixes:
+        why = "no version-shaped tags here" if not tags else f"{len(tags)} tags, none version-shaped"
+        return Observation("release_tag", default, DEFAULT, why)
+
+    # "" and "v" are what the default already covers; anything else is news.
+    extra = sorted(p for p in prefixes if p not in ("", "v"))
+    if not extra:
+        return Observation("release_tag", default, DERIVED,
+                           f"{len(tags)} tags, all v-prefixed or bare")
+
+    alternatives = "|".join(re.escape(p) for p in [*extra, "v", ""])
+    pattern = (r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+"
+               rf"`?((?:{alternatives})\d+\.\d+[\w.-]*)`?")
+    shown = ", ".join(f"{p}N.N" for p in extra)
+    return Observation("release_tag", pattern, DERIVED,
+                       f"{len(tags)} tags; also matches {shown}")
+
+
 def detect_trunk(repo: Path) -> Observation:
     """The integration branch, asked of git rather than inferred from prose.
 

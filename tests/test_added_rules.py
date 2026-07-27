@@ -1197,6 +1197,12 @@ def test_a_pin_naming_this_repo_must_resolve(tmp_path) -> None:
     assert result.returncode == 1, result.stdout
     assert "dead-pinned-ref" in result.stdout
     assert "v9.9.9" in result.stdout
+    # The line number is what a reader navigates by, and nothing pinned it
+    # until a mutation shifted every report by one and the suite stayed green.
+    # `rev:` is the sixth line of OWN_SNIPPET.
+    assert "line 6:" in result.stdout, (
+        f"the finding must point at the pin's own line:\n{result.stdout}"
+    )
 
 
 def test_a_pin_naming_someone_elses_repo_is_left_alone(tmp_path) -> None:

@@ -62,6 +62,22 @@ should happen: a Node project on `master`, ticket-prefixed branches on
 nested in `docs/`, a linked worktree, an archive round-trip, the git hooks
 firing, and a single-commit repository.
 
+A second set covers shapes drawn from how projects are really laid out rather
+than from variations on this one, each stressing a different assumption: a
+**monorepo**, where a link inside `packages/api/` resolves against that package
+and not the repository root; a **docs/adr/** tree, the densest link graph
+documentation normally has; community health files under **.github/**, the one
+directory a naive walk skips; **develop, trunk and mainline** as the main
+branch; **release-1.2.3 and api@2.0.0** tag conventions; a **UTF-8 BOM**, which
+sits in front of the first character so anything anchored to the start of a file
+stops matching; links climbing **four directories** out of a deep tree; and a
+**Maven pom.xml** cross-checked against a CHANGELOG.
+
+That second set earned its place immediately. The tag scenario found that the
+default `release_tag` pattern recognised only `v1.2.3` and `1.2.3`, so a project
+tagging `release-1.2.3` had a rule examining zero candidates forever while every
+run looked healthy. Tag shape is measured from the repository now.
+
 Run it against a `git archive HEAD` extract rather than the working tree, so
 what is tested is what would actually ship.
 

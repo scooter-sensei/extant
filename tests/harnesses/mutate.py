@@ -237,6 +237,64 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '        if (directory / ".git").exists():\n            return None',
          '        if False:\n            return None'),
 
+        # --- install snippets ----------------------------------------------------
+        # This rule is the newest and had no mutations at all, which is the state
+        # every gap starts in. Its two false-positive guards matter more than the
+        # positive case: a rule that flags a correct line is how a validator earns
+        # a reputation for noise, and both guards are invisible to a test that
+        # only checks that a dead pin is reported.
+        # Disabled by emptying the loop rather than by blanking the message: the
+        # first attempt replaced the text with `"" or f"..."`, which Python
+        # evaluates straight back to the f-string. A mutation that changes
+        # nothing SURVIVES every time and reads as a gap in the suite, which is
+        # the harness lying rather than the tests failing. This shape also
+        # leaves the DENOMINATOR at 1 while findings drop to 0, which is the
+        # exact "examined but never reports" defect the project cares about.
+        ("pinned-ref never fires", collect,
+         "    for number, ref in _pinned_refs(repo, text):",
+         "    for number, ref in []:"),
+        ("pinned-ref ignores the governing repo (flags third-party pins)", collect,
+         "        if match and governing == own:",
+         "        if match:"),
+        ("pinned-ref stops normalising remotes (SSH never matches HTTPS)", collect,
+         '    parts = [p for p in url.replace(":", "/").split("/") if p]',
+         '    parts = [p for p in url.split("/") if p]'),
+        ("pinned-ref keeps the .git suffix, so no remote ever matches", collect,
+         '    if url.endswith(".git"):',
+         "    if False:"),
+        # NOT a no-origin mutation. Removing `if own is None: return []` changes
+        # nothing, because `governing == None` never matches and no pin is
+        # collected either way - the guard is a short-circuit, not a behaviour.
+        # A mutation there survives forever and blames the tests for it. This
+        # probes the reported line number instead, which is what a reader
+        # actually navigates by.
+        ("pinned-ref reports the wrong line number", collect,
+         "    governing: str | None = None\n"
+         "    for number, line in enumerate(text.splitlines(), start=1):",
+         "    governing: str | None = None\n"
+         "    for number, line in enumerate(text.splitlines(), start=2):"),
+
+        # --- the installer and its presets ---------------------------------------
+        # install.py had no mutations either, and it is where the 0.6.1 bug lived:
+        # the preset that exists for projects WITHOUT a status document could not
+        # be used on one. Every guard below was added because its absence shipped.
+        ("preset document is not consulted when detection finds nothing",
+         detect.parent / "install.py",
+         "    if preset_doc and (repo / preset_doc).is_file():",
+         "    if False and preset_doc and (repo / preset_doc).is_file():"),
+        ("preset names extra documents the project does not have",
+         detect.parent / "install.py",
+         '    extras = [e for e in preset.get("extra_docs", []) if (repo / str(e)).is_file()]',
+         '    extras = [str(e) for e in preset.get("extra_docs", [])]'),
+        ("preset emits a consistency check whose files are absent",
+         detect.parent / "install.py",
+         "            if all((repo / f).is_file() for f in sources)",
+         "            if True"),
+        ("preset stops switching off the features it disables",
+         detect.parent / "install.py",
+         '    for key in preset.get("disable", []):          # type: ignore[union-attr]',
+         "    for key in []:"),
+
         # --- detect.py ----------------------------------------------------------
         ("find_documents returns only the first match", detect,
          "    return found",
@@ -244,6 +302,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("trunk detection ignores origin/HEAD", detect,
          '    head = _git(repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD").strip()',
          '    head = ""'),
+        # Tag shape is MEASURED, and both directions matter. Ignoring the repo's
+        # real prefixes leaves `release-1.2.3` unmatched, so the rule examines
+        # nothing on a whole class of project; widening without evidence loosens
+        # the pattern for everyone, which is where false positives come from.
+        ("release-tag shape ignores the prefixes this repo actually uses", detect,
+         '    extra = sorted(p for p in prefixes if p not in ("", "v"))',
+         "    extra = []"),
+        ("release-tag shape widens without evidence", detect,
+         '    extra = sorted(p for p in prefixes if p not in ("", "v"))',
+         '    extra = sorted({*prefixes, "release-"} - {"", "v"})'),
     ]
 
 
