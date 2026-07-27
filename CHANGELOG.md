@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.7.0 (2026-07-27)
+
+Three more presets, for audiences whose documentation ages hardest.
+
+| Preset | For |
+|:---|:---|
+| `enterprise` | long-lived projects. Also checks `SECURITY.md`, `SUPPORT.md`, `UPGRADING.md`, `MIGRATION.md` |
+| `ml` | data and model projects. Also checks `MODEL_CARD.md` and `DATA_CARD.md`, and that `pyproject.toml` and `environment.yml` pin the same Python |
+| `legacy-web` | older web apps. Also checks `INSTALL.md`, `DEPLOY.md`, `UPGRADING.md`, and that `.nvmrc` and `package.json` agree on Node |
+
+### What shaped them
+
+All three lean on **extra documents** rather than on clever patterns. A support
+policy, an upgrade guide and a deployment note are where a project's oldest
+links and file pointers live, and age is the entire subject here. An LTS project
+does not usually have a stale README; it has a `MIGRATION.md` last edited in
+2021 pointing at three files that have since moved.
+
+Their consistency checks compare **two machine-readable files**, never prose
+against a manifest. Every existing check does the same, and it is why none has
+produced a false positive: a JSON version field has one spelling, whereas a
+sentence naming a version has as many spellings as it has had authors.
+
+Each check is also a **pair**. A check is only emitted when every file it names
+is present, so a third file makes it likelier to be skipped than to catch
+anything.
+
+`enterprise` carries no consistency check at all, deliberately. It names an
+audience rather than a language, so there is no manifest common to its members,
+and a guessed pair would be skipped on most repositories and wrong on the rest.
+
+### Verified
+
+Every pattern was run against real-format samples before shipping, because a
+pattern that matches nothing is the failure this project exists to surface: all
+eight captured the value they were aimed at.
+
+Both new consistency checks are then tested in both directions - agreeing files
+must pass, and one edited file must produce a finding that names the check. A
+one-directional test would be satisfied by a pattern that matches nothing.
+Proved by breaking the `.nvmrc` pattern and watching it fail, which it did
+twice over: the test caught it, and the tool independently reported the pattern
+as matching nothing.
+
+### Fixed
+
+- `/plugin install status@extant` in the README and the 0.1.0 entry, a casualty
+  of the 0.6.0 rename's catch-all rule. The correct command is
+  `/plugin install extant@extant`, and the wrong one was never right at any
+  point in this project's history. It sat inside a fenced code block, where no
+  rule here can see it.
+
 ## 0.6.1 (2026-07-27)
 
 Fixes the `readme` preset, which did not work on the projects it exists for.
@@ -147,7 +199,7 @@ positive has taught a lesson that is very hard to unteach.
 
     repos:
       - repo: https://github.com/scooter-sensei/extant
-        rev: v0.6.1
+        rev: v0.7.0
         hooks:
           - id: extant
 
@@ -446,7 +498,7 @@ First public release, extracted from the project it was built and proven on.
 
 - Installable as a Claude Code plugin: the repository is its own marketplace,
   so `/plugin marketplace add scooter-sensei/extant` followed by
-  `/plugin install status@extant` is the whole setup. The validator,
+  `/plugin install extant@extant` is the whole setup. The validator,
   the hooks, and the CLI still work standalone with no Claude Code involved.
 - Five validation rules, each falsifiable against git or the filesystem: dead
   commit references (backticked and bare), stale live claims, false merge

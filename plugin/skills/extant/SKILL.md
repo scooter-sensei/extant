@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.6.1
+version: 0.7.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -52,7 +52,9 @@ cd /path/to/repo && sh tools/hooks/install
 ```
 
 Presets: `readme` (any project, no status file needed), `node`, `python`,
-`rust`, `status` (a running status document). A preset chooses the documents
+`rust`, `enterprise` (policy, support and upgrade notes), `ml` (model and data
+cards, environment pins), `legacy-web` (install and deploy notes, runtime
+pins), and `status` (a running status document). A preset chooses the documents
 and the shape; detection still supplies trunk, branch naming and commit
 conventions, because those are measured rather than assumed.
 

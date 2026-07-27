@@ -131,6 +131,69 @@ PRESETS: dict[str, dict[str, object]] = {
             },
         },
     },
+    # The three below are shaped by what their audience actually keeps, and all
+    # three lean on EXTRA DOCUMENTS rather than on clever patterns. Long-lived
+    # policy and upgrade documents are where a project's oldest links and file
+    # pointers live, and age is the whole subject here.
+    #
+    # Their consistency checks compare two MACHINE-READABLE files, never prose
+    # against a manifest. Every check above does the same, and it is the reason
+    # none of them has produced a false positive: a JSON version field has one
+    # spelling, whereas a sentence naming a version has as many as there are
+    # authors. Each check is also a PAIR, because a check is emitted only when
+    # every file it names is present, so a third file makes it likelier to be
+    # skipped entirely than to catch anything.
+    "enterprise": {
+        "summary": "long-lived policy, support and upgrade documents",
+        "primary_doc": "README.md",
+        # An LTS project's rot lives here: security policies naming versions
+        # that left support, upgrade notes pointing at moved files, and release
+        # claims for tags that were never cut.
+        "extra_docs": ["CONTRIBUTING.md", "SECURITY.md", "SUPPORT.md",
+                       "UPGRADING.md", "MIGRATION.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        # No consistency check on purpose. "Enterprise" names an audience, not
+        # a language, so there is no manifest common to all of them. A guessed
+        # pair would be skipped on most repositories and wrong on the rest.
+    },
+    "ml": {
+        "summary": "a data or model project: cards, and environment pins",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "MODEL_CARD.md", "DATA_CARD.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            # The classic drift in this ecosystem: the environment file and the
+            # project metadata pin different interpreters, and the difference
+            # only shows up on someone else's machine.
+            "python_version": {
+                "pyproject.toml": r'^requires-python\s*=\s*"[^\d]*(\d+\.\d+)',
+                "environment.yml": r"^\s*-\s*python\s*[=>~]=?\s*(\d+\.\d+)",
+            },
+            "version": {
+                "pyproject.toml": r'^version\s*=\s*"([^"]+)"',
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
+    "legacy-web": {
+        "summary": "an older web app: install and deploy notes, runtime pins",
+        "primary_doc": "README.md",
+        "extra_docs": ["CONTRIBUTING.md", "INSTALL.md", "DEPLOY.md",
+                       "UPGRADING.md"],
+        "disable": ["phase_task", "phase_bare", "plans_dir"],
+        "consistency": {
+            # A runtime pinned in two places that drifted apart is the defining
+            # bug of an application nobody has upgraded in three years.
+            "node_version": {
+                ".nvmrc": r"^v?(\d+)",
+                "package.json": r'"node":\s*"[^\d]*(\d+)',
+            },
+            "version": {
+                "package.json": r'"version":\s*"([^"]+)"',
+                "CHANGELOG.md": r"^##\s*\[?v?(\d+\.\d+\.\d+)",
+            },
+        },
+    },
     "status": {
         "summary": "a running status document with dated entries (the original shape)",
         "primary_doc": None,      # detected

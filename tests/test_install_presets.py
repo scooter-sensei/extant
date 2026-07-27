@@ -174,7 +174,108 @@ def test_no_document_and_no_preset_still_fails_and_says_what_to_do(tmp_path) -> 
     )
 
 
-@pytest.mark.parametrize("preset", ["readme", "node", "python", "rust"])
+def run_validator(repo: Path) -> subprocess.CompletedProcess[str]:
+    """The installed copy, run the way the hooks run it."""
+    return subprocess.run(
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
+         "--repo", str(repo), "--verify"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+
+
+# The files each preset's consistency checks compare, agreeing, plus the edit
+# that makes one pair disagree. Written in the real formats rather than in a
+# shape convenient for the regex, because a pattern that only matches the
+# fixture is the failure this project exists to surface.
+#
+# The README here is deliberately CLAIM-FREE. The shared one carries a dead SHA
+# for the tests above, and reusing it made the "agreeing files must pass" half
+# fail on that instead - passing for a reason that had nothing to do with the
+# consistency check, which is the mirror image of the bug being guarded.
+CLEAN_README = "# Demo\n\nAn ordinary project with nothing falsifiable in it.\n"
+
+CONSISTENCY_CASES = {
+    "ml": (
+        {
+            "README.md": CLEAN_README,
+            "pyproject.toml": '[project]\nname = "m"\nversion = "2.3.0"\nrequires-python = ">=3.11"\n',
+            "environment.yml": "name: env\ndependencies:\n  - python=3.11\n  - numpy\n",
+            "CHANGELOG.md": "# Changelog\n\n## 2.3.0 (2026-01-01)\n\nstuff\n",
+        },
+        ("environment.yml", "python=3.11", "python=3.10"),
+    ),
+    "legacy-web": (
+        {
+            "README.md": CLEAN_README,
+            ".nvmrc": "v20.11.0\n",
+            "package.json": '{\n  "name": "app",\n  "version": "2.3.0",\n  "engines": { "node": ">=20" }\n}\n',
+            "CHANGELOG.md": "# Changelog\n\n## 2.3.0 (2026-01-01)\n\nstuff\n",
+        },
+        (".nvmrc", "v20.11.0", "v18.19.0"),
+    ),
+}
+
+
+@pytest.mark.parametrize("preset", sorted(CONSISTENCY_CASES))
+def test_preset_consistency_check_fires_when_the_files_disagree(preset, tmp_path) -> None:
+    """The half that matters: a check that cannot fail is not a check.
+
+    Both directions are asserted. Clean files must pass, because a check that
+    reports on everything is indistinguishable from one that works; then one
+    file is edited so the pair genuinely disagrees, and the run must fail and
+    name the check.
+
+    A wrong implementation whose pattern matches nothing passes BOTH halves of
+    a one-directional test while checking nothing at all.
+    """
+    files, (target, before, after) = CONSISTENCY_CASES[preset]
+    repo = make_repo(tmp_path, **files)
+
+    assert run_installer(repo, "--preset", preset).returncode == 0
+
+    clean = run_validator(repo)
+    assert clean.returncode == 0, (
+        f"agreeing files must pass:\n{clean.stdout}\n{clean.stderr}"
+    )
+
+    path = repo / target
+    text = path.read_text(encoding="utf-8")
+    assert before in text, f"fixture anchor {before!r} missing from {target}"
+    path.write_text(text.replace(before, after), encoding="utf-8", newline="")
+
+    broken = run_validator(repo)
+    assert broken.returncode == 1, (
+        f"{preset} did not notice {target} disagreeing:\n{broken.stdout}"
+    )
+    assert "inconsistent-artifact" in broken.stdout
+
+
+def test_enterprise_preset_collects_the_long_lived_documents(tmp_path) -> None:
+    """Its value is the document set, so that is what is pinned.
+
+    An LTS project's oldest links live in its policy and upgrade notes. This
+    preset carries no consistency check, because "enterprise" names an audience
+    rather than a language and there is no manifest common to all of them.
+    """
+    repo = make_repo(tmp_path, **{
+        "README.md": README,
+        "SECURITY.md": "# Security\n\nSupported versions are listed here.\n",
+        "UPGRADING.md": "# Upgrading\n\nSee the notes.\n",
+    })
+
+    assert run_installer(repo, "--preset", "enterprise").returncode == 0
+
+    extras = config_of(repo)["extra_docs"]
+    assert "SECURITY.md" in extras
+    assert "UPGRADING.md" in extras
+    # Absent ones must not be named, or the first run reports a document the
+    # project never claimed to keep.
+    assert "SUPPORT.md" not in extras
+    assert "MIGRATION.md" not in extras
+
+
+@pytest.mark.parametrize("preset", ["readme", "node", "python", "rust",
+                                    "enterprise", "ml", "legacy-web"])
 def test_every_document_preset_writes_loadable_toml(preset, tmp_path) -> None:
     """Catches an installer that emits a config the tool then refuses to read.
 

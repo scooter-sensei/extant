@@ -149,7 +149,7 @@ Two lines, typed into Claude Code:
 
 ```
 /plugin marketplace add scooter-sensei/extant
-/plugin install status@extant
+/plugin install extant@extant
 ```
 
 That is the whole installation. Now open the project you want to protect and ask:
@@ -166,7 +166,7 @@ One block in your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.6.1
+    rev: v0.7.0
     hooks:
       - id: extant
 ```
@@ -209,6 +209,9 @@ $ python .../install.py --repo /path/to/your/project --preset readme
 | `node` | the same, plus `package.json` and `CHANGELOG.md` version agreement |
 | `python` | the same, with `pyproject.toml` |
 | `rust` | the same, with `Cargo.toml` |
+| `enterprise` | long-lived projects: also checks `SECURITY.md`, `SUPPORT.md`, `UPGRADING.md` and `MIGRATION.md` |
+| `ml` | data and model projects: also checks `MODEL_CARD.md` and `DATA_CARD.md`, and that `pyproject.toml` and `environment.yml` pin the same Python |
+| `legacy-web` | older web apps: also checks `INSTALL.md`, `DEPLOY.md` and `UPGRADING.md`, and that `.nvmrc` and `package.json` agree on Node |
 | `status` | a running status file with dated entries |
 
 A preset picks the documents and the shape. It never overrides something the
