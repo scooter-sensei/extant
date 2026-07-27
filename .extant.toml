@@ -37,6 +37,18 @@ extra_docs = [
     "tests/harnesses/README.md",
     "plugin/skills/extant/references/design.md",
 ]
+# README.md is deliberately NOT here, and it was tried. Adding it produced four
+# findings and every one was a false positive: `8f2a91c` and `abc1234` are the
+# example SHAs that demonstrate what a finding looks like, and `v2.1` is the
+# example tag from the rule table. A README describing a claim-checker is made
+# of illustrative claims, which is the same reason five of the nine documents
+# here are excluded from self-checking.
+#
+# The cost is real and worth stating: `dead-pinned-ref` therefore never sees
+# this project's own install snippet, and 0.10.0 shipped with the README
+# telling people to pin a tag that was never created. That is a
+# release-procedure gap, closed in CONTRIBUTING.md by verifying the tag exists,
+# not something to buy with four false positives on every run.
 
 [extant.consistency.version]
 "plugin/.claude-plugin/plugin.json" = '"version":\s*"([^"]+)"'

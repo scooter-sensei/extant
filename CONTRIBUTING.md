@@ -113,3 +113,17 @@ resolve once tagged, so nothing is falsifiable about it.
 The changelog's other `rev:` lines are prose about past mistakes and
 illustrative examples of `dead-pinned-ref`. Leave those alone too - a pin is
 only an instruction when it sits under an install snippet.
+
+**Then create the tag, and confirm it exists before you stop.** Bumping the
+`rev:` in the README is a promise that the tag is there; 0.10.0 was bumped,
+committed and pushed without ever being tagged, so for as long as that was the
+newest release the README told people to pin a version git had never heard of.
+
+    git tag -a vX.Y.Z -m "extant X.Y.Z - <what changed>"
+    git push origin vX.Y.Z
+    git ls-remote --tags origin | grep vX.Y.Z     # it is not done until this prints
+
+`dead-pinned-ref` is exactly the rule for this and cannot help here, because
+`README.md` is not one of the checked documents - it is made of illustrative
+claims, and including it produces four false positives. Confirmed by trying
+it. So this is a procedural check on purpose, not an oversight.
