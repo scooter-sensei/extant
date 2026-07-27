@@ -1,7 +1,7 @@
 {
   "name": "extant",
   "description": "Installs a validator that checks every falsifiable claim in your status or progress document against git and the filesystem, plus git hooks that re-check after each commit and merge, and a /extant command rendered for your repository. Reports findings as text, GitHub annotations or SARIF, and can prove its own rules fire.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "author": {
     "name": "scooter-sensei"
   },
