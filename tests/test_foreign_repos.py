@@ -789,3 +789,69 @@ def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
         hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
     assert "dead-md-anchor" in kinds, (
         "a heading in a Jekyll post must not become an ambient anchor: " + str(kinds))
+
+
+# --- repositories that actually use Git LFS --------------------------------
+
+def test_a_uuid_is_not_a_commit(git_repo) -> None:
+    """microsoft/vscode-docs puts a ContentId in every page's frontmatter.
+
+    Split on the hyphens, a UUID's 8- and 12-character groups are valid hex
+    with both a letter and a digit, so each was read as a short SHA that does
+    not resolve. 750 of the 789 bare-SHA findings across 40 repositories were
+    fragments of one.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "---\nContentId: dd7207b0-cf8b-4ed6-8c75-941834179dca\n---\n"
+
+    assert not [k for k in _kinds(repo, text) if "sha" in k], _findings(repo, text)
+
+
+def test_a_real_sha_beside_a_uuid_is_still_reported(git_repo) -> None:
+    """The UUID is skipped whole, not by silencing its parts, or a genuine
+    reference sitting on the same line would go with it."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "id dd7207b0-cf8b-4ed6-8c75-941834179dca landed in c85ba3e9cb46\n"
+
+    assert [k for k in _kinds(repo, text) if "sha" in k], _findings(repo, text)
+
+
+def test_a_root_relative_route_resolves_to_its_document(git_repo) -> None:
+    """vscode-docs links to `/api/ux-guidelines/views`, and that file is right
+    there as `api/ux-guidelines/views.md`.
+
+    Settleable without knowing the generator: append `.md` from the repository
+    root and look. 635 findings match this shape and every one is in that
+    repository, so widening it changes no other project's links.
+    """
+    repo, commit = git_repo
+    commit("api/ux-guidelines/views.md", "# Views\n", "chore: views")
+    commit("api/index.md", "x\n", "chore: index")
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "api"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [views](/api/ux-guidelines/views).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-link" not in kinds, kinds
+
+
+def test_a_route_to_no_document_is_still_reported(git_repo) -> None:
+    """Silenced only when the document EXISTS. 220 of vscode-docs' own routes
+    resolve to nothing and are still reported, which is the half that keeps
+    the rule worth running."""
+    repo, commit = git_repo
+    commit("api/index.md", "x\n", "chore: index")
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "api"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [gone](/api/references/vscode-api).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-link" in kinds, kinds

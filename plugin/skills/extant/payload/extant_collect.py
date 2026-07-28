@@ -660,6 +660,19 @@ def _looks_like_bare_sha(token: str) -> bool:
 # of findings on every project that links to another project's source, which
 # is most of them.
 _URL = re.compile(r"(?:https?://|ftp://|git@)\S+", re.I)
+# A UUID is not a commit, and it is made of pieces that look like one.
+#
+# `ContentId: dd7207b0-cf8b-4ed6-8c75-941834179dca` sits in the YAML
+# frontmatter of every page in microsoft/vscode-docs. Split on the hyphens, the
+# 8- and 12-character groups are valid hex with both a letter and a digit, so
+# each was read as a short SHA that does not resolve.
+#
+# 750 of the 789 bare-SHA findings across 40 repositories were fragments of
+# one, every one in that repository. Matched whole and skipped whole, because
+# skipping the groups individually would also silence a genuine SHA that
+# happened to sit beside a hyphen.
+_UUID = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
 
 
 def _spans_overlap(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
@@ -695,6 +708,7 @@ def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     for number, line in enumerate(text.splitlines(), start=1):
         skip_spans = [m.span() for m in _BACKTICKED.finditer(line)]
         skip_spans += [m.span() for m in _URL.finditer(line)]
+        skip_spans += [m.span() for m in _UUID.finditer(line)]
         for match in _BARE_SHA_TOKEN.finditer(line):
             if _spans_overlap(match.span(), skip_spans):
                 continue
@@ -1655,6 +1669,22 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             if target.startswith("/"):
                 rooted = target.lstrip("/")
                 if rooted and _resolve_reference(repo, repo, rooted)[0]:
+                    continue
+                # A root-relative target with no extension is a site route, and
+                # it is settleable without knowing the generator: append `.md`
+                # from the repository root and see. microsoft/vscode-docs links
+                # to `/api/ux-guidelines/views` throughout, and that file is
+                # right there as `api/ux-guidelines/views.md`.
+                #
+                # Silenced only when the document demonstrably EXISTS, so the
+                # 220 of its links that resolve to nothing are still reported.
+                # Measured before widening: 635 findings match this shape and
+                # every one is in that repository, so no other project's links
+                # change meaning.
+                bare = rooted.rstrip("/")
+                if bare and not Path(bare).suffix and (
+                        _resolve_reference(repo, repo, bare + ".md")[0]
+                        or _resolve_reference(repo, repo, bare + "/index.md")[0]):
                     continue
             exists, actual_case = _resolve_reference(repo, base, target)
             if exists:
