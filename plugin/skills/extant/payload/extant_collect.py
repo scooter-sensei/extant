@@ -1438,8 +1438,17 @@ def _percent_decoded(target: str) -> str:
 
 
 def _heading_text(title: str) -> str:
-    """Heading text with code backticks unwrapped, lowercased."""
-    return re.sub(r"`([^`]*)`", r"\1", title.strip()).lower()
+    """Heading text as rendered: link syntax reduced to its text, code unwrapped.
+
+    A heading may itself be a link. Alamofire's changelog writes
+    `## [5.12.0](https://github.com/Alamofire/Alamofire/releases/tag/5.12.0)`
+    and indexes it as `#5120`, because a renderer slugs what the reader SEES -
+    `5.12.0` - and drops the destination. Folding the URL in instead produced
+    `1-0-0-https-github-com-alamofire-...` and called all 119 of that
+    repository's changelog anchors dead.
+    """
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title.strip())
+    return re.sub(r"`([^`]*)`", r"\1", text).lower()
 
 
 def _without_tags(title: str) -> str:
@@ -1525,6 +1534,12 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
                 continue
             target = raw.split("#", 1)[0]
             if not target:
+                continue
+            # `@` opens a generator macro, not a path. Documenter.jl writes
+            # `[text](@ref)` for a cross-reference and JuliaLang/julia carries
+            # 1,779 of them - every single one reported as a dead file, and 96%
+            # of that repository's findings.
+            if target.startswith("@"):
                 continue
             # A markdown link percent-encodes characters that are awkward in a
             # URL, and the file on disk carries the decoded name.
@@ -1794,11 +1809,19 @@ _SITE_CONFIGS = (
 _SITE_MARKERS_IN_FILE = (("mix.exs", "ex_doc"),)
 
 
+# Where a generator config sits. The site is often a subdirectory of a project
+# that is mostly something else: jekyll/jekyll keeps its own documentation site
+# under `docs/` with `docs/_config.yml`, so a root-only search missed it and
+# reported 138 of its site routes as dead files.
+_SITE_DIRS = ("", "docs", "site", "www", "website")
+
+
 def _is_generated_site(repo: Path) -> bool:
     """Does this repository compile its markdown into a website?"""
     key = str(repo)
     if key not in _SITE:
-        found = any((repo / name).is_file() for name in _SITE_CONFIGS)
+        found = any((repo / d / name).is_file()
+                    for d in _SITE_DIRS for name in _SITE_CONFIGS)
         for name, marker in _SITE_MARKERS_IN_FILE:
             if found:
                 break
@@ -3219,8 +3242,43 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _survivable_output() -> None:
+    """Never die encoding a finding after doing all the work.
+
+    A finding quotes the document, and a document may be in any language.
+    Written to a console the process did not choose - cp1252 on a default
+    Windows shell, cp437 on an older one - an unencodable character raises
+    UnicodeEncodeError and the run dies AFTER the analysis, at the moment of
+    reporting it. Found by sweeping jgm/pandoc, whose docs quote Japanese.
+
+    Replacement rather than a forced encoding, because the console genuinely
+    cannot render those characters and pretending otherwise produces mojibake;
+    a `?` is the honest rendering and the rest of the line still arrives.
+    SARIF is the exception: it is a file format rather than console text, so it
+    gets UTF-8 and stays faithful.
+
+    This was believed to be handled. `test_a_finding_quoting_non_ascii_does_not
+    _crash_the_printer` passes `PYTHONIOENCODING=cp437:replace` in the
+    environment, so it was proving that the ENVIRONMENT can cope, not that the
+    tool can. Every mode crashed without it.
+    """
+    sarif = "--format=sarif" in sys.argv or "sarif" in sys.argv
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if sarif and stream is sys.stdout:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            else:
+                stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # A replaced stream (pytest's capture, a StringIO) may not support
+            # reconfigure. Nothing to harden there, and failing here would be
+            # worse than the problem.
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     global _LINK_BASE
+    _survivable_output()
     parser = build_parser()
     args = parser.parse_args(argv)
     repo = Path(args.repo)

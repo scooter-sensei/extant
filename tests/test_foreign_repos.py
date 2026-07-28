@@ -14,6 +14,7 @@ Each test names the repository that exposed the class.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -397,3 +398,93 @@ def test_an_ambiguous_basename_is_not_guessed(git_repo) -> None:
     finally:
         hc._LINK_BASE = None
     assert "dead-md-link" in kinds, kinds
+
+
+# --- third sweep: nine more repositories, sixteen ecosystems --------------
+
+def test_output_survives_a_console_that_cannot_encode_it(tmp_path) -> None:
+    """jgm/pandoc quotes Japanese, and the run died reporting it.
+
+    A finding quotes the document, and a document may be in any language.
+    Written to a cp1252 or cp437 console the process did not choose, an
+    unencodable character raised UnicodeEncodeError AFTER the analysis - the
+    worst possible moment.
+
+    This was believed handled. The existing unicode test passes
+    PYTHONIOENCODING=cp437:replace in the environment, so it proved the
+    ENVIRONMENT copes, not the tool. Every mode crashed without it.
+    """
+    repo = tmp_path / "repo"
+    (repo / "tools").mkdir(parents=True)
+    for name in ("extant_collect.py", "extant_config.py"):
+        shutil.copyfile(PAYLOAD / name, repo / "tools" / name)
+    # Escaped, not literal: every shipped file here is ASCII so that output
+    # cannot break a cp437 console, which is the same failure this test is
+    # about, one layer up.
+    japanese = chr(0x98EF) + chr(0x9928)   # a Japanese place name
+    (repo / "README.md").write_text(f"# D\n\nSee [x](docs/{japanese}.md).\n",
+                                    encoding="utf-8")
+    (repo / ".extant.toml").write_text('primary_doc = "README.md"\n', encoding="utf-8")
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "user.email=t@t", "-c", "user.name=T", "commit", "-qm", "i"]):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+    import os
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    for mode in (["--verify"], ["--sweep"], ["--validate", "README.md"]):
+        result = subprocess.run(
+            [sys.executable, str(repo / "tools" / "extant_collect.py"),
+             "--repo", str(repo), *mode],
+            cwd=repo, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", env=env)
+        assert "UnicodeEncodeError" not in result.stderr, (
+            f"{mode} died encoding its own output:\n{result.stderr}")
+        assert result.returncode == 1, (
+            f"{mode} should report the dead link: {result.stdout}{result.stderr}")
+
+
+def test_a_generator_macro_is_not_a_path(git_repo) -> None:
+    """JuliaLang/julia. Documenter.jl writes `[text](@ref)` for a
+    cross-reference, and 1,779 of them were reported as dead files - 96% of
+    that repository's findings. An `@` opens a macro, not a path."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "See [Base.parse](@ref) and [other](@ref other_thing).\n"
+
+    assert "dead-md-link" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_heading_that_is_itself_a_link_slugs_to_its_text(git_repo) -> None:
+    """Alamofire's changelog: `## [5.12.0](https://.../tag/5.12.0)`, indexed
+    as `#5120`. A renderer slugs what the reader SEES and drops the
+    destination; folding the URL in produced
+    `1-0-0-https-github-com-alamofire-...` and called all 119 anchors dead."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("## [5.12.0](https://github.com/Alamofire/Alamofire/releases/tag/5.12.0)\n\n"
+            "- `5.12.x` Releases - [5.12.0](#5120)\n")
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_site_config_in_a_subdirectory_is_found(git_repo) -> None:
+    """jekyll/jekyll keeps its own site under `docs/` with `docs/_config.yml`.
+
+    A root-only search missed it and reported 138 of its site routes as dead
+    files. The site is often a subdirectory of a project that is mostly
+    something else.
+    """
+    repo, commit = git_repo
+    commit("docs/_config.yml", "title: docs\n", "chore: jekyll")
+    commit("docs/index.md", "x\n", "chore: index")
+
+    import extant_collect as hc
+    hc._SITE.clear()
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [posts](/docs/posts/).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+        hc._SITE.clear()
+    assert "dead-md-link" not in kinds, kinds
