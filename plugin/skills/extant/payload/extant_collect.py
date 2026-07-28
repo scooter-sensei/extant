@@ -2488,6 +2488,17 @@ def validate_lfs_storage(repo: Path, text: str) -> list[Finding]:
         size = sizes.get(sha)
         if size is None or sha in pointers:
             continue
+        # An EMPTY file is not a violation. git-lfs passes zero bytes through
+        # unchanged rather than writing a pointer, because there is nothing to
+        # store, so a 0-byte blob under a filter is LFS behaving correctly.
+        #
+        # Verified rather than assumed: committing an empty file and a real one
+        # under the same filter produces a 0-byte blob and a 126-byte pointer.
+        # Measured on o3de/o3de, which declares 123 filters over 2,948 governed
+        # files - 44 of its 45 findings were empty test fixtures, and the only
+        # true one was an asset planted to check the rule still fires.
+        if size == 0:
+            continue
         findings.append(Finding(
             1, "raw-lfs-blob",
             f"`{path}` is tracked by an LFS filter but stored as a raw "

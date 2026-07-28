@@ -257,3 +257,54 @@ def test_each_preset_pattern_matches_the_real_string(preset, path, text, expecte
 
     assert match, f"{preset}/{path} pattern matched nothing in the real string"
     assert match.group(1) == expected
+
+
+def test_an_empty_file_under_a_filter_is_not_a_violation(git_repo) -> None:
+    """git-lfs passes zero bytes through rather than writing a pointer.
+
+    There is nothing to store, so a 0-byte blob under an LFS filter is LFS
+    behaving correctly. Verified rather than assumed: committing an empty file
+    and a real one under the same filter yields a 0-byte blob and a 126-byte
+    pointer.
+
+    Measured on o3de/o3de, which declares 123 filters over 2,948 governed
+    files: 44 of its 45 findings were empty test fixtures, and the only true
+    one was an asset planted to prove the rule still fires.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit(".gitattributes", "*.bnk filter=lfs diff=lfs merge=lfs -text\n", "chore: lfs")
+
+    empty = subprocess.run(["git", "hash-object", "-w", "--no-filters", "--stdin"],
+                           cwd=repo, input=b"", capture_output=True,
+                           check=True).stdout.decode().strip()
+    subprocess.run(["git", "update-index", "--add", "--cacheinfo",
+                    f"100644,{empty},sounds/silent.bnk"], cwd=repo, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
+                    "commit", "-qm", "empty"], cwd=repo, check=True, capture_output=True)
+
+    assert hc.validate_lfs_storage(repo, "") == [], (
+        "an empty file under an LFS filter is correct storage, not a violation"
+    )
+
+
+def test_a_non_empty_raw_blob_is_still_a_violation(git_repo) -> None:
+    """The other half. Skipping by size must not become skipping the rule."""
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit(".gitattributes", "*.bnk filter=lfs diff=lfs merge=lfs -text\n", "chore: lfs")
+
+    blob = subprocess.run(["git", "hash-object", "-w", "--no-filters", "--stdin"],
+                          cwd=repo, input=b"x" * 2000, capture_output=True,
+                          check=True).stdout.decode().strip()
+    subprocess.run(["git", "update-index", "--add", "--cacheinfo",
+                    f"100644,{blob},sounds/loud.bnk"], cwd=repo, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
+                    "commit", "-qm", "loud"], cwd=repo, check=True, capture_output=True)
+
+    findings = hc.validate_lfs_storage(repo, "")
+
+    assert [f.kind for f in findings] == ["raw-lfs-blob"], findings
+    assert "sounds/loud.bnk" in findings[0].detail
