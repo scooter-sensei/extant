@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.14.1 (2026-07-29)
+
+Three false positives, each found by pointing the tool at a repository nobody
+here wrote.
+
+**A UUID is not a commit.** microsoft/vscode-docs carries a `ContentId` in the
+frontmatter of every page. Split on the hyphens, a UUID's 8- and 12-character
+groups are valid hex with both a letter and a digit, so each was read as a
+short SHA that does not resolve. 750 of the 789 bare-SHA findings across 40
+repositories were fragments of one. Matched and skipped whole, so a real SHA
+sitting beside a hyphen still fires.
+
+**A root-relative route resolves to its document.** `/api/ux-guidelines/views`
+is a route and `api/ux-guidelines/views.md` is right there. Settleable without
+knowing the generator - append `.md` from the repository root and look - which
+matters because that project is built by a custom pipeline and ships none of
+the ten generator configs this tool detects. Silenced only where the document
+exists: 220 of its own routes resolve to nothing and are still reported.
+
+**An empty file under an LFS filter is correct storage.** git-lfs passes zero
+bytes through rather than writing a pointer, because there is nothing to store.
+Verified rather than assumed: an empty file and a real one under the same
+filter yield a 0-byte blob and a 126-byte pointer.
+
+That last one came from o3de/o3de, the largest public LFS repository this
+corpus has reached - 123 filter rules over 2,948 governed files, examined in
+two seconds. It reported 45 findings; 44 were empty test fixtures and the
+forty-fifth was an asset planted on purpose to check the rule still fires.
+
+vscode-docs 1,804 -> 419. o3de 45 -> 1, and that one is the planted asset.
+
+### Also
+
+Two references to the removed secret scan survived in the README: a claim that
+a password inside a code fence is still reported, and a finding count that
+included one. Both corrected.
+
 ## 0.14.0 (2026-07-29)
 
 `possible-secret` is gone. Use gitleaks.

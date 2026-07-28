@@ -85,7 +85,7 @@ $ uvx extant --repo . --sweep
 ```
 
 That reads every markdown file git tracks and tells you what has rotted. On a
-real project it took one command to surface 44 dead commit references across 49
+real project it took one command to surface 42 dead commit references across 49
 files.
 
 **A sweep cannot fail your build.** Findings in files you have not configured
@@ -139,8 +139,7 @@ reported on every platform.
 
 **Examples are left alone.** Claims inside fenced code blocks are not read as
 promises, so a README showing what a claim looks like is not accused of making
-one. A password inside a fence is still reported, because that one is about what
-the file contains rather than what it promises.
+one.
 
 **Install snippets are the exception.** `dead-pinned-ref` is the one rule that
 reads *inside* code blocks, because an install snippet is the opposite of an
@@ -244,7 +243,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.14.0
+    rev: v0.14.1
     hooks:
       - id: extant
 ```

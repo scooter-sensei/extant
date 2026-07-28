@@ -9,7 +9,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 10 - Run it on somebody else's repository (shipped, 2026-07-29)
 
 **Status.** Suite is 352 tests, all passing. Eleven rules, eighteen presets.
-`v0.14.0` is tagged, released, and on PyPI. Every release from `v0.5.0` is
+`v0.14.1` is tagged, released, and on PyPI. Every release from `v0.5.0` is
 tagged with no gaps.
 
 Release pages exist for every tag except `v0.13.0`, `v0.13.1` and `v0.13.2`,
