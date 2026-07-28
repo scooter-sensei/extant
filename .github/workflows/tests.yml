@@ -79,6 +79,43 @@ jobs:
       - name: Run the scenario matrix
         run: python tests/harnesses/scenarios.py /tmp/pkg /tmp/arena
 
+  smoke:
+    # The adversarial pass: 26 probes that try to break the tool rather than
+    # confirm it works. Kept a SEPARATE job from the scenario matrix on
+    # purpose - if it were a later step there, a scenario failure would mean
+    # these never ran, and "did not run" would be indistinguishable from
+    # "found nothing", which is the thing this project is about.
+    #
+    # It ran by hand until now, and a mutation campaign proved what that
+    # costs: a deleted guard against overwriting hand-edited agent files left
+    # the whole pytest suite green, and only this harness noticed. That gap is
+    # recorded at tests/test_install_presets.py, where a regression test was
+    # added afterwards.
+    #
+    # Roughly 70 seconds, measured on Windows, where process spawning is
+    # dearer than it is here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build a shippable extract
+        run: |
+          mkdir -p /tmp/pkg
+          git archive HEAD | tar -x -C /tmp/pkg
+
+      # Exits 1 on a flag that is not in the harness's EXPECTED ledger, and
+      # equally on an EXPECTED flag that stops appearing. The second case is
+      # the one worth having: a probe that quietly stops exercising anything
+      # otherwise prints exactly what a healthy one prints.
+      - name: Try to break the tool
+        run: python tests/harnesses/smoke.py /tmp/pkg /tmp/arena
+
   self-check:
     # The tool validating its own status document. fetch-depth 0 because a
     # shallow clone cannot answer "is this commit an ancestor of trunk" at all

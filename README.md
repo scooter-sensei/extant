@@ -54,6 +54,25 @@ a second.
 That `checked` line counts what it **looked at**, not what it found. It matters
 as much as the findings, and [there is a section about why](#every-check-reports-its-denominator).
 
+## Try it in one line
+
+Nothing installed, nothing written into your project, no configuration:
+
+```console
+$ uvx extant --repo . --validate README.md
+```
+
+Point it at any markdown file you have. That is the entire trial, and if it
+finds nothing you have spent ten seconds.
+
+Use `--validate <path>` rather than `--verify` until you have a config file.
+`--verify` checks whatever `primary_doc` names, which defaults to
+`NEXT_SESSION.md` and almost certainly does not exist in your project. Once a
+`.extant.toml` names your own documents, `--verify` becomes the command you
+want, and it is the one the git hooks run.
+
+[Four ways to install properly](#install) are below.
+
 ---
 
 ## What it covers
@@ -165,7 +184,19 @@ every version.
 
 ## Install
 
-Four ways in. Pick one.
+Four ways in. The table picks one for you.
+
+| If you | Use | You get |
+|---|---|---|
+| already use pre-commit | **A** | validation on every commit, one config block |
+| want to look before committing to anything | **B** | the validator as a command, nothing written into your project |
+| use Claude Code and want the slash command | **C** | the plugin, plus everything in D |
+| want the hooks and agent instructions in-repo | **D** | the full install, no plugin manager |
+
+Options A and B give you the **validator only**. The git hooks and the
+`/extant` command have to live inside the repository they check, so C and D are
+the routes that install those. A route quietly delivering half the tool would
+be worse than no route.
 
 ### Option A: pre-commit
 
@@ -201,15 +232,20 @@ Installs the validator as a command. Nothing is written into your project, so
 this is the quickest way to see what the tool says before deciding anything:
 
 ```console
-$ uvx extant --repo . --verify
+$ uvx extant --repo . --validate README.md
 ```
 
 `uvx` downloads and runs it without installing. To keep it around:
 
 ```console
 $ pipx install extant
-$ extant --repo . --verify
+$ extant --repo . --validate README.md
 ```
+
+Once a `.extant.toml` names your documents, `--verify` checks all of them at
+once and is what you want thereafter. Before that file exists it will report
+`no such document: NEXT_SESSION.md`, because that is the default `primary_doc`
+and your project has no reason to have one.
 
 `pip install extant` works too, though a tool you run against many projects is
 usually happier in its own environment.

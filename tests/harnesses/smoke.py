@@ -6,9 +6,15 @@ as an absence of noise.
 
 Categories: crash robustness, false positives, false negatives (gaming), and
 cross-platform divergence.
+
+Exits 1 when a probe raises a flag that is not in EXPECTED below, and also
+when an EXPECTED flag stops being raised. The second half is the point: a
+probe that quietly stops exercising anything reports exactly what a healthy
+one does.
 """
 from __future__ import annotations
 
+import ast
 import os
 import shutil
 import subprocess
@@ -23,6 +29,31 @@ PY = sys.executable
 ISSUES: list[tuple[str, str, str]] = []   # (severity, probe, detail)
 CLEAN: list[str] = []
 
+# Flags this harness is expected to raise, each a documented design decision
+# rather than a defect. A run raising anything else has found a regression; a
+# run that stops raising one of these has a probe that no longer probes. Both
+# exit 1.
+#
+# This is deliberately NOT "whatever was failing when CI was wired up". One
+# flag that appeared on the first run was a SECURITY hit on the word "clone"
+# occurring inside a prose comment, and that was fixed in the probe rather
+# than listed here. Recording a false positive as expected would make the
+# ledger the thing that hides the bug.
+EXPECTED = {
+    "deleting a claim makes the document pass",
+    "a check can list the same file under two spellings",
+    "a baseline can suppress a live credential",
+    "a recorded finding forgives future copies of itself",
+}
+
+# Observations that depend on the machine rather than on the code, so neither
+# their presence nor their absence is a result. The backtracking probe either
+# finishes inside its timeout or does not, and that turns on how loaded the
+# runner is, not on whether the tool changed.
+TOLERATED = {
+    "pathological user regex",
+}
+
 
 def note(severity: str, probe: str, detail: str) -> None:
     ISSUES.append((severity, probe, detail))
@@ -34,6 +65,40 @@ def note(severity: str, probe: str, detail: str) -> None:
 def ok(probe: str, detail: str = "") -> None:
     CLEAN.append(probe)
     print(f"  ok       {probe}" + (f"  ({detail})" if detail else ""))
+
+
+def _operational_source(source: str) -> tuple[str, int]:
+    """Strip prose from Python source, keeping every operational literal.
+
+    Returns the surviving code and the number of `_git(...)` call sites, so a
+    scan over it can state what it examined.
+
+    Comments and docstrings have to go, because they discuss the very things a
+    scan looks for: a sentence reading "a commit made from a clone" is prose
+    about git, not a call to it, and it was enough to make the network probe
+    report a SECURITY finding against a tool that opens no sockets.
+
+    Ordinary string literals have to STAY, because a git subcommand appears
+    only ever as one - `_git(repo, "fetch", ...)`. Stripping all strings would
+    leave a scan that is permanently clean and therefore permanently useless,
+    which is the same failure wearing the opposite mask.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        first = node.body[0] if node.body else None
+        if (isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)):
+            node.body[0] = ast.Pass()
+    call_sites = sum(
+        1 for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name) and node.func.id == "_git"
+    )
+    return ast.unparse(ast.fix_missing_locations(tree)), call_sites
 
 
 def sh(cwd: Path, *args: str, check: bool = False, timeout: int = 120):
@@ -705,10 +770,10 @@ def p_offline() -> None:
     print("\n[network] does anything phone home?")
     source = (PKG / "plugin/skills/extant/payload/extant_collect.py").read_text(
         encoding="utf-8")
+    code, call_sites = _operational_source(source)
     remote_ops = ("ls-remote", "fetch", "clone", "urlopen", "http.client",
                   "requests.", "socket.create_connection", "git.push")
-    hits = [op for op in remote_ops if op in source]
-    call_sites = source.count("_git(repo,")
+    hits = [op for op in remote_ops if op in code]
     if call_sites < 5:
         note("HARNESS", "the git call-site scan found almost nothing",
              f"{call_sites} sites; the pattern is probably wrong, so a clean "
@@ -718,7 +783,8 @@ def p_offline() -> None:
              f"found {hits} across {call_sites} git call sites")
     else:
         ok("no network operation in the validator",
-           f"scanned {call_sites} git call sites for {len(remote_ops)} shapes")
+           f"scanned {call_sites} git call sites for {len(remote_ops)} shapes "
+           f"({len(code)} chars of code, prose excluded)")
 
     repo = new_repo("offline")
     write(repo, "README.md",
@@ -815,7 +881,30 @@ def main() -> int:
         print("\nFLAGGED:")
         for sev, probe, _ in ISSUES:
             print(f"  {sev:<10} {probe}")
-    return 0
+
+    raised = {probe for _, probe, _ in ISSUES}
+    unexpected = sorted(raised - EXPECTED - TOLERATED)
+    missing = sorted(EXPECTED - raised)
+
+    # The denominator. Without it a run that probed nothing at all prints the
+    # same reassuring summary as a run that probed everything and found it
+    # sound, which is the failure this whole project is about.
+    print(f"\nchecked {len(raised)} distinct flags against {len(EXPECTED)} "
+          f"expected and {len(TOLERATED)} tolerated: "
+          f"{len(unexpected)} new, {len(missing)} missing")
+
+    if unexpected:
+        print("\nNEW - never accepted, so this run fails:")
+        for probe in unexpected:
+            print(f"  {probe}")
+    if missing:
+        print("\nMISSING - an accepted flag stopped appearing. Either the "
+              "behaviour was fixed, in which case delete it from EXPECTED, or "
+              "its probe stopped exercising anything:")
+        for probe in missing:
+            print(f"  {probe}")
+
+    return 1 if (unexpected or missing) else 0
 
 
 if __name__ == "__main__":

@@ -4,13 +4,37 @@ Five tools that audit the test suite and the installed product, rather than the
 code paths a unit test can reach. They are **not** run by pytest: each takes
 minutes, and each answers a question `python -m pytest` structurally cannot.
 
-| Tool | Asks |
-|---|---|
-| `mutate.py` | does the suite pin anything? |
-| `scenarios.py` | does it work on projects unlike this one? |
-| `smoke.py` | what happens when someone abuses it? |
-| `perf.py` | is it fast enough to leave installed? |
-| `stress.py` | where does it fall over? |
+| Tool | Asks | In CI |
+|---|---|---|
+| `mutate.py` | does the suite pin anything? | `--check-only` |
+| `scenarios.py` | does it work on projects unlike this one? | yes |
+| `smoke.py` | what happens when someone abuses it? | yes |
+| `perf.py` | is it fast enough to leave installed? | no, by design |
+| `stress.py` | where does it fall over? | no, by design |
+
+The last column is a real distinction, not a backlog. A harness belongs in CI
+when its result is a VERDICT: `scenarios.py` and `smoke.py` each answer a
+yes-or-no question about behaviour, so a change of answer is a regression and
+the job can fail on it. `perf.py` and `stress.py` answer with NUMBERS, and a
+number needs a threshold before it can fail a build. Every threshold loose
+enough to survive a noisy shared runner is too loose to catch the regressions
+worth catching, and every threshold tight enough to catch them flakes - after
+which the job gets rerun on red, then ignored, then deleted.
+
+There is a second reason, particular to this project. Failing a build on
+"0.454s is too slow" is a check on whether a NUMBER is acceptable, and the core
+guarantee is that no rule here judges a number. A perf gate would be the first
+thing in the repository to cry wolf, in a tool whose entire argument is that a
+validator which cries wolf stops being read.
+
+So those two stay hand-run, and CI takes the one measurement that needs no
+threshold: it prints the median `--verify` time as an annotation, where a human
+reading a PR sees it and nothing fails on it.
+
+`mutate.py` sits between the two. The full campaign is half an hour, far too
+slow per commit, but `--check-only` asks a verdict question in under a second:
+does every mutation still match the code it names? That catches mutation rot
+at the commit causing it, which is how it is in CI while the campaign is not.
 
 Between them they found every defect fixed in 0.3.0. The unit suite found none
 of those, because the unit suite was the thing being audited.
@@ -165,6 +189,28 @@ after a deliberate change is doing its job; one that does not, is not watching.
 ```sh
 python tests/harnesses/smoke.py <extracted-package> <scratch-dir>
 ```
+
+Runs in CI, in its own job. Roughly 70 seconds.
+
+It exits 1 on any flag not in its `EXPECTED` ledger, and equally on an
+`EXPECTED` flag that STOPS appearing. The second half is the one worth having:
+a probe that quietly stops exercising anything prints exactly what a healthy
+one prints, so without that check the ledger would decay into a list of things
+nobody verifies.
+
+Until 0.12.3 it returned 0 unconditionally, so putting it in CI first meant
+giving it a verdict - a job that cannot fail is a job that reports nothing.
+Both directions were then confirmed by mutation: planting an `ls-remote` call
+made a new flag appear and the run exit 1, and naming a nonexistent probe in
+`EXPECTED` made the missing-flag branch fire.
+
+`EXPECTED` holds four entries, every one a design decision documented in
+`references/design.md`. It is deliberately not a record of whatever happened to
+be failing when CI was wired up. One flag from that first run was a SECURITY
+hit on the word "clone" appearing inside a prose comment, against a tool that
+opens no sockets; the probe was substring-scanning its own documentation. That
+was fixed in the probe rather than listed here, because a ledger entry would
+have preserved the bug behind the word "expected" forever.
 
 Adversarial probes rather than confirmation: a repository with no commits, a
 detached HEAD, a document that is not valid UTF-8, a 4000-line document, a
