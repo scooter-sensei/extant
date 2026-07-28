@@ -41,6 +41,16 @@ PAYLOAD = [
 COMMAND_TEMPLATE = "payload/commands/extant.md.template"
 COMMAND_DEST = ".claude/commands/extant.md"
 
+# Evidence that this repository is worked on with Claude Code. Checked because
+# the slash command is the one artifact here that only one tool can read, and
+# writing it unconditionally put a `.claude/` directory into repositories whose
+# owners use Codex, Cursor or no agent at all.
+#
+# The skill at `.agents/skills/` is NOT gated on anything: it is the open
+# standard, every agent reads it, and it is what makes the install
+# tool-agnostic. Only the Claude-specific extra asks for a reason first.
+CLAUDE_EVIDENCE = (".claude", "CLAUDE.md")
+
 # Agent Skills is an open standard: one SKILL.md, read by Claude Code, OpenAI
 # Codex, Gemini CLI, GitHub Copilot, Cursor, Kimi Code and twenty-odd others.
 # `.agents/skills/` is the cross-platform location - Codex reads it natively and
@@ -780,6 +790,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--doc", help="path to the status document, if ambiguous")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true", help="overwrite existing payload files")
+    # Three states, not two: unset means decide from the repository. A plain
+    # store_true could not tell "left at the default" from "explicitly off",
+    # so there would be no way to suppress the file in a repo that does carry
+    # Claude evidence.
+    parser.add_argument("--claude-command", default=None, action="store_true",
+                        help="write the Claude Code slash command even without "
+                             "evidence this repo uses Claude Code")
+    parser.add_argument("--no-claude-command", dest="claude_command",
+                        action="store_false",
+                        help="never write the Claude Code slash command")
     parser.add_argument("--preset", choices=sorted(PRESETS),
                         help="start from a known project shape; "
                              + "; ".join(f"{k}: {v['summary']}" for k, v in PRESETS.items()))
@@ -830,19 +850,33 @@ def main(argv: list[str] | None = None) -> int:
             with open(cfg, "w", encoding="utf-8", newline="") as fh:
                 fh.write(render_config(obs))
 
-    command_text, command_notes = render_command(obs, repo.name)
     command_path = repo / COMMAND_DEST
-    if command_path.exists() and not args.force:
+    found = [name for name in CLAUDE_EVIDENCE if (repo / name).exists()]
+    if args.claude_command is None:
+        wanted, why = bool(found), (
+            f"found {', '.join(found)}" if found
+            else f"no {' or '.join(CLAUDE_EVIDENCE)} here")
+    else:
+        wanted, why = args.claude_command, "asked for on the command line"
+
+    if not wanted:
+        # Stated rather than silent, and it names the flag. A file that does
+        # not appear is invisible, so without this line the only way to learn
+        # the slash command exists would be to read the installer.
+        print(f"  skipped {COMMAND_DEST}: {why}"
+              f" - use --claude-command to write it anyway")
+    elif command_path.exists() and not args.force:
         print(f"  {COMMAND_DEST} already exists - left alone (use --force to replace)")
     else:
+        command_text, command_notes = render_command(obs, repo.name)
         print(f"  {'would write' if args.dry_run else 'wrote'} {COMMAND_DEST}, "
-              f"rendered for '{repo.name}'")
+              f"rendered for '{repo.name}' ({why})")
         if not args.dry_run:
             command_path.parent.mkdir(parents=True, exist_ok=True)
             with open(command_path, "w", encoding="utf-8", newline="") as fh:
                 fh.write(command_text)
-    for note in command_notes:
-        print(f"  {note}")
+        for note in command_notes:
+            print(f"  {note}")
 
     # The same guidance, at the location every OTHER agent reads. Rendered from
     # the same observations as the slash command above, so the two cannot end up

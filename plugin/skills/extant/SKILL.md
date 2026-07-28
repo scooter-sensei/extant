@@ -33,7 +33,7 @@ that every session was told to read end to end.
 | `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
 | `tools/hooks/install` | Installs the git hooks |
 | `.agents/skills/extant/SKILL.md` | Agent-facing instructions at the Agent Skills standard path, read by Codex, Gemini CLI, Copilot, Cursor and Kimi as well as Claude. Rendered for the repo. |
-| `.claude/commands/extant.md` | The `/extant` slash command, rendered for this repo |
+| `.claude/commands/extant.md` | The `/extant` slash command, rendered for this repo. The ONLY Claude-specific file, and the only one written conditionally: it appears when the repo already has `.claude/` or a `CLAUDE.md`, and `--claude-command` / `--no-claude-command` decide it outright. Everything else above is agent-neutral. |
 | `.extant.toml` | Project configuration |
 
 `--search TEXT` finds past entries in the live document and the archive

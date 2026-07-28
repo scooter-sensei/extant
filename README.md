@@ -307,6 +307,28 @@ $ sh tools/hooks/install
 They run after a commit is already recorded, print what they found, and never
 stop you doing anything.
 
+### What actually lands in your repo
+
+Worth being precise about, because "installs a Claude thing" is the usual
+assumption and it is wrong:
+
+| File | Needs |
+|:---|:---|
+| `tools/extant_collect.py`, `tools/extant_config.py` | Python 3.9+ and git |
+| `tools/hooks/*` | a POSIX `sh` |
+| `.extant.toml` | nothing |
+| `.agents/skills/extant/SKILL.md` | nothing. Agent Skills is an open standard, and this is its cross-tool path: read by Codex, Gemini CLI, Copilot, Cursor and Kimi as well as Claude |
+| `.claude/commands/extant.md` | Claude Code |
+
+**Only the last line is tool-specific, and it is the only one written
+conditionally.** It appears if your repo already has a `.claude/` directory or
+a `CLAUDE.md`; otherwise the installer says it skipped it and names the flag.
+`--claude-command` and `--no-claude-command` decide it outright.
+
+The validator is standard-library Python and git subprocesses. There is no
+agent framework in it, nothing to adapt for one, and no runtime dependency on
+any assistant: options A and B do not write an agent file at all.
+
 ### Presets
 
 A preset picks the documents and the shape, so you are not deriving

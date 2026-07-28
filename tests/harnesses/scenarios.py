@@ -105,7 +105,10 @@ def s1_node_master_status() -> None:
           "Shipped at `deadbeef1234567`.\n\n## 1. Reference\n")
     commit(repo, "chore: init")
 
-    out = install(repo)
+    # --claude-command because this fixture carries no sign of Claude Code, and
+    # the slash command is no longer written without one. The assertion below
+    # is about what the command SAYS, so it has to exist to be read.
+    out = install(repo, "--claude-command")
     check(name, "installer succeeded", out.returncode == 0, out.stdout + out.stderr)
     cfg = (repo / ".extant.toml").read_text(encoding="utf-8")
     check(name, "derived trunk=master", 'trunk = "master"' in cfg, cfg)
@@ -1011,8 +1014,25 @@ def s22_cross_platform_agents() -> None:
     write(repo, "docs/guide.md", "# Guide\n")
     commit(repo, "chore: init")
 
-    out = install(repo, "--preset", "readme")
-    check(name, "installer succeeded", out.returncode == 0, out.stdout + out.stderr)
+    # A default run FIRST, to pin what an ordinary project gets. The slash
+    # command is the one Claude-only artifact and used to be written into every
+    # repository regardless, which is most of what "tied to Claude" pointed at.
+    default_out = install(repo, "--preset", "readme")
+    check(name, "installer succeeded", default_out.returncode == 0,
+          default_out.stdout + default_out.stderr)
+    check(name, "no .claude directory in a project with no sign of Claude",
+          not (repo / ".claude").exists(), default_out.stdout)
+    check(name, "skipping it is reported, and names the flag",
+          "--claude-command" in default_out.stdout, default_out.stdout)
+    check(name, "the open-standard skill is written anyway",
+          (repo / ".agents/skills/extant/SKILL.md").is_file(),
+          default_out.stdout)
+
+    # Then force it, because the rest of this scenario compares the two files
+    # against each other and needs both to exist.
+    out = install(repo, "--preset", "readme", "--claude-command")
+    check(name, "installer succeeded with --claude-command",
+          out.returncode == 0, out.stdout + out.stderr)
 
     skill = repo / ".agents/skills/extant/SKILL.md"
     command = repo / ".claude/commands/extant.md"

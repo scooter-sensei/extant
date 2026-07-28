@@ -490,6 +490,104 @@ def test_the_installer_writes_the_cross_platform_skill(tmp_path) -> None:
     assert "description:" in text, "the description is what an agent matches on"
 
 
+def test_no_claude_directory_appears_in_a_repo_with_no_sign_of_claude(tmp_path) -> None:
+    """The one Claude-only artifact must not be written unasked.
+
+    `.agents/skills/` is the open standard and is always written. The slash
+    command is the opposite: only Claude Code can read it, and it was created
+    unconditionally, so installing into a Codex or Cursor project planted a
+    `.claude/` directory its owner never asked for and could not use. That one
+    directory is most of what "tightly coupled to Claude" ever pointed at.
+
+    A wrong implementation that writes it anyway fails here, and so does one
+    that skips it SILENTLY - a file that does not appear is invisible, so the
+    run has to say the command exists and name the flag that produces it.
+    """
+    repo = make_repo(tmp_path, **{"README.md": CLEAN_README})
+
+    result = run_installer(repo, "--preset", "readme")
+
+    assert result.returncode == 0, result.stdout
+    assert not (repo / ".claude").exists(), (
+        f"a .claude directory was created in a repo with no Claude evidence:\n"
+        f"{result.stdout}"
+    )
+    assert "--claude-command" in result.stdout, (
+        f"skipping it was not reported, so nobody can discover the flag:\n"
+        f"{result.stdout}"
+    )
+    # The point of the change: the tool-agnostic half is untouched.
+    assert (repo / ".agents" / "skills" / "extant" / "SKILL.md").is_file(), (
+        "gating the slash command must not gate the open-standard skill"
+    )
+
+
+def test_claude_evidence_brings_the_slash_command_back(tmp_path) -> None:
+    """A repo that does use Claude Code still gets the command, unprompted.
+
+    Otherwise the fix for over-installing would be a regression for everyone it
+    was already working for. Both evidence shapes are checked because a rule
+    keyed on only one of them would silently do nothing for half of them.
+    """
+    for marker, contents in (("CLAUDE.md", "# House rules\n"), (".claude/x", "")):
+        base = tmp_path / marker.replace("/", "_").replace(".", "")
+        base.mkdir()
+        repo = make_repo(base, **{"README.md": CLEAN_README,
+                                  marker.replace("/", "__"): contents})
+
+        result = run_installer(repo, "--preset", "readme")
+
+        assert result.returncode == 0, result.stdout
+        assert (repo / ".claude" / "commands" / "extant.md").is_file(), (
+            f"evidence {marker} did not produce the slash command:\n{result.stdout}"
+        )
+
+
+def test_the_slash_command_can_be_forced_and_suppressed(tmp_path) -> None:
+    """Both overrides work, which is why the flag has three states and not two.
+
+    A plain store_true could not distinguish "left at the default" from
+    "explicitly off", so there would be no way to decline the file in a repo
+    that does carry Claude evidence.
+    """
+    (tmp_path / "forced").mkdir()
+    bare = make_repo(tmp_path / "forced", **{"README.md": CLEAN_README})
+    forced = run_installer(bare, "--preset", "readme", "--claude-command")
+    assert forced.returncode == 0, forced.stdout
+    assert (bare / ".claude" / "commands" / "extant.md").is_file(), (
+        f"--claude-command did not write it:\n{forced.stdout}"
+    )
+
+    (tmp_path / "suppressed").mkdir()
+    evident = make_repo(tmp_path / "suppressed",
+                        **{"README.md": CLEAN_README, "CLAUDE.md": "# rules\n"})
+    off = run_installer(evident, "--preset", "readme", "--no-claude-command")
+    assert off.returncode == 0, off.stdout
+    assert not (evident / ".claude").exists(), (
+        f"--no-claude-command was ignored in a repo with evidence:\n{off.stdout}"
+    )
+
+
+def test_no_hook_ships_advice_only_one_agent_can_follow(tmp_path) -> None:
+    """The guard's help text is read by whoever it just blocked.
+
+    It suggested `git worktree add .claude/worktrees/<name>`, which is this
+    project's own habit rather than a general one, and it reached every
+    repository that installed the hooks. `../<name>` is the ordinary git idiom
+    and works anywhere, including for people with no agent at all.
+    """
+    repo = make_repo(tmp_path, **{"README.md": CLEAN_README})
+    assert run_installer(repo, "--preset", "readme").returncode == 0
+
+    guard = (repo / "tools" / "hooks" / "main-tree-guard").read_text(encoding="utf-8")
+    assert ".claude" not in guard, (
+        "the shipped guard still names a Claude-specific path in its advice"
+    )
+    assert "git worktree add ../" in guard, (
+        "the replacement advice is missing, so the guard now suggests nothing"
+    )
+
+
 def test_the_cross_platform_skill_is_rendered_for_this_repo(tmp_path) -> None:
     """Rendered from the same observations as the slash command, not copied.
 
@@ -515,13 +613,19 @@ def test_both_agent_files_describe_the_same_document(tmp_path) -> None:
     They are rendered from one set of observations for exactly this reason: two
     files telling two agents to check two different documents is the failure
     this project exists to surface, shipped by its own installer.
+
+    `--claude-command` because this fixture carries no sign of Claude Code and
+    the slash command is no longer written without one. The flag is the point
+    of the test rather than a workaround: it is the only way to get both files
+    into one repository, which is the only way to compare them.
     """
     repo = make_repo(tmp_path, **{
         "README.md": CLEAN_README,
         "docs__STATUS.md": "# Status\n\n## Phase 1 - x (shipped, 2026-01-01)\n\nNothing.\n",
     })
 
-    assert run_installer(repo, "--doc", "docs/STATUS.md").returncode == 0
+    assert run_installer(repo, "--doc", "docs/STATUS.md",
+                         "--claude-command").returncode == 0
 
     command = (repo / ".claude" / "commands" / "extant.md").read_text(encoding="utf-8")
     skill = (repo / ".agents" / "skills" / "extant" / "SKILL.md").read_text(

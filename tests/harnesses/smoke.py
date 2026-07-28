@@ -825,12 +825,22 @@ def p_install_over_existing_agent_files() -> None:
     write(repo, "README.md", "# P\n\nSee [docs](docs/guide.md).\n")
     write(repo, "docs/guide.md", "# guide\n")
     commit(repo, "init")
+    # --claude-command because the probe is about BOTH agent files, and this
+    # fixture has no sign of Claude Code, so the slash command is not written
+    # by default. Without the flag this probe would silently test one file.
     first = sh(repo, PY, str(PKG / "plugin/skills/extant/install.py"),
-               "--repo", str(repo), "--preset", "readme")
+               "--repo", str(repo), "--preset", "readme", "--claude-command")
     skill = repo / ".agents/skills/extant/SKILL.md"
     command = repo / ".claude/commands/extant.md"
     if not skill.is_file():
         note("HARNESS", "setup did not write the cross-platform skill",
+             (first.stdout + first.stderr)[:400])
+        return
+    # Asserted, not assumed. This line named the command file for its whole
+    # existence without ever checking it was there, so it would have gone on
+    # reporting "both" after the file stopped being written.
+    if not command.is_file():
+        note("HARNESS", "setup did not write the slash command even when asked",
              (first.stdout + first.stderr)[:400])
         return
     ok("setup wrote both agent files",

@@ -75,7 +75,7 @@ cat >&2 <<EOF
   content. If it is behind '$TRUNK', committing can silently revert work.
 
   Do the work in a worktree instead:
-      git worktree add .claude/worktrees/<name> -b <name> $TRUNK
+      git worktree add ../<name> -b <name> $TRUNK
 
   Or, if this really is intended, re-run with:
       git commit --no-verify
