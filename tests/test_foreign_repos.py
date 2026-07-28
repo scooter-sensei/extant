@@ -553,3 +553,87 @@ def test_an_explicit_attribute_id_is_an_anchor(git_repo) -> None:
             "See [a](#type-template), [b](#pandoc.metamap), [c](#inlines-filter).\n")
 
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+# --- fourth sweep: doc toolchains -----------------------------------------
+
+def test_an_astro_site_links_by_route(git_repo) -> None:
+    """withastro/starlight reported 235 of its own links as dead files.
+
+    A Starlight docs tree links to `/de/reference/configuration/`, which is a
+    route on the built site and a file nowhere.
+    """
+    repo, commit = git_repo
+    commit("docs/astro.config.mjs", "export default {}\n", "chore: astro")
+    commit("docs/src/content/docs/index.md", "x\n", "chore: docs")
+
+    import extant_collect as hc
+    hc._SITE.clear()
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [config](/de/reference/configuration/).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+        hc._SITE.clear()
+    assert "dead-md-link" not in kinds, kinds
+
+
+def test_a_myst_target_is_an_anchor(git_repo) -> None:
+    """MyST names a target on its own line, before the thing it labels.
+
+    It sits OUTSIDE the heading, so nothing reading headings would see it.
+    executablebooks/mystmd links to `#a11y:contribute` throughout.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "(a11y:contribute)=\n## Contributing\n\nSee [it](#a11y:contribute).\n"
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_myst_resolves_a_label_defined_in_another_file(git_repo) -> None:
+    """MyST and Sphinx resolve `#label` against the whole project at once, so
+    a target defined elsewhere is reachable from any page. 168 of mystmd's
+    findings named a label that exists, just not in the linking file."""
+    repo, commit = git_repo
+    commit("docs/myst.yml", "version: 1\n", "chore: myst")
+    commit("docs/site-options.md", "(site-options)=\n## Site options\n", "chore: opts")
+    commit("docs/analytics.md", "x\n", "chore: analytics")
+
+    import extant_collect as hc
+    hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [opts](#site-options).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+        hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
+    assert "dead-md-anchor" not in kinds, kinds
+
+
+def test_a_per_page_generator_keeps_its_anchors_local(git_repo) -> None:
+    """The measurement that scoped the rule above.
+
+    MkDocs anchors are per-page. Applying a project-wide union to every
+    generated site forgave two of encode/httpx's three genuinely dead anchors,
+    trading real signal for quiet, so the namespace follows the generator.
+    """
+    repo, commit = git_repo
+    commit("mkdocs.yml", "site_name: d\n", "chore: mkdocs")
+    commit("docs/other.md", "## Routing\n", "chore: other")
+    commit("docs/proxies.md", "x\n", "chore: proxies")
+
+    import extant_collect as hc
+    hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear(); hc._SITE.clear()
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "## Proxy mechanisms\n\nSee [Routing](#routing).\n",
+            has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+        hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear(); hc._SITE.clear()
+    assert "dead-md-anchor" in kinds, (
+        "a heading in ANOTHER file must not forgive this one: " + str(kinds))

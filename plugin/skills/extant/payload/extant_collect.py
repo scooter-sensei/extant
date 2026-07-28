@@ -1318,6 +1318,16 @@ _EXPLICIT_ANCHOR = re.compile(r"""(?:name|id)\s*=\s*["']([^"']+)["']""")
 # reach. pandoc's own doc/lua-filters.md carries 368 and accounted for 120 of
 # its 149 findings - the largest single class left in a 26-repository corpus.
 _ATTR_ANCHOR = re.compile(r"\{#([^\s}]+)")
+# MyST names a target on its own line, immediately before what it labels:
+#
+#     (a11y:contribute)=
+#     ## Contributing
+#
+# Same idea as the attribute syntax and equally explicit, but it sits outside
+# the thing it names, so nothing that reads headings would ever see it.
+# executablebooks/mystmd links to `#a11y:contribute` throughout, and those
+# labels were 248 of its 275 findings.
+_MYST_TARGET = re.compile(r"^\(([^)\s]+)\)=\s*$", re.MULTILINE)
 _FENCE = re.compile(r"^\s*(```|~~~)")
 
 # A relative link resolves against the FILE that contains it, not the repository
@@ -1551,6 +1561,7 @@ def _anchors(text: str) -> set[str]:
     found |= {_slug_punctuation_to_dash(v) for v in variants}
     found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}
     found |= {a.lower() for a in _ATTR_ANCHOR.findall(text)}
+    found |= {a.lower() for a in _MYST_TARGET.findall(text)}
     found |= _disambiguated(headings)
     return found - {""}
 
@@ -1689,6 +1700,8 @@ def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
     authentication schemes".
     """
     available = _anchors(text)
+    if _has_global_anchors(repo):
+        available |= _project_anchors(repo)
     base = _LINK_BASE or repo
     findings: list[Finding] = []
     for number, line in enumerate(_strip_code(text).splitlines(), start=1):
@@ -1858,6 +1871,11 @@ _SITE_CONFIGS = (
     "docs/.vitepress/config.ts", "docs/.vitepress/config.js",
     ".vitepress/config.ts", ".vitepress/config.js",
     "hugo.toml", "hugo.yaml",
+    # Astro powers Starlight, whose docs link by route: withastro/starlight
+    # reported 235 of its own `/de/reference/configuration/` links as dead
+    # files. MyST builds a site from `myst.yml` the same way.
+    "astro.config.mjs", "astro.config.ts", "astro.config.js",
+    "myst.yml", "antora.yml", "conf.py",
 )
 
 
@@ -1876,6 +1894,52 @@ _SITE_MARKERS_IN_FILE = (("mix.exs", "ex_doc"),)
 # under `docs/` with `docs/_config.yml`, so a root-only search missed it and
 # reported 138 of its site routes as dead files.
 _SITE_DIRS = ("", "docs", "site", "www", "website")
+
+
+# Generators whose cross-reference namespace is the PROJECT, not the page.
+#
+# MyST and Sphinx resolve `#label` against every document at once, so a target
+# defined in `site-options.md` is reachable as `#site-options` from anywhere.
+# executablebooks/mystmd relies on that throughout: 168 of its findings name a
+# label that exists, just not in the file doing the linking.
+#
+# Deliberately NOT applied to every generated site. Measured on encode/httpx,
+# which is MkDocs and therefore per-page: a blanket project-wide union forgave
+# two of its three genuinely dead anchors, trading real signal for quiet. The
+# namespace is a property of the generator, so the generator decides.
+_GLOBAL_ANCHOR_CONFIGS = ("myst.yml", "conf.py", "antora.yml")
+
+
+def _has_global_anchors(repo: Path) -> bool:
+    key = str(repo)
+    if key not in _GLOBAL_NS:
+        _GLOBAL_NS[key] = any((repo / d / name).is_file()
+                              for d in _SITE_DIRS
+                              for name in _GLOBAL_ANCHOR_CONFIGS)
+    return _GLOBAL_NS[key]
+
+
+def _project_anchors(repo: Path) -> set[str]:
+    """Every anchor offered by every tracked markdown file in the project."""
+    key = str(repo)
+    if key not in _PROJECT_ANCHORS:
+        found: set[str] = set()
+        try:
+            for rel in tracked_markdown(repo):
+                path = repo / rel
+                try:
+                    with open(path, encoding="utf-8", newline="") as fh:
+                        found |= _anchors(fh.read())
+                except (OSError, UnicodeDecodeError):
+                    continue
+        except (OSError, subprocess.CalledProcessError):
+            found = set()
+        _PROJECT_ANCHORS[key] = found
+    return _PROJECT_ANCHORS[key]
+
+
+_GLOBAL_NS: dict[str, bool] = {}
+_PROJECT_ANCHORS: dict[str, set[str]] = {}
 
 
 def _is_generated_site(repo: Path) -> bool:
