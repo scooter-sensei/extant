@@ -134,3 +134,25 @@ newest release the README told people to pin a version git had never heard of.
 `README.md` is not one of the checked documents - it is made of illustrative
 claims, and including it produces four false positives. Confirmed by trying
 it. So this is a procedural check on purpose, not an oversight.
+
+**Pushing the tag publishes to PyPI.** `.github/workflows/publish.yml` runs on
+any `v*` tag: it builds, refuses to continue unless the tag matches the version
+in `pyproject.toml`, installs the built wheel into a clean environment and runs
+it against a repository with a planted fault, and only then uploads.
+
+That middle step is the point. `twine check` reads metadata and runs nothing,
+so it cannot tell a working wheel from one that installs and does nothing. The
+gate asserts BOTH directions - a broken document exits 1 and a repaired one
+exits 0 - because a tool that always fails looks identical to one that works.
+
+Publishing uses Trusted Publishing, so there is no API token in the repository,
+in a secret, or in anyone's shell history. It needs one setup step that cannot
+be done from a commit: on PyPI, add a pending publisher for project `extant`
+with owner `scooter-sensei`, repository `extant`, workflow `publish.yml`, and
+environment `pypi`. Until that exists the upload step fails with a permissions
+error, which is correct - nothing should be publishable that was not authorised
+out of band.
+
+PyPI does not allow replacing a released version. Add a required reviewer to
+the `pypi` environment if you want the upload to be a deliberate act rather
+than a consequence of pushing a tag.

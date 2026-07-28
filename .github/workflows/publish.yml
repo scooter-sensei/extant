@@ -1,0 +1,120 @@
+# Publish to PyPI on a version tag.
+#
+# Trusted Publishing (OIDC), so there is no API token anywhere: not in the
+# repository, not in a secret, not in anyone's shell history. PyPI is
+# configured once to trust this repository and this workflow, and the job
+# exchanges a short-lived identity token for upload rights. A leaked token is
+# the usual way a package gets hijacked, and the way to not leak one is to not
+# have one.
+#
+# ONE-TIME SETUP, which cannot be done from here: on PyPI, add a pending
+# publisher for the project `extant` with owner `scooter-sensei`, repository
+# `extant`, workflow `publish.yml`, and environment `pypi`. Until that exists
+# this job fails at the upload step with a permissions error, which is the
+# correct behaviour - it means nothing can publish that was not authorised out
+# of band.
+
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+  # Re-runnable by hand, because a transient PyPI outage should not require a
+  # new tag. Uploading a version that already exists fails; it never silently
+  # replaces one.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The tag and the packaged version must be the same thing. Without this,
+      # pushing v0.12.1 while pyproject still says 0.12.0 publishes 0.12.0
+      # under a tag that claims otherwise - a released artifact contradicting
+      # the tag that produced it, which is precisely the class of drift this
+      # project exists to catch. Skipped for workflow_dispatch, which has no
+      # tag to compare against.
+      - name: The tag must match the packaged version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          packaged="$(python -c "
+          import re, pathlib
+          text = pathlib.Path('pyproject.toml').read_text(encoding='utf-8')
+          match = re.search(r'^version = \"([^\"]+)\"', text, re.M)
+          assert match, 'no version found in pyproject.toml'
+          print(match.group(1))
+          ")"
+          echo "tag=$tag packaged=$packaged"
+          if [ "$tag" != "$packaged" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $packaged"
+            exit 1
+          fi
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+
+      # `twine check` reads metadata; it does not run anything. An artifact
+      # that installs and then does nothing is the failure this whole project
+      # is about, so the wheel is installed into a clean environment and used
+      # against a repository with a planted fault. Both directions are
+      # asserted: a broken document must exit 1 and a clean one must exit 0,
+      # because a tool that always fails looks identical to one that works.
+      - name: The built wheel must actually work
+        run: |
+          python -m venv /tmp/verify
+          /tmp/verify/bin/python -m pip install --quiet dist/*.whl
+          mkdir -p /tmp/fixture/docs && cd /tmp/fixture
+          git init -q -b main .
+          git config user.email ci@example.invalid
+          git config user.name CI
+          printf '# Demo\n\nSee [the guide](docs/guide.md).\nAnd [gone](docs/gone.md).\n' > README.md
+          printf '# Guide\n' > docs/guide.md
+          printf 'primary_doc = "README.md"\n' > .extant.toml
+          git add -A && git commit -qm init
+          set +e
+          /tmp/verify/bin/extant --repo . --validate README.md
+          broken=$?
+          sed -i 's|And \[gone\](docs/gone.md).||' README.md
+          /tmp/verify/bin/extant --repo . --validate README.md
+          clean=$?
+          set -e
+          echo "planted fault -> exit $broken (want 1); repaired -> exit $clean (want 0)"
+          [ "$broken" = "1" ] && [ "$clean" = "0" ]
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # A GitHub Environment, so a required-reviewer rule can be added to make
+    # publishing a deliberate act rather than a consequence of pushing a tag.
+    # PyPI does not allow replacing a released version, so the step after this
+    # one is irreversible.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/extant
+    permissions:
+      id-token: write        # the OIDC token. Nothing else is needed.
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
