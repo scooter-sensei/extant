@@ -580,7 +580,12 @@ _SHA_SHAPE = re.compile(r"^[0-9a-f]{7,40}$")
 # letters/digits/underscore, so there is no \b between e.g. "deadbeef" and a
 # following "zz", and the whole run correctly fails to match at all rather
 # than matching a truncated prefix of it.
-_BARE_SHA_TOKEN = re.compile(r"\b[0-9a-f]{7,40}\b")
+# `(?<![#\w])` so a CSS colour is not read as a commit. `#646cffaa` is an
+# eight-digit hex with alpha, and vitejs/vite carries it inside a drop-shadow
+# in prose that no code fence covers. A `#` prefix means colour far more often
+# than it means anything git would recognise, and a real SHA reference is never
+# written that way.
+_BARE_SHA_TOKEN = re.compile(r"(?<![#\w])[0-9a-f]{7,40}\b")
 
 
 @dataclass(frozen=True)
@@ -628,6 +633,21 @@ def _looks_like_bare_sha(token: str) -> bool:
     return any(ch.isdigit() for ch in token) and any(ch.isalpha() for ch in token)
 
 
+# Hex inside a URL belongs to somebody else's repository.
+#
+# `https://github.com/pyca/service-identity/blob/fa91bf55.../AI_POLICY.md` and
+# `https://gist.github.com/user/d56764d7...` are a cross-repo permalink and a
+# gist id. Neither is a commit THIS repository has any opinion about, and the
+# core guarantee is that a rule only asks questions git can settle - which
+# means git in this repo, about this repo.
+#
+# Measured, not supposed: of 301 bare-SHA findings across rust-lang/rfcs,
+# requests and httpx, 287 sat inside a URL. Left in, the rule reported a wall
+# of findings on every project that links to another project's source, which
+# is most of them.
+_URL = re.compile(r"(?:https?://|ftp://|git@)\S+", re.I)
+
+
 def _spans_overlap(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
     start, end = span
     return any(s < end and start < e for s, e in others)
@@ -659,9 +679,10 @@ def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     """
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
-        backticked_spans = [m.span() for m in _BACKTICKED.finditer(line)]
+        skip_spans = [m.span() for m in _BACKTICKED.finditer(line)]
+        skip_spans += [m.span() for m in _URL.finditer(line)]
         for match in _BARE_SHA_TOKEN.finditer(line):
-            if _spans_overlap(match.span(), backticked_spans):
+            if _spans_overlap(match.span(), skip_spans):
                 continue
             token = match.group(0)
             if _looks_like_bare_sha(token):
@@ -1366,10 +1387,31 @@ def _slug(title: str) -> str:
     return re.sub(r"\s+", "-", text).strip("-")
 
 
+def _slug_punctuation_to_dash(title: str) -> str:
+    """The other common convention: punctuation becomes a separator.
+
+    Renderers disagree here, and both spellings are correct on the site that
+    produced them. GitHub DROPS a dot, so `## build.target` offers
+    `#buildtarget`; VitePress and several others turn it into a dash, so the
+    same heading offers `#build-target`.
+
+    Measured on vitejs/vite, which links to `#build-target` throughout and
+    renders correctly: following GitHub's rule alone reported ten dead anchors
+    in a documentation site with no broken anchors. Accepting BOTH spellings
+    costs nothing that matters - a fragment matching neither is still dead,
+    which is why httpx's genuinely broken `#routing` survives this change.
+    """
+    text = re.sub(r"`([^`]*)`", r"\1", title.strip().lower())
+    text = re.sub(r"[^\w\s-]", "-", text)
+    return re.sub(r"[-\s]+", "-", text).strip("-")
+
+
 def _anchors(text: str) -> set[str]:
     """Every fragment this document offers, from headings and explicit anchors."""
-    found = {_slug(m.group(1)) for line in text.splitlines()
-             if (m := _HEADING.match(line))}
+    headings = [m.group(1) for line in text.splitlines()
+                if (m := _HEADING.match(line))]
+    found = {_slug(h) for h in headings}
+    found |= {_slug_punctuation_to_dash(h) for h in headings}
     found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}
     return found - {""}
 
@@ -1395,8 +1437,25 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             target = raw.split("#", 1)[0]
             if not target:
                 continue
+            # A leading slash means the repository root, which is how GitHub
+            # renders it. Resolved against the DOCUMENT it reported
+            # `/.github/AI_POLICY.md` dead in psf/requests while the file sat
+            # right there.
+            if target.startswith("/"):
+                rooted = target.lstrip("/")
+                if rooted and _resolve_reference(repo, repo, rooted)[0]:
+                    continue
             exists, actual_case = _resolve_reference(repo, base, target)
             if exists:
+                continue
+            # In a compiled docs tree the remaining shapes are site routes
+            # rather than files: an extensionless target, a `.html` target, or
+            # an absolute path from the site root. None can be settled by the
+            # filesystem, so none is judged. See _SITE_CONFIGS for the
+            # measurement.
+            if _is_generated_site(repo) and (
+                    target.startswith("/") or target.endswith(".html")
+                    or not Path(target).suffix):
                 continue
             if actual_case:
                 detail = (f"links to `{target}`, but the file on disk is "
@@ -1545,6 +1604,40 @@ def _resolve_reference(repo: Path, base: Path, raw: str) -> tuple[bool, str | No
         return False, None
     normalised = Path(raw).as_posix()
     return (True, None) if actual == normalised else (False, actual)
+
+
+# Configs that mean "this markdown tree is compiled into a website".
+#
+# It matters because a link in such a tree is a ROUTE, not a path. VitePress
+# serves `docs/` as the site root, so `/guide/features.html` is a real link to
+# `docs/guide/features.md`; MkDocs drops the extension, so `../advanced/
+# transports` is a real link to `transports.md`. Neither is a file, so the
+# filesystem cannot settle either, and the guarantee says a rule that cannot
+# be settled must not judge.
+#
+# Measured across nine repositories: exactly the three that ship one of these
+# files - vite (VitePress), httpx (MkDocs), rust-lang/rfcs (mdBook) - produced
+# every route-shaped false positive, 331 of them. The six with no such config
+# produced none, and in those `/CONTRIBUTING.md` really does mean repo root,
+# which is how GitHub renders it.
+_SITE_CONFIGS = (
+    "mkdocs.yml", "mkdocs.yaml", "book.toml", "_config.yml",
+    "docusaurus.config.js", "docusaurus.config.ts",
+    "docs/.vitepress/config.ts", "docs/.vitepress/config.js",
+    ".vitepress/config.ts", ".vitepress/config.js",
+    "hugo.toml", "hugo.yaml",
+)
+
+
+def _is_generated_site(repo: Path) -> bool:
+    """Does this repository compile its markdown into a website?"""
+    key = str(repo)
+    if key not in _SITE:
+        _SITE[key] = any((repo / name).is_file() for name in _SITE_CONFIGS)
+    return _SITE[key]
+
+
+_SITE: dict[str, bool] = {}
 
 
 def _looks_like_a_path(repo: Path, token: str) -> bool:
@@ -2700,12 +2793,23 @@ def run_sweep(repo: Path, fmt: str) -> int:
 def tracked_markdown(repo: Path) -> list[str]:
     """Every markdown file git tracks, repo-relative, sorted.
 
-    `ls-files` rather than a filesystem walk, so anything gitignored, vendored
-    into an ignored directory, or sitting untracked in a working tree is out by
+    Git rather than a filesystem walk, so anything gitignored, vendored into an
+    ignored directory, or sitting untracked in a working tree is out by
     construction rather than by a skip-list somebody has to maintain.
+
+    HEAD's TREE, not the index. `ls-files` reads the index, which is empty when
+    a checkout did not complete - a sparse checkout, a partial clone, or on
+    Windows a repository whose paths exceed MAX_PATH. Measured on a helm clone
+    in that state: `ls-files` reported 0 markdown files and this returned a
+    clean sweep, while HEAD's tree held 96. That is the exact bug this project
+    already fixed once for `raw-lfs-blob`, reintroduced in a new rule, and it
+    is the worst shape available - a silent all-clear on a repository nobody
+    checked. Files listed here but absent from the working tree are counted and
+    named as unreadable by the caller rather than passed over.
     """
-    out = _git(repo, "ls-files", "-z", "*.md", "*.markdown")
-    return sorted(p for p in out.split("\0") if p.strip())
+    out = _git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
+    return sorted(p for p in out.split("\0")
+                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown"))
 
 
 def partition_documents(repo: Path, paths: list[str]) -> tuple[list[str], list[str]]:
