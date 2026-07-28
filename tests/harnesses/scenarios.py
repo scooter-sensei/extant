@@ -281,7 +281,13 @@ def s6_everything_broken() -> None:
     res = tool(repo, "--validate", "NEXT_SESSION.md")
     kinds = {"dead-sha", "false-merge-claim", "dead-path-pointer", "dead-md-link",
              "dead-md-anchor", "unknown-branch", "dead-release-tag", "possible-secret"}
-    found = {k for k in kinds if k in res.stdout}
+    # `k in res.stdout` is true for EVERY kind on every run: the denominator
+    # line names them all, and so does the NOTE listing rules that matched
+    # nothing. This scenario's entire purpose is to prove all eight fired, and
+    # it asserted that unconditionally. Second instance of the bug fixed for
+    # the consistency check twelve lines of this file away, found by a review
+    # rather than by the mutation campaign, which had no mutation aimed here.
+    found = {k for k in kinds if _findings(res.stdout, k)}
     check(name, f"all 8 rule kinds fired (got {len(found)}/8: {sorted(found)})",
           found == kinds, res.stdout)
     check(name, "exit 1", res.returncode == 1)

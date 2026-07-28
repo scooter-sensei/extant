@@ -114,7 +114,12 @@ DEFAULTS: dict[str, object] = {
     # ABSENT from the corpus this was built on, which is why the denominator
     # will honestly report 0 for projects that never phrase things this way. It
     # is here for CHANGELOG-keeping projects, where it is the common shape.
-    "release_tag": r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+[\w.-]*)`?",
+    # The tail must not END on a dot or hyphen. `[\w.-]*` is greedy and
+    # swallows a sentence-ending period, so "Released in v2.1." looked for a
+    # tag literally named `v2.1.` and reported a false positive on ordinary
+    # English. Every fixture happened to continue the sentence, so nothing
+    # caught it until the tool read its own status document.
+    "release_tag": r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+(?:[\w.-]*[\w])?)`?",
     # Additional documents that get the whole-file rules. They have no entry
     # structure, so the newest-entry rules are skipped for them exactly as they
     # are for the archive. This is how a project whose state lives in a tracker
@@ -139,9 +144,23 @@ DEFAULTS: dict[str, object] = {
     "consistency": {},
     "todo_markers": r"\b(TODO|FIXME|XXX)\b",
     "code_suffixes": [".py", ".qml"],
-    "todo_exclude_files": ["tools/extant_collect.py"],
-    "todo_exclude_dirs": ["tests/tools/"],
-    "venv_python": ".venv/Scripts/python.exe",
+    # Both spellings: `tools/` is where the collector lands once INSTALLED
+    # into a project, and the payload path is where it lives in this
+    # repository. Only the first was listed, so in this repo the skip-list
+    # excluded nothing and the collector's own marker patterns counted as
+    # TODOs of its own.
+    "todo_exclude_files": [
+        "tools/extant_collect.py",
+        "plugin/skills/extant/payload/extant_collect.py",
+    ],
+    "todo_exclude_dirs": ["tests/"],
+    # Windows lays a virtualenv out as Scripts/python.exe and POSIX as
+    # bin/python, so a single literal is wrong on one of them. Chosen from
+    # the running platform rather than hard-coded: a fresh install on Linux
+    # or macOS otherwise inherits an interpreter path that does not exist,
+    # and the suite command silently fails to run.
+    "venv_python": (".venv/Scripts/python.exe" if os.name == "nt"
+                    else ".venv/bin/python"),
     # How to run the suite, and how to read its output. `{python}` is replaced
     # with the resolved interpreter; a command that does not mention it needs no
     # Python at all, which is how a JS, Rust or .NET project uses the measured

@@ -77,7 +77,7 @@ def detect_release_tag(repo: Path) -> Observation:
         if match:
             prefixes[match.group(1)] = prefixes.get(match.group(1), 0) + 1
 
-    default = r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+[\w.-]*)`?"
+    default = r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+(?:[\w.-]*[\w])?)`?"
     if not prefixes:
         why = "no version-shaped tags here" if not tags else f"{len(tags)} tags, none version-shaped"
         return Observation("release_tag", default, DEFAULT, why)
@@ -90,7 +90,7 @@ def detect_release_tag(repo: Path) -> Observation:
 
     alternatives = "|".join(re.escape(p) for p in [*extra, "v", ""])
     pattern = (r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+"
-               rf"`?((?:{alternatives})\d+\.\d+[\w.-]*)`?")
+               rf"`?((?:{alternatives})\d+\.\d+(?:[\w.-]*[\w])?)`?")
     shown = ", ".join(f"{p}N.N" for p in extra)
     return Observation("release_tag", pattern, DERIVED,
                        f"{len(tags)} tags; also matches {shown}")
@@ -137,8 +137,12 @@ def detect_branch_pattern(repo: Path) -> Observation:
     names = [ln.strip() for ln in _git(
         repo, "branch", "-a", "--format=%(refname:short)"
     ).splitlines() if ln.strip()]
-    names = [n.split("/", 1)[1] if n.startswith("remotes/origin/") else n for n in names]
-    names = [n for n in names if n and n != "HEAD"][:BRANCH_SAMPLE]
+    # `--format=%(refname:short)` emits `origin/main`, NOT
+    # `remotes/origin/main`, so the old prefix matched nothing and every
+    # remote branch was counted under a phantom `origin/` prefix. The bare
+    # `origin` and `origin/HEAD` symbolic ref are not branches at all.
+    names = [n.split("/", 1)[1] if n.startswith("origin/") else n for n in names]
+    names = [n for n in names if n and n not in ("HEAD", "origin")][:BRANCH_SAMPLE]
 
     if not names:
         return Observation(

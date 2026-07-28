@@ -365,6 +365,36 @@ def test_every_config_derived_global_is_reloadable() -> None:
         f"  reloaded but not in the source: {set(hc._CONFIG_DERIVED) - set(assigned)}"
     )
 
+    # COMPUTED derived globals, which the check above cannot see. It matches a
+    # plain copy, `X = CONFIG.y`, and `_SECTION_HEADER` is built by calling a
+    # helper on `CONFIG.entry_prefix`. That is precisely how it escaped: the
+    # guard was green while the value went stale on every reload, so a project
+    # with a non-default `entry_prefix` installed through pre-commit got the
+    # right prefix everywhere and the wrong section splitter.
+    body = source.split("def reload_config(", 1)
+    assert len(body) == 2, "reload_config not found; this half proves nothing"
+    reload_body = body[1].split("\ndef ", 1)[0]
+
+    computed = {
+        name for name, rhs in re.findall(r"^(\w+) = (.+)$", source, re.M)
+        if "CONFIG." in rhs and name not in assigned
+    }
+    assert computed, (
+        "no computed CONFIG-derived globals found; if that is now true, delete "
+        "this half rather than letting it pass over an empty set"
+    )
+    # The ASSIGNMENT, not the name. `reload_config` opens with
+    # `global CONFIG, _SECTION_HEADER`, so a plain `name in reload_body` is
+    # true even when the rebuild is deleted - and this guard passed against
+    # exactly that mutation before the check was tightened. A substring test
+    # against a whole function body is the same trap as one against whole
+    # tool output.
+    missed = sorted(n for n in computed if f"{n} = " not in reload_body)
+    assert not missed, (
+        "these globals are computed from CONFIG but reload_config never "
+        f"rebuilds them, so they keep their import-time value: {missed}"
+    )
+
 
 def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
     """Catches a reload that updates CONFIG and leaves the globals behind."""

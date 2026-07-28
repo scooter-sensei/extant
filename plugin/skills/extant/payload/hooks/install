@@ -93,6 +93,12 @@ else
     # guard file was never shipped, so every commit passed a check that had
     # never run. "Did not run" must not look like "found nothing".
     echo "[main-tree-guard] NOT RUNNING: no guard at $_g" >&2
+    # Fail CLOSED. This hook is opt-in: wiring it is a request to be
+    # blocked, and a guard that cannot run is not guarding. Warning on
+    # stderr and exiting 0 is the same "installed but inert" state the
+    # message above was added to expose - visible in principle, ignored
+    # in practice, and indistinguishable from a passing check.
+    exit 1
 fi
 EOF
         chmod +x "$guard_target"

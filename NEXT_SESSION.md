@@ -9,8 +9,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 8 - Five releases, and the measurements that overturned three designs (shipped, 2026-07-27)
 
 **Status.** Suite is 305 tests, all passing. Twelve rules, eighteen presets.
-`v0.11.0` is tagged and released. One change is unreleased on `main`: the game
-engine work, recorded under Unreleased in the changelog.
+`v0.12.0` is tagged and released, and nothing is unreleased on `main`.
 
 **What Shipped.**
 
@@ -27,7 +26,7 @@ engine work, recorded under Unreleased in the changelog.
   works, at `121bbe4`. This is what closes the gitflow gap the last entry
   listed as outstanding.
 - Game engines: a `raw-lfs-blob` rule and `unity` / `godot` presets, at
-  `8ee2339`, unreleased.
+  `8ee2339`, released as `v0.12.0`.
 
 **What was learned.** Measuring first overturned the design three separate
 times, and in each case the plan would have shipped something that did nothing:
@@ -52,7 +51,9 @@ times, and in each case the plan would have shipped something that did nothing:
 
 **Next Tasks.**
 
-- Decide whether to release the game engine work as 0.12.0.
+- `v0.10.0` was never tagged: the version was bumped, committed and pushed, so
+  for as long as it was newest the README pinned a tag git had never heard of.
+  Backfilling it would make that pin resolve.
 - Nothing else outstanding. The next change should still be driven by someone
   using this on a repository that is not this one.
 

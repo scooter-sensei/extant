@@ -7,8 +7,8 @@
 
 # Documents that get the whole-file rules as well as the status document.
 #
-# Only three of this repository's documents can be checked, and the reason is
-# worth recording so that nobody helpfully adds a fourth. The rest are
+# Only four of this repository's documents can be checked, and the reason is
+# worth recording so that nobody helpfully adds a fifth. The rest are
 # documentation ABOUT claim-checking, so they are full of example claims that
 # are SUPPOSED to be dead:
 #

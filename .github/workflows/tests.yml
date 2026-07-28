@@ -80,17 +80,27 @@ jobs:
         run: python tests/harnesses/scenarios.py /tmp/pkg /tmp/arena
 
   self-check:
-    # The tool validating its own status document. Restricted to pushes on
-    # main because the ancestry checks need a local `main` ref to resolve
-    # against, and fetch-depth 0 because a shallow clone cannot answer "is this
-    # commit an ancestor of trunk" at all -- it would report dead references
-    # for commits that exist perfectly well.
-    if: github.event_name == 'push'
+    # The tool validating its own status document. fetch-depth 0 because a
+    # shallow clone cannot answer "is this commit an ancestor of trunk" at all
+    # -- it would report dead references for commits that exist perfectly well.
+    #
+    # Runs on pull requests as well as pushes. It was restricted to pushes,
+    # which contradicted the reason given below for --format=github: those
+    # annotations appear on the offending line of a PR diff, and no PR was ever
+    # annotated. A document broken by a PR was only caught after merging it.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # A pull_request checkout is a detached merge ref, so `main` exists only
+      # as a remote-tracking branch. Without a local one every ancestry check
+      # fails to resolve and reports commits that are perfectly fine.
+      - name: Make the trunk ref resolvable
+        run: |
+          git show-ref --verify --quiet refs/heads/main             || git branch main origin/main
+          git rev-parse --verify main
 
       - uses: actions/setup-python@v5
         with:

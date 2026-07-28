@@ -160,6 +160,30 @@ def test_anchor_with_no_matching_heading_is_flagged(git_repo) -> None:
     assert [f.kind for f in findings] == ["dead-md-anchor"]
 
 
+def test_a_release_claim_ending_a_sentence_is_not_broken_by_the_full_stop(git_repo) -> None:
+    """Ordinary English broke this rule.
+
+    The version tail was greedy and swallowed the period that ends the
+    sentence, so "Released in v2.1." looked for a tag literally named `v2.1.`
+    and reported a false positive on a correct claim. Every existing fixture
+    happened to continue the sentence after the version, so nothing caught it
+    until the tool read its own status document and accused it. A wrong
+    implementation that restores the greedy tail fails here.
+    """
+    from extant_collect import validate_release_tags
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v2.1")
+
+    assert validate_release_tags(repo, "Released in v2.1.\n") == []
+    assert validate_release_tags(repo, "Released in v2.1, and then more.\n") == []
+    # The other direction: a genuinely absent tag must still be reported, and
+    # the trailing period must not become part of the name it reports.
+    findings = validate_release_tags(repo, "Released in v9.9.\n")
+    assert [f.kind for f in findings] == ["dead-release-tag"], findings
+    assert "`v9.9`" in findings[0].detail, findings[0].detail
+
+
 # --- branches ----------------------------------------------------------------
 
 def _entry(body: str) -> str:
@@ -979,7 +1003,6 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     patch = suggest_renames(repo, repo, text, "NEXT_SESSION.md")
 
     assert "+See [plan](docs/design.md)." in patch
-    assert "We renamed docs/plan.md last week." not in patch.replace("-", "", 1) or True
     # The prose line must not appear as a changed line at all.
     changed = [ln for ln in patch.splitlines()
                if ln.startswith(("+", "-")) and not ln.startswith(("+++", "---"))]

@@ -159,8 +159,14 @@ _TODO_MARKER = CONFIG.todo_markers
 # them would report phantom findings on every real run that touches this
 # file. Same "noise trains the reader to ignore the section" failure GA-5
 # already exists to prevent, just reintroduced by the tool scanning itself.
-_TODO_SCAN_EXCLUDED_FILES = {"tools/extant_collect.py"}
-_TODO_SCAN_EXCLUDED_DIR_PREFIX = "tests/tools/"
+# Derived from CONFIG, not hard-coded. `.extant.toml` accepted
+# `todo_exclude_files` and `todo_exclude_dirs`, the loader parsed them into
+# StatusConfig, and NOTHING read them: a configuration key that silently
+# did nothing, which is a failure this project has already paid for once.
+# The hard-coded lists also named `tools/` and `tests/tools/`, neither of
+# which exists here, so the skip-list excluded nothing either way.
+_TODO_SCAN_EXCLUDED_FILES = set(CONFIG.todo_exclude_files)
+_TODO_SCAN_EXCLUDED_DIR_PREFIX = tuple(CONFIG.todo_exclude_dirs)
 
 # GA-1: separate anchored patterns, NOT one regex of optional groups. A single
 # all-optional pattern matches the bare "in 597.70s" tail and silently reports
@@ -387,9 +393,20 @@ def collect(repo: Path, suite_json: str | None = None) -> dict[str, object]:
 
 # Derived from CONFIG rather than from _PHASE_PREFIX, which is defined below
 # this line - referring to it here is a NameError at import.
-_SECTION_HEADER = re.compile(
-    "^" + re.escape(CONFIG.entry_prefix.split()[0]) + " ", re.MULTILINE
-)
+#
+# Built through a helper so that `reload_config` can rebuild it. Everything
+# else derived from CONFIG goes through the _CONFIG_DERIVED table and is
+# refreshed by name; this one is COMPUTED rather than copied, so it was missed,
+# and kept its import-time value forever. That matters on the one path
+# `reload_config` exists for: installed as a package by the pre-commit
+# framework, where configuration is re-read for the target repository. A
+# project whose `entry_prefix` is not the default got the right prefix
+# everywhere and the wrong section splitter.
+def _section_header(prefix: str) -> re.Pattern[str]:
+    return re.compile("^" + re.escape(prefix.split()[0]) + " ", re.MULTILINE)
+
+
+_SECTION_HEADER = _section_header(CONFIG.entry_prefix)
 _BASE_HEADER = CONFIG.base_header
 _PHASE_PREFIX = CONFIG.entry_prefix
 _POINTER_PREFIX = CONFIG.pointer_prefix
@@ -2739,10 +2756,16 @@ def reload_config(repo: Path) -> None:
     this the hook would validate `NEXT_SESSION.md` in every project on earth and
     report a healthy run for the ones that keep no such file.
     """
-    global CONFIG
+    global CONFIG, _SECTION_HEADER
+    global _TODO_SCAN_EXCLUDED_FILES, _TODO_SCAN_EXCLUDED_DIR_PREFIX
     CONFIG = load_config(repo)
     for name, field in _CONFIG_DERIVED.items():
         globals()[name] = getattr(CONFIG, field)
+    # Computed rather than copied, so the table above cannot carry it. It was
+    # missed for exactly that reason and kept its import-time value.
+    _SECTION_HEADER = _section_header(CONFIG.entry_prefix)
+    _TODO_SCAN_EXCLUDED_FILES = set(CONFIG.todo_exclude_files)
+    _TODO_SCAN_EXCLUDED_DIR_PREFIX = tuple(CONFIG.todo_exclude_dirs)
 
 
 def cli() -> int:

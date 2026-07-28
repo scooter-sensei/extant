@@ -121,7 +121,9 @@ newest release the README told people to pin a version git had never heard of.
 
     git tag -a vX.Y.Z -m "extant X.Y.Z - <what changed>"
     git push origin vX.Y.Z
-    git ls-remote --tags origin | grep vX.Y.Z     # it is not done until this prints
+    # Exits non-zero when that exact ref is absent, where a grep would
+    # also match v0.1.20 while looking for v0.1.2.
+    git ls-remote --exit-code --tags origin refs/tags/vX.Y.Z
 
 `dead-pinned-ref` is exactly the rule for this and cannot help here, because
 `README.md` is not one of the checked documents - it is made of illustrative
