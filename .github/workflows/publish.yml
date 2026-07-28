@@ -7,12 +7,16 @@
 # the usual way a package gets hijacked, and the way to not leak one is to not
 # have one.
 #
-# ONE-TIME SETUP, which cannot be done from here: on PyPI, add a pending
-# publisher for the project `extant` with owner `scooter-sensei`, repository
-# `extant`, workflow `publish.yml`, and environment `pypi`. Until that exists
-# this job fails at the upload step with a permissions error, which is the
-# correct behaviour - it means nothing can publish that was not authorised out
-# of band.
+# The PyPI side is configured and `extant` is published, so nothing needs doing
+# here. Recorded for whoever has to reproduce it if this repository moves or is
+# renamed: PyPI trusts owner `scooter-sensei`, repository `extant`, workflow
+# `publish.yml`, environment `pypi`. Those four values must match the OIDC
+# claims this job presents, and any of them changing breaks publishing until
+# the publisher is updated.
+#
+# The first run predated that configuration and failed at the upload step with
+# `invalid-publisher`, which is the correct behaviour: nothing is publishable
+# that was not authorised out of band.
 
 name: publish
 
@@ -31,9 +35,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -94,7 +98,7 @@ jobs:
           echo "planted fault -> exit $broken (want 1); repaired -> exit $clean (want 0)"
           [ "$broken" = "1" ] && [ "$clean" = "0" ]
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -112,7 +116,7 @@ jobs:
     permissions:
       id-token: write        # the OIDC token. Nothing else is needed.
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/

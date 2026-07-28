@@ -6,6 +6,59 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 9 - A code review, and a way to install it (shipped, 2026-07-28)
+
+**Status.** Suite is 308 tests, all passing. Twelve rules, eighteen presets.
+`v0.12.2` is tagged, released, and on PyPI. Every release from `v0.5.0` is
+tagged with no gaps, and each has a release page.
+
+**What Shipped.**
+
+- A CodeRabbit review of the whole repository: 35 findings, all addressed
+  across `f873a79`, `e160feb` and `d220091`. One critical, ten major.
+- The reload staleness class closed twice over, at `26cf385` and `5c6c96a` -
+  once with a guard and once by removing the shape that allowed it.
+- `v0.10.0` backfilled. It was bumped, committed and pushed without ever being
+  tagged, so its own README told people to pin a version git had never heard
+  of.
+- Published to PyPI at `4bb25d5`, with a workflow that refuses a tag which does
+  not match the packaged version, and refuses a wheel that does not work.
+
+**What was learned.**
+
+- Three guards were written for one bug before one of them was right, and the
+  first two were proxies: a table that could not see a COMPUTED value, then a
+  substring test that passed because `global X` mentions the name. The check
+  that works compares a reloaded module against a fresh import of the same
+  project, which is the invariant stated directly rather than approximated.
+- That oracle catches DIVERGENCE and not ABSENCE. A global neither path sets
+  agrees with itself. Knowing which failure a check cannot see matters more
+  than having the check.
+- The tool found a false positive in itself, then found this entry describing
+  it. `release_tag` swallowed a sentence-ending full stop, so a release claim
+  at the end of a sentence searched for a tag with the period attached. Every
+  fixture happened to continue the sentence, so nothing caught it. Writing the
+  example out here reproduced the match against this very document, which is
+  the rule working: it cannot tell an illustration from a claim, and inline
+  code is deliberately not exempt because claims get written inside backticks.
+- Binary distribution was measured and refused. Two of three install routes
+  already handle Python, the payload is standard library only, and PyInstaller
+  onefile would add 100-300 ms to every commit.
+
+**Known Issues.**
+
+- A user-supplied regex can still hang, as recorded in the design notes.
+- `README.md` is still not self-checked, so `dead-pinned-ref` never sees this
+  project's own install snippet. Including it produces four false positives.
+- A baseline can suppress a live credential, and one recorded finding forgives
+  every future copy of itself. Both are documented in the design notes.
+
+**Next Tasks.**
+
+- Nothing outstanding. The next change should be driven by someone using this
+  on a repository that is not this one - now that `pip install extant` is a
+  thing they can do.
+
 ## Phase 8 - Five releases, and the measurements that overturned three designs (shipped, 2026-07-27)
 
 **Status.** Suite is 305 tests, all passing. Twelve rules, eighteen presets.
