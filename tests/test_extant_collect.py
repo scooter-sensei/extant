@@ -501,12 +501,25 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
     assert archived.index("run1-body-C") < archived.index("run1-body-D") < archived.index("run1-body-E")
 
 
-def test_find_sha_candidates_requires_backticks_and_a_digit():
+def test_find_sha_candidates_requires_backticks_a_digit_and_a_letter():
+    """A backticked token needs both, matching the bare test.
+
+    The letter requirement arrived after a 17-repository sweep: of the twelve
+    backticked hex-shaped tokens in 1,924 markdown files, eight were all
+    digits and every one of those was a number - `1048576`, `1609459200`,
+    and `9223372036854775807`, which is INT64_MAX in Prometheus's docs. Four
+    had a letter and were commits. Flagging the numbers was the larger error.
+
+    It costs the roughly 4% of seven-character SHAs that happen to be all
+    digits, which is a silent miss rather than noise.
+    """
     from extant_collect import find_sha_candidates
-    text = "merged at `7544a63` but not decade or `facade` or `deadbeef` or bare 7544a63\n"
+    text = ("merged at `7544a63` but not decade or `facade` or `deadbeef` "
+            "or `9223372036854775807` or bare 7544a63\n")
     found = [token for _, token in find_sha_candidates(text)]
     assert found == ["7544a63"]
-    # deadbeef is 8 chars, all hex a-f, zero digits: only the digit check rejects it
+    # `deadbeef` has no digit; `9223372036854775807` has no letter. Both are
+    # valid hex and within the length bound, so only those checks reject them.
 
 
 def test_find_bare_sha_candidates_requires_digit_and_letter():
@@ -935,12 +948,13 @@ def test_translate_shas_finds_a_sha_after_an_odd_backtick_line(tmp_path):
     from extant_collect import load_sha_map, translate_shas
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text(
-        "1234567aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa f7d48c3bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+        "123456aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa f7d48c3bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
     )
     mapping = load_sha_map(str(map_file))
+    # A letter in the token: an all-digit run is now read as a number.
     text = (
         "line one has a stray backtick here: `\n"
-        "commit `1234567` is the real one\n"
+        "commit `123456a` is the real one\n"
     )
     new_text, count = translate_shas(text, mapping)
     assert count == 1
@@ -966,23 +980,24 @@ def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(tmp_path):
         "First commit `abc1234` landed; quoted text \"like `this`\" too.\n"
         "Not a sha, no digit: `deadbeef`.\n"
         "Second commit `def5678` followed shortly after.\n"
+        "Not a sha, no letter: `9999999`.\n"
         "Yet another odd backtick: `\n"
-        "Final commit `9999999` closes it out.\n"
+        "Final commit `4c0ffee` closes it out.\n"
     )
 
     candidates = find_sha_candidates(doc)
     tokens = [token for _, token in candidates]
-    assert tokens == ["abc1234", "def5678", "9999999"]
+    assert tokens == ["abc1234", "def5678", "4c0ffee"]
 
     old_shas = {
         "abc1234": "abc1234" + "a" * 33,
         "def5678": "def5678" + "b" * 33,
-        "9999999": "9999999" + "c" * 33,
+        "4c0ffee": "4c0ffee" + "c" * 33,
     }
     new_shas = {
         "abc1234": "1110000" + "d" * 33,
         "def5678": "2220000" + "e" * 33,
-        "9999999": "3330000" + "f" * 33,
+        "4c0ffee": "3330000" + "f" * 33,
     }
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("\n".join(f"{old_shas[t]} {new_shas[t]}" for t in tokens) + "\n")

@@ -530,8 +530,10 @@ def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
+    # A letter, because an all-digit run now reads as a number rather than a
+    # commit: forty zeroes is not a SHA-shaped token any more.
     findings = validate_references(
-        repo, "Shipped at `0000000000000000000000000000000000000000`.\n")
+        repo, "Shipped at `dead000000000000000000000000000000000000`.\n")
 
     assert [f.kind for f in findings] == ["dead-sha"]
 

@@ -274,3 +274,126 @@ def test_angle_bracket_headings_keep_their_anchor(git_repo) -> None:
             "See [a](#relabel_config) and [b](#resolve-conditions).\n")
 
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+# --- classes found in the second sweep, ten ecosystems --------------------
+
+def test_any_uri_scheme_counts_as_external(git_repo) -> None:
+    """phoenixframework/phoenix links to `irc://irc.libera.chat/elixir`.
+
+    The scheme list was enumerated - http, mailto, ftp, tel, data - and an
+    enumerated list is always missing the next one somebody uses.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("[irc](irc://irc.libera.chat/elixir)\n[ssh](ssh://git@host/repo)\n"
+            "[vs](vscode://file/x)\n")
+
+    assert "dead-md-link" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_percent_encoded_path_resolves(git_repo) -> None:
+    """nlohmann/json documents `operator[]` and links to
+    `operator%5B%5D.md`, which is the same file spelled for a browser."""
+    repo, commit = git_repo
+    commit("docs/operator[].md", "# op\n", "chore: op")
+    commit("docs/index.md", "x\n", "chore: index")
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [op](operator%5B%5D.md).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-link" not in kinds, kinds
+
+
+def test_spaces_do_not_collapse_in_a_slug(git_repo) -> None:
+    """nlohmann/json's own README. `### Serialization / Deserialization`
+    drops the slash and keeps both spaces, so GitHub's anchor carries two
+    dashes. Collapsing the run produced one and called the link dead."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("### Serialization / Deserialization\n\n"
+            "See [it](#serialization--deserialization).\n")
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_generator_configured_inside_another_file_is_detected(git_repo) -> None:
+    """Elixir declares ExDoc in mix.exs rather than in a config of its own.
+
+    phoenix links to `Mix.Tasks.Phx.Gen.Auth.html`, which ExDoc generates:
+    104 findings, every one a link that works on hexdocs.
+    """
+    repo, commit = git_repo
+    commit("mix.exs", 'defp deps do\n  [{:ex_doc, "~> 0.38", only: :docs}]\nend\n',
+           "chore: mix")
+    commit("guides/a.md", "x\n", "chore: guide")
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "guides"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [gen](Mix.Tasks.Phx.Gen.Auth.html).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-link" not in kinds, kinds
+
+
+def test_an_all_digit_run_is_a_number_not_a_commit(git_repo) -> None:
+    """prometheus documents `9223372036854775807`, which is INT64_MAX.
+
+    Measured over 1,924 markdown files in 17 repositories: of twelve
+    backticked hex-shaped tokens, eight were all digits and every one was a
+    number - a byte count, a Unix timestamp, an integer limit. Four had a
+    letter and were commits.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "Limit is `9223372036854775807` and a page is `1048576` bytes.\n"
+
+    assert not [k for k in _kinds(repo, text) if "sha" in k], _findings(repo, text)
+
+
+def test_a_flattened_guide_resolves_by_unique_basename(git_repo) -> None:
+    """phoenix links to `contexts.md` from `guides/authn_authz/`, and the file
+    lives at `guides/data_modelling/contexts.md`. ExDoc flattens its guides
+    into one namespace; a relative path does not.
+
+    Only when the basename is unique, so this stays a filesystem fact rather
+    than a guess about which of several candidates was meant.
+    """
+    repo, commit = git_repo
+    commit("mix.exs", '{:ex_doc, "~> 0.38"}\n', "chore: mix")
+    commit("guides/data_modelling/contexts.md", "# Contexts\n", "chore: contexts")
+    commit("guides/authn_authz/auth.md", "x\n", "chore: auth")
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "guides" / "authn_authz"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [contexts](contexts.md).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-link" not in kinds, kinds
+
+
+def test_an_ambiguous_basename_is_not_guessed(git_repo) -> None:
+    """Two files with the same name say nothing about which was meant, so the
+    finding stands. Without this the rule above would be a blanket skip."""
+    repo, commit = git_repo
+    commit("mix.exs", '{:ex_doc, "~> 0.38"}\n', "chore: mix")
+    commit("guides/a/index.md", "# one\n", "chore: one")
+    commit("guides/b/index.md", "# two\n", "chore: two")
+    commit("guides/c/page.md", "x\n", "chore: page")
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "guides" / "c"
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [it](index.md).\n", has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-link" in kinds, kinds

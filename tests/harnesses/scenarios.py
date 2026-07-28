@@ -271,7 +271,7 @@ def s6_everything_broken() -> None:
     write(repo, "NEXT_SESSION.md",
           "# Status\n\n## Phase 2 - now (in progress, 2026-07-01)\n\n"
           f"Merged to `main` at `{off}`.\n"                       # false-merge
-          "Reference `0000000000000000000000000000000000000000`.\n"  # dead-sha
+          "Reference `dead000000000000000000000000000000000000`.\n"  # dead-sha
           "**Design:** `docs/absent.md`\n"                        # dead-path
           "See [plan](docs/absent2.md).\n"                        # dead-md-link
           "Jump to [x](#no-such-heading).\n"                      # dead-md-anchor
@@ -371,7 +371,7 @@ def s9_worktree() -> None:
     print(f"\n[{name}] linked git worktree")
     repo = new_repo(name)
     write(repo, "NEXT_SESSION.md", "# Status\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
-                                   "Reference `0000000000000000000000000000000000000000`.\n\n## 1. Ref\n")
+                                   "Reference `dead000000000000000000000000000000000000`.\n\n## 1. Ref\n")
     commit(repo, "chore: init")
     install(repo)
     commit(repo, "chore: install")
@@ -395,7 +395,10 @@ def s10_archive_roundtrip() -> None:
     repo = new_repo(name)
     entries = "".join(
         f"## Phase {n} - work {n} (shipped, 2026-0{n}-01)\n\n"
-        f"Entry {n} body with `000000000000000000000000000000000000000{n}`.\n\n"
+        # A letter in each: an all-digit run reads as a number rather than a
+        # commit, so forty digits produced no finding at all and the archive
+        # went unmentioned in the output this scenario reads.
+        f"Entry {n} body with `dead{n:036d}`.\n\n"
         for n in range(1, 7)
     )
     write(repo, "NEXT_SESSION.md", f"# Status\n\n{entries}## 1. Ref\n\nReference material.\n")
@@ -442,7 +445,7 @@ def s11_hooks() -> None:
     print(f"\n[{name}] git hooks")
     repo = new_repo(name)
     write(repo, "NEXT_SESSION.md", "# Status\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
-                                   "Reference `0000000000000000000000000000000000000000`.\n\n## 1. Ref\n")
+                                   "Reference `dead000000000000000000000000000000000000`.\n\n## 1. Ref\n")
     commit(repo, "chore: init")
     install(repo)
     out = sh(repo, "sh", "tools/hooks/install", check=False)
@@ -861,7 +864,7 @@ ECOSYSTEMS: dict[str, dict[str, str]] = {
         "NEXT_SESSION.md": "# Status\n\n## Phase 1 - setup (in progress, 2026-01-01)\n\n"
                            "Work continues on `feature/setup`.\n"
                            "The design is in [the plan](docs/plan-that-is-gone.md).\n"
-                           "Merged at `0000000000000000000000000000000000000000`.\n\n"
+                           "Merged at `dead000000000000000000000000000000000000`.\n\n"
                            "## 1. Reference\n",
     },
 }

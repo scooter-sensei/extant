@@ -179,7 +179,7 @@ def p_no_git_at_all() -> None:
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True)
     shutil.copytree(PKG / "plugin/skills/extant/payload", d / "tools")
-    write(d, "NEXT_SESSION.md", ENTRY.format("Reference `0000000000000000000000000000000000000000`."))
+    write(d, "NEXT_SESSION.md", ENTRY.format("Reference `dead000000000000000000000000000000000000`."))
     res = tool(d, "--validate", "NEXT_SESSION.md")
     if "Traceback" in res.stderr:
         note("CRASH", "not a git repo", res.stderr)
@@ -242,7 +242,7 @@ def p_claims_in_code_fences() -> None:
     write(repo, "NEXT_SESSION.md", ENTRY.format(
         "Example of the format:\n\n"
         "```\n"
-        "Merged to `main` at `0000000000000000000000000000000000000000`.\n"
+        "Merged to `main` at `dead000000000000000000000000000000000000`.\n"
         "**Design:** `docs/example-not-real.md`\n"
         "```\n"))
     commit(repo, "init")
@@ -344,7 +344,7 @@ def p_deleting_the_claim() -> None:
     print("\n[gaming] passing by deleting the claim")
     repo = new_repo("delete")
     write(repo, "NEXT_SESSION.md", ENTRY.format(
-        "Reference `0000000000000000000000000000000000000000`."))
+        "Reference `dead000000000000000000000000000000000000`."))
     commit(repo, "init")
     before = tool(repo, "--validate", "NEXT_SESSION.md")
     write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing to see."))
@@ -365,7 +365,7 @@ def p_pattern_that_matches_nothing() -> None:
           "merge_claim = 'ZZZZ_NEVER_MATCHES_{trunk}'\n"
           "path_pointer = 'ZZZZ_NEVER'\n")
     write(repo, "NEXT_SESSION.md", ENTRY.format(
-        "Merged to `main` at `0000000000000000000000000000000000000000`.\n"
+        "Merged to `main` at `dead000000000000000000000000000000000000`.\n"
         "**Design:** `docs/absent.md`"))
     commit(repo, "init")
     res = tool(repo, "--validate", "NEXT_SESSION.md")
@@ -529,7 +529,11 @@ def p_config_discovery_abuse() -> None:
 # everything. "Does suppression work" is the easy half and is already a unit
 # test. What follows is the other half.
 SECRET = "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
-DEAD_SHA = "0" * 40
+# A letter, because an all-digit run reads as a number rather than a commit:
+# forty zeroes stopped being SHA-shaped and two probes quietly had nothing to
+# find. Both reported HARNESS rather than passing, which is the distinction
+# this file exists to make.
+DEAD_SHA = "dead" + "0" * 36
 
 
 def p_baseline_and_a_live_credential() -> None:
@@ -734,14 +738,21 @@ def p_github_annotation_injection() -> None:
              "findings to interpolate")
         return
 
-    escaped = [ln for ln in commands if "%250A" in ln or "%2525" in ln]
+    # The proof moved when link targets began being percent-DECODED before
+    # resolution. `%0A` in the document is now a real newline by the time it
+    # reaches a finding, so the escaper turning it back into `%0A` is the
+    # demonstration, and a literal `%` surviving as `%25` is the other half.
+    # Previously the document text was interpolated raw and the same escaper
+    # double-encoded it to `%250A`, which is what this used to look for.
+    escaped = [ln for ln in commands if "%0A" in ln or "%25" in ln]
     if not escaped:
         note("BROKEN", "the annotation escaper did not run",
-             "a path containing a literal % came through unescaped, so the "
-             "same function is not neutralising newlines either")
+             "a decoded newline and a literal % both came through untouched, "
+             "so nothing is neutralising workflow-command syntax")
     else:
         ok("the escaper demonstrably ran", f"{len(escaped)} annotation(s) "
-           "carry an escaped %, proving the path was not interpolated raw")
+           "carry an escaped newline or %, proving the path was not "
+           "interpolated raw")
 
     forged = [ln for ln in commands
               if not ln.startswith("::error") and not ln.startswith("::warning")]

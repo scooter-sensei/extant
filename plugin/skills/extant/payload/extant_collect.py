@@ -615,7 +615,21 @@ class Located:
 
 
 def _looks_like_sha(token: str) -> bool:
-    return bool(_SHA_SHAPE.match(token)) and any(ch.isdigit() for ch in token)
+    """Shape test for a BACKTICKED token.
+
+    A letter is required as well as a digit, matching the bare test. An
+    all-digit run is a number: nlohmann/json documents the limits of its
+    integer types and `9223372036854775807` is INT64_MAX, not a commit, but
+    every character in it is valid hex.
+
+    The cost is stated rather than hidden. A real seven-character SHA is
+    all-digits about 4% of the time, and those go unchecked now. That is the
+    better side of the trade - a missed check is silent, while flagging every
+    large number in a document is the noise that gets a validator ignored.
+    """
+    return (bool(_SHA_SHAPE.match(token))
+            and any(ch.isdigit() for ch in token)
+            and any(ch.isalpha() for ch in token))
 
 
 def _looks_like_bare_sha(token: str) -> bool:
@@ -1289,7 +1303,12 @@ def _renamed_to(repo: Path, missing: str) -> str | None:
 # unlike the prose patterns this one is not configurable. There is no corpus to
 # measure: `[text](target)` means the same thing everywhere.
 _MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
-_EXTERNAL = re.compile(r"^(?:https?:|mailto:|ftp:|tel:|data:|//)", re.I)
+# ANY URI scheme, not an enumerated few. phoenixframework/phoenix links to
+# `irc://irc.libera.chat/elixir`, and a named list will always be missing the
+# next scheme somebody uses - slack:, vscode:, ssh:, matrix:. Two or more
+# characters before the colon so a Windows drive letter is not mistaken for
+# one; a relative path does not carry a colon before its first slash.
+_EXTERNAL = re.compile(r"^(?:[a-z][a-z0-9+.-]+:|//)", re.I)
 _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _EXPLICIT_ANCHOR = re.compile(r"""(?:name|id)\s*=\s*["']([^"']+)["']""")
 _FENCE = re.compile(r"^\s*(```|~~~)")
@@ -1380,6 +1399,44 @@ def _prose(text: str) -> str:
     return _blank(text, inline=False)
 
 
+def _unique_basename(repo: Path, target: str) -> bool:
+    """Does exactly one tracked markdown file carry this basename?
+
+    Exactly one, never "at least one". Two files called `index.md` say nothing
+    about which was meant, and guessing would trade a false positive for a
+    silent wrong answer, which is worse.
+    """
+    name = Path(target).name.lower()
+    if not name:
+        return False
+    key = str(repo)
+    if key not in _BASENAMES:
+        counts: dict[str, int] = {}
+        try:
+            for path in tracked_markdown(repo):
+                leaf = path.rsplit("/", 1)[-1].lower()
+                counts[leaf] = counts.get(leaf, 0) + 1
+        except (OSError, subprocess.CalledProcessError):
+            counts = {}
+        _BASENAMES[key] = counts
+    return _BASENAMES[key].get(name, 0) == 1
+
+
+_BASENAMES: dict[str, dict[str, int]] = {}
+
+
+def _percent_decoded(target: str) -> str:
+    """A link target with percent-escapes resolved, or unchanged if it has none.
+
+    Left alone when there is nothing to decode, so a path containing a literal
+    `%` is never rewritten into something else.
+    """
+    if "%" not in target:
+        return target
+    from urllib.parse import unquote
+    return unquote(target)
+
+
 def _heading_text(title: str) -> str:
     """Heading text with code backticks unwrapped, lowercased."""
     return re.sub(r"`([^`]*)`", r"\1", title.strip()).lower()
@@ -1402,9 +1459,16 @@ def _without_tags(title: str) -> str:
 
 
 def _slug(title: str) -> str:
-    """Approximate the heading-to-anchor conversion used by common renderers."""
+    """Approximate the heading-to-anchor conversion used by common renderers.
+
+    Each space becomes its own dash rather than a run collapsing to one, which
+    is what GitHub does: `### Serialization / Deserialization` drops the slash
+    and keeps both surrounding spaces, so the anchor is
+    `serialization--deserialization` with two. Collapsing produced one dash and
+    called nlohmann/json's own README link dead.
+    """
     text = re.sub(r"[^\w\s-]", "", _heading_text(title))
-    return re.sub(r"\s+", "-", text).strip("-")
+    return re.sub(r"\s", "-", text).strip("-")
 
 
 def _slug_punctuation_to_dash(title: str) -> str:
@@ -1462,6 +1526,11 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             target = raw.split("#", 1)[0]
             if not target:
                 continue
+            # A markdown link percent-encodes characters that are awkward in a
+            # URL, and the file on disk carries the decoded name.
+            # nlohmann/json documents `operator[]` and links to it as
+            # `operator%5B%5D.md`, which is the same file spelled for a browser.
+            target = _percent_decoded(target)
             # A leading slash means the repository root, which is how GitHub
             # renders it. Resolved against the DOCUMENT it reported
             # `/.github/AI_POLICY.md` dead in psf/requests while the file sat
@@ -1481,6 +1550,15 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             if _is_generated_site(repo) and (
                     target.startswith("/") or target.endswith(".html")
                     or not Path(target).suffix):
+                continue
+            # A generator that flattens its guides into one namespace resolves
+            # a sibling by bare name from any depth. Phoenix links to
+            # `contexts.md` from `guides/authn_authz/`, and the file lives at
+            # `guides/data_modelling/contexts.md`; ExDoc finds it, a relative
+            # path does not. Accepted only when the basename is UNIQUE in the
+            # repository, so this stays a filesystem fact rather than a guess
+            # about which of several candidates was meant.
+            if _is_generated_site(repo) and _unique_basename(repo, target):
                 continue
             if actual_case:
                 detail = (f"links to `{target}`, but the file on disk is "
@@ -1706,11 +1784,31 @@ _SITE_CONFIGS = (
 )
 
 
+# Generators whose configuration lives INSIDE another file rather than in one
+# of its own, so existence is not enough and the content decides.
+#
+# Elixir declares ExDoc as a dependency in mix.exs. phoenixframework/phoenix
+# does exactly that and links to `Mix.Tasks.Phx.Gen.Auth.html` and to sibling
+# guides by bare name, both of which ExDoc resolves and the filesystem cannot:
+# 104 findings, every one a link that works on hexdocs.
+_SITE_MARKERS_IN_FILE = (("mix.exs", "ex_doc"),)
+
+
 def _is_generated_site(repo: Path) -> bool:
     """Does this repository compile its markdown into a website?"""
     key = str(repo)
     if key not in _SITE:
-        _SITE[key] = any((repo / name).is_file() for name in _SITE_CONFIGS)
+        found = any((repo / name).is_file() for name in _SITE_CONFIGS)
+        for name, marker in _SITE_MARKERS_IN_FILE:
+            if found:
+                break
+            path = repo / name
+            try:
+                found = path.is_file() and marker in path.read_text(
+                    encoding="utf-8", errors="replace")
+            except OSError:
+                found = False
+        _SITE[key] = found
     return _SITE[key]
 
 
@@ -2174,7 +2272,10 @@ def scan_secrets(text: str) -> list[Finding]:
     return findings
 
 
-_DEAD_SHA = "0" * 40
+# A letter is required now that an all-digit run reads as a number rather than
+# a commit, so forty zeroes would be corrupted into something no rule looks at
+# and `--selftest` would report dead-sha silent when the rule was fine.
+_DEAD_SHA = "dead" + "0" * 36
 _MISSING_PATH = "__extant_selftest_missing__.md"
 _FAKE_BRANCH_LEAF = "extant-selftest-no-such-branch"
 
