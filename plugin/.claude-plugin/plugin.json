@@ -1,6 +1,6 @@
 {
   "name": "extant",
-  "description": "Installs a validator that checks every falsifiable claim in your status or progress document against git and the filesystem, plus git hooks that re-check after each commit and merge, and a /extant command rendered for your repository. Reports findings as text, GitHub annotations or SARIF, and can prove its own rules fire.",
+  "description": "Finds the commits, branches, tags and paths your documentation cites that no longer exist. Aimed at the plan, spec and status documents written during agent sessions, which are dense with commit references and are read back as fact by the next session. Checks every falsifiable claim against git and the filesystem, installs hooks that re-check after each commit and merge, and offers a --sweep mode that surveys every tracked markdown file with no configuration. Reports as text, GitHub annotations or SARIF, and can prove its own rules fire.",
   "version": "0.12.4",
   "author": {
     "name": "scooter-sensei"

@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "extant",
-  "description": "Check that the claims in your documentation are still true. Works on any markdown you already have - a README, a CONTRIBUTING file, an architecture note - against git and the filesystem.",
+  "description": "Find the commits, branches and paths your documentation cites that no longer exist. Works on any markdown you already have, and pays off most on the plan and spec documents agent sessions leave behind.",
   "owner": {
     "name": "scooter-sensei"
   },
   "plugins": [
     {
       "name": "extant",
-      "description": "Verifies every falsifiable claim in your documentation against git and the filesystem, with git hooks that re-check after each commit and merge. Twelve rules: dead commit references, false merge claims, stale 'not yet merged' statements, branches git never saw, release tags that never shipped, dead file pointers, broken markdown links and heading anchors, files that contradict each other, install snippets pinning a version that does not exist, assets your .gitattributes says are in Git LFS but were committed raw, and committed secrets. Needs no special status document - eighteen presets configure it for a plain README, for Node, Python, Rust, Go, JVM, Kubernetes, Terraform, Docker, monorepos, mobile apps, Unity and Godot projects, or for the AGENTS.md and CLAUDE.md files coding agents read as fact. Findings render as text, GitHub annotations or SARIF.",
+      "description": "Finds the commits, branches, tags and paths your documentation cites that no longer exist. Aimed at the plan, spec and status documents written during agent sessions, which are dense with commit references and are read back as fact by the next session. Checks every falsifiable claim against git and the filesystem, installs hooks that re-check after each commit and merge, and offers a --sweep mode that surveys every tracked markdown file with no configuration. Reports as text, GitHub annotations or SARIF, and can prove its own rules fire.",
       "version": "0.12.4",
       "author": {
         "name": "scooter-sensei"

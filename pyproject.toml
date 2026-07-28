@@ -20,7 +20,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "extant"
 version = "0.12.4"
-description = "Check that the claims in your documentation are still true, against git and the filesystem"
+description = "Find the commits, branches and paths your documentation cites that no longer exist"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -31,7 +31,8 @@ license = {text = "MIT"}
 # reads this and degrades on its own.
 dependencies = ['tomli>=2; python_version < "3.11"']
 authors = [{name = "scooter-sensei"}]
-keywords = ["documentation", "validation", "git", "pre-commit", "ai-agents"]
+keywords = ["documentation", "validation", "git", "pre-commit", "ai-agents",
+            "agents", "llm", "adr", "documentation-rot", "stale-docs"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

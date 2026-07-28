@@ -2,7 +2,7 @@
 
 # extant
 
-**Your documentation makes claims. This checks whether they are still true.**
+**Your docs cite commits. Some of those commits no longer exist.**
 
 [![tests](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml/badge.svg)](https://github.com/scooter-sensei/extant/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -17,42 +17,64 @@
 
 ## The problem
 
-Your README says the project needs Node 18. Your `package.json` says 20. Your
-CONTRIBUTING file links to a script deleted in March. An architecture note says
-a rewrite "landed in `8f2a91c`", and that commit no longer exists.
+A plan document says the work landed in `8f2a91c`. A spec says its predecessor
+merged to `develop` at `abc1234`. A status file says a branch is not merged yet.
 
-Every one of those sentences was true the day it was written.
+Then someone squash-merges, or rebases, or force-pushes a cleanup, and those
+sentences quietly stop being true. Nothing complains, because documentation is
+just writing. Tests check code. Type checkers check types. **Nothing checks
+whether a commit you wrote down still exists.**
 
-Nothing complains, because documentation is just writing. Tests check code. Type
-checkers check types. Nothing checks whether your prose is still accurate, so it
-drifts quietly until somebody follows it and loses an afternoon.
+This got much worse recently, and not for a subtle reason. Coding agents write
+plan documents, spec documents and status files at a volume humans never did,
+and those documents are dense with commit SHAs, branch names and file paths.
+Then the next agent session reads them back **as fact**. It cannot tell that a
+line expired, so it plans around something untrue and hands back confidently
+wrong work.
 
-This matters more than it used to. AI assistants read these files and treat them
-as fact. An assistant cannot tell that a line expired, so it plans around
-something untrue and hands back confidently wrong work.
+Here is one real project, swept with a single command and no configuration.
+49 tracked markdown files, 44 findings, counted by rule:
+
+| Count | Rule | |
+|---:|:---|:---|
+| 37 | `dead-sha` | a commit that no longer resolves |
+| 5 | `bare-dead-sha` | the same, written without backticks |
+| 1 | `dead-path-pointer` | a file that moved |
+| 1 | `possible-secret` | |
+
+**42 of 44 were dead commit references, and every located finding sat in the
+project's plan and spec directories** - the documents written during agent
+sessions. Zero in the README. Zero in CONTRIBUTING. The human-facing docs were
+fine; the machine-facing ones had rotted where nobody looks.
+
+That is the shape of the problem, and a link checker will not find any of it,
+because none of these are links.
 
 ## What it looks like
 
-An ordinary project. A README, a `package.json`, a CONTRIBUTING file. No status
-document, no new habits.
+A plan document written during an earlier session. It says the work merged to
+`main`. The commit is real, so nothing looks wrong, but it sits on a branch that
+was never merged:
 
 ```console
-$ python tools/extant_collect.py --verify
+$ extant --repo . --sweep
 
-line 5:  [dead-sha]                `deadbeef1234567` does not resolve in this repo
-line 3:  [dead-md-link]            links to `docs/setup.md`, which does not exist
-line 1:  [inconsistent-artifact]   `node_version` disagrees across files:
-                                   `18` in README.md; `20` in package.json
+UNREVIEWED - surveyed only, not gated
+docs/plans/phase-3.md: line 4: [dead-sha] `8f2a91c` does not resolve in this repo
+docs/plans/phase-3.md: line 3: [false-merge-claim] claims work merged to main at `04d559f`, but that commit is not an ancestor of main
+docs/plans/phase-3.md: line 6: [dead-path-pointer] points at `docs/plans/phase-2.md`, which does not exist
 
-checked README.md: dead-sha 1, dead-md-link 1, inconsistent-artifact 2
-CONTRIBUTING.md: line 3: [dead-md-link] links to `scripts/gone.sh`
+swept 2 markdown file(s): 0 configured (0 finding(s)), 2 unreviewed (3 finding(s))
 ```
 
-Four false statements in the docs you already have, with line numbers, in under
-a second.
+That is real output, not an illustration. The middle line is the one nothing
+else will give you: **the commit exists, and the sentence about it is still
+false.** Answering that means asking git for ancestry, which a text linter has
+no way to do.
 
-That `checked` line counts what it **looked at**, not what it found. It matters
-as much as the findings, and [there is a section about why](#every-check-reports-its-denominator).
+The `swept` line counts what it **looked at**, not what it found. It matters as
+much as the findings, and
+[there is a section about why](#every-check-reports-its-denominator).
 
 ## Try it in one line
 
@@ -154,11 +176,20 @@ other**, because that has a definite answer. See
 
 | | |
 |:---|:---|
-| **Probably yes** | Your project uses git and has documentation: a README, a CONTRIBUTING file, docs, architecture notes. That is enough. It matters more if an AI assistant reads those files, because it cannot tell an expired line from a current one. |
-| **Probably not** | Your project does not use git, or your documentation is one paragraph that never mentions a file, a commit, or a version. |
+| **Strongest fit** | You run coding agents, and sessions leave behind plan, spec, design or status documents. Those cite commits and branches, rot within days, and are read back as fact by the next session. This is where 42 of the 44 findings above came from. |
+| **Good fit** | You write ADRs, RFCs, postmortems, migration notes or release notes that reference commits, branches or tags. Same shape, written by hand. |
+| **Probably yes** | Your project uses git and has documentation that names files and paths. The link and path rules work on any markdown. |
+| **Probably not** | Your documentation is one paragraph that never mentions a file, a commit, or a version. There is nothing here for it to check, and it will honestly tell you so. |
 
 Note what is **not** required: a status file, a changelog, a particular
 workflow, or any change to how you work.
+
+**Be clear about the trade.** This checks claims git can settle. It does not
+check external URLs, whether a code sample still compiles, or whether a
+documented flag still exists. If dead external links are your problem, use
+[lychee](https://github.com/lycheeverse/lychee); if committed credentials are,
+use [gitleaks](https://github.com/gitleaks/gitleaks). They are better at those
+than this will be, and they cannot answer whether `abc1234` is on `main`.
 
 ---
 

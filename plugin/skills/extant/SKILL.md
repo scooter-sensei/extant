@@ -1,6 +1,6 @@
 ---
 name: extant
-description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
+description: "Use when documentation cites things git can settle and may have gone stale - a commit SHA, a merge claim like 'merged to main at abc1234', a branch name, a release tag, or a file path. Especially for the plan, spec, design and status documents written during agent sessions, which are dense with commit references and are read back as fact by the next session. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a --sweep mode that surveys every tracked markdown file with no configuration. Also use when asked to port, install, or configure this validator in another repo."
 version: 0.12.4
 license: MIT
 user-invocable: true
@@ -9,19 +9,29 @@ argument-hint: "[install|verify|port] [path to repo]"
 
 # extant
 
-Documentation makes claims - a version, a file path, a commit, a branch - and
-those claims decay. The decay is invisible until somebody acts on one. This
-installs a validator that makes it impossible to ignore.
+Documentation cites commits, branches, tags and paths. Those citations decay
+silently, and the decay is invisible until somebody acts on one. This installs a
+validator that makes it impossible to ignore.
 
-**It needs no special document.** Point it at a README, a CONTRIBUTING file, an
-architecture note, anything in markdown. Requiring a dedicated status file was
+**Where it pays off most is the documents agents write.** Plans, specs, designs
+and status files are dense with commit SHAs and merge claims, get written once,
+and are read back as fact by the next session - which cannot tell an expired
+line from a current one, so it plans around something untrue.
+
+Measured on one real project: 49 tracked markdown files, 44 findings, of which
+**42 were dead commit references**, and every located finding sat in the plan and
+spec directories rather than in the README or CONTRIBUTING. The human-facing
+docs were fine. The machine-facing ones had rotted where nobody looks.
+
+**It needs no special document,** and works on any markdown: a README, a
+CONTRIBUTING file, an architecture note. Requiring a dedicated status file was
 the largest barrier to using this and was never a real requirement.
 
-It does handle that shape too, and was built on one: a real repository whose
-status document had rotted to a false "not yet merged" claim about work that
-shipped three days earlier, 40 dead commit references after a history rewrite, a
-pointer to a plan file that did not exist, and 1,782 lines of unbounded growth
-that every session was told to read end to end.
+It handles that shape too, and was built on one: a real repository whose status
+document had rotted to a false "not yet merged" claim about work that shipped
+three days earlier, 40 dead commit references after a history rewrite, a pointer
+to a plan file that did not exist, and 1,782 lines of unbounded growth that every
+session was told to read end to end.
 
 ## What it installs
 
