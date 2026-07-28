@@ -5,3 +5,10 @@ __pycache__/
 venv/
 status_bundle.json
 .DS_Store
+
+# Build artifacts. `python -m build` writes an egg-info directory INTO the
+# payload, beside the shipped source, and it was committed once before this
+# line existed.
+*.egg-info/
+dist/
+build/
