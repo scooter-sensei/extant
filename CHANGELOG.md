@@ -1,6 +1,28 @@
 # Changelog
 
-## 0.13.1 (2026-07-29)
+## 0.13.2 (2026-07-29)
+
+Everything 0.13.1 described. That tag exists and never published, because the
+gate it added rejected it.
+
+The new step asserted that `extant --sweep` exits 0 against the release
+fixture. It exits 1 there, correctly: the fixture plants a dead link in
+`README.md` and its `.extant.toml` names that file as `primary_doc`, so the
+finding is in a CONFIGURED document and a sweep gates on those. The assertion
+was written without reading the fixture it was asserting about.
+
+It now checks both directions, the same way the `--validate` half already did:
+broken exits 1, repaired exits 0.
+
+Worth recording plainly, because it is the second mistake in a row from the
+same habit. `--sweep` broke in 0.13.0 because a list of modes was kept beside
+the parser instead of read from it. The gate for that broke in 0.13.1 because
+an expectation was written from memory of the fixture instead of from the
+fixture. Both were caught by running the thing rather than reasoning about it,
+and the second was caught by the first's own gate - on its first run, which is
+the only run that could still have been wrong.
+
+## 0.13.1 (2026-07-29, tagged but never published)
 
 `extant --sweep` works when installed. In 0.13.0 it did not.
 

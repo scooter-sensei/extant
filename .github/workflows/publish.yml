@@ -99,14 +99,17 @@ jobs:
           # runs a different command from the documentation is not a gate on
           # the documentation.
           /tmp/verify/bin/extant --repo . --sweep
-          swept=$?
+          swept_broken=$?
           sed -i 's|And \[gone\](docs/gone.md).||' README.md
           /tmp/verify/bin/extant --repo . --validate README.md
           clean=$?
+          /tmp/verify/bin/extant --repo . --sweep
+          swept_clean=$?
           set -e
           echo "planted fault -> exit $broken (want 1); repaired -> exit $clean (want 0)"
-          echo "documented sweep -> exit $swept (want 0)"
-          [ "$broken" = "1" ] && [ "$clean" = "0" ] && [ "$swept" = "0" ]
+          echo "sweep broken -> exit $swept_broken (want 1); sweep repaired -> exit $swept_clean (want 0)"
+          [ "$broken" = "1" ] && [ "$clean" = "0" ] \
+            && [ "$swept_broken" = "1" ] && [ "$swept_clean" = "0" ]
 
       - uses: actions/upload-artifact@v7
         with:
