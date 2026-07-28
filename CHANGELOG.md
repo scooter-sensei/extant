@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.12.4 (2026-07-28)
+
+Nothing Claude-specific is installed into a repository that shows no sign of
+Claude.
+
+### The one tool-specific file is now the one conditional file
+
+`.claude/commands/extant.md` was written on every install, so setting this up
+in a Godot project worked on with Copilot planted a `.claude/` directory its
+owner could not use and had no way to decline.
+
+It now appears when the repository already carries `.claude/` or a `CLAUDE.md`.
+`--claude-command` writes it regardless and `--no-claude-command` never does -
+three states rather than two, because a plain on/off flag cannot tell "left at
+the default" from "explicitly declined", and the second has to be possible in
+a repository that does carry the evidence.
+
+Skipping it is reported and names the flag. A file that does not appear is
+invisible, so a silent skip would leave reading the installer as the only way
+to discover the slash command exists at all.
+
+`.agents/skills/extant/SKILL.md` is NOT gated on anything. It is the open
+Agent Skills path that Codex, Gemini CLI, Copilot, Cursor and Kimi read, and it
+is the half that makes the install tool-agnostic. Gating it would have been the
+wrong fix to the right complaint.
+
+### A hook no longer ships advice only one tool's users can follow
+
+`main-tree-guard` suggested `git worktree add .claude/worktrees/<name>` to
+whoever it had just blocked, inside a hook installed into every repository.
+That is this project's own habit rather than a general one. It now suggests
+`../<name>`, which is the ordinary git idiom and better advice regardless: a
+worktree placed inside the repository is a known trap, because `git -C` in a
+dead one resolves upward and reports the parent as healthy.
+
+### What was measured rather than assumed
+
+The review prompting this called the tool tightly coupled to the Claude plugin
+spec. Most of that does not hold, and the parts that did were these two.
+
+The validator is standard-library Python and git subprocesses. The payload is
+two `.py` files and three shell scripts. The pre-commit and pip routes write no
+agent file at all. `.claude-plugin/marketplace.json` is one optional
+distribution channel, living in this repository and never installed into
+anyone else's.
+
+### Also
+
+`smoke.py` printed "setup wrote both agent files" while naming a file it never
+checked existed, so it would have gone on reporting "both" after that file
+stopped being written. Now asserted.
+
 ## 0.12.3 (2026-07-28)
 
 A quickstart that works, and a harness that can fail.

@@ -9,7 +9,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 9 - A code review, and a way to install it (shipped, 2026-07-28)
 
 **Status.** Suite is 308 tests, all passing. Twelve rules, eighteen presets.
-`v0.12.3` is tagged, released, and on PyPI. Every release from `v0.5.0` is
+`v0.12.4` is tagged, released, and on PyPI. Every release from `v0.5.0` is
 tagged with no gaps, and each has a release page.
 
 **What Shipped.**
@@ -26,6 +26,10 @@ tagged with no gaps, and each has a release page.
 - The adversarial harness moved into CI at `de70943`, after being given a
   verdict it did not have. `0.12.3` carries that plus a quickstart command that
   works on a project with no configuration.
+- `0.12.4` stops installing anything Claude-specific into a repository that
+  shows no sign of Claude, at `a39e74f`. The slash command is the only
+  tool-specific file and is now the only conditional one; the open-standard
+  skill stays ungated, since that is the half that makes the install portable.
 
 **What was learned.**
 
