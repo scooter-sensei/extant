@@ -1311,6 +1311,13 @@ _MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
 _EXTERNAL = re.compile(r"^(?:[a-z][a-z0-9+.-]+:|//)", re.I)
 _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _EXPLICIT_ANCHOR = re.compile(r"""(?:name|id)\s*=\s*["']([^"']+)["']""")
+# The attribute syntax pandoc, kramdown and PHP Markdown Extra use to name a
+# heading or a span outright: `## Template {#type-template}` and
+# `[Inlines]{#inlines-filter}`. It overrides whatever the text would slug to,
+# so a document using it has anchors that no amount of slug guessing will
+# reach. pandoc's own doc/lua-filters.md carries 368 and accounted for 120 of
+# its 149 findings - the largest single class left in a 26-repository corpus.
+_ATTR_ANCHOR = re.compile(r"\{#([^\s}]+)")
 _FENCE = re.compile(r"^\s*(```|~~~)")
 
 # A relative link resolves against the FILE that contains it, not the repository
@@ -1498,10 +1505,42 @@ def _slug_punctuation_to_dash(title: str) -> str:
     return re.sub(r"[-\s]+", "-", text).strip("-")
 
 
+def _definition_terms(text: str) -> list[str]:
+    """Terms of a markdown definition list.
+
+    A term is a plain line whose successor begins with a colon and a space:
+
+        `titleCaseStyle`
+        : (`bool`) Whether to capitalize automatic list titles.
+
+    Renderers supporting the extension - Goldmark, PHP Markdown Extra,
+    kramdown, pandoc - give each `<dt>` an id the same way they give one to a
+    heading, so a term is an anchor source and had been invisible here.
+
+    Measured on the Hugo documentation, which documents every configuration key
+    this way: 71 of its 101 same-document anchor findings are terms, and no
+    other repository in a 26-project corpus has a single one, so this widens
+    nothing anywhere else.
+
+    Excluded openers are the shapes that are already something else - a
+    heading, a quote, a list item, a table row, an indented block - because
+    each can be followed by a colon line without being a definition list.
+    """
+    lines = text.splitlines()
+    terms: list[str] = []
+    for index, line in enumerate(lines[:-1]):
+        if not line.strip() or line.startswith((" ", "\t", "#", ">", "-", "*", "|", "=")):
+            continue
+        if re.match(r"^:\s", lines[index + 1]):
+            terms.append(line.strip())
+    return terms
+
+
 def _anchors(text: str) -> set[str]:
     """Every fragment this document offers, from headings and explicit anchors."""
     headings = [m.group(1) for line in text.splitlines()
                 if (m := _HEADING.match(line))]
+    headings += _definition_terms(text)
     # Every spelling a renderer might produce: two slug conventions, each over
     # the heading as written and with angle-bracket markup removed. Offering a
     # spelling that no renderer uses costs nothing - a fragment matching none
@@ -1511,7 +1550,30 @@ def _anchors(text: str) -> set[str]:
     found = {_slug(v) for v in variants}
     found |= {_slug_punctuation_to_dash(v) for v in variants}
     found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}
+    found |= {a.lower() for a in _ATTR_ANCHOR.findall(text)}
+    found |= _disambiguated(headings)
     return found - {""}
+
+
+def _disambiguated(headings: list[str]) -> set[str]:
+    """The `-1`, `-2` suffixes a renderer adds when a slug repeats.
+
+    Two headings reading the same thing cannot share an id, so every renderer
+    numbers the later ones. Hugo's deployment page carries a `matchers`
+    definition term and a `## Matchers` section, and links to the second as
+    `#matchers-1`.
+
+    Offered only from the SECOND occurrence onward, because that is when a
+    renderer starts numbering; inventing `-1` for a slug that occurs once would
+    forgive an anchor that really is dead.
+    """
+    seen: dict[str, int] = {}
+    for heading in headings:
+        slug = _slug(heading)
+        if slug:
+            seen[slug] = seen.get(slug, 0) + 1
+    return {f"{slug}-{n}" for slug, count in seen.items()
+            for n in range(1, count)}
 
 
 def validate_md_links(repo: Path, text: str) -> list[Finding]:

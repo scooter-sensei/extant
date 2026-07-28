@@ -488,3 +488,68 @@ def test_a_site_config_in_a_subdirectory_is_found(git_repo) -> None:
         hc._LINK_BASE = None
         hc._SITE.clear()
     assert "dead-md-link" not in kinds, kinds
+
+
+# --- anchor sources a renderer offers that the source does not spell out ---
+
+def test_a_definition_list_term_is_an_anchor(git_repo) -> None:
+    """Hugo documents every configuration key as a definition term.
+
+    A renderer supporting the extension gives each `<dt>` an id exactly as it
+    gives one to a heading, so a term is an anchor source. 71 of hugoDocs' 101
+    same-document findings were terms, and no other repository in a
+    26-project corpus has a single one.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("`titleCaseStyle`\n: (`string`) The capitalization rules.\n\n"
+            "See [it](#titlecasestyle).\n")
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_colon_line_after_a_heading_is_not_a_definition_term(git_repo) -> None:
+    """The exclusions matter, or every heading becomes an anchor twice over
+    and a genuinely dead fragment could be forgiven by coincidence."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "## Real heading\n: not a term, the line above is a heading\n\nSee [x](#nonexistent).\n"
+
+    assert "dead-md-anchor" in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_repeated_slug_gets_the_numbered_suffix(git_repo) -> None:
+    """Two headings reading the same thing cannot share an id, so a renderer
+    numbers the later ones. Hugo's deployment page has a `matchers` term and a
+    `## Matchers` section, and links to the second as `#matchers-1`."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "## Matchers\n\ntext\n\n## Matchers\n\nSee [second](#matchers-1).\n"
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_numbered_suffix_is_not_invented_for_a_unique_slug(git_repo) -> None:
+    """Numbering starts at the SECOND occurrence. Offering `-1` for a slug
+    that appears once would forgive an anchor that really is dead."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "## Matchers\n\nSee [second](#matchers-1).\n"
+
+    assert "dead-md-anchor" in _kinds(repo, text), _findings(repo, text)
+
+
+def test_an_explicit_attribute_id_is_an_anchor(git_repo) -> None:
+    """pandoc, kramdown and PHP Markdown Extra name a heading outright.
+
+    `## Template {#type-template}` overrides whatever the text would slug to,
+    so no amount of slug guessing reaches it. pandoc's doc/lua-filters.md
+    carries 368 and they accounted for 120 of its 149 findings.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("## Template {#type-template}\n\n### MetaMap {#pandoc.MetaMap}\n\n"
+            "[Inlines]{#inlines-filter}\n\n"
+            "See [a](#type-template), [b](#pandoc.metamap), [c](#inlines-filter).\n")
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
