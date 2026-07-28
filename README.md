@@ -165,7 +165,7 @@ every version.
 
 ## Install
 
-Three ways in. Pick one.
+Four ways in. Pick one.
 
 ### Option A: pre-commit
 
@@ -195,7 +195,31 @@ prose, and that is the case this exists for.
 A second hook id, `extant-annotate`, emits GitHub Actions annotations instead of
 plain text.
 
-### Option B: Claude Code
+### Option B: pip, pipx or uv
+
+Installs the validator as a command. Nothing is written into your project, so
+this is the quickest way to see what the tool says before deciding anything:
+
+```console
+$ uvx extant --repo . --verify
+```
+
+`uvx` downloads and runs it without installing. To keep it around:
+
+```console
+$ pipx install extant
+$ extant --repo . --verify
+```
+
+`pip install extant` works too, though a tool you run against many projects is
+usually happier in its own environment.
+
+This is the VALIDATOR only. The git hooks and the `/extant` command have to
+live inside the repository they check, so use Option C or D to install those.
+Point it at a document with `--validate`, or create a `.extant.toml` naming
+one, exactly as in Option A.
+
+### Option C: Claude Code
 
 Two lines:
 
@@ -211,7 +235,7 @@ Then open the project you want to protect and ask:
 It inspects your repository, works out the settings, and reports what it found
 and how confident it is about each value.
 
-### Option C: by hand
+### Option D: by hand
 
 Works with or without Claude Code.
 
