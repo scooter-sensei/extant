@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.12.1 (2026-07-27)
+
+Everything a code review found, and a bug the tool found in itself.
+
+### The one that mattered
+
+`reload_config` left `_SECTION_HEADER` stale. It is COMPUTED from
+`entry_prefix` rather than copied, and the refresh loop only walked a table of
+plain copies. That matters on the one path `reload_config` exists for -
+installed as a package by the pre-commit framework, where configuration is
+re-read for the target repository. A project writing `### Phase ` got the
+right prefix everywhere and a section splitter looking for the wrong heading
+level.
+
+Configuration is now applied in exactly one place. `_CONFIG_DERIVED` holds
+builders for all nineteen derived globals, `_apply_config` is the only writer,
+and both import and reload call it, so there is no second list to fall behind
+the first.
+
+### A false positive on ordinary English
+
+The tool found this one itself. `release_tag`'s version tail was greedy and
+swallowed a sentence-ending period, so "Released in v2.1." searched for a tag
+literally named `v2.1.`. Every fixture happened to continue the sentence after
+the version, so nothing caught it until `--verify` read this project's own
+status document and accused it.
+
+### Correctness
+
+- A relative `--baseline` path resolved against the process cwd rather than
+  the repository, so a hook running from elsewhere looked for it in the wrong
+  place.
+- Extra documents hid rules that examined nothing, because the summary
+  filtered zero counts. "Examined 0" and "not applicable" are different facts.
+- `detect.py` stripped `remotes/origin/` from branch names, but git emits
+  `origin/`, so every remote branch was counted under a phantom prefix.
+- `venv_python` defaulted to a Windows-only path on every platform.
+- The opt-in trunk guard warned and exited 0 when its guard file was missing.
+  Wiring it is a request to be blocked, so it fails closed now.
+- `extant --repo` with no value raised IndexError instead of an argparse
+  error, and two bare prints could corrupt `--format=sarif` output.
+- The installer emitted single-quoted TOML for consistency patterns without
+  checking for an apostrophe, which ends the string early.
+- `todo_exclude_files` and `todo_exclude_dirs` were accepted, parsed, and read
+  by nothing. They are live now.
+
+### Also
+
+The CI self-check ran on pushes only, while the comment beside it justified
+GitHub annotations by their appearing on a pull-request diff. No PR was ever
+annotated. Documentation was corrected in seven files, including a manifest
+description still advertising eleven rules and sixteen presets.
+
 ## 0.12.0 (2026-07-27)
 
 Game engines: a Git LFS rule, and `unity` / `godot` presets.

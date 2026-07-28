@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when a project's documentation makes claims that can go stale - a README naming a version or a file, a CONTRIBUTING file linking to a script, an architecture note citing a commit, or a running status document saying what shipped and what is merged. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a /extant command for projects that do keep a status document. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.12.0
+version: 0.12.1
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
