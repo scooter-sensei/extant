@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.13.0 (2026-07-29)
+
+Run it on a repository nobody here wrote.
+
+That is the whole release. Every version before this was validated against two
+repositories, both written by the same hand, neither of which links to another
+project's source. Pointed at 38 real projects across sixteen ecosystems, the
+released tool cried wolf roughly nine times in ten.
+
+### `--sweep`
+
+```console
+$ uvx extant --repo . --sweep
+```
+
+No configuration, no file to name, nothing written. It reads every markdown
+file git tracks and reports in two sections: documents the configuration names
+decide the exit code, everything else is surveyed and never gated on.
+
+That split is not presentation. Checking every markdown file in THIS repository
+produces 18 findings and all 18 are false - `abc1234` and `v2.1` are the example
+claims inside the documents that document the rules. A sweep that gated on
+those would be the cry-wolf failure this project exists to prevent, shipped as
+a headline feature.
+
+### It no longer dies reporting a finding
+
+A finding quotes the document, and a document may be in any language. Written
+to the cp1252 console Windows hands you, an unencodable character raised
+UnicodeEncodeError and the run died AFTER the analysis, at the moment of
+reporting it. Every mode, not just the new one.
+
+A test named `..._does_not_crash_the_printer` existed and passed, because it
+set `PYTHONIOENCODING=cp437:replace` in the environment - it was proving the
+ENVIRONMENT could cope. Output now degrades instead of raising, and SARIF gets
+UTF-8 because it is a file rather than console text.
+
+### Fifteen false-positive classes
+
+Each measured on real projects, each with the repository that exposed it:
+
+- Hex inside a URL is another repository's commit, and this one has no opinion
+  about it. 287 findings across rust-lang/rfcs, requests and httpx.
+- A markdown tree compiled into a website links by ROUTE. VitePress, MkDocs,
+  Astro, Hugo, mdBook, Jekyll, Docusaurus and MyST are detected, including
+  configs that live in a subdirectory or inside another file. 331 findings from
+  vite alone, 235 from starlight.
+- A leading slash means the repository root, which is how GitHub renders it.
+- Renderers disagree about slugs, and both spellings are right: GitHub drops a
+  dot, VitePress turns it into a dash. Whitespace runs are not collapsed.
+- A heading may be a link (`## [5.12.0](...)`), carry inline markup, sit inside
+  a list item, or repeat - in which case a renderer numbers the later ones.
+- Anchors also come from definition-list terms, `{#id}` attributes, JSX
+  comments (`{/* #id */}`), MyST `(target)=` lines, and `:label:` directive
+  options. None of those is a heading and all of them are real.
+- MyST and Sphinx resolve a label against the whole project; MkDocs does not.
+  Applying that union everywhere forgave two of httpx's three genuinely dead
+  anchors, so it follows the generator.
+- An all-digit run is a number. `9223372036854775807` is INT64_MAX in
+  Prometheus's documentation and every character in it is valid hex.
+- A `#` prefix is a CSS colour. A `@` opens a generator macro, not a path -
+  Documenter.jl's `[text](@ref)` was 1,779 findings in JuliaLang/julia.
+- Percent-escapes decode: `operator%5B%5D.md` is `operator[].md`.
+- Any URI scheme is external, not an enumerated five.
+
+### Also
+
+`dead-md-anchor` now checks fragments on other files, which found seven real
+broken cross-references in the corpus. `.mdx` is swept, which reaches 1,378
+files in Docusaurus alone. `--sweep` reads HEAD's tree rather than the index,
+so a sparse checkout or a clone that failed on Windows path length cannot
+report a clean repository.
+
+### For game developers
+
+`raw-lfs-blob` and the `unity` and `godot` presets had never run against an
+engine project. Unity's BossRoom declares 47 LFS filters over 480 files, the
+rule examines all of them, and planting a genuinely raw asset makes it fire.
+
+Worth knowing: none of Bevy, raylib, Phaser, OpenRA or godot-demo-projects uses
+LFS at all. Open-source game repositories avoid the quotas, so this rule is for
+the private repositories where art actually lives.
+
 ## 0.12.4 (2026-07-28)
 
 Nothing Claude-specific is installed into a repository that shows no sign of

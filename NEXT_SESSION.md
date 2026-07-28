@@ -6,6 +6,72 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 10 - Run it on somebody else's repository (shipped, 2026-07-29)
+
+**Status.** Suite is 358 tests, all passing. Twelve rules, eighteen presets.
+`v0.13.0` is tagged, released, and on PyPI. Every release from `v0.5.0` is
+tagged with no gaps, and each has a release page.
+
+**What Shipped.**
+
+- `--sweep` at `32ce917`: every tracked markdown file, no configuration, two
+  sections, and only the configured one decides the exit code.
+- Fifteen false-positive classes across `3c86834`, `884073e`, `a5b791d`,
+  `0158059`, `2694601`, `7cb4b03` and `361c1df`, each measured on real
+  projects rather than imagined.
+- A crash. Every mode died with UnicodeEncodeError writing a finding
+  containing non-ASCII to a Windows console, and the test that should have
+  caught it was setting `PYTHONIOENCODING=cp437:replace` itself.
+- `dead-md-anchor` reaches fragments on other files; `.mdx` is swept; the
+  sweep reads HEAD's tree rather than the index.
+- `tests/harnesses/corpus.py`, where a repository that cannot be measured is a
+  failure rather than an omission.
+
+**What was learned.**
+
+- The central claim had never been tested. Every version before this was
+  validated against two repositories written by the same hand, neither of
+  which links to another project's source. Pointed at 38 real projects the
+  released tool cried wolf about nine times in ten.
+- Reasoning about a renderer is not measuring one. Hugo's 101 dead anchors
+  were recorded as an irreducible limit caused by shortcode templates; the
+  cause was a definition list, visible in the file, and reading it took a
+  minute. A limitation is only honest if the diagnosis behind it is.
+- Widening a rule is not free even when it looks additive. Unioning anchors
+  across a project fixes MyST and forgives two of httpx's three genuinely dead
+  anchors, so the namespace has to follow the generator.
+- Three throwaway measurement scripts were wrong in one session, each by
+  omitting something silently: Git Bash paths Windows Python cannot read,
+  clones that failed on MAX_PATH, a checkout that never completed. All three
+  printed a confident number. That is what `corpus.py` exists to prevent.
+- The audience-specific rules had never met their audience. `raw-lfs-blob` was
+  first exercised on a real Unity project this phase, and five of six
+  open-source game repositories use no LFS at all.
+
+**Known Issues.**
+
+- Every corpus repository is open source, which biases it. `raw-lfs-blob`
+  could be exercised on exactly one, because private Unity and Unreal
+  repositories are where game art actually lives.
+- `.rst` is not read, so the Sphinx ecosystem is invisible: poetry and pytest
+  report zero markdown files.
+- A hex token that is really a Windows error code is indistinguishable from a
+  short SHA by shape and is still reported. Writing an example of one here
+  proved it: the eight-character code quoted in nlohmann/json's changelog was
+  flagged as a dead commit in this very entry, so it is described rather than
+  written. Inline code is deliberately not exempt from the claim rules,
+  because real claims get written inside backticks.
+- Detection can guess a wrong `entry_prefix` - it produced `# Boss ` on Unity's
+  BossRoom - and says so as LOW CONFIDENCE rather than silently.
+
+**Next Tasks.**
+
+- Stop expanding the corpus. Returns flattened: the last six repositories
+  yielded one new class against six from the first nine, and nine of 38 now
+  report zero.
+- Run a sweep on a private engine repository if one becomes available. That
+  would test more than another twenty public clones.
+
 ## Phase 9 - A code review, and a way to install it (shipped, 2026-07-28)
 
 **Status.** Suite is 308 tests, all passing. Twelve rules, eighteen presets.
