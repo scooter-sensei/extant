@@ -9,7 +9,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 9 - A code review, and a way to install it (shipped, 2026-07-28)
 
 **Status.** Suite is 308 tests, all passing. Twelve rules, eighteen presets.
-`v0.12.2` is tagged, released, and on PyPI. Every release from `v0.5.0` is
+`v0.12.3` is tagged, released, and on PyPI. Every release from `v0.5.0` is
 tagged with no gaps, and each has a release page.
 
 **What Shipped.**
@@ -23,6 +23,9 @@ tagged with no gaps, and each has a release page.
   of.
 - Published to PyPI at `4bb25d5`, with a workflow that refuses a tag which does
   not match the packaged version, and refuses a wheel that does not work.
+- The adversarial harness moved into CI at `de70943`, after being given a
+  verdict it did not have. `0.12.3` carries that plus a quickstart command that
+  works on a project with no configuration.
 
 **What was learned.**
 
@@ -44,6 +47,16 @@ tagged with no gaps, and each has a release page.
 - Binary distribution was measured and refused. Two of three install routes
   already handle Python, the payload is standard library only, and PyInstaller
   onefile would add 100-300 ms to every commit.
+- A harness can be the thing with no denominator. `smoke.py` ended in an
+  unconditional `return 0`, so adding it to CI as it stood would have bought a
+  job that could not fail. The fix that mattered was not the exit code but its
+  second half: an EXPECTED finding that stops appearing now fails too, which
+  turns a green run into evidence that probes ran.
+- The first install command a reader meets was broken, and no rule here could
+  have found it. It is prose about how to run a tool, and nothing in git or the
+  filesystem contradicts it. Installing the released wheel and running it was
+  the only thing that would have shown this, which is an argument for doing
+  that at each release rather than for another rule.
 
 **Known Issues.**
 

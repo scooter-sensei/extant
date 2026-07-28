@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.12.3 (2026-07-28)
+
+A quickstart that works, and a harness that can fail.
+
+### The first command in the README did not work
+
+`uvx extant --repo . --validate README.md` is now the quickstart, above the
+fold, with no configuration and nothing written into your project.
+
+It replaces `uvx extant --repo . --verify`, which 0.12.2 offered as the
+quickest way to see what the tool says. That command cannot work on a new
+project: `--verify` checks whatever `primary_doc` names, which defaults to
+`NEXT_SESSION.md`, so a first-time reader got `no such document` and exit 1.
+Confirmed by installing 0.12.2 from PyPI into a clean environment rather than
+by reading the code - the packaged path does read a local `.extant.toml`
+correctly, so only the no-config case was broken, which is precisely the case
+a quickstart is for.
+
+`dead-pinned-ref` could not have caught this and no rule here could. The
+command is prose about how to run a tool, and nothing in git or the filesystem
+disagrees with it.
+
+Install also gained a four-row table that picks a route, so choosing no longer
+means reading two hundred lines first.
+
+### The adversarial harness runs in CI, and can now fail
+
+`smoke.py` was hand-run. That is how a deleted guard against overwriting
+hand-edited agent files left the whole pytest suite green while only this
+harness noticed.
+
+Wiring it in first meant giving it a verdict: it ended in an unconditional
+`return 0` and exited 0 whatever it found, so a job running it would have
+stayed green while every probe failed. It now holds a ledger of four expected
+findings, each a documented design decision, and exits 1 on anything outside
+it - and equally on an expected finding that STOPS appearing, because a probe
+that quietly stops exercising anything prints what a healthy one prints. Both
+directions were confirmed by mutation before the job was added.
+
+That second half has a useful consequence: a green smoke job is now evidence
+that work happened rather than only an absence of trouble, since probes that
+did not run would leave four findings missing and fail.
+
+`perf.py` and `stress.py` stay hand-run on purpose, and the harness README now
+says why. They answer with NUMBERS, and a number cannot fail a build without a
+threshold; every threshold loose enough to survive a shared runner is too loose
+to catch what matters, and every tighter one flakes until the job is ignored.
+Failing a build on "0.454s is too slow" would also be the first check here to
+judge whether a number is acceptable, which is the one thing every rule in this
+project is forbidden to do.
+
+### A probe that flagged a comment
+
+The network probe reported a security finding against a tool that opens no
+sockets. It substring-scanned the source, and `clone` appears once, inside a
+prose sentence about commits made from one.
+
+It now strips comments and docstrings through the AST while keeping ordinary
+string literals, because `_git(repo, "fetch", ...)` is the only shape a real
+network call takes. Stripping every string would leave a scan that is
+permanently clean and therefore permanently worthless.
+
+Recording it in the expected-findings ledger would have been the easier fix and
+the wrong one: it would have preserved the bug behind the word "expected".
+
 ## 0.12.2 (2026-07-28)
 
 Installable from PyPI, and a publish pipeline that proves the artifact works.
