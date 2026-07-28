@@ -113,12 +113,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '                continue\n            target = raw.split("#", 1)[0]',
          '            if raw.startswith("#"):\n'
          '                continue\n            target = raw.split("#", 1)[0]'),
+        # Retargeted when dead-md-anchor grew to check fragments on OTHER
+        # files: the fragment is now split off with partition rather than
+        # sliced, and slugging moved behind _heading_text.
         ("anchors compared case-sensitively", collect,
-         "            fragment = raw[1:].lower()",
-         "            fragment = raw[1:]"),
+         "            fragment = fragment.lower()",
+         "            fragment = fragment"),
         ("slug keeps punctuation", collect,
-         '    text = re.sub(r"[^\\w\\s-]", "", text)',
-         "    text = text"),
+         '    text = re.sub(r"[^\\w\\s-]", "", _heading_text(title))',
+         "    text = _heading_text(title)"),
+        ("cross-file anchors no longer checked", collect,
+         "            offered = _target_anchors(resolved)",
+         "            offered = None"),
         ("rename chains no longer followed", collect,
          "    while current in mapping:",
          "    if current in mapping:"),

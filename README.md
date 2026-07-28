@@ -119,7 +119,7 @@ Twelve rules. Every one answers a question git or the filesystem can settle.
 | `dead-release-tag` | "released in v2.1" when no such tag exists, or it never shipped |
 | `dead-path-pointer` | "see the file at this path" when the file moved |
 | `dead-md-link` | `[a link](to/a/file.md)` whose target is gone |
-| `dead-md-anchor` | a `#jump-to-section` link with no such heading |
+| `dead-md-anchor` | a `#jump-to-section` link with no such heading, in this file or a linked one |
 | `inconsistent-artifact` | two files in your project stating different values for the same thing |
 | `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |
 | `raw-lfs-blob` | an asset your `.gitattributes` says is in Git LFS, committed into git as a real binary instead |

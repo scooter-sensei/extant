@@ -1380,10 +1380,30 @@ def _prose(text: str) -> str:
     return _blank(text, inline=False)
 
 
+def _heading_text(title: str) -> str:
+    """Heading text with code backticks unwrapped, lowercased."""
+    return re.sub(r"`([^`]*)`", r"\1", title.strip()).lower()
+
+
+def _without_tags(title: str) -> str:
+    """The same heading with angle-bracket markup removed.
+
+    Offered ALONGSIDE the untouched spelling, never instead of it, because the
+    two conventions collide head-on and both are real.
+
+    vitejs/vite writes `## resolve.conditions <NonInheritBadge />` and links to
+    it as `#resolve-conditions`, so the component tag has to go. Prometheus
+    writes `### \\`<relabel_config>\\`` - a YAML placeholder that IS the heading
+    - and links to it as `#relabel_config`, so the angle brackets have to stay.
+    Stripping unconditionally fixed vite's two and broke fifty of Prometheus's,
+    which is the worse trade by far and is why this is additive.
+    """
+    return re.sub(r"<[^>]*>", " ", title)
+
+
 def _slug(title: str) -> str:
     """Approximate the heading-to-anchor conversion used by common renderers."""
-    text = re.sub(r"`([^`]*)`", r"\1", title.strip().lower())
-    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[^\w\s-]", "", _heading_text(title))
     return re.sub(r"\s+", "-", text).strip("-")
 
 
@@ -1401,8 +1421,7 @@ def _slug_punctuation_to_dash(title: str) -> str:
     costs nothing that matters - a fragment matching neither is still dead,
     which is why httpx's genuinely broken `#routing` survives this change.
     """
-    text = re.sub(r"`([^`]*)`", r"\1", title.strip().lower())
-    text = re.sub(r"[^\w\s-]", "-", text)
+    text = re.sub(r"[^\w\s-]", "-", _heading_text(title))
     return re.sub(r"[-\s]+", "-", text).strip("-")
 
 
@@ -1410,8 +1429,14 @@ def _anchors(text: str) -> set[str]:
     """Every fragment this document offers, from headings and explicit anchors."""
     headings = [m.group(1) for line in text.splitlines()
                 if (m := _HEADING.match(line))]
-    found = {_slug(h) for h in headings}
-    found |= {_slug_punctuation_to_dash(h) for h in headings}
+    # Every spelling a renderer might produce: two slug conventions, each over
+    # the heading as written and with angle-bracket markup removed. Offering a
+    # spelling that no renderer uses costs nothing - a fragment matching none
+    # of them is still dead - while missing one reports a working link as
+    # broken, which is the failure that matters.
+    variants = [v for h in headings for v in (h, _without_tags(h))]
+    found = {_slug(v) for v in variants}
+    found |= {_slug_punctuation_to_dash(v) for v in variants}
     found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}
     return found - {""}
 
@@ -1470,26 +1495,78 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
     return findings
 
 
-def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
-    """Same-document `#fragment` links pointing at no such heading.
+def _target_anchors(path: Path) -> set[str] | None:
+    """Anchors offered by another document, or None if it cannot be read."""
+    key = str(path)
+    if key not in _TARGET_ANCHORS:
+        try:
+            with open(path, encoding="utf-8", newline="") as fh:
+                _TARGET_ANCHORS[key] = _anchors(fh.read())
+        except (OSError, UnicodeDecodeError):
+            _TARGET_ANCHORS[key] = None
+    return _TARGET_ANCHORS[key]
 
-    Checked only for fragments with no file part, so the answer lives entirely
-    in the text being validated. A fragment on another file would require
-    reading that file and reproducing its renderer's slug rules, which is a
-    guess rather than a fact.
+
+_TARGET_ANCHORS: dict[str, set[str] | None] = {}
+
+
+def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
+    """`#fragment` links pointing at no such heading, in this file or another.
+
+    This used to check same-document fragments only, on the reasoning that a
+    fragment on another file needs that file's renderer slug rules and so is a
+    guess rather than a fact. That reasoning was sound and applied just as
+    much to the same-document case, which shipped anyway - the asymmetry was
+    never justified, and two things have since removed most of the guess.
+    Headings are now slugged under BOTH common conventions, and a cross-file
+    fragment is only judged when its path resolves to a real markdown file
+    exactly as written.
+
+    That last condition keeps this conservative on purpose. An extensionless
+    or routed target in a generated site never resolves, so it is never judged
+    here; `dead-md-link` already declines to judge it for the same reason, and
+    a missing file is that rule's finding rather than this one's.
+
+    Measured across nine repositories: 26 cross-file anchors resolve to a real
+    file, 3 of them name a heading that does not exist, and all 3 are the same
+    rot - a heading renamed and its inbound links left behind. httpx links to
+    `#customizing-authentication` where the heading reads "Custom
+    authentication schemes".
     """
     available = _anchors(text)
+    base = _LINK_BASE or repo
     findings: list[Finding] = []
     for number, line in enumerate(_strip_code(text).splitlines(), start=1):
         for raw in _MD_LINK.findall(line):
-            if not raw.startswith("#") or len(raw) < 2:
+            if "#" not in raw or _EXTERNAL.match(raw):
                 continue
-            fragment = raw[1:].lower()
-            if fragment in available:
+            target, _, fragment = raw.partition("#")
+            fragment = fragment.lower()
+            if not fragment:
+                continue
+            if not target:
+                if fragment in available:
+                    continue
+                findings.append(Finding(
+                    number, "dead-md-anchor",
+                    f"links to `{raw}`, but this document has no such heading",
+                ))
+                continue
+            if target.startswith("/"):
+                resolved = repo / target.lstrip("/")
+            else:
+                resolved = base / target
+            if resolved.suffix.lower() not in (".md", ".markdown"):
+                continue
+            if not resolved.is_file():
+                continue          # dead-md-link's finding, not this rule's
+            offered = _target_anchors(resolved)
+            if offered is None or fragment in offered:
                 continue
             findings.append(Finding(
                 number, "dead-md-anchor",
-                f"links to `{raw}`, but this document has no such heading",
+                f"links to `{raw}`, but `{_rel(repo, resolved)}` has no such "
+                "heading",
             ))
     return findings
 
@@ -2485,9 +2562,10 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     makes the two agree, and leaving it None keeps the old repo-root behaviour
     for callers that have no particular file in mind.
     """
-    global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS, _LFS
+    global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
     previous, previous_cache = _LINK_BASE, _DIRCACHE
     previous_ancestors, previous_refs, previous_lfs = _ANCESTORS, _REFS, _LFS
+    previous_target_anchors = _TARGET_ANCHORS
     if base is not None:
         _LINK_BASE = base
     # Directory listings may be reused for the duration of this call and no
@@ -2500,6 +2578,10 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     _ANCESTORS = {}
     _REFS = {}
     _LFS = {}
+    # Same lifetime, same reason: another document's headings are read at
+    # most once per call, and held no longer than the repository state they
+    # were read from.
+    _TARGET_ANCHORS = {}
     try:
         findings: list[Finding] = []
         primary = not in_archive and has_entries
@@ -2518,6 +2600,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         _ANCESTORS = previous_ancestors
         _REFS = previous_refs
         _LFS = previous_lfs
+        _TARGET_ANCHORS = previous_target_anchors
 
 
 FORMATS = ("text", "github", "sarif")

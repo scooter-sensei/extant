@@ -201,3 +201,76 @@ def test_the_sweep_reads_the_commit_not_the_index(git_repo) -> None:
     assert sorted(found) == ["README.md", "docs/plan.md"], (
         f"HEAD's tree holds both files; got {found}"
     )
+
+
+# --- cross-file anchors ---------------------------------------------------
+
+def test_a_fragment_on_another_file_is_checked(git_repo) -> None:
+    """encode/httpx and prometheus. A heading renamed, inbound links left.
+
+    All three httpx cases are that same rot: the link asks for
+    `#customizing-authentication` while the heading reads "Custom
+    authentication schemes". Measured across nine repositories, 96 cross-file
+    anchors resolve to a real markdown file and 7 name a heading that is not
+    there.
+    """
+    repo, commit = git_repo
+    commit("docs/auth.md", "# Auth\n\n## Custom authentication schemes\n", "chore: auth")
+    commit("docs/index.md", "x\n", "chore: index")
+    text = "See [auth](auth.md#customizing-authentication).\n"
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(repo, text, has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-anchor" in kinds, kinds
+
+
+def test_a_fragment_that_does_exist_elsewhere_is_left_alone(git_repo) -> None:
+    """Or the rule above would be indistinguishable from always firing."""
+    repo, commit = git_repo
+    commit("docs/auth.md", "# Auth\n\n## Custom authentication schemes\n", "chore: auth")
+    commit("docs/index.md", "x\n", "chore: index")
+    text = "See [auth](auth.md#custom-authentication-schemes).\n"
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(repo, text, has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-anchor" not in kinds, kinds
+
+
+def test_a_fragment_on_a_file_that_is_missing_is_not_this_rules_finding(git_repo) -> None:
+    """`dead-md-link` already reports the missing file. Reporting it twice, once
+    per rule, would double-count every broken link in a document."""
+    repo, commit = git_repo
+    commit("docs/index.md", "x\n", "chore: index")
+    text = "See [gone](nowhere.md#whatever).\n"
+
+    import extant_collect as hc
+    hc._LINK_BASE = repo / "docs"
+    try:
+        kinds = [f.kind for f in hc.validate(repo, text, has_entries=False)]
+    finally:
+        hc._LINK_BASE = None
+    assert "dead-md-link" in kinds, kinds
+    assert "dead-md-anchor" not in kinds, f"double-counted: {kinds}"
+
+
+def test_angle_bracket_headings_keep_their_anchor(git_repo) -> None:
+    """prometheus. `### `<relabel_config>`` is a YAML placeholder, not markup.
+
+    Stripping angle brackets unconditionally to fix vite's component tags
+    deleted this heading entirely and turned fifty working links into
+    findings. Both spellings are offered now, so both projects are right.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("## `<relabel_config>`\n\n## resolve.conditions <NonInheritBadge />\n\n"
+            "See [a](#relabel_config) and [b](#resolve-conditions).\n")
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)

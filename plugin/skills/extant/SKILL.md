@@ -120,7 +120,7 @@ and both destroy the tool's value.
 | `dead-release-tag` | "released in v2.1" where the tag is missing or on no integration branch | whole file |
 | `dead-path-pointer` | "Plan: X" / "see X" where X does not exist | operative references only |
 | `dead-md-link` | `[text](path)` whose file is gone | whole file |
-| `dead-md-anchor` | `[text](#fragment)` with no such heading | same document only |
+| `dead-md-anchor` | `[text](#fragment)` and `[text](other.md#fragment)` with no such heading | this document, and any linked file that resolves |
 | `dead-pinned-ref` | an install snippet pinning a version of THIS repo that does not resolve | whole file, **inside code** |
 | `raw-lfs-blob` | a file `.gitattributes` routes through LFS, stored as a raw blob | repository |
 | `possible-secret` | credential-shaped tokens before they are committed | whole file |
