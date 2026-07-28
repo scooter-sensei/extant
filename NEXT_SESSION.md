@@ -10,7 +10,14 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 **Status.** Suite is 352 tests, all passing. Eleven rules, eighteen presets.
 `v0.14.0` is tagged, released, and on PyPI. Every release from `v0.5.0` is
-tagged with no gaps, and each has a release page.
+tagged with no gaps.
+
+Release pages exist for every tag except `v0.13.0`, `v0.13.1` and `v0.13.2`,
+whose changes are written up in the `v0.14.0` page instead. `v0.13.1` is a tag
+that never published at all: the release gate added in it rejected it, which is
+the gate working. The claim here used to read "each has a release page", which
+was true when written and stopped being true three tags later - the exact decay
+this project exists to catch, in the document it validates against.
 
 **What Shipped.**
 
