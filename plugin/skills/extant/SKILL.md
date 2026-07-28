@@ -154,7 +154,11 @@ python tools/extant_collect.py --selftest
 ```
 
 Corrupts one REAL claim per rule and reports which rules noticed. A rule that
-stays silent after its own probe is not working. Probes mutate the project's
+stays silent after its own probe is not working. A rule may instead report
+NO PROBE, meaning the repository offered nothing safe to corrupt - no claim of
+that kind exists here. That is an expected outcome rather than a failure, but
+it is not evidence the rule works either, which is why it is printed rather
+than folded into the pass count. Probes mutate the project's
 actual prose rather than injecting invented text, so what is exercised is this
 configuration against this writing; a synthetic probe written in the default
 vocabulary would only prove the defaults match the defaults.

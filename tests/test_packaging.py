@@ -458,7 +458,15 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
     import extant_collect as hc
 
+    # Snapshot and restore the exact prior state. The cleanup used to call
+    # reload_config(PACKAGE_ROOT), which reloads THIS repository's own config
+    # rather than whatever was in place before - so it depended on
+    # `.extant.toml` existing here, and it silently defeated the autouse
+    # `neutral_config` fixture for every test that ran afterwards.
+    saved_config = hc.CONFIG
+    saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
     before = hc.PRIMARY_DOC
+
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text(
         'primary_doc = "SOMETHING_ELSE.md"\ntrunk = "develop"\n', encoding="utf-8")
@@ -467,10 +475,12 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
         assert hc.PRIMARY_DOC == "SOMETHING_ELSE.md"
         assert hc.TRUNK == "develop"
         assert hc._MERGE_CLAIM.search("merged to `develop` at `abc1234`"), (
-            "a compiled pattern that interpolates trunk was not rebuilt"
+            "a compiled pattern was not rebuilt"
         )
     finally:
-        hc.reload_config(PACKAGE_ROOT)
+        hc.CONFIG = saved_config
+        for name, value in saved.items():
+            setattr(hc, name, value)
     assert hc.PRIMARY_DOC == before
 
 

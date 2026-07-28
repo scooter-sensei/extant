@@ -515,12 +515,15 @@ def main() -> int:
     skill = root / "plugin/skills/extant"
     mutations = build_mutations(skill / "payload/extant_collect.py", skill / "detect.py")
 
-    backups = {path: path.read_text(encoding="utf-8")
-               for _l, path, _o, _n in mutations}
-    for path in backups:
-        if not path.is_file():
+    # Existence FIRST. Reading before checking raised FileNotFoundError and
+    # the careful message below never printed.
+    paths = {path for _l, path, _o, _n in mutations}
+    missing = [p for p in paths if not p.is_file()]
+    if missing:
+        for path in missing:
             print(f"missing source file: {path}")
-            return 1
+        return 1
+    backups = {path: path.read_text(encoding="utf-8") for path in paths}
 
     if args.check_only:
         # Seconds rather than half an hour, because it runs no tests. Mutations

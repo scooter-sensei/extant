@@ -705,7 +705,10 @@ def _resolve_shas(repo: Path, tokens: list[str]) -> set[str]:
         return {token for token in unique if _sha_exists(repo, token)}
     return {
         token for token, line in zip(unique, lines)
-        if not line.rstrip().endswith("missing")
+        # Explicit success only. `<input> missing` is one failure shape;
+        # `<input> ambiguous` is another, and "does not end in missing" let
+        # it through as though the object had resolved.
+        if len(line.split()) == 3 and not line.rstrip().endswith("missing")
     }
 
 
@@ -1869,6 +1872,7 @@ def _lfs_governed(repo: Path) -> list[tuple[str, str]]:
             ["git", "check-attr", "-z", "--stdin", "filter"], cwd=repo,
             input=payload, capture_output=True, check=True).stdout
     except (subprocess.CalledProcessError, OSError):
+        _LFS[key] = []
         return []
     fields = raw.decode("utf-8", "replace").split("\0")
     governed = []
@@ -2746,7 +2750,14 @@ def cli() -> int:
     else:
         index = next(i for i, a in enumerate(argv) if a.split("=", 1)[0] == "--repo")
         raw = argv[index]
-        repo = Path(raw.split("=", 1)[1] if "=" in raw else argv[index + 1])
+        if "=" in raw:
+            repo = Path(raw.split("=", 1)[1])
+        elif index + 1 < len(argv):
+            repo = Path(argv[index + 1])
+        else:
+            # `extant --repo` with nothing after it. Reaching for argv[i+1]
+            # raised IndexError before argparse could say what was wrong.
+            build_parser().error("--repo requires a PATH")
     reload_config(repo)
     return main(argv)
 
@@ -2861,8 +2872,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.selftest:
         target = repo / PRIMARY_DOC
         if not target.is_file():
-            print(f"no such document: {target}")
-            print(f"  primary_doc is '{CONFIG.primary_doc}', from {CONFIG.source}")
+            # diag, not print: in SARIF mode stdout carries nothing but JSON.
+            diag(f"no such document: {target}")
+            diag(f"  primary_doc is '{CONFIG.primary_doc}', from {CONFIG.source}")
             return 1
         try:
             with open(target, encoding="utf-8", newline="") as fh:
@@ -2933,9 +2945,9 @@ def main(argv: list[str] | None = None) -> int:
             # A traceback here is a poor answer to a common situation: the
             # document lives elsewhere in this project, or the config points at
             # the wrong name. Say which file was expected and where it came from.
-            print(f"no such document: {target}")
-            print(f"  primary_doc is '{CONFIG.primary_doc}', from {CONFIG.source}")
-            print("  set primary_doc in .extant.toml, or pass --validate <path>")
+            diag(f"no such document: {target}")
+            diag(f"  primary_doc is '{CONFIG.primary_doc}', from {CONFIG.source}")
+            diag("  set primary_doc in .extant.toml, or pass --validate <path>")
             return 1
         try:
             with open(target, encoding="utf-8", newline="") as fh:
@@ -2966,7 +2978,13 @@ def main(argv: list[str] | None = None) -> int:
         baselined: dict[str, dict[str, str]] = {}
         # --baseline-check implies reading one, so it does not also need
         # --baseline. Both fall back to the conventional filename.
+        # Against the REPO, not the process cwd. A hook or a CI step runs
+        # from wherever it likes and passes --repo, and a relative baseline
+        # would then be looked for somewhere else entirely - reported as
+        # missing, or worse, silently a different file.
         baseline_path = Path(args.baseline or BASELINE_NAME)
+        if not baseline_path.is_absolute():
+            baseline_path = repo / baseline_path
         if (args.baseline or args.baseline_check) and not args.write_baseline:
             try:
                 baselined = load_baseline(baseline_path)
@@ -3067,8 +3085,12 @@ def main(argv: list[str] | None = None) -> int:
             # not provided. A denominator that overstates is worse than none:
             # it is the reassuring number, not the honest one.
             skipped = {rule.kind for rule in RULES if rule.scope == "repository"}
+            # Zero counts are REPORTED, not filtered. "examined 0" and "not
+            # applicable here" are different facts, and dropping the zeros
+            # made an extra document look fully covered while a rule sat
+            # blind - the exact conflation the primary summary avoids.
             checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
-                                if kind != "possible-secret" and n
+                                if kind != "possible-secret"
                                 and kind not in skipped)
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
             if new_extra:

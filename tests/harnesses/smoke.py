@@ -255,11 +255,17 @@ def p_argument_injection() -> None:
     print("\n[hardening] branch token that looks like a git option")
     repo = new_repo("inject")
     write(repo, ".extant.toml", "branch_token = '`([\\w.-]+/[^`]+)`'\n")
+    # A path under ARENA, removed first. `/tmp/pwned` is shared: a leftover
+    # from any earlier run reports a leak that did not happen, and on Windows
+    # it resolves somewhere the probe never writes, so the check would pass
+    # without ever having been able to fail.
+    target = (ARENA / "inject-side-effect").resolve()
+    shutil.rmtree(target, ignore_errors=True)
     write(repo, "NEXT_SESSION.md", ENTRY.format(
-        "Work is on `--output=/tmp/pwned/x`."))
+        f"Work is on `--output={target.as_posix()}/x`."))
     commit(repo, "init")
     res = tool(repo, "--validate", "NEXT_SESSION.md", timeout=60)
-    leaked = Path("/tmp/pwned").exists()
+    leaked = target.exists()
     if "Traceback" in res.stderr:
         note("CRASH", "option-shaped branch token", res.stderr)
     elif leaked:

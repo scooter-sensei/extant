@@ -5,7 +5,12 @@
 ```sh
 python -m pip install -r requirements-dev.txt
 python -m pytest
+python plugin/skills/extant/payload/extant_collect.py --verify --repo .
 ```
+
+All three before you edit anything, so a failure afterwards is yours rather
+than inherited. The third is the tool checking its own documentation, and it
+is the one people forget.
 
 Python 3.9 or newer and git. `tomllib` is the only thing in the payload
 newer than 3.9, and it is imported inside a try/except: below 3.11 the tool

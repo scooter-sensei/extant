@@ -342,7 +342,13 @@ def test_defaults_work_with_no_parser_and_no_config_file(tmp_path) -> None:
 
     So the degradation is precise rather than wholesale - the tool is fully
     usable on 3.9 for anyone who has not written a config file.
+
+    The `.git` marker stops `load_config`'s upward walk inside tmp_path.
+    Without it the search can climb out and reach this repository's own
+    `.extant.toml`, and the test would then pass because a parser was never
+    needed for a DIFFERENT reason than the one it claims to demonstrate.
     """
+    (tmp_path / ".git").mkdir(exist_ok=True)
     result = _without_toml(f"""
         import pathlib, extant_config as c
         cfg = c.load_config(pathlib.Path({str(tmp_path)!r}))

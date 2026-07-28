@@ -8,7 +8,10 @@
 # copying files in remains the primary path. Packaging covers the validation
 # half only, which is the half pre-commit runs.
 #
-# No dependencies, deliberately. Standard library and git, nothing else.
+# One conditional dependency, deliberately. On Python 3.11 and newer this is
+# the standard library and git, nothing else; below that `tomllib` does not
+# exist yet, so `tomli` - the same parser under its original name - is pulled
+# in to read a config file. A project with no config file needs neither.
 
 [build-system]
 requires = ["setuptools>=61"]

@@ -761,7 +761,15 @@ def render_config(obs: list[Observation]) -> str:
         for check, sources in o.value.items():          # type: ignore[union-attr]
             lines.append(f"[extant.consistency.{check}]")
             for file_path, pattern in sources.items():
-                lines.append(f'"{file_path}" = \'{pattern}\'')
+                # A literal apostrophe inside a single-quoted TOML string ends
+                # it early, and the generated config then does not parse at
+                # all. The plain-pattern branch above already guards this; the
+                # consistency block did not, so one apostrophe in a measured
+                # pattern would have shipped a broken file.
+                if "'" in pattern:
+                    lines.append(f'"{file_path}" = \'\'\'{pattern}\'\'\'')
+                else:
+                    lines.append(f'"{file_path}" = \'{pattern}\'')
             lines.append("")
     return "\n".join(lines)
 

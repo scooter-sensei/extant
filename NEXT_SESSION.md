@@ -28,8 +28,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 - Game engines: a `raw-lfs-blob` rule and `unity` / `godot` presets, at
   `8ee2339`, released as `v0.12.0`.
 
-**What was learned.** Measuring first overturned the design three separate
-times, and in each case the plan would have shipped something that did nothing:
+**What was learned.** Measuring first repeatedly overturned the design, and in
+each case below the plan would have shipped something that did nothing:
 
 - A trunk LIST was the obvious fix for gitflow and the wrong one. A merge claim
   names its own ref, which is strictly more precise and needs no configuration.

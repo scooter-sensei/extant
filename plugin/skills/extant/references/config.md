@@ -19,8 +19,8 @@ nothing.
 
 The two placements are read together rather than one winning. This mattered
 once, badly: writing a sub-table such as `[extant.consistency.version]` makes
-TOML create a `status` key, and the loader used to choose the nested table over
-the top level. A file like this one kept the consistency block and threw the
+TOML create the nested path `extant` -> `consistency` -> `version`, and the
+loader used to choose that nested table over the top level. A file like this one kept the consistency block and threw the
 other two settings away:
 
 ```toml

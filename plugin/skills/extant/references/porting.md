@@ -10,14 +10,20 @@ confidence in a document nobody is checking.
 
 ## Does this project even want it?
 
-Four preconditions. Missing any one, most of the value evaporates:
+Two requirements, and two things that unlock extra rules but are not needed
+to install:
 
-1. **A single ground-truth document** that sessions or people read to learn the
-   current state. If state lives in issue trackers, this has nothing to validate.
-2. **Entry-structured, newest-first.** The archive and live-claim rules both
-   depend on being able to find "the newest entry".
-3. **Git**, with a known trunk branch name.
-4. **A test suite** whose output has a parseable pass/fail count.
+1. **A document to check.** Any markdown will do - a README, a CONTRIBUTING
+   file, an architecture note. Requiring a dedicated status file was the
+   single largest barrier to using this and was never a real requirement.
+2. **Git**, with a known trunk branch name.
+
+Optional, and only for the features that need them:
+
+- **Entry-structured, newest-first** documents, for archiving and the
+   live-claim rule. Without them those two are skipped and the rest still run.
+- **A test suite** whose output has a parseable pass/fail count, for
+   `--collect`. Nothing else needs it.
 
 A project with a conventional CHANGELOG and no phase cadence gets the
 reference-validation and secret-scan and little else. That may still be worth it
@@ -126,6 +132,12 @@ prose or a broken pattern. Know which - an inert rule reports "clean" forever.
 Then prove the rules fire: temporarily introduce a false claim - repoint a merge
 claim at a commit that is on no integration branch - and confirm it is reported.
 A rule never observed failing has not been tested.
+
+**Confirm the edit landed before reading the result.** A substitution that
+silently missed leaves the document correct and the run clean, which is
+indistinguishable from a rule that noticed nothing. `git diff` the document,
+or assert the new text is present, and only then interpret the output. This
+project has mistaken a failed setup for a passing check more than once.
 
 ## After installing
 

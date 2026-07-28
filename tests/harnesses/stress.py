@@ -96,7 +96,13 @@ def report(case: str, measurement: str, verdict: str) -> None:
 
 
 def run_timed(repo: Path, *args: str, budget: float, timeout: int = 600):
-    """Time a subprocess run and judge it against a budget in seconds."""
+    """Time a subprocess run.
+
+    `budget` is accepted and not used here: every caller passes the same value
+    to `verdict_for`, which does the judging. Kept rather than removed so the
+    call site reads as one measurement against one budget, and documented
+    rather than left to look like a bug.
+    """
     start = time.perf_counter()
     try:
         proc = sh(repo, PY, str(repo / "tools/extant_collect.py"),

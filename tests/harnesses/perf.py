@@ -1,6 +1,6 @@
 """Performance measurement for extant.
 
-Four questions, in descending order of how much they matter:
+Six questions, in descending order of how much they matter:
 
 1. What does the post-commit hook add to EVERY commit? If that number is bad,
    people uninstall the tool and the other three stop mattering.
@@ -8,6 +8,8 @@ Four questions, in descending order of how much they matter:
    hiding in a rule?
 3. Does it scale with REPOSITORY size - commits, branches, tags?
 4. Which rule actually costs the time?
+5. What does a baseline cost on every run, where it is most needed?
+6. What does each output format cost?
 
 Reports absolute numbers and the scaling ratio, because "1.2 seconds" means
 nothing without knowing whether it becomes 12 or 120 at ten times the size.
