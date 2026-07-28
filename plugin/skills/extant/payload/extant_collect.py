@@ -3369,6 +3369,19 @@ def reload_config(repo: Path) -> None:
     _apply_config()
 
 
+def _mode_flags() -> set[str]:
+    """Every flag in the parser's mutually exclusive mode group.
+
+    Read from the parser so that adding a mode cannot leave this behind.
+    """
+    parser = build_parser()
+    flags: set[str] = set()
+    for group in parser._mutually_exclusive_groups:      # noqa: SLF001
+        for action in group._group_actions:              # noqa: SLF001
+            flags.update(action.option_strings)
+    return flags
+
+
 def cli() -> int:
     """Console-script entry point, used by the pre-commit hook.
 
@@ -3380,8 +3393,14 @@ def cli() -> int:
       package was installed
     """
     argv = list(sys.argv[1:])
-    modes = {"--collect", "--archive", "--validate", "--verify",
-             "--selftest", "--search"}
+    # Asked of the parser, never listed here. The duplicate list went stale the
+    # moment `--sweep` was added: it was not recognised as a mode, so this
+    # inserted `--verify` in front of it and argparse rejected the pair. That
+    # shipped in 0.13.0 and broke the exact command the README leads with,
+    # because the release gate exercised `--validate` instead of the documented
+    # one. A list that has to be kept in step with another list will fall out
+    # of step; this cannot.
+    modes = _mode_flags()
     if not any(arg.split("=", 1)[0] in modes for arg in argv):
         argv.insert(0, "--verify")
     if not any(arg.split("=", 1)[0] == "--repo" for arg in argv):

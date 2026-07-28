@@ -758,3 +758,34 @@ def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path) -> None:
         + "\n  ".join(f"{n}: reloaded={r!r} but a fresh import gives {f!r}"
                        for n, (r, f) in sorted(stale.items()))
     )
+
+
+def test_the_console_entry_point_accepts_every_mode(tmp_path) -> None:
+    """`extant --sweep` must not have `--verify` inserted in front of it.
+
+    The entry point inserts a default mode when none is given, and it decided
+    what counted as a mode from a list written beside the parser rather than
+    from the parser. `--sweep` was added and the list was not, so the pip and
+    uvx installs answered the README's headline command with
+    "argument --sweep: not allowed with argument --verify".
+
+    That shipped in 0.13.0. The release gate installs the wheel and runs it,
+    but it ran `--validate`, so the one command the front page leads with was
+    the one nothing exercised.
+
+    Asserted against the parser's own mode group, so a mode added later is
+    covered without anyone remembering to come back here.
+    """
+    import extant_collect as hc
+
+    parser = hc.build_parser()
+    declared = {opt
+                for group in parser._mutually_exclusive_groups
+                for action in group._group_actions
+                for opt in action.option_strings}
+
+    assert "--sweep" in declared, "the mode group no longer holds --sweep"
+    assert declared == hc._mode_flags(), (
+        f"the entry point disagrees with the parser: "
+        f"{declared ^ hc._mode_flags()}"
+    )

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.13.1 (2026-07-29)
+
+`extant --sweep` works when installed. In 0.13.0 it did not.
+
+```
+$ uvx extant --repo . --sweep
+extant_collect: error: argument --sweep: not allowed with argument --verify
+```
+
+The console script inserts a default mode when none is given, and it decided
+what counted as a mode from a list written beside the parser instead of from
+the parser. `--sweep` was added to one and not the other, so the entry point
+put `--verify` in front of it and argparse rejected the pair.
+
+It reads the parser's own mode group now, so a mode added later cannot leave it
+behind.
+
+### Why the release gate did not catch it
+
+It installs the built wheel into a clean environment and runs it against a
+planted fault, which is the step that exists to prove the artifact works. It
+ran `--validate`. The one command the README leads with was the one nothing
+exercised, in the release whose headline feature it is.
+
+The gate now runs the documented command too.
+
 ## 0.13.0 (2026-07-29)
 
 Run it on a repository nobody here wrote.

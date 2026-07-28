@@ -91,12 +91,22 @@ jobs:
           set +e
           /tmp/verify/bin/extant --repo . --validate README.md
           broken=$?
+          # The command the README leads with, through the installed console
+          # script. It was NOT exercised here before, and that is exactly how
+          # 0.13.0 shipped with `extant --sweep` answering "argument --sweep:
+          # not allowed with argument --verify": the entry point inserted a
+          # default mode because its list of modes had gone stale. A gate that
+          # runs a different command from the documentation is not a gate on
+          # the documentation.
+          /tmp/verify/bin/extant --repo . --sweep
+          swept=$?
           sed -i 's|And \[gone\](docs/gone.md).||' README.md
           /tmp/verify/bin/extant --repo . --validate README.md
           clean=$?
           set -e
           echo "planted fault -> exit $broken (want 1); repaired -> exit $clean (want 0)"
-          [ "$broken" = "1" ] && [ "$clean" = "0" ]
+          echo "documented sweep -> exit $swept (want 0)"
+          [ "$broken" = "1" ] && [ "$clean" = "0" ] && [ "$swept" = "0" ]
 
       - uses: actions/upload-artifact@v7
         with:
