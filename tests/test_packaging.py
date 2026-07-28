@@ -365,49 +365,12 @@ def test_every_config_derived_global_is_reloadable() -> None:
         f"  reloaded but not in the source: {set(hc._CONFIG_DERIVED) - set(assigned)}"
     )
 
-    # COMPUTED derived globals, which the check above cannot see. It matches a
-    # plain copy, `X = CONFIG.y`, and `_SECTION_HEADER` is built by calling a
-    # helper on `CONFIG.entry_prefix`. That is precisely how it escaped: the
-    # guard was green while the value went stale on every reload, so a project
-    # with a non-default `entry_prefix` installed through pre-commit got the
-    # right prefix everywhere and the wrong section splitter.
-    #
-    # Discovered by AST rather than by regex. A line-oriented pattern cannot
-    # see a multi-line assignment and happily matches inside a string literal,
-    # which for a guard whose whole job is completeness is the wrong trade.
-    import ast
-
-    tree = ast.parse(source)
-    computed = set()
-    for node in tree.body:
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
-            continue
-        target = node.targets[0]
-        if not isinstance(target, ast.Name) or target.id in assigned:
-            continue
-        if any(isinstance(sub, ast.Name) and sub.id == "CONFIG"
-               for sub in ast.walk(node.value)):
-            computed.add(target.id)
-
-    assert computed, (
-        "no computed CONFIG-derived globals found; if that is now true, delete "
-        "this half rather than letting it pass over an empty set"
-    )
-    reload_names = {
-        t.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "reload_config"
-        for sub in ast.walk(node)
-        if isinstance(sub, ast.Assign)
-        for t in sub.targets
-        if isinstance(t, ast.Name)
-    }
-    assert reload_names, "reload_config assigns nothing; this half proves nothing"
-    missed = sorted(computed - reload_names)
-    assert not missed, (
-        "these globals are computed from CONFIG but reload_config never "
-        f"rebuilds them, so they keep their import-time value: {missed}"
-    )
+    # A third guard used to sit here, discovering COMPUTED derived globals by
+    # AST and asserting reload_config assigns each one. It is gone because
+    # `test_reloading_matches_a_fresh_import_of_the_same_project` subsumes it
+    # and is strictly stronger: a structural check can only ask whether an
+    # assignment EXISTS, so a global refreshed from the wrong field passes it,
+    # and the oracle catches that too. Two guards for one bug class, not three.
 
 
 def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> None:
@@ -602,4 +565,155 @@ def test_every_module_defers_annotations() -> None:
     assert not missing, (
         "modules without `from __future__ import annotations`, so a `X | Y` "
         "annotation in them fails on Python 3.9:\n  " + "\n  ".join(missing)
+    )
+
+
+# Values that legitimately differ between two checkouts of the same code, with
+# the reason each is exempt. Kept SHORT and justified: a skip-list is how a
+# check quietly stops examining anything, so the assertion below also states
+# how many globals it did compare.
+_RELOAD_ORACLE_EXEMPT = {
+    "REPO_ROOT",        # derived from __file__, so it differs by construction
+    "CONFIG",           # carries `source`, the path the config was read from
+    "_LINK_BASE",       # per-call state, not configuration
+    "_DIRCACHE",        # caches, emptied and restored around validate()
+    "_ANCESTORS",
+    "_REFS",
+    "_LFS",
+    "_RENAMES",
+}
+
+
+def _canonical(value: object) -> object:
+    """A comparable form for a module global.
+
+    Compiled patterns compare by identity, and sets have no stable order, so
+    both would produce spurious differences between two processes.
+    """
+    import re as _re
+
+    if isinstance(value, _re.Pattern):
+        return f"re:{value.pattern}"
+    if isinstance(value, (set, frozenset)):
+        return sorted(str(v) for v in value)
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    return repr(value)
+
+
+def _module_state(payload_dir, repo, reload_to=None):
+    """Every module global, from a subprocess that imports the payload.
+
+    `reload_to` runs `reload_config` against that repository after importing,
+    which is the path under test. Without it the import itself reads the
+    configuration, which is the oracle.
+    """
+    import json
+    import subprocess
+    import sys
+    import textwrap
+
+    target = repr(str(reload_to)) if reload_to else "None"
+    script = textwrap.dedent(f"""
+        import json, re, sys
+        sys.path.insert(0, {str(payload_dir)!r})
+        import extant_collect as ec
+        reload_to = {target}
+        if reload_to:
+            import pathlib
+            ec.reload_config(pathlib.Path(reload_to))
+        out = {{}}
+        for name, value in vars(ec).items():
+            if name.startswith("__") or callable(value):
+                continue
+            if isinstance(value, type(sys)) or isinstance(value, type):
+                continue
+            if isinstance(value, re.Pattern):
+                out[name] = "re:" + value.pattern
+            elif isinstance(value, (set, frozenset)):
+                out[name] = sorted(str(v) for v in value)
+            elif isinstance(value, (list, tuple)):
+                out[name] = [str(v) for v in value]
+            else:
+                out[name] = repr(value)
+        # Object reprs carry a memory address, which differs between any two
+        # processes and would make every container of functions look stale.
+        # The NAMES still compare, which is the part that can go wrong.
+        for key in list(out):
+            item = out[key]
+            if isinstance(item, str):
+                out[key] = re.sub(" at 0x[0-9a-fA-F]+", "", item)
+            else:
+                out[key] = [re.sub(" at 0x[0-9a-fA-F]+", "", i) for i in item]
+        print("<<<JSON>>>" + json.dumps(out))
+    """)
+    proc = subprocess.run([sys.executable, "-c", script], cwd=str(repo),
+                          capture_output=True, text=True, encoding="utf-8")
+    assert "<<<JSON>>>" in proc.stdout, (
+        f"the probe process produced no state:\n{proc.stdout}\n{proc.stderr}"
+    )
+    return json.loads(proc.stdout.split("<<<JSON>>>", 1)[1])
+
+
+def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path) -> None:
+    """THE guard for the whole staleness class, stated as the real invariant.
+
+    After `reload_config(repo)`, this module must hold exactly what it would
+    hold had it been imported inside `repo` in the first place. That is the
+    promise the pre-commit install path depends on, and everything else here
+    is a proxy for it.
+
+    Three proxies were tried before this and two of them were wrong. A table
+    of plain `X = CONFIG.y` copies could not see a value COMPUTED from CONFIG,
+    which is how `_SECTION_HEADER` went stale. A source scan asking whether
+    `reload_config` mentions the name passed happily, because
+    `global CONFIG, _SECTION_HEADER` mentions it. A source scan asking whether
+    it CONTAINS an assignment still cannot tell a correct rebuild from one
+    reading the wrong field.
+
+    This compares behaviour against an oracle, so it needs no naming
+    convention, no AST, and no list of what counts as derived. A global added
+    tomorrow is covered without anyone remembering this test exists.
+    """
+    import shutil
+
+    payload = SKILL_ROOT / "payload"
+
+    # A project whose configuration differs from this repository's in the
+    # fields that reach a module global.
+    project = tmp_path / "project"
+    (project / ".git").mkdir(parents=True)
+    (project / ".extant.toml").write_text(
+        "[extant]\n"
+        'primary_doc = "STATUS.md"\n'
+        'archive_doc = "docs/old.md"\n'
+        "retain_entries = 9\n"
+        'trunk = "mainline"\n'
+        'entry_prefix = "### Release "\n'
+        'pointer_prefix = "## Old pointer"\n'
+        'todo_exclude_dirs = ["vendor/"]\n',
+        encoding="utf-8")
+    shutil.copytree(payload, project / "tools")
+
+    # The oracle: imported INSIDE that project, so import-time config is its own.
+    fresh = _module_state(project / "tools", project)
+    # The path under test: imported elsewhere, then pointed at that project.
+    reloaded = _module_state(payload, SKILL_ROOT, reload_to=project)
+
+    compared = sorted(set(fresh) & set(reloaded) - _RELOAD_ORACLE_EXEMPT)
+    assert len(compared) >= 19, (
+        f"only {len(compared)} globals compared; the probe is not reading the "
+        "module properly and a clean result here would mean nothing"
+    )
+    assert fresh["TRUNK"] == "'mainline'", (
+        f"the oracle did not pick up the project's config: TRUNK={fresh['TRUNK']}"
+    )
+
+    stale = {name: (reloaded[name], fresh[name])
+             for name in compared if reloaded[name] != fresh[name]}
+    assert not stale, (
+        f"compared {len(compared)} globals; these differ after reload_config, "
+        "so they keep a value from wherever the module was imported:\n  "
+        + "\n  ".join(f"{n}: reloaded={r!r} but a fresh import gives {f!r}"
+                       for n, (r, f) in sorted(stale.items()))
     )
