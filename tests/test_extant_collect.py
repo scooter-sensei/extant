@@ -709,18 +709,6 @@ def test_historical_facts_never_flag(git_repo):
     assert validate(repo, text) == []
 
 
-def test_scan_secrets_flags_a_token_shaped_string():
-    from extant_collect import scan_secrets
-    findings = scan_secrets("key is sk-abcdefghijklmnopqrstuvwxyz012345\n")
-    assert len(findings) == 1
-    assert findings[0].kind == "possible-secret"
-
-
-def test_scan_secrets_ignores_ordinary_prose():
-    from extant_collect import scan_secrets
-    assert scan_secrets("The suite passed 2262 tests in 597 seconds.\n") == []
-
-
 def test_verify_mode_returns_nonzero_on_a_bad_doc(git_repo):
     from extant_collect import main
     repo, commit = git_repo
@@ -748,24 +736,6 @@ def test_main_errors_on_empty_validate_path(git_repo):
     with pytest.raises(SystemExit) as exc_info:
         main(["--validate", "", "--repo", str(repo)])
     assert exc_info.value.code == 2
-
-
-def test_scan_secrets_flags_a_project_scoped_key():
-    from extant_collect import scan_secrets
-    findings = scan_secrets("key is sk-proj-A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6\n")
-    assert len(findings) == 1
-    assert findings[0].kind == "possible-secret"
-
-
-def test_validate_includes_secret_findings(git_repo):
-    from extant_collect import validate
-    repo, commit = git_repo
-    commit("a.py", "a = 1\n", "feat: a - base")
-    text = "## Phase 9.9 - thing\n\nSecret: sk-abcdefghijklmnopqrstuvwxyz012345\n"
-    findings = validate(repo, text)
-    secret_findings = [f for f in findings if f.kind == "possible-secret"]
-    assert len(secret_findings) == 1
-    assert secret_findings[0].kind == "possible-secret"
 
 
 def test_live_claim_flags_a_branch_that_no_longer_exists(git_repo):
@@ -1084,17 +1054,15 @@ def test_archive_is_exempt_from_live_claim_checking(git_repo):
     assert validate(repo, archived, in_archive=True) == []  # archive: exempt
 
 
-def test_archive_exemption_still_checks_references_and_secrets(git_repo):
-    """The exemption is narrow: dead references and leaked credentials do not
-    become acceptable by being archived."""
+def test_archive_exemption_still_checks_references(git_repo):
+    """The exemption is narrow: a dead reference does not become acceptable by
+    being archived."""
     from extant_collect import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
-    findings = validate(repo, "See `deadbee1`.\nkey sk-abcdefghijklmnopqrstuvwxyz012345\n",
-                        in_archive=True)
+    findings = validate(repo, "See `deadbee1`.\n", in_archive=True)
     kinds = {f.kind for f in findings}
     assert "dead-sha" in kinds
-    assert "possible-secret" in kinds
 
 
 def test_resolve_shas_agrees_with_per_token_checking(git_repo):
@@ -1273,7 +1241,7 @@ def test_registry_covers_every_kind_the_validator_can_emit():
     declared = {r.kind for r in RULES}
     # bare-dead-sha is emitted by the same rule that emits dead-sha.
     emitted = {"dead-sha", "stale-live-claim", "false-merge-claim",
-               "dead-path-pointer", "possible-secret"}
+               "dead-path-pointer"}
     assert emitted <= declared, f"undeclared kinds: {emitted - declared}"
 
 
@@ -1398,7 +1366,6 @@ def test_count_examined_reports_the_denominator(git_repo):
     assert counts["dead-sha"] >= 2, "should have seen the backticked SHAs"
     assert counts["false-merge-claim"] == 1
     assert counts["dead-path-pointer"] == 1
-    assert counts["possible-secret"] == len(text.splitlines())
 
 
 def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(git_repo):

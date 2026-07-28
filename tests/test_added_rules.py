@@ -538,19 +538,6 @@ def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
     assert [f.kind for f in findings] == ["dead-sha"]
 
 
-def test_a_secret_inside_a_code_fence_is_still_reported(git_repo) -> None:
-    """Fenced code is exempt from CLAIM rules, never from the secret scan.
-
-    A credential pasted into a fence is still a committed credential. The
-    exemption is about what a document promises, not about what it contains.
-    """
-    from extant_collect import scan_secrets
-
-    findings = scan_secrets("```\nexport KEY=sk-A1b2C3d4E5f6G7h8I9j0K1l2m3\n```\n")
-
-    assert [f.kind for f in findings] == ["possible-secret"]
-
-
 def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_repo) -> None:
     """Windows and macOS resolve `docs/PLAN.md` to `docs/plan.md`; Linux does not.
 

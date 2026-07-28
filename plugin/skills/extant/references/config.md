@@ -207,7 +207,7 @@ thing:
 
 ```
 checked NEXT_SESSION.md: dead-sha 36, stale-live-claim 1, false-merge-claim 2,
-  dead-path-pointer 5 (907 lines scanned for secrets)
+  dead-path-pointer 5
 ```
 
 Any rule that examined **0** is named on a `NOTE:` line. Treat that as

@@ -2476,29 +2476,6 @@ def _probe_lfs_storage(repo: Path, text: str) -> str | None:
     return None
 
 
-_SECRET_SHAPES = (
-    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
-    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"\b[A-Za-z0-9_-]{32,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b"),
-)
-
-
-def scan_secrets(text: str) -> list[Finding]:
-    """Secret-shaped tokens. Runs before any commit is attempted."""
-    findings: list[Finding] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for shape in _SECRET_SHAPES:
-            match = shape.search(line)
-            if match:
-                findings.append(Finding(
-                    number, "possible-secret",
-                    f"token resembling a credential: {match.group(0)[:8]}...",
-                ))
-                break
-    return findings
-
-
 # A letter is required now that an all-digit run reads as a number rather than
 # a commit, so forty zeroes would be corrupted into something no rule looks at
 # and `--selftest` would report dead-sha silent when the rule was fine.
@@ -2636,11 +2613,6 @@ def _probe_consistency(repo: Path, text: str) -> str | None:
     return None
 
 
-def _probe_secret(repo: Path, text: str) -> str | None:
-    """Shape-based and universal, so a synthetic probe is honest here."""
-    return text + "\n\nsk-" + "A1b2C3d4E5f6G7h8I9j0K1l2" + "\n"
-
-
 @dataclass(frozen=True)
 class Rule:
     """One validation rule and the properties that decide where it applies.
@@ -2661,11 +2633,6 @@ class Rule:
     # document offers nothing to corrupt. REQUIRED, and why --selftest exists:
     # a rule that cannot state how to make itself fire cannot be shown to work.
     probe: object
-
-
-def _secret_rule(repo: Path, text: str) -> list[Finding]:
-    """Adapter: secrets need no repo, but the registry wants one signature."""
-    return scan_secrets(text)
 
 
 def count_examined(repo: Path, text: str) -> dict[str, int]:
@@ -2714,7 +2681,6 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         # Paths under an LFS filter. A project not using LFS reports 0, which
         # is the honest answer rather than a quiet pass.
         "raw-lfs-blob": len(_lfs_governed(repo)),
-        "possible-secret": len(text.splitlines()),
     }
 
 
@@ -2811,14 +2777,6 @@ RULES: tuple[Rule, ...] = (
         in_archive=False,
         falsifiable="does every path under an LFS filter store a pointer?",
         probe=_probe_lfs_storage,
-    ),
-    Rule(
-        kind="possible-secret",
-        check=_secret_rule,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does the text match a known credential shape?",
-        probe=_probe_secret,
     ),
 )
 
@@ -3741,10 +3699,9 @@ def main(argv: list[str] | None = None) -> int:
         # A rule reporting 0 examined is either genuinely absent from this
         # document or broken, and the reader has to be able to tell.
         examined = count_examined(repo, text)
-        summary = ", ".join(f"{kind} {n}" for kind, n in examined.items() if kind != "possible-secret")
-        blind = [kind for kind, n in examined.items() if n == 0 and kind != "possible-secret"]
-        diag(f"checked {Path(args.validate).name}: {summary}"
-             f" ({examined['possible-secret']} lines scanned for secrets)")
+        summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
+        blind = [kind for kind, n in examined.items() if n == 0]
+        diag(f"checked {Path(args.validate).name}: {summary}")
         if blind:
             diag("  NOTE: these rules matched nothing at all - either this "
                  "document makes no such claims, or the pattern is wrong: "
@@ -3803,8 +3760,7 @@ def main(argv: list[str] | None = None) -> int:
             # made an extra document look fully covered while a rule sat
             # blind - the exact conflation the primary summary avoids.
             checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
-                                if kind != "possible-secret"
-                                and kind not in skipped)
+                                if kind not in skipped)
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
             if new_extra:
                 exit_code = 1

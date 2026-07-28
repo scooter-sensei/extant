@@ -204,10 +204,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '                    "region": {"startLine": max(1, item.finding.line)},',
          '                    "region": {},'),
 
-        # --- secrets and shas --------------------------------------------------
-        ("secret scan misses openai keys", collect,
-         '    re.compile(r"\\bsk-[A-Za-z0-9_-]{20,}\\b"),',
-         '    re.compile(r"\\bZZZNOMATCHZZZ\\b"),'),
+        # --- shas ----------------------------------------------------------
+        # "secret scan misses openai keys" lived here until 0.14.0 removed the
+        # rule. Deleted rather than retargeted: there is no code left for it to
+        # name, and a mutation kept alive by pointing it at something else
+        # would be testing a different thing under an old label.
         ("bare sha shape drops the letter requirement", collect,
          "def _looks_like_bare_sha(token: str) -> bool:",
          "def _looks_like_bare_sha(token: str) -> bool:\n"

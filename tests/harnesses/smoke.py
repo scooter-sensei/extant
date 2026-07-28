@@ -39,10 +39,24 @@ CLEAN: list[str] = []
 # occurring inside a prose comment, and that was fixed in the probe rather
 # than listed here. Recording a false positive as expected would make the
 # ledger the thing that hides the bug.
+#
+# KNOWN BLIND SPOT, found by removing a rule. This ledger fails a run when an
+# expected flag DISAPPEARS, and that is genuinely useful. It cannot see a flag
+# that keeps appearing for a different reason than it used to.
+#
+# `possible-secret` was deleted in 0.14.0, and the probe that flagged "a
+# baseline can suppress a live credential" went on flagging it: its condition
+# was `returncode == 0 and "possible-secret" not in stdout`, and with the rule
+# gone the second half is trivially true while the first held for an unrelated
+# dead SHA. The ledger reported 0 new and 0 missing and looked healthy while
+# the probe tested nothing at all.
+#
+# So a flag surviving is weaker evidence than a flag vanishing. When a rule is
+# removed, its probes have to be removed with it rather than left to keep
+# reporting.
 EXPECTED = {
     "deleting a claim makes the document pass",
     "a check can list the same file under two spellings",
-    "a baseline can suppress a live credential",
     "a recorded finding forgives future copies of itself",
 }
 
@@ -528,55 +542,11 @@ def p_config_discovery_abuse() -> None:
 # probe below a question about whether the amnesty can quietly grow to cover
 # everything. "Does suppression work" is the easy half and is already a unit
 # test. What follows is the other half.
-SECRET = "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 # A letter, because an all-digit run reads as a number rather than a commit:
 # forty zeroes stopped being SHA-shaped and two probes quietly had nothing to
 # find. Both reported HARNESS rather than passing, which is the distinction
 # this file exists to make.
 DEAD_SHA = "dead" + "0" * 36
-
-
-def p_baseline_and_a_live_credential() -> None:
-    """A baseline records findings into a file that gets COMMITTED.
-
-    Two separate questions, and they have different answers. Writing the
-    credential itself into that file would turn the secret scanner into a
-    secret publisher, which is the worse of the two. Suppressing the finding
-    leaves a live credential in the document with nothing ever mentioning it
-    again.
-    """
-    print("\n[baseline] a credential, recorded and then suppressed")
-    repo = new_repo("baseline-secret")
-    write(repo, "NEXT_SESSION.md", ENTRY.format(
-        f"Token `{SECRET}` is in use.\nReference `{DEAD_SHA}`."))
-    commit(repo, "init")
-
-    res = tool(repo, "--validate", "NEXT_SESSION.md", "--write-baseline")
-    recorded = repo / ".extant-baseline.json"
-    if not recorded.is_file():
-        note("HARNESS", "no baseline was written", res.stdout + res.stderr)
-        return
-    body = recorded.read_text(encoding="utf-8")
-    if SECRET in body:
-        note("SECURITY", "the baseline file contains the credential in full",
-             "the finding detail is written verbatim into a file whose whole "
-             "purpose is to be committed and reviewed, so recording a secret "
-             "once publishes it permanently")
-    else:
-        ok("the recorded credential is truncated, not stored",
-           "the detail is abbreviated, so the baseline cannot become a "
-           "committed secret store")
-
-    after = tool(repo, "--validate", "NEXT_SESSION.md", "--baseline")
-    if after.returncode == 0 and "possible-secret" not in after.stdout:
-        note("BY-DESIGN", "a baseline can suppress a live credential",
-             "possible-secret is treated as ordinary debt, so a token still "
-             "sitting in the document is silenced by the same mechanism that "
-             "forgives a dead link. Every other rule describes something that "
-             "is merely wrong; this one describes something that is still "
-             "dangerous.")
-    else:
-        ok("a credential survives the baseline", f"exit {after.returncode}")
 
 
 def p_baseline_forgives_a_repaste() -> None:
@@ -884,7 +854,7 @@ def main() -> int:
               p_pattern_that_matches_nothing, p_library_link_base,
               p_consistency_abuse, p_search_abuse, p_suggest_fixes_abuse,
               p_config_discovery_abuse,
-              p_baseline_and_a_live_credential, p_baseline_forgives_a_repaste,
+              p_baseline_forgives_a_repaste,
               p_baseline_failure_modes, p_baseline_theatre,
               p_sarif_stdout_purity, p_github_annotation_injection,
               p_offline, p_install_over_existing_agent_files]

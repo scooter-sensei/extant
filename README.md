@@ -33,16 +33,15 @@ line expired, so it plans around something untrue and hands back confidently
 wrong work.
 
 Here is one real project, swept with a single command and no configuration.
-49 tracked markdown files, 44 findings, counted by rule:
+49 tracked markdown files, 43 findings, counted by rule:
 
 | Count | Rule | |
 |---:|:---|:---|
 | 37 | `dead-sha` | a commit that no longer resolves |
 | 5 | `bare-dead-sha` | the same, written without backticks |
 | 1 | `dead-path-pointer` | a file that moved |
-| 1 | `possible-secret` | |
 
-**42 of 44 were dead commit references, and every located finding sat in the
+**42 of 43 were dead commit references, and every located finding sat in the
 project's plan and spec directories** - the documents written during agent
 sessions. Zero in the README. Zero in CONTRIBUTING. The human-facing docs were
 fine; the machine-facing ones had rotted where nobody looks.
@@ -108,7 +107,7 @@ The other two modes, once you want them:
 
 ## What it covers
 
-Twelve rules. Every one answers a question git or the filesystem can settle.
+Eleven rules. Every one answers a question git or the filesystem can settle.
 
 | Rule | Catches |
 |:---|:---|
@@ -123,7 +122,6 @@ Twelve rules. Every one answers a question git or the filesystem can settle.
 | `inconsistent-artifact` | two files in your project stating different values for the same thing |
 | `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |
 | `raw-lfs-blob` | an asset your `.gitattributes` says is in Git LFS, committed into git as a real binary instead |
-| `possible-secret` | a password or key pasted in by accident |
 
 Five details that are easy to miss:
 
@@ -176,7 +174,7 @@ other**, because that has a definite answer. See
 
 | | |
 |:---|:---|
-| **Strongest fit** | You run coding agents, and sessions leave behind plan, spec, design or status documents. Those cite commits and branches, rot within days, and are read back as fact by the next session. This is where 42 of the 44 findings above came from. |
+| **Strongest fit** | You run coding agents, and sessions leave behind plan, spec, design or status documents. Those cite commits and branches, rot within days, and are read back as fact by the next session. This is where 42 of the 43 findings above came from. |
 | **Good fit** | You write ADRs, RFCs, postmortems, migration notes or release notes that reference commits, branches or tags. Same shape, written by hand. |
 | **Probably yes** | Your project uses git and has documentation that names files and paths. The link and path rules work on any markdown. |
 | **Probably not** | Your documentation is one paragraph that never mentions a file, a commit, or a version. There is nothing here for it to check, and it will honestly tell you so. |
@@ -246,7 +244,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.13.2
+    rev: v0.14.0
     hooks:
       - id: extant
 ```
@@ -465,7 +463,7 @@ The summary line counts what was **examined**, not what was found:
 
 ```console
 checked STATUS.md: dead-sha 36, stale-live-claim 1, false-merge-claim 2,
-  dead-path-pointer 5 (907 lines scanned for secrets)
+  dead-path-pointer 5
 ```
 
 If one of those reads `0`, that check found nothing to look at, which usually
@@ -491,9 +489,8 @@ matching rule notices, and puts everything back. Nothing is written.
   stale-live-claim     FIRED
   dead-path-pointer    FIRED
   dead-release-tag     NO PROBE       nothing to corrupt
-  possible-secret      FIRED
 
-  4 fired, 1 had nothing to corrupt, 0 stayed silent
+  3 fired, 1 had nothing to corrupt, 0 stayed silent
 ```
 
 **A check that stays silent after you break something it should catch is

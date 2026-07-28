@@ -8,8 +8,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 10 - Run it on somebody else's repository (shipped, 2026-07-29)
 
-**Status.** Suite is 358 tests, all passing. Twelve rules, eighteen presets.
-`v0.13.2` is tagged, released, and on PyPI. Every release from `v0.5.0` is
+**Status.** Suite is 352 tests, all passing. Eleven rules, eighteen presets.
+`v0.14.0` is tagged, released, and on PyPI. Every release from `v0.5.0` is
 tagged with no gaps, and each has a release page.
 
 **What Shipped.**

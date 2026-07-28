@@ -182,4 +182,6 @@ def test_a_document_of_only_non_ascii_still_reports_a_denominator(tmp_path) -> N
 
     assert result.returncode == 0, result.stdout
     assert "checked README.md:" in result.stdout
-    assert "lines scanned for secrets" in result.stdout
+    # The denominator names every rule; the secret scan was removed in
+    # 0.14.0, so its line-count is no longer part of it.
+    assert "raw-lfs-blob" in result.stdout

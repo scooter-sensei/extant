@@ -122,7 +122,7 @@ patterns match nothing. So `--verify` prints the denominator behind the verdict:
 
 ```
 checked NEXT_SESSION.md: dead-sha 36, stale-live-claim 1, false-merge-claim 2,
-  dead-path-pointer 5 (907 lines scanned for secrets)
+  dead-path-pointer 5
 ```
 
 Read those counts before the exit code. A rule that examined zero candidates is

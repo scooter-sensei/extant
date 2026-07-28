@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.14.0 (2026-07-29)
+
+`possible-secret` is gone. Use gitleaks.
+
+**It found nothing.** Zero findings across 38 repositories and 7,708 markdown
+files. The only time it was ever observed firing was on a design document
+containing an `sk-` example, which was a false positive.
+
+**It asked a different question from every other rule.** The rest ask "is this
+statement still true", which git or the filesystem settles. This one asked
+"does this file contain something dangerous", which is a different job. It met
+the letter of the falsifiability guarantee while missing the point of it.
+
+**And four regexes are not a secret scanner.** gitleaks ships roughly 150 rules
+and trufflehog several hundred with live verification. Four beside them do not
+add safety, they add the appearance of it, which is worse: a project that
+believes its documentation is scanned for credentials will not reach for a tool
+that actually does it.
+
+Eleven rules now. The `--verify` denominator no longer carries a trailing
+`(N lines scanned for secrets)`, and fenced code is uniformly exempt from every
+rule rather than exempt from claims but not from the scan.
+
+### The cost, stated
+
+`--selftest` could exercise four rules on this repository and can now exercise
+three. The secret probe was synthetic, so it was always available, while every
+other probe depends on the document offering something real to corrupt. That is
+a genuine loss of signal about whether the probe machinery works, accepted
+because a rule kept for the convenience of its own test is kept for the wrong
+reason.
+
+### And a blind spot it exposed in the smoke harness
+
+`smoke.py` fails a run when an expected finding stops appearing. It cannot see
+one that keeps appearing for a different reason.
+
+The probe behind "a baseline can suppress a live credential" tested
+`returncode == 0 and "possible-secret" not in stdout`. With the rule deleted
+the second half is trivially true, and the first held because of an unrelated
+dead SHA, so the flag went on being raised by a probe that tested nothing. The
+ledger reported 0 new and 0 missing and looked healthy.
+
+A surviving flag is weaker evidence than a vanishing one. Recorded beside
+EXPECTED so the next person removing a rule deletes its probes rather than
+leaving them to keep reporting.
+
 ## 0.13.2 (2026-07-29)
 
 Everything 0.13.1 described. That tag exists and never published, because the

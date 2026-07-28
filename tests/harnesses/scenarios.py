@@ -277,21 +277,20 @@ def s6_everything_broken() -> None:
           "Jump to [x](#no-such-heading).\n"                      # dead-md-anchor
           "Work is NOT yet merged on `feature/phantom`.\n"        # unknown-branch
           "Released in v9.9 supposedly.\n"                        # dead-release-tag
-          "Token sk-A1b2C3d4E5f6G7h8I9j0K1l2m3\n"                 # secret
           "\n## 1. Ref\n")
     commit(repo, "docs: many claims")
 
     res = tool(repo, "--validate", "NEXT_SESSION.md")
     kinds = {"dead-sha", "false-merge-claim", "dead-path-pointer", "dead-md-link",
-             "dead-md-anchor", "unknown-branch", "dead-release-tag", "possible-secret"}
+             "dead-md-anchor", "unknown-branch", "dead-release-tag"}
     # `k in res.stdout` is true for EVERY kind on every run: the denominator
     # line names them all, and so does the NOTE listing rules that matched
-    # nothing. This scenario's entire purpose is to prove all eight fired, and
+    # nothing. This scenario's entire purpose is to prove all seven fired, and
     # it asserted that unconditionally. Second instance of the bug fixed for
     # the consistency check twelve lines of this file away, found by a review
     # rather than by the mutation campaign, which had no mutation aimed here.
     found = {k for k in kinds if _findings(res.stdout, k)}
-    check(name, f"all 8 rule kinds fired (got {len(found)}/8: {sorted(found)})",
+    check(name, f"all 7 rule kinds fired (got {len(found)}/7: {sorted(found)})",
           found == kinds, res.stdout)
     check(name, "exit 1", res.returncode == 1)
 
@@ -909,10 +908,13 @@ def _examined(stdout: str) -> int:
     for line in stdout.splitlines():
         if not line.startswith("checked "):
             continue
-        # The line ends `... dead-pinned-ref 0 (8 lines scanned for secrets)`.
-        # Splitting on commas alone leaves that parenthetical attached to the
-        # LAST rule, whose count is then silently dropped - so a document
-        # whose only examined rule happened to be last would read as zero.
+        # The line used to end with a parenthetical - `... dead-pinned-ref 0
+        # (8 lines scanned for secrets)` - and splitting on commas alone left
+        # it attached to the LAST rule, whose count was then silently dropped,
+        # so a document whose only examined rule happened to be last read as
+        # zero. The secret scan is gone and with it the parenthetical, but the
+        # split stays: it costs nothing and the next trailing note would
+        # reintroduce exactly this.
         body = line.split(":", 1)[-1].split("(")[0]
         for chunk in body.split(","):
             parts = chunk.strip().split()

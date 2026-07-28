@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when documentation cites things git can settle and may have gone stale - a commit SHA, a merge claim like 'merged to main at abc1234', a branch name, a release tag, or a file path. Especially for the plan, spec, design and status documents written during agent sessions, which are dense with commit references and are read back as fact by the next session. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a --sweep mode that surveys every tracked markdown file with no configuration. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.13.2
+version: 0.14.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -18,7 +18,7 @@ and status files are dense with commit SHAs and merge claims, get written once,
 and are read back as fact by the next session - which cannot tell an expired
 line from a current one, so it plans around something untrue.
 
-Measured on one real project: 49 tracked markdown files, 44 findings, of which
+Measured on one real project: 49 tracked markdown files, 43 findings, of which
 **42 were dead commit references**, and every located finding sat in the plan and
 spec directories rather than in the README or CONTRIBUTING. The human-facing
 docs were fine. The machine-facing ones had rotted where nobody looks.
@@ -105,7 +105,7 @@ Then **derive the configuration from the real document - do not accept the
 defaults blindly.** See `references/porting.md`. This is the step that decides
 whether the tool works or silently does nothing.
 
-## The twelve validation rules
+## The eleven validation rules
 
 Each checks a different KIND of statement, and each is scoped differently. The
 scoping is not stylistic - getting it wrong produces either silence or noise,
@@ -123,7 +123,6 @@ and both destroy the tool's value.
 | `dead-md-anchor` | `[text](#fragment)` and `[text](other.md#fragment)` with no such heading | this document, and any linked file that resolves |
 | `dead-pinned-ref` | an install snippet pinning a version of THIS repo that does not resolve | whole file, **inside code** |
 | `raw-lfs-blob` | a file `.gitattributes` routes through LFS, stored as a raw blob | repository |
-| `possible-secret` | credential-shaped tokens before they are committed | whole file |
 | `inconsistent-artifact` | configured files that state DIFFERENT values for the same thing | repository |
 
 `inconsistent-artifact` is the one rule that reads no document. It compares
@@ -150,13 +149,13 @@ the fix was not a longer trunk list.
 
 Three cross-cutting behaviours worth knowing:
 
-- **Fenced code is exempt from claim rules, never from the secret scan.** An
-  example in a fence is not a promise; a credential in one is still committed.
-  Inline backticks are kept for claim rules, because claims are written inside
-  them, and blanked for link rules, because example links are too. The single
-  exception is `dead-pinned-ref`, which reads inside code precisely because an
-  install snippet is copied verbatim rather than read as an example, and checks
-  only pins whose `repo:` names the repository being validated.
+- **Fenced code is exempt from claim rules.** An example in a fence is not a
+  promise. Inline backticks are kept for claim rules, because claims are
+  written inside them, and blanked for link rules, because example links are
+  too. The single exception is `dead-pinned-ref`, which reads inside code
+  precisely because an install snippet is copied verbatim rather than read as
+  an example, and checks only pins whose `repo:` names the repository being
+  validated.
 - **Wrong-case paths are reported** even on Windows and macOS, by comparing
   against the real directory entry. Otherwise a document passes on a laptop and
   fails on Linux CI.

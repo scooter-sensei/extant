@@ -149,12 +149,14 @@ case-insensitive filesystem. Such a block passes forever while appearing to
 compare two things. The two-file minimum catches the obvious shape and not this
 one.
 
-**Fenced code is exempt from claim rules but not from the secret scan.** These
-pull in opposite directions on purpose. An example in a fence is not a promise,
-so claims there are ignored; a credential in a fence is still committed, so the
-secret scan reads everything. Inline backticks are treated differently again:
-kept for claim rules, because claims are written inside them, and blanked for
-link rules, because an example link is written inside them too.
+**Fenced code is exempt from claim rules.** An example in a fence is not a
+promise, so claims there are ignored. Inline backticks are treated differently
+again: kept for claim rules, because claims are written inside them, and
+blanked for link rules, because an example link is written inside them too.
+
+This used to have a counterweight. `possible-secret` read everything including
+fences, on the reasoning that a credential in a fence is still committed. That
+rule was removed in 0.14.0 - see below - so the exemption is now uniform.
 
 **One rule reads inside fences, and the exception is instructive.** The
 exemption above cost this project two broken instructions before it was
@@ -349,18 +351,8 @@ point is the important one: treating a missing file as "suppress nothing"
 would let a typo'd path turn a ratcheted run back into an ordinary one without
 saying so.
 
-Two consequences are accepted rather than fixed, and the smoke harness flags
-both on every run so they stay visible rather than becoming folklore.
-
-**A baseline can suppress a live credential.** `possible-secret` is treated as
-ordinary debt, so a token still sitting in the document is silenced by the same
-mechanism that forgives a dead link. Every other rule describes something that
-is merely wrong; this one describes something that is still dangerous. It is
-not special-cased because a secret that is genuinely a false positive - an
-example key, a test fixture, a documented placeholder - is common enough that
-an unsuppressable rule would push projects to disable the scanner entirely,
-which is worse. The mitigation is that the finding detail is recorded
-TRUNCATED, so the baseline file cannot become a committed secret store.
+One consequence is accepted rather than fixed, and the smoke harness flags it
+on every run so it stays visible rather than becoming folklore.
 
 **One recorded finding forgives every future copy of itself.** The fingerprint
 is `(path, kind, detail)` and deliberately excludes the line number, so the
@@ -368,6 +360,38 @@ same claim pasted somewhere new in the same file is already forgiven. The
 alternative is worse: line-number fingerprints un-suppress the entire baseline
 on any reflow, which makes the file useless within a week and teaches people
 to regenerate it wholesale, which defeats the point of having one.
+
+## `possible-secret`, removed in 0.14.0
+
+It scanned for four credential shapes: an OpenAI key, a GitHub PAT, an AWS
+access key id, and a JWT. It is gone, and the reasoning is worth keeping
+because the same argument will be made again for the next rule that looks
+useful and answers a different question.
+
+**It found nothing.** Zero findings across 38 repositories and 7,708 markdown
+files. The only time it was ever observed firing was on a design document that
+contained an `sk-` example, which was a false positive.
+
+**It asked a different question from every other rule.** The rest ask "is this
+statement still true", which git or the filesystem settles. This one asked
+"does this file contain something dangerous", which is a different job with
+different tooling. The core guarantee is stated as falsifiability, and this
+rule met that letter while missing the point of it.
+
+**And it was not competitive.** gitleaks ships roughly 150 rules and trufflehog
+several hundred with live verification. Four regexes beside them do not add
+safety; they add the appearance of it, which is worse, because a project that
+believes its documentation is scanned for credentials will not reach for a tool
+that actually does it.
+
+Use gitleaks. It is a pre-commit hook away and it is not this project's job.
+
+The cost of removal, stated plainly: `--selftest` could exercise four rules on
+this repository and can now exercise three, because the secret probe was
+synthetic and therefore always available while the others depend on the
+document offering something to corrupt. That is a real loss of signal about
+whether the probe machinery works, accepted because a rule kept for the
+convenience of its own test is a rule kept for the wrong reason.
 
 ## Authoring constraints these rules impose
 
