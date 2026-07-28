@@ -336,41 +336,72 @@ def test_no_invalid_escape_sequences_anywhere() -> None:
     )
 
 
-def test_every_config_derived_global_is_reloadable() -> None:
-    """A derived global that reload_config forgets keeps a stale value.
+def test_configuration_is_applied_in_exactly_one_place() -> None:
+    """The structural property that makes the staleness class impossible.
 
     Configuration is read at import, relative to the file. Installed as a
     package - which the pre-commit framework does - that location is
     site-packages, so the tool must re-read config for the repository it was
-    pointed at. Anything derived from CONFIG and not refreshed then silently
-    describes some other project.
+    pointed at, and anything derived from CONFIG and not refreshed then
+    silently describes some other project.
 
-    The source is PARSED for the assignments rather than compared against a
-    hand-written list, so adding a derived global without reloading it fails
-    here instead of shipping.
+    That used to be nineteen scattered assignments plus a SECOND list inside
+    reload_config naming which to refresh. The same information written twice
+    diverged exactly as invited: `_SECTION_HEADER` is computed rather than
+    copied, the second list held only copies, and it went stale on every
+    reload. Now `_apply_config` is the only writer and both paths call it.
+
+    This guards the SHAPE. `test_reloading_matches_a_fresh_import_of_the_same_project`
+    guards the outcome; keeping the shape is what stops anyone needing to.
     """
-    import re
+    import ast
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
     import extant_collect as hc
 
     source = (SKILL_ROOT / "payload" / "extant_collect.py").read_text(encoding="utf-8")
-    assigned = dict(re.findall(r"^(\w+) = CONFIG\.(\w+)$", source, re.M))
+    tree = ast.parse(source)
 
-    assert assigned, "found no CONFIG-derived globals; this check proves nothing"
-    assert assigned == hc._CONFIG_DERIVED, (
-        "reload_config does not cover every derived global.\n"
-        f"  in the source but not reloaded: {set(assigned) - set(hc._CONFIG_DERIVED)}\n"
-        f"  reloaded but not in the source: {set(hc._CONFIG_DERIVED) - set(assigned)}"
+    assert hc._CONFIG_DERIVED, "the derived table is empty; this proves nothing"
+    assert all(callable(v) for v in hc._CONFIG_DERIVED.values()), (
+        "every entry must be a builder, so a COMPUTED value is expressed the "
+        "same way as a copied one and cannot become the forgotten special case"
     )
 
-    # A third guard used to sit here, discovering COMPUTED derived globals by
-    # AST and asserting reload_config assigns each one. It is gone because
-    # `test_reloading_matches_a_fresh_import_of_the_same_project` subsumes it
-    # and is strictly stronger: a structural check can only ask whether an
-    # assignment EXISTS, so a global refreshed from the wrong field passes it,
-    # and the oracle catches that too. Two guards for one bug class, not three.
+    # No module-level assignment may read CONFIG except the table itself.
+    strays = []
+    for node in tree.body:
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)):
+            continue
+        name = node.targets[0].id
+        if name == "_CONFIG_DERIVED":
+            continue
+        if any(isinstance(s, ast.Name) and s.id == "CONFIG"
+               for s in ast.walk(node.value)):
+            strays.append(f"{name} (line {node.lineno})")
+    assert not strays, (
+        "these globals read CONFIG outside _CONFIG_DERIVED, so reload_config "
+        "cannot refresh them and they will keep their import-time value: "
+        + ", ".join(strays)
+    )
+
+    # Both paths must go through the one writer.
+    called_at_import = any(
+        isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+        and isinstance(n.value.func, ast.Name) and n.value.func.id == "_apply_config"
+        for n in tree.body
+    )
+    assert called_at_import, "_apply_config is never called at import"
+
+    reload_fn = next(n for n in tree.body
+                     if isinstance(n, ast.FunctionDef) and n.name == "reload_config")
+    assert any(isinstance(s, ast.Name) and s.id == "_apply_config"
+               for s in ast.walk(reload_fn)), (
+        "reload_config no longer calls _apply_config, so it is free to drift "
+        "from what import does - which is the bug this shape exists to prevent"
+    )
 
 
 def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> None:

@@ -20,6 +20,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 # This file is used two ways: imported as `tools.extant_collect` (tests, where
 # the repo root is on sys.path) and run directly as a script (the hooks and the
@@ -56,12 +57,6 @@ except ValueError as _config_error:
         raise SystemExit(2) from None
     raise
 
-PRIMARY_DOC = CONFIG.primary_doc
-ARCHIVE_DOC = CONFIG.archive_doc
-RETAIN_ENTRIES = CONFIG.retain_entries
-TRUNK = CONFIG.trunk
-_ARCHIVE_HEADER = CONFIG.archive_header
-
 
 def _git_soft(repo: Path, *args: str) -> str:
     """Run git, returning "" instead of raising when the command fails.
@@ -87,13 +82,6 @@ def _git(repo: Path, *args: str) -> str:
     return subprocess.run(
         ["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8", check=True
     ).stdout
-
-
-_PHASE_TASK = CONFIG.phase_task
-# GA-2: the fallback REQUIRES a literal "Phase " prefix. An unanchored
-# \d+\.\d+ matches library versions - the real commit "PySide6 6.11 QML load
-# guard" on main would otherwise be filed under phase "6.11".
-_PHASE_BARE = CONFIG.phase_bare
 
 
 def parse_phase(subject: str) -> str | None:
@@ -152,21 +140,6 @@ def commits_since(repo: Path, boundary: str) -> list[dict[str, str]]:
         commits.append({"sha": sha, "subject": subject, "phase": parse_phase(subject)})
     return commits
 
-
-_TODO_MARKER = CONFIG.todo_markers
-# M-b: this tool's own source and its tests DISCUSS the markers TODO/FIXME/
-# XXX at length, in comments, docstrings, and string literals - including
-# them would report phantom findings on every real run that touches this
-# file. Same "noise trains the reader to ignore the section" failure GA-5
-# already exists to prevent, just reintroduced by the tool scanning itself.
-# Derived from CONFIG, not hard-coded. `.extant.toml` accepted
-# `todo_exclude_files` and `todo_exclude_dirs`, the loader parsed them into
-# StatusConfig, and NOTHING read them: a configuration key that silently
-# did nothing, which is a failure this project has already paid for once.
-# The hard-coded lists also named `tools/` and `tests/tools/`, neither of
-# which exists here, so the skip-list excluded nothing either way.
-_TODO_SCAN_EXCLUDED_FILES = set(CONFIG.todo_exclude_files)
-_TODO_SCAN_EXCLUDED_DIR_PREFIX = tuple(CONFIG.todo_exclude_dirs)
 
 # GA-1: separate anchored patterns, NOT one regex of optional groups. A single
 # all-optional pattern matches the bare "in 597.70s" tail and silently reports
@@ -406,10 +379,61 @@ def _section_header(prefix: str) -> re.Pattern[str]:
     return re.compile("^" + re.escape(prefix.split()[0]) + " ", re.MULTILINE)
 
 
-_SECTION_HEADER = _section_header(CONFIG.entry_prefix)
-_BASE_HEADER = CONFIG.base_header
-_PHASE_PREFIX = CONFIG.entry_prefix
-_POINTER_PREFIX = CONFIG.pointer_prefix
+# EVERY module global derived from configuration, and the only place any of
+# them is set. Import and `reload_config` both call `_apply_config`, so the two
+# cannot describe different sets - which is the whole point.
+#
+# They used to be nineteen assignments scattered over 1,500 lines, with a
+# SECOND list inside reload_config naming which ones to refresh. The same
+# information written twice is an invitation to divergence, and it was
+# accepted: `_SECTION_HEADER` is COMPUTED from `entry_prefix` rather than
+# copied, the second list only knew about copies, and it went stale on every
+# reload. Installed as a package by the pre-commit framework - the one path
+# reload_config exists for - a project with a non-default heading level got
+# the right prefix everywhere and a splitter looking for the wrong one.
+#
+# Builders rather than field names, so a computed value is expressed the same
+# way as a copied one and neither can be the special case that gets forgotten.
+_CONFIG_DERIVED: dict[str, Callable[[StatusConfig], object]] = {
+    "PRIMARY_DOC": lambda c: c.primary_doc,
+    "ARCHIVE_DOC": lambda c: c.archive_doc,
+    "RETAIN_ENTRIES": lambda c: c.retain_entries,
+    "TRUNK": lambda c: c.trunk,
+    "_ARCHIVE_HEADER": lambda c: c.archive_header,
+    "_BASE_HEADER": lambda c: c.base_header,
+    "_PHASE_PREFIX": lambda c: c.entry_prefix,
+    "_POINTER_PREFIX": lambda c: c.pointer_prefix,
+    "_PHASE_TASK": lambda c: c.phase_task,
+    "_PHASE_BARE": lambda c: c.phase_bare,
+    "_TODO_MARKER": lambda c: c.todo_markers,
+    "_LIVE_PHRASES": lambda c: c.live_phrases,
+    "_BRANCH_TOKEN": lambda c: c.branch_token,
+    # Keyed on OPERATIVE markers, never on path shape. Measured against the
+    # real corpus: of 88 path-shaped tokens, 23 do not exist and every one of
+    # those 23 is legitimate - a completed phase describing its own layout,
+    # deferred work never built, a file explicitly described as deleted. A
+    # shape-keyed rule would emit 23 findings, all false. What is falsifiable
+    # is a path offered as a POINTER: "the plan is at X", "read X", "see X".
+    "_PATH_POINTER": lambda c: c.path_pointer,
+    # Requires the SHA to FOLLOW the phrase, so a SHA belonging to a
+    # neighbouring clause is not misread. It no longer requires the target to
+    # be `main`: the claim names its own ref and is checked against that.
+    "_MERGE_CLAIM": lambda c: c.merge_claim,
+    "_RELEASE_TAG": lambda c: c.release_tag,
+    # COMPUTED, not copied. These three are why this table holds builders.
+    "_SECTION_HEADER": lambda c: _section_header(c.entry_prefix),
+    "_TODO_SCAN_EXCLUDED_FILES": lambda c: set(c.todo_exclude_files),
+    "_TODO_SCAN_EXCLUDED_DIR_PREFIX": lambda c: tuple(c.todo_exclude_dirs),
+}
+
+
+def _apply_config() -> None:
+    """Set every configuration-derived global from the current CONFIG."""
+    for name, build in _CONFIG_DERIVED.items():
+        globals()[name] = build(CONFIG)
+
+
+_apply_config()
 
 
 def split_entries(text: str) -> tuple[str, list[tuple[str, str]], str]:
@@ -807,26 +831,12 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
     return "".join(lines), count
 
 
-_LIVE_PHRASES = CONFIG.live_phrases
-_BRANCH_TOKEN = CONFIG.branch_token
-
-
 def _branch_exists(repo: Path, branch: str) -> bool:
     try:
         _git(repo, "rev-parse", "--verify", branch)
         return True
     except subprocess.CalledProcessError:
         return False
-
-
-# Requires the SHA to FOLLOW the phrase, and requires an explicit `main`
-# target. Both restrictions were taken from the real corpus: every genuine
-# merge claim in it reads "Merged/SHIPPED to `main` at `<sha>`", while the one
-# near-miss ("branched from main @ `a1fc502` (the docs landed directly on main
-# first)") carries its SHA BEFORE the phrase and refers to something else. A
-# claim without a stated target cannot be falsified against main at all, so it
-# is deliberately not matched.
-_MERGE_CLAIM = CONFIG.merge_claim
 
 
 # Ancestry indexes and resolved refs, for the duration of ONE validate() call.
@@ -1105,24 +1115,6 @@ def _claimed_ref(raw: str) -> tuple[str, bool]:
     return raw, False
 
 
-# Keyed on OPERATIVE markers, not on path shape. Measured against the real
-# corpus: of 88 path-shaped tokens across the two documents, 23 do not exist -
-# and every one of those 23 is legitimate. `core/settings.py` appears under
-# "Phase 8 - COMPLETE" describing that phase's layout (the file became a
-# package); `core/updater.py` appears under deferred Phase 10 work and has
-# never existed; the archive says "the old `modules/_base.py`", explicitly
-# marking it deleted. A rule keyed on path shape would emit 23 findings, all
-# false, and would be the first rule in this validator to break the guarantee
-# that it never cries wolf.
-#
-# What is actually falsifiable is a path offered as a POINTER - "the plan is
-# at X", "read X", "see X". If that path is missing, the reader following it
-# gets nothing. All 21 operative pointers in the corpus currently resolve.
-#
-# Both separator styles are matched deliberately: the defect that motivated
-# this rule was `C:\\Users\\...\\stateless-waddling-rossum.md` in CLAUDE.md, a
-# Windows absolute path, which a forward-slash-only pattern would have missed.
-_PATH_POINTER = CONFIG.path_pointer
 _ABSOLUTE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/])")
 
 
@@ -1589,9 +1581,6 @@ def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
                 f"merge commit (a typo, or work that was never integrated)",
             ))
     return findings
-
-
-_RELEASE_TAG = CONFIG.release_tag
 
 
 def validate_release_tags(repo: Path, text: str) -> list[Finding]:
@@ -2719,33 +2708,6 @@ def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
     return results
 
 
-# Every module-level value derived from CONFIG, as {global: config field}.
-#
-# Declared ONCE so the reload below and the test that guards it read the same
-# list. A test parses this file for `NAME = CONFIG.field` and asserts the set
-# matches exactly, so a new derived global that nobody reloads fails a test
-# rather than silently keeping a stale value when the tool runs against a
-# different repository.
-_CONFIG_DERIVED = {
-    "PRIMARY_DOC": "primary_doc",
-    "ARCHIVE_DOC": "archive_doc",
-    "RETAIN_ENTRIES": "retain_entries",
-    "TRUNK": "trunk",
-    "_ARCHIVE_HEADER": "archive_header",
-    "_PHASE_TASK": "phase_task",
-    "_PHASE_BARE": "phase_bare",
-    "_TODO_MARKER": "todo_markers",
-    "_BASE_HEADER": "base_header",
-    "_PHASE_PREFIX": "entry_prefix",
-    "_POINTER_PREFIX": "pointer_prefix",
-    "_LIVE_PHRASES": "live_phrases",
-    "_BRANCH_TOKEN": "branch_token",
-    "_MERGE_CLAIM": "merge_claim",
-    "_PATH_POINTER": "path_pointer",
-    "_RELEASE_TAG": "release_tag",
-}
-
-
 def reload_config(repo: Path) -> None:
     """Re-read configuration for `repo` and refresh everything derived from it.
 
@@ -2756,16 +2718,11 @@ def reload_config(repo: Path) -> None:
     this the hook would validate `NEXT_SESSION.md` in every project on earth and
     report a healthy run for the ones that keep no such file.
     """
-    global CONFIG, _SECTION_HEADER
-    global _TODO_SCAN_EXCLUDED_FILES, _TODO_SCAN_EXCLUDED_DIR_PREFIX
+    global CONFIG
     CONFIG = load_config(repo)
-    for name, field in _CONFIG_DERIVED.items():
-        globals()[name] = getattr(CONFIG, field)
-    # Computed rather than copied, so the table above cannot carry it. It was
-    # missed for exactly that reason and kept its import-time value.
-    _SECTION_HEADER = _section_header(CONFIG.entry_prefix)
-    _TODO_SCAN_EXCLUDED_FILES = set(CONFIG.todo_exclude_files)
-    _TODO_SCAN_EXCLUDED_DIR_PREFIX = tuple(CONFIG.todo_exclude_dirs)
+    # The SAME call the module makes at import. There is no second list here
+    # to fall behind the first, which is what let a computed value go stale.
+    _apply_config()
 
 
 def cli() -> int:
