@@ -150,13 +150,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "            if (in_archive or not has_entries) and not rule.in_archive:\n"
          "                continue",
          "            if False:\n                continue"),
+        # Anchored on the CONDITION alone. It used to include the dispatch line
+        # that followed, and the rst work inserted a format check between the
+        # two, so the pair stopped matching while the behaviour it probes was
+        # untouched. A mutation should name the smallest thing it is about.
         ("has_entries ignored (entry rules run on extra docs)", collect,
          "            if (in_archive or not has_entries) and not rule.in_archive:\n"
-         "                continue\n"
-         "            findings += rule.check(repo, text)",
+         "                continue\n",
          "            if in_archive and not rule.in_archive:\n"
-         "                continue\n"
-         "            findings += rule.check(repo, text)"),
+         "                continue\n"),
 
         # --- denominator ------------------------------------------------------
         ("denominator lies: dead-sha always 1", collect,

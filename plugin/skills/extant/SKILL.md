@@ -47,7 +47,8 @@ session was told to read end to end.
 | `.extant.toml` | Project configuration |
 
 **`--sweep` is the first command to run in an unfamiliar repository.** It needs
-no configuration, reads every markdown file git tracks, and separates documents
+no configuration, reads every `.md`, `.markdown`, `.mdx` and `.rst` file git
+tracks, and separates documents
 the config names from documents it does not. Only the first kind decides the
 exit code: measured on this repository, checking every markdown file produced 18
 findings and every one was false, because the documents that DOCUMENT the rules

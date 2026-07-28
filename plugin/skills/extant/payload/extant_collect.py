@@ -1377,6 +1377,27 @@ _FENCE = re.compile(r"^\s*(```|~~~)")
 # before validating each document. Single-threaded CLI code, set in one place.
 _LINK_BASE: Path | None = None
 
+# The markup language of the document being validated, set beside _LINK_BASE
+# and for the same reason: a rule signature is (repo, text) and carries no path.
+#
+# It matters because `[text](url)` is markdown and nothing else. In
+# reStructuredText that shape occurs in ordinary Python - numpy writes
+# `np.dtype[mp.mpf](dps=100)` in a doctest - so every match is false by
+# construction, not by accident. Twenty-three of numpy's findings and all ten
+# of Sphinx's were exactly that.
+_DOC_FORMAT: str = "markdown"
+
+# Rules whose syntax is markdown's alone. Skipped outside it rather than
+# tuned, because there is no version of a markdown link regex that is correct
+# on a language which has no markdown links.
+_MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}
+
+
+def _format_for(path: str) -> str:
+    """Which markup language a filename is written in."""
+    suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return "rst" if suffix == "rst" else "markdown"
+
 
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 
@@ -1421,6 +1442,8 @@ def _blank(text: str, *, inline: bool) -> str:
 
 
 def _blank_uncached(text: str, *, inline: bool) -> str:
+    if _DOC_FORMAT == "rst":
+        return _blank_rst(text, inline=inline)
     out: list[str] = []
     inside = False
     for line in text.splitlines():
@@ -1434,6 +1457,52 @@ def _blank_uncached(text: str, *, inline: bool) -> str:
             out.append(_INLINE_CODE.sub(lambda m: " " * len(m.group(0)), line))
         else:
             out.append(line)
+    return "\n".join(out)
+
+
+# reStructuredText marks code three ways, and none of them is a fence.
+_RST_DIRECTIVE = re.compile(r"^\s*\.\.\s+(?:code-block|code|literalinclude|"
+                            r"sourcecode|parsed-literal|math)::")
+_RST_LITERAL_INTRO = re.compile(r"::\s*$")
+_RST_DOCTEST = re.compile(r"^\s*(?:>>>|\.\.\.)\s")
+_RST_INLINE = re.compile(r"``[^`]*``|`[^`]*`(?:_+)?")
+
+
+def _blank_rst(text: str, *, inline: bool) -> str:
+    """The same job for reStructuredText, whose code blocks are indentation.
+
+    A literal block opens with a line ending in `::` or a `.. code-block::`
+    directive and runs until the indentation returns; a doctest opens with
+    `>>>`. None of that is a fence, so the markdown stripper left every example
+    in place and the rules read Python as prose - numpy's
+    `float64('1e10000')` became a dead commit, and its
+    `np.dtype[mp.mpf](dps=100)` became a dead link.
+
+    Blanked with spaces like the markdown path, so line numbers and offsets
+    survive for every rule that shares this.
+    """
+    lines = text.splitlines()
+    out: list[str] = []
+    block_indent: int | None = None
+    for line in lines:
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if block_indent is not None:
+            # A blank line does not end a literal block; a return to the
+            # opening indentation does.
+            if not stripped or indent > block_indent:
+                out.append(" " * len(line))
+                continue
+            block_indent = None
+        if _RST_DOCTEST.match(line):
+            out.append(" " * len(line))
+            continue
+        if _RST_DIRECTIVE.match(line) or _RST_LITERAL_INTRO.search(line):
+            block_indent = indent
+            out.append(" " * len(line))
+            continue
+        out.append(_RST_INLINE.sub(lambda m: " " * len(m.group(0)), line)
+                   if inline else line)
     return "\n".join(out)
 
 
@@ -2919,6 +2988,11 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
                 continue
             if (in_archive or not has_entries) and not rule.in_archive:
                 continue
+            if _DOC_FORMAT != "markdown" and rule.kind in _MARKDOWN_ONLY:
+                # Not tuned for the format, skipped for it. `[text](url)` is
+                # markdown's syntax; where it does not exist, every match is
+                # something else wearing its shape.
+                continue
             findings += rule.check(repo, text)  # type: ignore[operator]
         return findings
     finally:
@@ -3129,7 +3203,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
     the reason `extra_docs` skips them: an arbitrary markdown file has no dated
     entries, so "the newest entry" is a category error rather than a pass.
     """
-    global _LINK_BASE
+    global _LINK_BASE, _DOC_FORMAT
     paths = tracked_markdown(repo)
     if not paths:
         print("swept 0 markdown files: git tracks none in this repository",
@@ -3156,12 +3230,14 @@ def run_sweep(repo: Path, fmt: str) -> int:
                 unreadable.append(f"{relative} ({exc.__class__.__name__})")
                 continue
             _LINK_BASE = path.parent
+            _DOC_FORMAT = _format_for(relative)
             findings = validate(repo, text,
                                 has_entries=(relative == primary))
             results[label].extend(
                 Located(relative, f, primary=(relative == primary))
                 for f in findings)
     _LINK_BASE = None
+    _DOC_FORMAT = "markdown"
 
     # Diagnostics follow the convention the other modes use: stdout unless
     # SARIF, where stdout must carry nothing but one JSON value. Writing the
@@ -3219,7 +3295,7 @@ def tracked_markdown(repo: Path) -> list[str]:
     """
     out = _git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
     return sorted(p for p in out.split("\0")
-                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx"))
+                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))
 
 
 def partition_documents(repo: Path, paths: list[str]) -> tuple[list[str], list[str]]:

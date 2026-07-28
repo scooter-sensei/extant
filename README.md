@@ -84,7 +84,8 @@ to name:
 $ uvx extant --repo . --sweep
 ```
 
-That reads every markdown file git tracks and tells you what has rotted. On a
+That reads every `.md`, `.markdown`, `.mdx` and `.rst` file git tracks and
+tells you what has rotted. On a
 real project it took one command to surface 42 dead commit references across 49
 files.
 
