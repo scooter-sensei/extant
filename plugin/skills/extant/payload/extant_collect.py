@@ -1310,6 +1310,17 @@ _MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
 # one; a relative path does not carry a colon before its first slash.
 _EXTERNAL = re.compile(r"^(?:[a-z][a-z0-9+.-]+:|//)", re.I)
 _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
+# A heading nested inside a list item. CommonMark renders `- ### Title` as a
+# real h3 and gives it an id, which is how a README builds an indented table
+# of contents:
+#
+#     - ### [Getting the project](#getting-the-project-1)
+#
+# Unity's BossRoom does exactly that, and because the nested copy was invisible
+# here the later `## Getting the project` never looked like a repeat, so the
+# `-1` a renderer appends was never offered. Twelve findings, and every anchor
+# finding that Unity project had.
+_NESTED_HEADING = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+#{1,6}\s+(.+?)\s*#*$")
 _EXPLICIT_ANCHOR = re.compile(r"""(?:name|id)\s*=\s*["']([^"']+)["']""")
 # The attribute syntax pandoc, kramdown and PHP Markdown Extra use to name a
 # heading or a span outright: `## Template {#type-template}` and
@@ -1549,7 +1560,7 @@ def _definition_terms(text: str) -> list[str]:
 def _anchors(text: str) -> set[str]:
     """Every fragment this document offers, from headings and explicit anchors."""
     headings = [m.group(1) for line in text.splitlines()
-                if (m := _HEADING.match(line))]
+                if (m := _HEADING.match(line) or _NESTED_HEADING.match(line))]
     headings += _definition_terms(text)
     # Every spelling a renderer might produce: two slug conventions, each over
     # the heading as written and with angle-bracket markup removed. Offering a

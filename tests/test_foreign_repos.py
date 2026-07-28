@@ -637,3 +637,66 @@ def test_a_per_page_generator_keeps_its_anchors_local(git_repo) -> None:
         hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear(); hc._SITE.clear()
     assert "dead-md-anchor" in kinds, (
         "a heading in ANOTHER file must not forgive this one: " + str(kinds))
+
+
+# --- game engine projects -------------------------------------------------
+
+def test_a_heading_nested_in_a_list_item_is_a_heading(git_repo) -> None:
+    """Unity's BossRoom, and every README with an indented contents list.
+
+    CommonMark renders `- ### Title` as a real h3 and gives it an id:
+
+        - ### [Getting the project](#getting-the-project-1)
+
+    Because the nested copy was invisible here, the later `## Getting the
+    project` never looked like a repeat, so the `-1` a renderer appends was
+    never offered. Twelve findings, and every anchor finding that Unity
+    project had.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("- ### [Getting the project](#getting-the-project-1)\n\n"
+            "## Getting the project\n\ntext\n")
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_nested_heading_still_needs_a_real_target(git_repo) -> None:
+    """The nested heading is an anchor SOURCE, not a licence to forgive.
+
+    One nested heading and no repeat means no `-1` exists, so a link to it is
+    still dead.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "- ### Getting the project\n\nSee [it](#getting-the-project-1).\n"
+
+    assert "dead-md-anchor" in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_raw_asset_under_an_lfs_filter_is_reported(git_repo) -> None:
+    """The rule the game presets exist for, on the shape a Unity repo has.
+
+    Verified against Unity's BossRoom, which declares 47 LFS filters over 480
+    files: planting a raw blob there produces exactly this finding. The blob
+    has to bypass the clean filter to be planted at all - committing a real
+    PNG through `git add` converts it to a 129-byte pointer, and a first
+    attempt did precisely that and looked like the rule failing.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit(".gitattributes", "*.png filter=lfs diff=lfs merge=lfs -text\n", "chore: lfs")
+
+    blob = subprocess.run(["git", "hash-object", "-w", "--no-filters", "--stdin"],
+                          cwd=repo, input=b"\x89PNG\r\n\x1a\n" + b"y" * 3000,
+                          capture_output=True, check=True).stdout.decode().strip()
+    subprocess.run(["git", "update-index", "--add", "--cacheinfo",
+                    f"100644,{blob},art/raw.png"], cwd=repo, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
+                    "commit", "-qm", "art"], cwd=repo, check=True, capture_output=True)
+
+    findings = hc.validate_lfs_storage(repo, "")
+
+    assert [f.kind for f in findings] == ["raw-lfs-blob"], findings
+    assert "art/raw.png" in findings[0].detail, findings[0].detail
