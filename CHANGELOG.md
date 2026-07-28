@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.12.2 (2026-07-28)
+
+Installable from PyPI, and a publish pipeline that proves the artifact works.
+
+### A fourth way in
+
+`uvx extant --repo . --verify` runs the validator against a repository without
+installing anything, and `pipx install extant` keeps it. This is the VALIDATOR
+only: the git hooks and the `/extant` command have to live inside the
+repository they check, so those still need the plugin or `install.py`.
+
+### The publish pipeline refuses two things
+
+A tag that does not match the version in `pyproject.toml`, because publishing
+0.12.1 under a tag claiming 0.12.2 is a released artifact contradicting the tag
+that produced it.
+
+And a wheel that does not work. `twine check` reads metadata and runs nothing,
+so it cannot tell a working wheel from one that installs and does nothing. The
+job installs the built wheel into a clean environment, runs it against a
+repository with a planted fault, and requires both directions: a broken
+document exits 1, a repaired one exits 0. A tool that always fails looks
+identical to one that works.
+
+Uploads use Trusted Publishing, so there is no API token in the repository, in
+a secret, or in anyone's shell history.
+
+### Also
+
+`python -m build` writes an egg-info directory into the payload, beside the
+shipped source, and it was briefly committed. `install.py` copies that
+directory into target repositories, so it would have landed in every project
+installing the tool. Now ignored, along with `dist/` and `build/`.
+
 ## 0.12.1 (2026-07-27)
 
 Everything a code review found, and a bug the tool found in itself.
