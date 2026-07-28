@@ -56,20 +56,29 @@ as much as the findings, and [there is a section about why](#every-check-reports
 
 ## Try it in one line
 
-Nothing installed, nothing written into your project, no configuration:
+Nothing installed, nothing written into your project, no configuration, no file
+to name:
 
 ```console
-$ uvx extant --repo . --validate README.md
+$ uvx extant --repo . --sweep
 ```
 
-Point it at any markdown file you have. That is the entire trial, and if it
-finds nothing you have spent ten seconds.
+That reads every markdown file git tracks and tells you what has rotted. On a
+real project it took one command to surface 44 dead commit references across 49
+files.
 
-Use `--validate <path>` rather than `--verify` until you have a config file.
-`--verify` checks whatever `primary_doc` names, which defaults to
-`NEXT_SESSION.md` and almost certainly does not exist in your project. Once a
-`.extant.toml` names your own documents, `--verify` becomes the command you
-want, and it is the one the git hooks run.
+**A sweep cannot fail your build.** Findings in files you have not configured
+are surveyed and reported, never gated on, because some of them will be
+examples rather than claims. It always prints how many files it looked at, so
+"nothing found" is distinguishable from "nothing checked".
+
+The other two modes, once you want them:
+
+| Command | For |
+|:---|:---|
+| `--sweep` | the survey. No config, exits 0, shows everything |
+| `--validate <file>` | one document, exits 1 on findings |
+| `--verify` | every document `.extant.toml` names. What the git hooks run |
 
 [Four ways to install properly](#install) are below.
 

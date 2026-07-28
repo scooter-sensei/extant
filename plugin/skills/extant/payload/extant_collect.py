@@ -2609,6 +2609,131 @@ def format_text(located: list[Located]) -> list[str]:
     ]
 
 
+def run_sweep(repo: Path, fmt: str) -> int:
+    """Survey every tracked markdown file. Returns the exit code.
+
+    The first-run command: it needs no configuration, writes nothing, and
+    answers "what is rotting in here". Reproducing this by hand meant a shell
+    loop over `ls-files`, which is not an answer anyone finds on their own.
+
+    Two sections, because they mean different things. Vetted documents are the
+    ones configuration names, and findings there GATE - that is the same
+    promise `--verify` makes. Unvetted documents have never been reviewed, so
+    they are surveyed and reported and deliberately do not affect the exit
+    code; see `partition_documents` for the measurement behind that.
+
+    Entry-scoped rules are skipped everywhere except the primary document, for
+    the reason `extra_docs` skips them: an arbitrary markdown file has no dated
+    entries, so "the newest entry" is a category error rather than a pass.
+    """
+    global _LINK_BASE
+    paths = tracked_markdown(repo)
+    if not paths:
+        print("swept 0 markdown files: git tracks none in this repository",
+              file=sys.stderr)
+        return 0
+
+    vetted, unvetted = partition_documents(repo, paths)
+    primary = CONFIG.primary_doc.replace("\\", "/")
+    sections: list[tuple[str, list[str], bool]] = [
+        ("vetted", vetted, True), ("unvetted", unvetted, False)]
+    results: dict[str, list[Located]] = {"vetted": [], "unvetted": []}
+    unreadable: list[str] = []
+
+    for label, group, _gates in sections:
+        for relative in group:
+            path = repo / relative
+            try:
+                with open(path, encoding="utf-8", newline="") as fh:
+                    text = fh.read()
+            except (OSError, UnicodeDecodeError) as exc:
+                # Counted and named, never skipped quietly. A file that could
+                # not be read is not a file with no findings, and printing the
+                # same thing for both is the conflation this tool is about.
+                unreadable.append(f"{relative} ({exc.__class__.__name__})")
+                continue
+            _LINK_BASE = path.parent
+            findings = validate(repo, text,
+                                has_entries=(relative == primary))
+            results[label].extend(
+                Located(relative, f, primary=(relative == primary))
+                for f in findings)
+    _LINK_BASE = None
+
+    # Diagnostics follow the convention the other modes use: stdout unless
+    # SARIF, where stdout must carry nothing but one JSON value. Writing the
+    # summary to stderr unconditionally interleaved it AHEAD of the findings,
+    # because the two streams flush independently.
+    out = sys.stderr if fmt == "sarif" else sys.stdout
+    if fmt == "text":
+        for label, heading in (("vetted", "CONFIGURED - these decide the exit code"),
+                               ("unvetted", "UNREVIEWED - surveyed only, not gated")):
+            if results[label]:
+                print(f"\n{heading}", file=out)
+                for line in format_text(results[label]):
+                    print(line, file=out)
+    else:
+        for line in render_findings(results["vetted"] + results["unvetted"], fmt)[0]:
+            print(line)
+
+    # The denominator, per section. "0 findings" and "0 files looked at" print
+    # identically without it, and a sweep is the mode where that is easiest to
+    # get wrong: a wrong glob would report a clean repository.
+    print(f"\nswept {len(paths)} markdown file(s): "
+          f"{len(vetted)} configured ({len(results['vetted'])} finding(s)), "
+          f"{len(unvetted)} unreviewed ({len(results['unvetted'])} finding(s))",
+          file=out)
+    if unreadable:
+        print(f"  {len(unreadable)} could not be read: {', '.join(unreadable)}",
+              file=out)
+    if not vetted:
+        print("  nothing is configured, so nothing here can fail. Set "
+              "primary_doc or extra_docs in .extant.toml to gate on a file.",
+              file=out)
+    elif results["unvetted"]:
+        print("  unreviewed findings do not affect the exit code. Some will be "
+              "examples rather than claims; move a file into extra_docs once "
+              "you have read them.", file=out)
+    return 1 if results["vetted"] else 0
+
+
+def tracked_markdown(repo: Path) -> list[str]:
+    """Every markdown file git tracks, repo-relative, sorted.
+
+    `ls-files` rather than a filesystem walk, so anything gitignored, vendored
+    into an ignored directory, or sitting untracked in a working tree is out by
+    construction rather than by a skip-list somebody has to maintain.
+    """
+    out = _git(repo, "ls-files", "-z", "*.md", "*.markdown")
+    return sorted(p for p in out.split("\0") if p.strip())
+
+
+def partition_documents(repo: Path, paths: list[str]) -> tuple[list[str], list[str]]:
+    """Split tracked markdown into VETTED and UNVETTED.
+
+    Vetted means the configuration names it: `primary_doc`, `archive_doc`, or
+    an `extra_docs` entry. Somebody decided that file should be checked and,
+    more importantly, decided the others should not.
+
+    That distinction is the whole design of `--sweep`, and it is not a
+    nicety. Measured on this repository, checking every markdown file produced
+    18 findings and every single one was false - `abc1234` and `v2.1` are the
+    example claims in the documents that DOCUMENT the rules, and three more
+    were relative paths correct from their own file. A sweep that gated on
+    those would be the cry-wolf failure this project exists to prevent,
+    shipped as a headline feature.
+
+    So the unvetted half is surveyed and reported, never gated on. The signal
+    is deliberately NOT a guess at which SHAs look like placeholders: keying on
+    the shape of `abc1234` is exactly the reason-about-the-wording trap that
+    this project keeps relearning. Configuration already records the answer.
+    """
+    vetted_names = {CONFIG.primary_doc, CONFIG.archive_doc, *CONFIG.extra_docs}
+    normalised = {name.replace("\\", "/").lstrip("./") for name in vetted_names if name}
+    vetted = [p for p in paths if p in normalised]
+    return vetted, [p for p in paths if p not in normalised]
+
+
 def render_findings(located: list[Located], fmt: str) -> tuple[list[str], bool]:
     """Render for `fmt`. Returns the lines and whether they belong on stdout.
 
@@ -2771,6 +2896,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--archive", action="store_true", help="split old entries out")
     mode.add_argument("--validate", metavar="FILE", help="validate a status document")
     mode.add_argument("--verify", action="store_true", help="validate the committed doc")
+    mode.add_argument("--sweep", action="store_true",
+                      help="survey every tracked markdown file; needs no config")
     mode.add_argument("--selftest", action="store_true",
                       help="corrupt one real claim per rule and confirm each fires")
     mode.add_argument("--search", metavar="TEXT",
@@ -2917,6 +3044,23 @@ def main(argv: list[str] | None = None) -> int:
         counts = archive(repo)
         print(f"retained={counts['retained']} archived={counts['archived']}")
         return 0
+    if args.sweep:
+        # Refused rather than ignored. A baseline suppresses findings, and a
+        # survey whose whole job is to SHOW them would be silently gutted by
+        # one - the user would read "3 findings" and never learn that forty
+        # more were hidden. Saying so costs a line; the alternative is the
+        # quiet-wrong-answer failure this project is built around.
+        conflicting = [name for name, value in (
+            ("--baseline", args.baseline), ("--write-baseline", args.write_baseline),
+            ("--baseline-check", args.baseline_check),
+            ("--suggest-fixes", args.suggest_fixes)) if value]
+        if conflicting:
+            print(f"--sweep does not support {', '.join(conflicting)}. It is a "
+                  "survey of every tracked document, not a gate on one; run "
+                  "--verify for the modes that suppress or rewrite.",
+                  file=sys.stderr)
+            return 2
+        return run_sweep(repo, args.format)
     if args.verify:
         args.validate = str(repo / PRIMARY_DOC)
     if args.validate == "":

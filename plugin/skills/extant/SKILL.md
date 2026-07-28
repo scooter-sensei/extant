@@ -27,7 +27,7 @@ that every session was told to read end to end.
 
 | File | Role |
 |---|---|
-| `tools/extant_collect.py` | Collector + validator. Five modes: `--collect`, `--archive`, `--validate`, `--verify`, `--selftest` |
+| `tools/extant_collect.py` | Collector + validator. Six modes: `--sweep`, `--collect`, `--archive`, `--validate`, `--verify`, `--selftest` |
 | `tools/extant_config.py` | All project-specific values; reads `.extant.toml` |
 | `tools/hooks/extant-verify` | Re-checks the document after every commit and merge |
 | `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
@@ -35,6 +35,15 @@ that every session was told to read end to end.
 | `.agents/skills/extant/SKILL.md` | Agent-facing instructions at the Agent Skills standard path, read by Codex, Gemini CLI, Copilot, Cursor and Kimi as well as Claude. Rendered for the repo. |
 | `.claude/commands/extant.md` | The `/extant` slash command, rendered for this repo. The ONLY Claude-specific file, and the only one written conditionally: it appears when the repo already has `.claude/` or a `CLAUDE.md`, and `--claude-command` / `--no-claude-command` decide it outright. Everything else above is agent-neutral. |
 | `.extant.toml` | Project configuration |
+
+**`--sweep` is the first command to run in an unfamiliar repository.** It needs
+no configuration, reads every markdown file git tracks, and separates documents
+the config names from documents it does not. Only the first kind decides the
+exit code: measured on this repository, checking every markdown file produced 18
+findings and every one was false, because the documents that DOCUMENT the rules
+are full of example claims like `abc1234`. So the unreviewed half is surveyed
+and reported, never gated on. Promoting a file into `extra_docs` is what turns a
+survey into a gate, and is the intended adoption path.
 
 `--search TEXT` finds past entries in the live document and the archive
 together, returning whole entries. `--suggest-fixes` prints a patch repointing
