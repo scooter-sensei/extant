@@ -1328,7 +1328,13 @@ _EXPLICIT_ANCHOR = re.compile(r"""(?:name|id)\s*=\s*["']([^"']+)["']""")
 # so a document using it has anchors that no amount of slug guessing will
 # reach. pandoc's own doc/lua-filters.md carries 368 and accounted for 120 of
 # its 149 findings - the largest single class left in a 26-repository corpus.
-_ATTR_ANCHOR = re.compile(r"\{#([^\s}]+)")
+#
+# The JSX-comment spelling is the same declaration with MDX's parser in mind:
+# `### \`baseUrl\` {/* #baseUrl */}`. MDX v3 reads a bare `{#id}` as a JSX
+# expression, so Docusaurus wraps it in a comment. Same intent, same override,
+# and it accounted for most of Docusaurus's 1,078 anchor findings once `.mdx`
+# files were swept at all.
+_ATTR_ANCHOR = re.compile(r"\{\s*(?:/\*)?\s*#([^\s}*]+)")
 # MyST names a target on its own line, immediately before what it labels:
 #
 #     (a11y:contribute)=
@@ -1339,6 +1345,17 @@ _ATTR_ANCHOR = re.compile(r"\{#([^\s}]+)")
 # executablebooks/mystmd links to `#a11y:contribute` throughout, and those
 # labels were 248 of its 275 findings.
 _MYST_TARGET = re.compile(r"^\(([^)\s]+)\)=\s*$", re.MULTILINE)
+# A directive option naming its block. MyST writes `:label:` and Sphinx writes
+# `:name:` inside a fenced directive:
+#
+#     ```{list-table} Affiliations
+#     :label: table-frontmatter-affiliations
+#     ```
+#
+# Same explicit naming as `(target)=`, in the third of three places MyST allows
+# it. mystmd links to `#table-frontmatter-affiliations` from another document,
+# and the label existed the whole time - in a directive option nothing read.
+_DIRECTIVE_LABEL = re.compile(r"^\s*:(?:label|name):\s*(\S+)\s*$", re.MULTILINE)
 _FENCE = re.compile(r"^\s*(```|~~~)")
 
 # A relative link resolves against the FILE that contains it, not the repository
@@ -1573,6 +1590,7 @@ def _anchors(text: str) -> set[str]:
     found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}
     found |= {a.lower() for a in _ATTR_ANCHOR.findall(text)}
     found |= {a.lower() for a in _MYST_TARGET.findall(text)}
+    found |= {a.lower() for a in _DIRECTIVE_LABEL.findall(text)}
     found |= _disambiguated(headings)
     return found - {""}
 
@@ -1713,6 +1731,8 @@ def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
     available = _anchors(text)
     if _has_global_anchors(repo):
         available |= _project_anchors(repo)
+    elif _has_partial_anchors(repo):
+        available |= _partial_anchors(repo)
     base = _LINK_BASE or repo
     findings: list[Finding] = []
     for number, line in enumerate(_strip_code(text).splitlines(), start=1):
@@ -1928,6 +1948,53 @@ def _has_global_anchors(repo: Path) -> bool:
                               for d in _SITE_DIRS
                               for name in _GLOBAL_ANCHOR_CONFIGS)
     return _GLOBAL_NS[key]
+
+
+# Hugo alone, because the convention is Hugo's. Its `_`-prefixed content
+# directories are not routable pages; they are fragments composed into other
+# pages by a shortcode, so a term defined in `_common/configuration/locale.md`
+# is an anchor on whatever page includes it. 23 of hugoDocs' 23 remaining
+# same-document findings were exactly that.
+#
+# NOT generalised to every `_` directory, and the measurement is why: seven of
+# 38 corpus repositories have markdown under one, and they mean different
+# things. Jekyll's `_posts` are whole pages. Docusaurus's `__tests__` is
+# fixtures. Treating those as ambient anchors would forgive real findings in
+# four repositories to fix one.
+_PARTIAL_CONFIGS = ("hugo.toml", "hugo.yaml", "hugo.json")
+
+
+def _has_partial_anchors(repo: Path) -> bool:
+    key = str(repo)
+    if key not in _PARTIAL_NS:
+        _PARTIAL_NS[key] = any((repo / d / name).is_file()
+                               for d in _SITE_DIRS
+                               for name in _PARTIAL_CONFIGS)
+    return _PARTIAL_NS[key]
+
+
+def _partial_anchors(repo: Path) -> set[str]:
+    """Anchors from fragment files, which belong to every page that includes one."""
+    key = str(repo)
+    if key not in _PARTIAL_ANCHORS:
+        found: set[str] = set()
+        try:
+            for rel in tracked_markdown(repo):
+                if not any(part.startswith("_") for part in rel.split("/")[:-1]):
+                    continue
+                try:
+                    with open(repo / rel, encoding="utf-8", newline="") as fh:
+                        found |= _anchors(fh.read())
+                except (OSError, UnicodeDecodeError):
+                    continue
+        except (OSError, subprocess.CalledProcessError):
+            found = set()
+        _PARTIAL_ANCHORS[key] = found
+    return _PARTIAL_ANCHORS[key]
+
+
+_PARTIAL_NS: dict[str, bool] = {}
+_PARTIAL_ANCHORS: dict[str, set[str]] = {}
 
 
 def _project_anchors(repo: Path) -> set[str]:
@@ -3153,7 +3220,7 @@ def tracked_markdown(repo: Path) -> list[str]:
     """
     out = _git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
     return sorted(p for p in out.split("\0")
-                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown"))
+                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx"))
 
 
 def partition_documents(repo: Path, paths: list[str]) -> tuple[list[str], list[str]]:

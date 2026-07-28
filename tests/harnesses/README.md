@@ -9,6 +9,7 @@ minutes, and each answers a question `python -m pytest` structurally cannot.
 | `mutate.py` | does the suite pin anything? | `--check-only` |
 | `scenarios.py` | does it work on projects unlike this one? | yes |
 | `smoke.py` | what happens when someone abuses it? | yes |
+| `corpus.py` | what does it say about somebody else's repository? | no, needs clones |
 | `perf.py` | is it fast enough to leave installed? | no, by design |
 | `stress.py` | where does it fall over? | no, by design |
 
@@ -252,6 +253,38 @@ at all, so the payload was unreachable by construction. It now asserts that
 the escaper demonstrably RAN, by requiring a literal `%` to come out as `%25`.
 Every new probe here was checked by breaking the product and confirming the
 probe went red; two did not, and both were repaired.
+
+## `corpus.py` - what does it say about somebody else's repository?
+
+```sh
+python tests/harnesses/corpus.py <dir-of-clones> [--baseline FILE] [--update]
+```
+
+Every false-positive class this project has fixed came from running against a
+real repository that nobody here wrote. Thirty-eight of them, across sixteen
+ecosystems, took the corpus from 727 findings to roughly 600 while the true
+positives stayed.
+
+It exists because the throwaway shell loops that did that work were wrong three
+times in one session, each time by omitting something silently: three
+repositories skipped because Git Bash paths are not Windows paths, two clones
+that failed on MAX_PATH and reported no documentation, and one whose checkout
+never completed and read as clean.
+
+So a repository that cannot be measured is a FAILURE here, never an omission.
+Preconditions are asserted before anything is counted - is it a directory, a
+git repository, does HEAD resolve, is HEAD's tree non-empty - and a corpus with
+one unusable member exits non-zero however healthy the rest looks. A run that
+produces no denominator is refused rather than recorded.
+
+`--baseline` compares per-repository counts and prints the delta, which is how
+a fix is shown to have moved what it claimed and nothing else. A repository
+that was in the baseline and is missing now fails the run, because dropping out
+of the corpus is how a regression hides.
+
+No baseline file is committed. Those counts describe repositories this project
+does not control, so a recorded one would be stale within a week - precisely
+the kind of claim this tool exists to catch.
 
 ## `perf.py` - is it fast enough to leave installed?
 

@@ -700,3 +700,92 @@ def test_a_raw_asset_under_an_lfs_filter_is_reported(git_repo) -> None:
 
     assert [f.kind for f in findings] == ["raw-lfs-blob"], findings
     assert "art/raw.png" in findings[0].detail, findings[0].detail
+
+
+# --- the deferred remainders, examined ------------------------------------
+
+def test_mdx_files_are_swept(git_repo) -> None:
+    """Docusaurus keeps 1,378 `.mdx` against 238 `.md`, so the majority of its
+    documentation was invisible. MDX is markdown with JSX; the claims in it rot
+    identically."""
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("docs/page.mdx", "# P\n", "chore: mdx")
+    commit("README.md", "# R\n", "chore: md")
+
+    assert sorted(hc.tracked_markdown(repo)) == ["README.md", "docs/page.mdx"]
+
+
+def test_a_jsx_comment_declares_a_heading_id(git_repo) -> None:
+    """MDX v3 reads a bare `{#id}` as a JSX expression, so Docusaurus wraps the
+    declaration in a comment, as `### baseUrl {/* #baseUrl */}`.
+
+    Same override, different spelling. It was most of the 1,078 anchor findings
+    that appeared the moment `.mdx` was swept at all, and it is the difference
+    between MDX support being shippable and not.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "### `baseUrl` {/* #baseUrl */}\n\nSee [it](#baseUrl).\n"
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_a_directive_option_names_its_block(git_repo) -> None:
+    """The third place MyST allows an explicit label, after `(target)=` and
+    `{#id}`: a `:label:` or `:name:` option inside a directive.
+
+    mystmd links to `#table-frontmatter-affiliations` from another document and
+    the label existed all along, in a directive option nothing read.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = ("```{list-table} Affiliations\n"
+            ":label: table-frontmatter-affiliations\n```\n\n"
+            "See [it](#table-frontmatter-affiliations).\n")
+
+    assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+def test_hugo_partials_are_anchors_on_the_pages_that_include_them(git_repo) -> None:
+    """Hugo's `_`-prefixed content directories are fragments composed into
+    other pages, so a term defined there is an anchor on the including page.
+    23 of hugoDocs' 23 remaining findings were exactly that.
+    """
+    repo, commit = git_repo
+    commit("hugo.toml", "title = 'docs'\n", "chore: hugo")
+    commit("content/_common/locale.md", "`locale`\n: (`string`) The locale.\n",
+           "chore: partial")
+    commit("content/all.md", "x\n", "chore: page")
+
+    import extant_collect as hc
+    hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [locale](#locale).\n", has_entries=False)]
+    finally:
+        hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    assert "dead-md-anchor" not in kinds, kinds
+
+
+def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
+    """The measurement that scoped the rule above.
+
+    Seven of 38 corpus repositories keep markdown under a `_` directory and
+    they mean different things: Jekyll's `_posts` are whole pages, Docusaurus's
+    `__tests__` is fixtures. Treating those as ambient anchors would forgive
+    real findings in four repositories to fix one.
+    """
+    repo, commit = git_repo
+    commit("_posts/2020-01-01-hello.md", "## Some heading\n", "chore: post")
+    commit("index.md", "x\n", "chore: index")
+
+    import extant_collect as hc
+    hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [it](#some-heading).\n", has_entries=False)]
+    finally:
+        hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    assert "dead-md-anchor" in kinds, (
+        "a heading in a Jekyll post must not become an ambient anchor: " + str(kinds))
