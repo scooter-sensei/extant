@@ -371,29 +371,90 @@ def test_every_config_derived_global_is_reloadable() -> None:
     # guard was green while the value went stale on every reload, so a project
     # with a non-default `entry_prefix` installed through pre-commit got the
     # right prefix everywhere and the wrong section splitter.
-    body = source.split("def reload_config(", 1)
-    assert len(body) == 2, "reload_config not found; this half proves nothing"
-    reload_body = body[1].split("\ndef ", 1)[0]
+    #
+    # Discovered by AST rather than by regex. A line-oriented pattern cannot
+    # see a multi-line assignment and happily matches inside a string literal,
+    # which for a guard whose whole job is completeness is the wrong trade.
+    import ast
 
-    computed = {
-        name for name, rhs in re.findall(r"^(\w+) = (.+)$", source, re.M)
-        if "CONFIG." in rhs and name not in assigned
-    }
+    tree = ast.parse(source)
+    computed = set()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or target.id in assigned:
+            continue
+        if any(isinstance(sub, ast.Name) and sub.id == "CONFIG"
+               for sub in ast.walk(node.value)):
+            computed.add(target.id)
+
     assert computed, (
         "no computed CONFIG-derived globals found; if that is now true, delete "
         "this half rather than letting it pass over an empty set"
     )
-    # The ASSIGNMENT, not the name. `reload_config` opens with
-    # `global CONFIG, _SECTION_HEADER`, so a plain `name in reload_body` is
-    # true even when the rebuild is deleted - and this guard passed against
-    # exactly that mutation before the check was tightened. A substring test
-    # against a whole function body is the same trap as one against whole
-    # tool output.
-    missed = sorted(n for n in computed if f"{n} = " not in reload_body)
+    reload_names = {
+        t.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "reload_config"
+        for sub in ast.walk(node)
+        if isinstance(sub, ast.Assign)
+        for t in sub.targets
+        if isinstance(t, ast.Name)
+    }
+    assert reload_names, "reload_config assigns nothing; this half proves nothing"
+    missed = sorted(computed - reload_names)
     assert not missed, (
         "these globals are computed from CONFIG but reload_config never "
         f"rebuilds them, so they keep their import-time value: {missed}"
     )
+
+
+def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> None:
+    """The behaviour, not the source text.
+
+    The check above reads the module and asks whether `reload_config` contains
+    an assignment. That is a proxy, and a proxy is what let this bug exist:
+    `_SECTION_HEADER` looked refreshed because its NAME appeared in a `global`
+    statement. This calls reload_config against a repository with a different
+    `entry_prefix` and asserts the compiled pattern actually changed, which no
+    source-text rearrangement can fake.
+
+    The prefix here differs in HEADING LEVEL, which is the part that reaches
+    the pattern: `_section_header` takes `prefix.split()[0]`, so `## Phase `
+    and `## Release ` both compile to `^\\#\\# ` and a test that varied only
+    the word would assert something the code never does. A project writing
+    `### Phase ` is the case where a stale value actually bites - the splitter
+    would then look for the wrong heading level and find no entries at all.
+    """
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    import extant_collect as hc
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".extant.toml").write_text(
+        '[extant]\nentry_prefix = "### Phase "\n', encoding="utf-8")
+
+    before = hc._SECTION_HEADER.pattern
+    saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
+    saved_config, saved_header = hc.CONFIG, hc._SECTION_HEADER
+    try:
+        hc.reload_config(tmp_path)
+
+        assert hc.CONFIG.entry_prefix == "### Phase ", "config did not reload"
+        assert hc._SECTION_HEADER.pattern != before, (
+            f"_SECTION_HEADER still {hc._SECTION_HEADER.pattern!r} after a "
+            f"reload that set entry_prefix to '### Phase '"
+        )
+        # It must still WORK, not merely differ: a pattern rebuilt from the
+        # wrong part of the prefix would also change, and match nothing.
+        assert hc._SECTION_HEADER.search("### Phase 3 - checkout\n")
+        assert not hc._SECTION_HEADER.search("## Phase 3 - checkout\n")
+    finally:
+        hc.CONFIG, hc._SECTION_HEADER = saved_config, saved_header
+        for name, value in saved.items():
+            setattr(hc, name, value)
 
 
 def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
