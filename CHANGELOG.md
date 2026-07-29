@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.15.0 (2026-07-29)
+
+**A sweep reads reStructuredText.** The Sphinx ecosystem was invisible to a
+markdown-only sweep, and it is not a small corner: numpy carries 555 `.rst`
+against 14 `.md`, Sphinx 472 against 3, pytest 298 against 6.
+
+Adding the extension alone was not enough and the corpus said so - those
+repositories produced 84 findings and almost none were real. So the two
+markdown rules are SKIPPED outside markdown rather than adapted to it.
+`[text](url)` is markdown's syntax; in Python it is a subscript followed by a
+call, and numpy writes `np.dtype[mp.mpf](dps=100)` in a doctest. All 23 of its
+link findings were that shape, false by construction rather than by accident.
+
+The claim rules still run, because a dead SHA in rst prose is as dead as one in
+markdown. What changes is what counts as prose: literal blocks opening with
+`::`, `>>>` doctests, and inline literals are code. Left in place, numpy's
+`float64('1e10000')` was read as a commit.
+
+**A sweep of 1600 files went from 49 seconds to about 1 second.** Two pieces
+of per-document work were being redone for every file, and both were found by
+profiling rather than by reading the code.
+
+`_own_remote` answers a question about the REPOSITORY - what its origin is -
+and the pinned-ref rule asked it once per DOCUMENT. Profiled over 400 files
+that was 11.3 of 16.2 seconds, 70 percent of the run spent spawning `git remote
+get-url` to receive the same string. It is memoised now, and a remote cannot
+change while one short-lived process runs.
+
+`validate()` also rebuilds five caches per call - directory listings, ancestry
+indexes, resolved refs, LFS state, other documents' headings - because between
+two calls the repository may have moved on. During a sweep it cannot: every
+document comes from one checkout and nothing in the loop writes. `--sweep` now
+declares that scope for its duration and hands it back afterwards, so 20
+distinct questions about the filesystem stop being answered 1600 times. The
+default stays off, so every other caller keeps the guarantee unchanged.
+
+`--verify` was measured for the same treatment and left alone. It saves 5 ms
+out of 337 ms, which does not justify relaxing a correctness promise on the
+path that gates commits.
+
+**The project-wide anchor union is built on demand.** Resolving a `#fragment`
+against every document at once is what MyST and Sphinx do, and reading every
+tracked markdown file is what that costs. It was being done EAGERLY - before a
+single link was examined, for documents that may contain no anchor links at
+all - and the trigger is one file existing. That file is `conf.py` for Sphinx,
+so the cost landed on an ordinary slice of Python projects, on every
+post-commit hook run.
+
+Measured on a document held identical while only the config was added: about
+40 ms at 100 files, 130 ms at 400 and 400 ms at 1600. Flat in the document,
+linear in the repository. Deferred, the same measurement falls within noise of
+zero, while a fragment that genuinely needs the union still pays the same few
+hundred milliseconds. Stated as approximations because the union is bound by
+I/O and varies by about a quarter between runs. The union did not get cheaper;
+it became conditional on the only case where consulting it can change a
+finding.
+
+Behaviour is unchanged, and that was verified rather than assumed: both
+collectors were run over four repositories covering every ambient path - no
+generator, per-page, project-wide, and Hugo partials - plus this repository,
+and their output compared byte for byte across 28 findings.
+
+The harnesses grew to cover `--sweep`, generated sites and reStructuredText,
+all of which had shipped without any measurement of what they cost. That first
+campaign found four gaps where the suite reached a behaviour by a route which
+bypassed the thing being changed: the sweep's accounting for a file it cannot
+decode, Hugo's `_`-prefix guard, the `_format_for` dispatch that chooses rst,
+and the `_MARKDOWN_ONLY` gate - which looked covered because a second mechanism
+was quietly carrying its test. All four are pinned now.
+
 ## 0.14.1 (2026-07-29)
 
 Three false positives, each found by pointing the tool at a repository nobody

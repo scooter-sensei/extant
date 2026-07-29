@@ -6,11 +6,56 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 11 - reStructuredText, and the cost of doing the same work twice (shipped, 2026-07-29)
+
+**Status.** Suite is 382 tests, all passing. Eleven rules, eighteen presets.
+`v0.15.0` is tagged and released. Every release from `v0.5.0` is tagged with no
+gaps.
+
+**What shipped.**
+
+- reStructuredText is swept. The markdown link and anchor rules are skipped
+  outside markdown rather than adapted to it, because `[text](url)` in Python
+  is a subscript followed by a call and numpy writes exactly that in doctests.
+  The claim rules still run, with rst literal blocks and doctests treated as
+  code.
+- A sweep of 1600 files went from roughly 49 seconds to about 1. Two pieces of
+  per-document work were being redone per file, both found by profiling rather
+  than by reading: the origin lookup, which is a question about the repository
+  and was asked once per document, and the five per-call caches, which a sweep
+  can legitimately share because it reads one static checkout and writes
+  nothing.
+- The project-wide anchor union is built on demand. Eagerly it cost roughly
+  400 ms per run at 1600 files on every repository carrying a `conf.py`, for
+  documents whose fragments mostly resolve locally.
+- `tests/test_caching.py`, and cost contracts in `mutate.py`. A change that
+  alters speed and not behaviour regresses silently, so each is pinned by a
+  test that was observed failing first.
+
+**What was learned.**
+
+- A harness measures the inputs it knows how to build. `--sweep`, generated
+  sites and reStructuredText all shipped while `perf.py` and `stress.py` built
+  only generator-free, markdown-only repositories, so none of the new cost was
+  visible to the harness whose entire job is finding cost. Re-run those after
+  changing what the code READS, not only after changing what it does.
+- A stale budget is worse than none. The stress budgets were set from the slow
+  numbers and left at 180s and 140s; after the speedup those runs take 33s and
+  22s, so a fourfold regression would have fitted inside them unnoticed.
+  Re-measure a budget when the thing it watches gets FASTER.
+- Reviewing your own work is not review. This phase was self-reviewed and
+  reported clean; CodeRabbit then found two real defects in it, one of which
+  was a cache outliving its scope so that `dead-pinned-ref` examined nothing
+  and reported clean - this project's own failure mode, aimed at itself.
+- A scenario's negative assertions are satisfied by a run that never happened.
+  Found once in `s25` and fixed there, then found again by review in `s24`,
+  where four of eight assertions went green against an empty stdout. Prove the
+  run occurred before believing anything it did not say.
+
 ## Phase 10 - Run it on somebody else's repository (shipped, 2026-07-29)
 
-**Status.** Suite is 352 tests, all passing. Eleven rules, eighteen presets.
-`v0.14.1` is tagged, released, and on PyPI. Every release from `v0.5.0` is
-tagged with no gaps.
+**Status.** Suite was 352 tests at the time, all passing. Eleven rules,
+eighteen presets. `v0.14.1` was tagged, released, and on PyPI.
 
 Release pages exist for every tag except `v0.13.0`, `v0.13.1` and `v0.13.2`,
 whose changes are written up in the `v0.14.0` page instead. `v0.13.1` is a tag
