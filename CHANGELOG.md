@@ -58,9 +58,14 @@ it became conditional on the only case where consulting it can change a
 finding.
 
 Behaviour is unchanged, and that was verified rather than assumed: both
-collectors were run over four repositories covering every ambient path - no
-generator, per-page, project-wide, and Hugo partials - plus this repository,
-and their output compared byte for byte across 28 findings.
+collectors were run over seven repositories and their output compared byte for
+byte across 30 findings. The set covers every ambient path deliberately - no
+generator, per-page, project-wide, Hugo partials, two carrying install snippets
+pinned against their own remote, and this repository.
+
+That last pair was added after the first comparison, because none of the
+original repositories had an origin at all - so "identical" would have been a
+confident measurement of something other than the change.
 
 The harnesses grew to cover `--sweep`, generated sites and reStructuredText,
 all of which had shipped without any measurement of what they cost. That first
