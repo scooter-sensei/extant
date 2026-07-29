@@ -7,6 +7,12 @@ that deduplication buys nothing. The case-sensitivity check lists a directory
 per path component, so the adversarial case is thousands of links in a deep
 tree. A benchmark that avoids those is measuring the wrong thing.
 
+The same reasoning picked the newer cases. `_target_anchors` memoises per path,
+so the case that matters is two thousand links into two thousand DIFFERENT
+files, where that cache buys nothing. And one `conf.py` turns a single
+`--validate` into a read of every tracked file in the repository, so the shape
+worth measuring is a small document in a large tree rather than a large one.
+
 Reports peak memory as well as time. A tool that is fast because it holds a
 10 MB document and every intermediate list in memory at once has not solved the
 problem, it has moved it.
@@ -526,6 +532,228 @@ def case_many_pinned_refs() -> None:
                "ok" if len(fired) >= 450 else f"only {len(fired)} of 500")
 
 
+# --------------------------------------------------------- 16. the whole sweep
+def _finding_lines(stdout: str) -> list[str]:
+    """Finding lines only, never the denominator.
+
+    A sweep prints `path.md: line N: [kind] ...` for anything outside the
+    primary document and `line N: [kind] ...` inside it, while the summary
+    names rules too. Counting occurrences of a rule name in raw stdout is how
+    an assertion ends up reading the denominator and calling it a finding,
+    which this harness has already done once.
+    """
+    import re
+    return [ln for ln in stdout.splitlines()
+            if re.search(r"(^|: )line \d+: \[", ln)]
+
+
+def case_sweep_whole_repo() -> None:
+    """`--sweep`'s unit of work is the REPOSITORY, not a document.
+
+    Every other case here validates one file. This is the mode where cost is
+    the number of files, and it is the one a newcomer points at the largest
+    repository they own before they have configured anything.
+    """
+    print("\n[16] --sweep over 3000 tracked markdown files")
+    repo = new_repo("stress-sweep")
+    for n in range(3000):
+        write(repo, f"docs/s{n % 30}/page{n}.md",
+              f"# Page {n}\n\n## Detail {n}\n\nJump to [d](#detail-{n}).\n")
+    # One planted fault in a CONFIGURED document, so the exit code has
+    # something to gate on and the run proves it still gates at this size.
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+          "See [gone](docs/no-such-file.md).\n\n## 1. Ref\n")
+    write(repo, ".extant.toml", 'primary_doc = "NEXT_SESSION.md"\n')
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "corpus")
+
+    # Budget from measurement, not from taste: 32.7s on Windows, 2026-07-29,
+    # after the per-document work was hoisted out of the loop. It was 134s
+    # before that, and the budget was 180s - which is the trap a stale budget
+    # sets. Nothing failed, nothing could have, and a 4x regression would have
+    # fitted inside it unnoticed. Re-measure a budget when the thing it watches
+    # gets faster, not only when it gets slower.
+    #
+    # Set above the observed number rather than at it, because a budget met
+    # only on a quiet machine gets rerun on red, then ignored, then deleted.
+    proc, elapsed = run_timed(repo, "--sweep", budget=60, timeout=600)
+    report("sweep", "3000 files surveyed", verdict_for(elapsed, 60))
+    if not proc:
+        return
+    # The denominator is the whole point of the mode. A wrong glob or an index
+    # read would report a clean repository, and the timing above would look
+    # BETTER for it - which is why this assertion sits next to the measurement
+    # rather than in the unit suite alone.
+    report("sweep", "the denominator names 3001 files",
+           "yes" if "swept 3001 markdown file(s)" in proc.stdout
+           else f"NO - {[l for l in proc.stdout.splitlines() if 'swept' in l][:1]}")
+    report("sweep", "the planted fault still gates",
+           "yes" if proc.returncode == 1 else f"NO - exit {proc.returncode}")
+
+
+# ------------------------------------------- 17. the eager project-wide union
+def case_global_anchor_union() -> None:
+    """The project-wide anchor union, at the size that makes it expensive.
+
+    When a repository declares a generator whose namespace is the project,
+    resolving one fragment can require reading every tracked markdown file.
+    That is correct - MyST and Sphinx resolve labels project-wide - and it is
+    the only place where validating ONE small document costs the whole
+    repository.
+
+    The document here links to a fragment defined in ANOTHER file, which is
+    what forces the union to be built. That detail is the case: the union
+    became lazy, so a document whose fragments resolve locally no longer
+    touches it at all, and the earlier version of this case - which linked to
+    a heading in its own body - would now measure a code path it never
+    reaches. A load test aimed at a branch that is no longer taken reports a
+    comfortable number and exercises nothing.
+
+    Sphinx projects all carry a `conf.py`, so this remains an ordinary shape
+    rather than an adversarial one.
+    """
+    print("\n[17] a cross-file fragment, 3000 files, and a conf.py")
+    repo = new_repo("stress-union")
+    for n in range(3000):
+        write(repo, f"docs/s{n % 30}/page{n}.md", f"# Page {n}\n\n## Detail {n}\n")
+    # `## Detail 42` lives in one of those files, not in this one.
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+          "Jump to [r](#detail-42).\n\n## 1. Ref\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "corpus")
+    proc, plain = run_timed(repo, "--validate", "NEXT_SESSION.md", budget=15)
+    report("global-union", "no generator declared", verdict_for(plain, 15))
+    # Without a generator the namespace is the page, so this fragment is dead.
+    # Asserted because it is what proves the two runs differ in KIND and not
+    # only in duration.
+    # Matched against FINDING lines, never against stdout as a whole. The
+    # denominator names every rule on every run, so `"dead-md-anchor" in
+    # stdout` is true whether the rule fired or not - it reported this union
+    # as broken while the tool was resolving the anchor correctly. That is the
+    # same defect `_finding_lines` was added to prevent, made three times in
+    # the case that has the helper sitting directly above it.
+    if proc:
+        report("global-union", "per-page namespace calls it dead",
+               "yes" if _finding_lines(proc.stdout) else "NO - forgiven anyway")
+
+    write(repo, "conf.py", "project = 'x'\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "sphinx")
+    # Measured 29.2s on Windows, 2026-07-29, so the budget is 60s.
+    #
+    # perf.py measures the same effect in the low hundreds of milliseconds for
+    # 1600 files, and the two do NOT contradict each other: this is a single COLD run over files that
+    # were written moments ago, and perf takes the median of three, so its
+    # second and third runs read a warm cache. On Windows, with a scanner in
+    # front of 3000 new files, that gap is most of the difference.
+    #
+    # This case barely moved when the rest of the sweep got four times faster,
+    # which is the expected shape rather than a disappointment: the union reads
+    # every tracked file, so it is bound by cold I/O and not by the per-document
+    # work that was hoisted out.
+    #
+    # Both numbers are worth having, and this is the one shaped like a hook:
+    # a post-commit run happens once and pays whatever the cache does not.
+    proc, sphinx = run_timed(repo, "--validate", "NEXT_SESSION.md", budget=60)
+    report("global-union", "the same document, with conf.py",
+           verdict_for(sphinx, 60))
+    if plain and sphinx:
+        report("global-union", "cost of the union",
+               f"{(sphinx - plain):+6.1f}s for 3000 files")
+    if proc:
+        report("global-union", "project namespace resolves it",
+               "yes" if not _finding_lines(proc.stdout)
+               else "NO - the union did not reach the other file")
+    # The union must not swallow a real finding. A project-wide namespace that
+    # forgives everything is the same failure as a baseline that does.
+    if proc:
+        text = (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")
+        write(repo, "NEXT_SESSION.md",
+              text.replace("[r](#detail-42)", "[r](#no-such-anchor-anywhere)"))
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", "dead anchor")
+        proc, _ = run_timed(repo, "--validate", "NEXT_SESSION.md", budget=60)
+        report("global-union", "a genuinely dead anchor still reported",
+               "yes" if proc and _finding_lines(proc.stdout)
+               else "NO - the union forgave it")
+
+
+# ----------------------------------------- 18. cross-file anchors, uncached
+def case_distinct_cross_file_anchors() -> None:
+    """The adversarial case for the cross-file anchor cache.
+
+    `_target_anchors` memoises per PATH, so a document linking into the same
+    file repeatedly costs one read. A document linking into two thousand
+    DIFFERENT files gets nothing from that cache and opens two thousand files -
+    the same shape as the distinct-SHA case for merge claims, and the reason
+    that one is in this harness.
+    """
+    print("\n[18] 2000 anchor links into 2000 DISTINCT files")
+    repo = new_repo("stress-xfile")
+    bulk_commits(repo, 3)
+    for n in range(2000):
+        write(repo, f"docs/t{n}.md", f"# Target {n}\n\n## Section {n}\n\nx\n")
+    body = "\n".join(f"See [t {n}](docs/t{n}.md#section-{n})." for n in range(2000))
+    write(repo, "NEXT_SESSION.md",
+          f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "targets")
+    proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md", budget=45)
+    report("cross-file-anchors", "2000 distinct target files",
+           verdict_for(elapsed, 45))
+    if proc:
+        report("cross-file-anchors", "false positives on live anchors",
+               "none" if not _finding_lines(proc.stdout)
+               else f"{len(_finding_lines(proc.stdout))} UNEXPECTED")
+        # And one that is genuinely dead, so the rule is shown to be awake.
+        text = (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")
+        write(repo, "NEXT_SESSION.md",
+              text.replace("docs/t1500.md#section-1500", "docs/t1500.md#gone"))
+        proc, _ = run_timed(repo, "--validate", "NEXT_SESSION.md", budget=45)
+        report("cross-file-anchors", "the one dead anchor among 2000 is found",
+               "yes" if proc and "#gone" in proc.stdout else "NO - lost at scale")
+
+
+# ------------------------------------------------------- 19. a large rst tree
+def case_rst_corpus() -> None:
+    """reStructuredText at scale, where the markdown rules must stay silent.
+
+    Reading `.rst` as markdown does not degrade, it invents: 23 of numpy's
+    findings and all ten of Sphinx's came from exactly that, every one false.
+    numpy carries 555 rst files, so this is the ordinary size of the case
+    rather than an extreme of it.
+    """
+    print("\n[19] 2000 reStructuredText files in a sweep")
+    repo = new_repo("stress-rst")
+    for n in range(2000):
+        # Constructs markdown would misread: rst hyperlinks and inline
+        # literals, whose punctuation overlaps markdown's link syntax.
+        write(repo, f"docs/p{n}.rst",
+              f"Page {n}\n{'=' * (5 + len(str(n)))}\n\n"
+              f"See `the guide <https://example.com/{n}>`_ and ``[x](y.md)``.\n\n"
+              f".. _label-{n}:\n\nSection {n}\n{'-' * (8 + len(str(n)))}\n\nBody.\n")
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "rst corpus")
+    # Measured 22.3s on Windows, 2026-07-29 (93.6s before the per-document
+    # work was hoisted out of the sweep loop).
+    proc, elapsed = run_timed(repo, "--sweep", budget=45, timeout=600)
+    report("rst", "2000 rst files swept", verdict_for(elapsed, 45))
+    if not proc:
+        return
+    report("rst", "all 2001 files counted",
+           "yes" if "swept 2001 markdown file(s)" in proc.stdout
+           else "NO - rst files were not swept")
+    # The literal `[x](y.md)` above is a markdown link inside an rst literal.
+    # If the markdown rules ran, every one of these files reports a dead link.
+    report("rst", "markdown link rules stayed out of rst",
+           "yes" if not _finding_lines(proc.stdout)
+           else f"{len(_finding_lines(proc.stdout))} findings - rst read as markdown")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     cases = [case_distinct_shas, case_huge_document, case_large_repository,
@@ -533,7 +761,9 @@ def main() -> int:
              case_pathological_shapes, case_memory, case_repeated,
              case_search_large_archive, case_consistency_many_files,
              case_suggest_fixes_many_renames, case_huge_baseline,
-             case_huge_sarif, case_many_pinned_refs]
+             case_huge_sarif, case_many_pinned_refs,
+             case_sweep_whole_repo, case_global_anchor_union,
+             case_distinct_cross_file_anchors, case_rst_corpus]
     for case in cases:
         try:
             case()

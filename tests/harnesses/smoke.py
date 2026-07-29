@@ -845,6 +845,184 @@ def p_install_over_existing_agent_files() -> None:
              f"(re-run exit {second.returncode})")
 
 
+# ------------------------------------------------------------------- sweep
+def p_sweep_nothing_to_sweep() -> None:
+    """A repository with no markdown must SAY it swept nothing.
+
+    This is the project's signature failure aimed at its newest mode. "0
+    findings" and "0 files examined" both exit 0 and both print reassuringly,
+    and a sweep is the easiest place in the tool to produce the second by
+    accident - a wrong glob, an index read on an incomplete checkout, a
+    pathspec that matches nothing. The exit code cannot tell them apart, so
+    the diagnostic has to.
+    """
+    print("\n[sweep] a repository with no markdown at all")
+    repo = new_repo("sweep-empty")
+    write(repo, "src/main.py", "x = 1\n")
+    commit(repo, "init")
+    res = tool(repo, "--sweep")
+    combined = res.stdout + res.stderr
+    if res.returncode != 0:
+        note("BROKEN", "sweeping a repo with no markdown fails",
+             f"exit {res.returncode}\n{combined[:200]}")
+    elif "0 markdown files" in combined or "swept 0" in combined:
+        ok("an empty sweep says so rather than exiting quietly")
+    else:
+        note("SILENT", "a sweep that examined nothing printed no denominator",
+             f"exit 0 with no statement of what was looked at:\n{combined[:200]}")
+
+
+def p_sweep_unreadable_file() -> None:
+    """A file that could not be read is not a file with no findings.
+
+    The two are indistinguishable in an exit code, and a sweep that skips a
+    latin-1 document quietly under-reports on every repository holding one.
+    """
+    print("\n[sweep] a tracked file that is not valid UTF-8")
+    repo = new_repo("sweep-unreadable")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing yet."))
+    write(repo, ".extant.toml", 'primary_doc = "NEXT_SESSION.md"\n')
+    (repo / "docs").mkdir(parents=True, exist_ok=True)
+    # Bytes that are not valid UTF-8 in any position.
+    (repo / "docs" / "latin1.md").write_bytes(
+        b"# Caf\xe9\n\nSee [x](gone.md).\n")
+    commit(repo, "init")
+    res = tool(repo, "--sweep")
+    combined = res.stdout + res.stderr
+    if "could not be read" in combined and "latin1.md" in combined:
+        ok("an undecodable file is counted and named, not skipped")
+    elif "swept 2 markdown file" in combined:
+        note("SILENT", "an unreadable file was counted as examined",
+             "the denominator says 2 files, but one of them could not be "
+             f"decoded and produced no findings:\n{combined[:200]}")
+    else:
+        note("SILENT", "an unreadable file vanished from the sweep",
+             f"neither named nor counted:\n{combined[:300]}")
+
+
+def p_sweep_gates_only_on_configured() -> None:
+    """The vetted/unvetted split is the whole design, and both halves are
+    load-bearing.
+
+    Gating on unreviewed documents would turn every example claim in every
+    README into a build failure - measured at 18 findings on this repository,
+    all false. Gating on nothing would make the mode incapable of failing,
+    which reads exactly like a clean run.
+    """
+    print("\n[sweep] whether an unreviewed document can fail the build")
+    repo = new_repo("sweep-gating")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing wrong here."))
+    write(repo, "docs/example.md",
+          f"# Examples\n\nA dead link: [x](no-such-file.md).\n"
+          f"A dead commit: `{DEAD_SHA}`.\n")
+    write(repo, ".extant.toml", 'primary_doc = "NEXT_SESSION.md"\n')
+    commit(repo, "init")
+    res = tool(repo, "--sweep")
+    combined = res.stdout + res.stderr
+    if res.returncode == 0 and "example.md" in combined:
+        ok("an unreviewed document is surveyed but does not gate")
+    elif res.returncode == 0:
+        note("SILENT", "an unreviewed document was not even surveyed",
+             f"exit 0, and nothing named it:\n{combined[:300]}")
+    else:
+        note("NOISE", "an unreviewed document failed the build",
+             "example claims in unconfigured files would break every CI run "
+             f"that adopts --sweep:\n{combined[:300]}")
+
+    # And the other direction, which is the half that makes the mode useful.
+    write(repo, "NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD_SHA}`."))
+    commit(repo, "break the configured doc")
+    res = tool(repo, "--sweep")
+    if res.returncode == 1:
+        ok("a configured document still gates")
+    else:
+        note("BROKEN", "a configured document stopped gating",
+             f"exit {res.returncode} with a dead claim in primary_doc")
+
+
+def p_sweep_sarif_purity() -> None:
+    """Sweep has two output channels and a summary that must not collide.
+
+    The summary was written to stderr unconditionally at one point, which
+    interleaved it AHEAD of the findings because the streams flush
+    independently. In SARIF the same mistake is fatal rather than untidy.
+    """
+    print("\n[sweep] SARIF from a sweep, across multiple documents")
+    repo = new_repo("sweep-sarif")
+    write(repo, "NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD_SHA}`."))
+    write(repo, "docs/a.md", "# A\n\nSee [x](gone-a.md).\n")
+    write(repo, "docs/b.md", "# B\n\nSee [y](gone-b.md).\n")
+    write(repo, ".extant.toml", 'primary_doc = "NEXT_SESSION.md"\n')
+    commit(repo, "init")
+    res = tool(repo, "--sweep", "--format=sarif")
+    import json as _json
+    try:
+        results = _json.loads(res.stdout)["runs"][0]["results"]
+    except (ValueError, KeyError, IndexError) as exc:
+        note("BROKEN", "sweep SARIF stdout is not parseable JSON",
+             f"{exc}\nfirst 200 bytes: {res.stdout[:200]!r}")
+        return
+    if not results:
+        note("HARNESS", "sweep SARIF parsed but held no results",
+             "nothing was serialised, so purity was not exercised")
+        return
+    ok("sweep SARIF stdout parses", f"{len(results)} results")
+    # Findings from several documents share one SARIF run, so each must carry
+    # its own path or a reader cannot tell them apart.
+    locations = {r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+                 for r in results if r.get("locations")}
+    if len(locations) >= 2:
+        ok("findings carry the document they came from", f"{len(locations)} paths")
+    else:
+        note("BROKEN", "every sweep finding reports the same path",
+             f"a multi-document sweep collapsed to {locations}")
+    if "swept" not in res.stderr:
+        note("SILENT", "sweep SARIF printed no denominator to stderr",
+             "stdout must stay pure JSON, so stderr is the only place the "
+             "count of examined files can go, and it went nowhere")
+
+
+def p_sweep_site_config_that_is_a_directory() -> None:
+    """Generator detection turns on one filename existing, and that filename is
+    attacker-adjacent in the mildest sense: it is a name anyone might use.
+
+    A DIRECTORY called `mkdocs.yml` must not switch the tool into site mode,
+    where route-shaped links stop being checked. The guard is `.is_file()`,
+    and this is the probe that would notice it becoming `.exists()`.
+
+    The payload has to be a ROUTE, which is the thing site mode actually
+    suppresses: root-relative, `.html`, or extensionless. The first version of
+    this probe used a plain `docs/gone.md`, which no generator setting has ever
+    controlled - so it passed against the bug it was written to catch, and only
+    a deliberate mutation showed that up. A probe aimed slightly beside its
+    target is the most comfortable kind of nothing.
+    """
+    print("\n[sweep] a directory named like a generator config")
+    repo = new_repo("sweep-fakeconfig")
+    (repo / "mkdocs.yml").mkdir(parents=True, exist_ok=True)
+    write(repo, "mkdocs.yml/keep.txt", "not a config\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format(
+        "See [route](/reference/config/).\nSee [file](docs/gone.md)."))
+    write(repo, ".extant.toml", 'primary_doc = "NEXT_SESSION.md"\n')
+    commit(repo, "init")
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    # The plain file link is the control: it is reported whatever the generator
+    # setting says, so its absence means the rule is off for some other reason
+    # and the route result below would be meaningless.
+    if "docs/gone.md" not in res.stdout:
+        note("HARNESS", "the control link was not reported",
+             "dead-md-link is not running at all here, so nothing this probe "
+             f"says about site mode can be trusted:\n{res.stdout[:300]}")
+        return
+    if "/reference/config/" in res.stdout:
+        ok("a directory named mkdocs.yml does not enable site mode")
+    else:
+        note("BLIND", "a directory named like a config disabled route checking",
+             "creating a DIRECTORY called mkdocs.yml was enough to stop "
+             "route-shaped links being judged, while a real config file is "
+             f"what that is meant to require:\n{res.stdout[:300]}")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     probes = [p_empty_repo, p_detached_head, p_no_git_at_all, p_binary_document,
@@ -857,7 +1035,10 @@ def main() -> int:
               p_baseline_forgives_a_repaste,
               p_baseline_failure_modes, p_baseline_theatre,
               p_sarif_stdout_purity, p_github_annotation_injection,
-              p_offline, p_install_over_existing_agent_files]
+              p_offline, p_install_over_existing_agent_files,
+              p_sweep_nothing_to_sweep, p_sweep_unreadable_file,
+              p_sweep_gates_only_on_configured, p_sweep_sarif_purity,
+              p_sweep_site_config_that_is_a_directory]
     for probe in probes:
         try:
             probe()

@@ -465,6 +465,157 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("release-tag shape widens without evidence", detect,
          '    extra = sorted(p for p in prefixes if p not in ("", "v"))',
          '    extra = sorted({*prefixes, "release-"} - {"", "v"})'),
+
+        # --- the whole-repo sweep -------------------------------------------
+        # The first mutation here is the one this group exists for. Reading the
+        # INDEX instead of HEAD's tree is a bug this project has now shipped
+        # twice: once in `raw-lfs-blob`, and then again in `tracked_markdown`
+        # after the first was found, fixed and written up. It is worth pinning
+        # in both places precisely because knowing about it was not enough to
+        # stop it recurring.
+        #
+        # Its failure mode is the worst one available. An incomplete checkout -
+        # sparse, partial, or a Windows tree that hit MAX_PATH - leaves the
+        # index empty while HEAD's tree is full, so the sweep reports a clean
+        # repository having examined nothing. Measured on a helm clone: 0 files
+        # swept against 96 in the tree, exit 0, no diagnostic.
+        ("the sweep reads the index instead of the committed tree", collect,
+         '    out = _git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")',
+         '    out = _git(repo, "ls-files", "-z")'),
+        ("the sweep forgets every format except .md", collect,
+         '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))',
+         '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md",))'),
+        # Both directions of the vetted/unvetted split, because it is the whole
+        # design of the mode and each way of breaking it is silent in its own
+        # way. Gating on everything turns 18 measured false positives on this
+        # repository into build failures; gating on nothing makes `--sweep`
+        # incapable of ever failing, which reads identically to a clean run.
+        ("the sweep gates on unreviewed documents too", collect,
+         '    return 1 if results["vetted"] else 0',
+         '    return 1 if (results["vetted"] or results["unvetted"]) else 0'),
+        ("the sweep gates on nothing at all", collect,
+         '    return 1 if results["vetted"] else 0',
+         "    return 0"),
+        ("everything is vetted, so nothing is surveyed separately", collect,
+         "    vetted = [p for p in paths if p in normalised]\n"
+         "    return vetted, [p for p in paths if p not in normalised]",
+         "    return list(paths), []"),
+        # A file that could not be read is not a file with no findings. This
+        # drops it on the floor exactly the way a bare `continue` would, which
+        # is how the sweep would quietly under-report on any repository holding
+        # a latin-1 document.
+        ("unreadable files are skipped silently rather than counted", collect,
+         '                unreadable.append(f"{relative} ({exc.__class__.__name__})")',
+         "                pass"),
+        ("the sweep denominator counts only what it gated on", collect,
+         '    print(f"\\nswept {len(paths)} markdown file(s): "',
+         '    print(f"\\nswept {len(vetted)} markdown file(s): "'),
+        # An empty repository must SAY it swept nothing. Returning 0 without the
+        # diagnostic is the project's signature failure: the reassuring silence
+        # of a run that examined zero files.
+        ("a repository with no markdown reports nothing at all", collect,
+         '        print("swept 0 markdown files: git tracks none in this repository",\n'
+         "              file=sys.stderr)",
+         "        pass"),
+
+        # --- generated sites and anchor namespaces ---------------------------
+        # Detection decides whether a route-shaped link is a dead file or a page
+        # a generator will build, and being wrong in either direction is
+        # expensive. Blind, withastro/starlight reported 235 of its own working
+        # links as dead. Universally on, every genuinely dead link in a plain
+        # repository stops being reported.
+        ("site detection goes blind, so routes are dead files again", collect,
+         "        found = any((repo / d / name).is_file()\n"
+         "                    for d in _SITE_DIRS for name in _SITE_CONFIGS)",
+         "        found = False"),
+        ("every repository is treated as a generated site", collect,
+         "        found = any((repo / d / name).is_file()\n"
+         "                    for d in _SITE_DIRS for name in _SITE_CONFIGS)",
+         "        found = True"),
+        # The root-only search is a shipped bug, not a hypothetical. jekyll/jekyll
+        # keeps its own site under `docs/` with `docs/_config.yml`, and a search
+        # that looked only at the root reported 138 of its routes as dead.
+        ("generator config is looked for at the root only", collect,
+         '_SITE_DIRS = ("", "docs", "site", "www", "website")',
+         '_SITE_DIRS = ("",)'),
+        ("a generator declared inside another file is missed", collect,
+         '_SITE_MARKERS_IN_FILE = (("mix.exs", "ex_doc"),)',
+         "_SITE_MARKERS_IN_FILE = ()"),
+        # The namespace is a property of the GENERATOR, and the measurement that
+        # settled it cuts both ways. Applying a project-wide union everywhere
+        # forgave two of encode/httpx's three genuinely dead anchors; applying it
+        # nowhere left 168 of mystmd's findings naming labels that exist.
+        ("cross-reference namespace is the page everywhere", collect,
+         "        _GLOBAL_NS[key] = any((repo / d / name).is_file()\n"
+         "                              for d in _SITE_DIRS\n"
+         "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        _GLOBAL_NS[key] = False"),
+        ("cross-reference namespace is the project everywhere", collect,
+         "        _GLOBAL_NS[key] = any((repo / d / name).is_file()\n"
+         "                              for d in _SITE_DIRS\n"
+         "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        _GLOBAL_NS[key] = True"),
+        # The project union is built ON DEMAND, and this reverts it to eager.
+        # Ordinarily a cost-only change gets NO mutation here - the `raw-lfs-blob`
+        # size shortcut is excluded for exactly that reason, because a mutation
+        # nothing can kill survives every campaign and reads as a test gap.
+        # This one is different: it has a test that observes whether the union
+        # was populated, so the mutation is killable and the campaign is what
+        # keeps that test honest. Eagerly it cost roughly 400 ms per run at
+        # 1600 files, on every repository carrying a conf.py.
+        ("the project anchor union goes back to being built eagerly", collect,
+         "                if fragment in own or fragment in ambient_anchors():",
+         "                if fragment in (own | ambient_anchors()):"),
+        # Hugo's fragment convention, and the guard that keeps it Hugo's. Without
+        # the `_` test every page in the project becomes an ambient anchor
+        # source, which is the project-wide union arriving through the back door.
+        ("hugo fragments stop being recognised as ambient anchors", collect,
+         '                if not any(part.startswith("_") for part in rel.split("/")[:-1]):\n'
+         "                    continue",
+         "                continue"),
+        ("every directory is treated as a hugo fragment directory", collect,
+         '                if not any(part.startswith("_") for part in rel.split("/")[:-1]):\n'
+         "                    continue",
+         "                pass"),
+
+        # --- repeated work ---------------------------------------------------
+        # Cost contracts, and normally this file would not carry them: a change
+        # that alters speed and not behaviour survives every campaign and reads
+        # as a test gap. These four are here because each has a test that
+        # observes it, so each is killable - and because a silent regression
+        # would put back a 70 percent slowdown nobody could date afterwards.
+        ("the remote is fetched once per document again", collect,
+         "    key = str(repo)\n"
+         "    if key not in _OWN_REMOTE:\n"
+         "        _OWN_REMOTE[key] = _normalise_remote(\n"
+         '            _git_soft(repo, "remote", "get-url", "origin"))\n'
+         "    return _OWN_REMOTE[key]",
+         '    return _normalise_remote(_git_soft(repo, "remote", "get-url", "origin"))'),
+        # `None` means "no origin", which is an ANSWER. Probed by truthiness it
+        # is a miss forever, so the cache silently stops working on exactly the
+        # repositories that have no remote.
+        ("a cached no-origin answer is treated as a cache miss", collect,
+         "    if key not in _OWN_REMOTE:",
+         "    if not _OWN_REMOTE.get(key):"),
+        ("the sweep never gives its cache scope back", collect,
+         "        _STABLE_SCOPE = False\n"
+         "        _DIRCACHE = None",
+         "        pass\n        _released = None"),
+        ("validate stops resetting its per-call caches", collect,
+         "    if _STABLE_SCOPE:",
+         "    if True:"),
+
+        # --- reStructuredText ------------------------------------------------
+        # Markdown's link syntax is not a subset of anything. Running those two
+        # rules over rst does not degrade, it invents: 23 of numpy's findings
+        # and all ten of Sphinx's came from reading `.rst` as though it were
+        # markdown, and every one was false.
+        ("rst files are read as markdown", collect,
+         '    return "rst" if suffix == "rst" else "markdown"',
+         '    return "markdown"'),
+        ("markdown-only rules stop being markdown-only", collect,
+         '_MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}',
+         "_MARKDOWN_ONLY = set()"),
     ]
 
 
@@ -518,11 +669,39 @@ def main() -> int:
                         help="interpreter used to run the suite")
     parser.add_argument("--check-only", action="store_true",
                         help="verify every mutation still matches, run no tests")
+    parser.add_argument("--only", metavar="SUBSTRING[,SUBSTRING...]",
+                        help="run only mutations whose label contains any of these")
     args = parser.parse_args()
 
     root = Path(args.repo).resolve()
     skill = root / "plugin/skills/extant"
     mutations = build_mutations(skill / "payload/extant_collect.py", skill / "detect.py")
+
+    # A campaign is half an hour, which is too long to run after touching one
+    # rule and therefore long enough that nobody does. `--only` re-verifies the
+    # group belonging to whatever just changed.
+    #
+    # It prints the selection against the total, and REFUSES a filter that
+    # selected nothing. A typo'd substring would otherwise run zero mutations
+    # and report "0 survived", which is the healthiest-looking output this
+    # harness can produce and means precisely nothing.
+    if args.only:
+        needles = [n.strip().lower() for n in args.only.split(",") if n.strip()]
+        chosen = [m for m in mutations
+                  if any(n in m[0].lower() for n in needles)]
+        print(f"--only selects {len(chosen)} of {len(mutations)} mutations "
+              f"from {len(needles)} pattern(s)")
+        # Each pattern reports its own count. One typo among several would
+        # otherwise be absorbed by the others: the total looks plausible, the
+        # run is green, and the group somebody meant to re-verify was never
+        # touched.
+        for needle in needles:
+            hits = sum(1 for m in mutations if needle in m[0].lower())
+            print(f"  {needle!r}: {hits}" + ("  <- MATCHED NOTHING" if not hits else ""))
+        if not chosen:
+            print("nothing matched, so a run would prove nothing - refusing")
+            return 1
+        mutations = chosen
 
     # Existence FIRST. Reading before checking raised FileNotFoundError and
     # the careful message below never printed.

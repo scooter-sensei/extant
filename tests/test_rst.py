@@ -90,3 +90,47 @@ def test_a_claim_in_rst_prose_is_still_checked(git_repo) -> None:
     text = "The rewrite landed in ``deadbee1`` last spring.\n"
 
     assert [k for k in _kinds(repo, text) if "sha" in k], "rst prose is not exempt"
+
+
+def test_the_filename_decides_the_format() -> None:
+    """`_format_for` is the dispatch, and nothing above ever calls it.
+
+    Every test in this file sets `_DOC_FORMAT` by hand, which is convenient and
+    leaves the thing that chooses it completely unpinned. A mutation campaign
+    made `_format_for` return "markdown" for every path and the whole suite
+    stayed green: the rules were correct for a format nothing would ever
+    select, which is a feature that works in tests and not in the product.
+    """
+    import extant_collect as hc
+
+    assert hc._format_for("docs/guide.rst") == "rst"
+    assert hc._format_for("docs/GUIDE.RST") == "rst", "the suffix is case-folded"
+    for markdown in ("README.md", "docs/a.markdown", "docs/b.mdx", "Makefile"):
+        assert hc._format_for(markdown) == "markdown", markdown
+
+
+def test_the_markdown_link_rule_is_gated_by_format_not_only_by_literals(
+        git_repo) -> None:
+    """Two mechanisms suppress a markdown link in rst, and only one is the point.
+
+    `_MARKDOWN_ONLY` skips the rule outright; rst literal-stripping blanks
+    ``...`` spans before any rule sees them. The existing test above puts its
+    payload INSIDE a literal, so it passes with the format gate deleted - the
+    stripping alone carries it. Emptying `_MARKDOWN_ONLY` survived a mutation
+    campaign for exactly that reason.
+
+    So this one puts the link in bare prose, where stripping cannot reach it
+    and only the gate can. In rst that text is not a link at all: it is a
+    subscript followed by a call, which is what numpy's doctests are full of.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    text = "Call np.dtype[mp.mpf](dps=100) to build it.\n"
+
+    assert "dead-md-link" not in _kinds(repo, text, fmt="rst")
+    # The control: the identical bytes ARE a link in markdown, so a rule that
+    # simply stopped working would pass the assertion above for no reason.
+    assert "dead-md-link" in _kinds(repo, text, fmt="markdown"), (
+        "if this fails the rule is off entirely and the rst assertion above "
+        "proves nothing"
+    )

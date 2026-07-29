@@ -791,6 +791,81 @@ def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
         "a heading in a Jekyll post must not become an ambient anchor: " + str(kinds))
 
 
+def test_inside_hugo_only_underscore_directories_are_ambient(git_repo) -> None:
+    """The `_` test is what keeps the rule Hugo's convention rather than a
+    project-wide anchor union arriving through the back door.
+
+    The two tests above leave it unpinned from either side. One has no
+    `hugo.toml`, so the fragment scan never runs at all; the other asserts that
+    an anchor IS found, which only gets easier as more files become ambient.
+    Deleting the guard survived a mutation campaign between them.
+
+    So this is the case it actually protects: a Hugo repository where the
+    heading lives in an ordinary content directory. Nothing includes that page
+    into another, so the link is dead and has to be reported.
+    """
+    repo, commit = git_repo
+    commit("hugo.toml", "title = 'docs'\n", "chore: hugo")
+    commit("content/guides/setup.md", "## Some Heading\n", "chore: ordinary page")
+    commit("content/all.md", "x\n", "chore: page")
+
+    import extant_collect as hc
+    hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    try:
+        kinds = [f.kind for f in hc.validate(
+            repo, "See [it](#some-heading).\n", has_entries=False)]
+    finally:
+        hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    assert "dead-md-anchor" in kinds, (
+        "a heading in an ordinary Hugo content directory is not a fragment, so "
+        "this link is dead: " + str(kinds))
+
+
+def test_the_project_union_is_built_only_when_a_fragment_needs_it(git_repo) -> None:
+    """A performance contract, pinned because nothing else can see it.
+
+    Resolving a fragment project-wide means reading every tracked markdown
+    file. Built eagerly, that cost landed on every run of every repository
+    carrying a `conf.py` - which is every Sphinx project - to validate
+    documents that mostly reference their own headings. Measured at +421 ms
+    per run on 1600 files, paid by a post-commit hook.
+
+    Making it lazy changes cost and not behaviour, so no ordinary test can
+    notice a regression to eager: the findings are identical either way. What
+    IS observable is whether the union was populated at all, and that is what
+    this asserts, in both directions - because "never built" would pass the
+    first half while breaking cross-file resolution entirely.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("conf.py", "project = 'x'\n", "chore: sphinx")
+    commit("docs/other.md", "# Other\n\n## Site Options\n\nx\n", "chore: other")
+    commit("index.md", "x\n", "chore: index")
+
+    hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
+    try:
+        # Every fragment resolves against this document's own headings.
+        local = "# Doc\n\n## Local Heading\n\nSee [it](#local-heading).\n"
+        findings = hc.validate(repo, local, has_entries=False)
+        assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
+        assert str(repo) not in hc._PROJECT_ANCHORS, (
+            "the project union was built for a document that never needed it, "
+            "which is a whole-repository read on every commit"
+        )
+
+        # The control. A fragment defined in ANOTHER file must still resolve,
+        # which requires the union - so this half proves the first half is
+        # laziness rather than the feature being switched off.
+        crossfile = "# Doc\n\nSee [it](#site-options).\n"
+        findings = hc.validate(repo, crossfile, has_entries=False)
+        assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
+        assert str(repo) in hc._PROJECT_ANCHORS, (
+            "a cross-file fragment resolved without the union ever being built"
+        )
+    finally:
+        hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
+
+
 # --- repositories that actually use Git LFS --------------------------------
 
 def test_a_uuid_is_not_a_commit(git_repo) -> None:

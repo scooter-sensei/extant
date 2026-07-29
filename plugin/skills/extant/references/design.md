@@ -393,6 +393,102 @@ document offering something to corrupt. That is a real loss of signal about
 whether the probe machinery works, accepted because a rule kept for the
 convenience of its own test is a rule kept for the wrong reason.
 
+## Generated sites, and the two anchor namespaces
+
+A repository that compiles its markdown into a website has links the filesystem
+cannot settle. `/reference/config/` is a route, `guide.html` is a built page,
+and an extensionless target is whatever the generator decides. None of those is
+a file, so none is judged when a generator is declared.
+
+Detection is by configuration file, in the repository root or under `docs`,
+`site`, `www` or `website`. The subdirectory search is not speculative:
+jekyll/jekyll keeps its own site under `docs/` with `docs/_config.yml`, and a
+root-only search reported 138 of its routes as dead. One generator is declared
+INSIDE another file rather than in one of its own - Elixir names ExDoc as a
+dependency in `mix.exs` - so existence alone is not enough there and the
+content decides.
+
+Both directions cost something, which is why both are pinned by tests. Blind,
+withastro/starlight reported 235 of its own working links as dead. Universally
+on, every genuinely dead link in a plain repository stops being reported.
+
+**The cross-reference namespace is a property of the generator, not a global
+choice.** MyST, Sphinx and Antora resolve `#label` against every document at
+once, so a target defined in `site-options.md` is reachable as `#site-options`
+from anywhere; executablebooks/mystmd relies on that throughout, and 168 of its
+findings named a label that existed in another file. MkDocs is per-page.
+
+The temptation is to apply the project-wide union everywhere and be done with
+it, and the measurement refused it: on encode/httpx, which is MkDocs, a blanket
+union forgave two of its three genuinely dead anchors. Real signal traded for
+quiet. So the generator decides, and a repository declaring none keeps the
+page as its namespace.
+
+Hugo gets one narrower rule. Its `_`-prefixed content directories are not
+routable pages but fragments composed into other pages by a shortcode, so a
+term defined in `_common/configuration/locale.md` is an anchor on whatever page
+includes it. That is NOT generalised to every `_` directory, and the
+measurement is again why: seven of 38 corpus repositories keep markdown under
+one and they mean different things. Jekyll's `_posts` are whole pages,
+Docusaurus's `__tests__` is fixtures. Treating those as ambient would forgive
+real findings in four repositories to fix one.
+
+## reStructuredText, skipped rather than tuned
+
+`.rst` is read for claims and never for markdown syntax. The Sphinx ecosystem
+is not a small corner - numpy carries 555 `.rst` against 14 `.md`, Sphinx 472
+against 3, pytest 298 against 6 - so a markdown-only sweep is blind to most of
+what those projects have written down.
+
+Adding the extension alone was not enough, and the corpus said so: sweeping
+those repositories produced 84 findings and almost none were real.
+
+`dead-md-link` and `dead-md-anchor` are therefore skipped outside markdown
+rather than adapted to rst. That is deliberate. `[text](url)` is markdown's
+syntax; in Python it is a subscript followed by a call, and numpy writes
+`np.dtype[mp.mpf](dps=100)` in a doctest. Every one of its 23 link findings was
+that shape - false by construction, not by accident. There is no version of a
+markdown link regex that is correct on a language which has no markdown links,
+so the rule does not run rather than running badly.
+
+The claim rules DO run, because a dead SHA in rst prose is as dead as one in
+markdown. What changes is what counts as prose: rst literal blocks open with a
+line ending in `::` and run until the indentation returns, `>>>` opens a
+doctest, and ``` ``inline literals`` ``` are code. Left in place, numpy's
+`float64('1e10000')` was read as a commit.
+
+## Cache scope: one call, and the one place it widens
+
+Every answer git or the filesystem gives is held for the duration of ONE
+`validate()` call and no longer. Directory listings, ancestry indexes, resolved
+refs, LFS state, another document's headings, the origin URL. A caller that
+creates a file or adds a remote between two checks must see the new answer, and
+a cache with no owner would quietly hand back the old one.
+
+That default is not free. `--sweep` calls `validate()` once per document, so
+every one of those answers was being rebuilt per file: measured over 400
+documents, one origin lookup per document was 70 percent of the entire run, and
+directory listings turned 20 distinct questions into 128,000 Path objects.
+
+So `--sweep` declares the repository static for its duration and takes
+ownership of those caches. It can, because it reads every document from one
+checkout and writes nothing. The declaration is released in a `finally`, so a
+library caller that sweeps and then validates something else gets the per-call
+behaviour back even if a rule raised part-way through.
+
+The narrowness is the safety argument. `--verify` was measured for the same
+treatment and refused it: 5 ms saved out of 337, on the path that gates
+commits, in exchange for relaxing a correctness promise. Not worth it.
+
+The direction of the mistake is worth recording, because it was made. The
+origin lookup was first memoised for the whole process on the reasoning that a
+remote cannot change while one runs - true of the CLI, false of a library
+caller and of the tests. A repository whose origin was added between two
+validations kept answering "no origin", so `dead-pinned-ref` examined nothing
+and reported clean. A cache that outlives its scope does not produce a wrong
+answer anybody sees; it produces silence, which is this project's own failure
+mode aimed at itself.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

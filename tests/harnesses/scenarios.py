@@ -1168,6 +1168,257 @@ def s23_gitflow() -> None:
           f"examined main={seen['main']} develop={seen['develop']}")
 
 
+# A minimal document with one dated entry, so the entry-scoped rules have
+# something to run against. The scenarios above spell this out inline because
+# each varies the header; these two vary only the BODY.
+ENTRY = ("# Status\n\n## Phase 1 - now (in progress, 2026-07-01)\n\n"
+         "{}\n\n## 1. Ref\n")
+
+
+def _ran(scenario: str, res: subprocess.CompletedProcess[str]) -> bool:
+    """Did the validation actually happen?
+
+    Every `not _findings(...)` assertion is satisfied by a run that produced no
+    output at all, and `tool()` does not raise on failure - so a missing
+    payload, a crashed install or a bad path reads as a clean result. Measured
+    on s24 by substituting a run that returned empty stdout: four of its eight
+    assertions reported green, and all four were the ones checking that a
+    generator SUPPRESSES a finding.
+
+    The denominator line is the proof. It names every rule on every successful
+    run, and appears whether or not anything was found, which is exactly the
+    property needed here.
+    """
+    ran = "checked" in res.stdout
+    check(scenario, "the validate run actually happened", ran,
+          res.stdout + res.stderr)
+    return ran
+
+
+# --------------------------------------------------------------------------
+def s24_generated_sites() -> None:
+    """The generator matrix: detection, and the namespace each one implies.
+
+    Every false-positive class behind this code came from a real repository,
+    and every one is a shape no synthetic fixture here had: a site config in
+    `docs/` rather than the root, a generator declared inside `mix.exs`, a
+    cross-reference namespace that is the project rather than the page. The
+    unit suite covers each in isolation against a fixture; this asserts them
+    on repositories laid out the way the real ones are.
+
+    Both directions every time. A rule that forgives a route because a
+    generator is present must still report one when it is absent, or the fix
+    for 235 false positives is a rule that reports nothing.
+    """
+    name = "s24-sites"
+    print(f"\n[{name}] generator detection and cross-reference namespaces")
+
+    # 1. No generator: a route is a dead file, which is the baseline every
+    #    assertion below is measured against.
+    repo = new_repo(f"{name}-plain")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("See [r](/reference/config/)."))
+    commit(repo, "chore: init")
+    install(repo)
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    check(name, "no generator: a route is reported as a dead file",
+          bool(_findings(res.stdout, "dead-md-link")), res.stdout)
+
+    # 2. mkdocs.yml at the root silences the route.
+    repo = new_repo(f"{name}-mkdocs")
+    write(repo, "mkdocs.yml", "site_name: x\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("See [r](/reference/config/)."))
+    commit(repo, "chore: init")
+    install(repo)
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    if _ran(name, res):
+        check(name, "mkdocs.yml: a route is not judged",
+              not _findings(res.stdout, "dead-md-link"), res.stdout)
+
+    # 3. The config in `docs/` rather than at the root. jekyll/jekyll keeps its
+    #    own site there, and a root-only search reported 138 of its routes dead.
+    repo = new_repo(f"{name}-nested")
+    write(repo, "docs/_config.yml", "title: x\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("See [r](/reference/config/)."))
+    commit(repo, "chore: init")
+    install(repo)
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    if _ran(name, res):
+        check(name, "a config under docs/ counts as a generator",
+              not _findings(res.stdout, "dead-md-link"), res.stdout)
+
+    # 4. A generator declared INSIDE another file. Elixir names ExDoc as a
+    #    dependency in mix.exs; phoenix links by bare name throughout and had
+    #    104 findings, every one a link that works on hexdocs.
+    repo = new_repo(f"{name}-exdoc")
+    write(repo, "mix.exs", "defp deps do\n  [{:ex_doc, \"~> 0.30\"}]\nend\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("See [r](/reference/config/)."))
+    commit(repo, "chore: init")
+    install(repo)
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    if _ran(name, res):
+        check(name, "ex_doc named in mix.exs counts as a generator",
+              not _findings(res.stdout, "dead-md-link"), res.stdout)
+    # And a mix.exs WITHOUT it must not, or the marker is decoration.
+    repo = new_repo(f"{name}-mix-plain")
+    write(repo, "mix.exs", "defp deps do\n  [{:jason, \"~> 1.4\"}]\nend\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("See [r](/reference/config/)."))
+    commit(repo, "chore: init")
+    install(repo)
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    check(name, "a mix.exs without ex_doc is not a generator",
+          bool(_findings(res.stdout, "dead-md-link")), res.stdout)
+
+    # 5. The namespace split. MyST resolves a label from anywhere, so an anchor
+    #    defined in another file is live; MkDocs is per-page, so the same link
+    #    is dead. This is the one pair where being right for one generator
+    #    means being wrong for the other, and it was measured both ways:
+    #    mystmd had 168 findings naming labels that exist, and a blanket union
+    #    forgave two of httpx's three genuinely dead anchors.
+    for config, body, expect_dead, label in (
+            ("myst.yml", "version: 1\n", False, "myst: project-wide"),
+            ("mkdocs.yml", "site_name: x\n", True, "mkdocs: per-page")):
+        repo = new_repo(f"{name}-ns-{config.split('.')[0]}")
+        write(repo, config, body)
+        write(repo, "docs/other.md", "# Other\n\n## Site Options\n\nx\n")
+        write(repo, "NEXT_SESSION.md", ENTRY.format("Jump to [o](#site-options)."))
+        commit(repo, "chore: init")
+        install(repo)
+        res = tool(repo, "--validate", "NEXT_SESSION.md")
+        if _ran(name, res):
+            found = bool(_findings(res.stdout, "dead-md-anchor"))
+            check(name, f"{label} namespace", found == expect_dead, res.stdout)
+
+    # 6. Whatever the namespace, an anchor defined NOWHERE is still dead. A
+    #    project-wide union that forgives everything is the same failure as a
+    #    baseline that does.
+    repo = new_repo(f"{name}-ns-real")
+    write(repo, "myst.yml", "version: 1\n")
+    write(repo, "docs/other.md", "# Other\n\n## Site Options\n\nx\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Jump to [o](#nothing-defines-this)."))
+    commit(repo, "chore: init")
+    install(repo)
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    check(name, "a project-wide namespace still reports a real dead anchor",
+          bool(_findings(res.stdout, "dead-md-anchor")), res.stdout)
+
+
+# --------------------------------------------------------------------------
+def s25_sweep() -> None:
+    """`--sweep` on a repository laid out like somebody else's.
+
+    The mode needs no configuration, which is exactly why it needs a scenario:
+    everything else here is asserted through an install that wrote a config,
+    and a sweep is what somebody runs BEFORE that. Its two halves are asserted
+    separately because they mean different things - the configured half gates,
+    the surveyed half must never be able to.
+    """
+    name = "s25-sweep"
+    print(f"\n[{name}] a whole-repository survey")
+    repo = new_repo(name)
+    write(repo, "README.md",
+          "# Project\n\nInstall from `abc1234` as an example.\n"
+          "See [missing](docs/nope.md).\n")
+    write(repo, "docs/guide.md", "# Guide\n\nSee [gone](also-nope.md).\n")
+    write(repo, "docs/api.rst",
+          "API\n===\n\nSee `docs <https://example.com>`_ and ``[x](y.md)``.\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing wrong here."))
+    commit(repo, "chore: init")
+
+    # The payload has to be present before anything can be run, and `install`
+    # is what puts it there - but it also writes a config, and the first half
+    # of this scenario is about a repository that has none. So: install, then
+    # remove the configuration it wrote.
+    install(repo)
+    config = repo / ".extant.toml"
+    check(name, "install wrote a config to remove", config.is_file(), str(config))
+    config.unlink(missing_ok=True)
+    commit(repo, "chore: unconfigure")
+
+    # Before any configuration exists. Nothing can gate, and the tool has to
+    # say so rather than exiting 0 as though the repository were clean.
+    res = tool(repo, "--sweep")
+    combined = res.stdout + res.stderr
+    # THE GUARD. Every assertion below this line is a negative or a substring
+    # test, and all of them pass against an error message. The first draft of
+    # this scenario ran before the payload existed, so `tool` printed "can't
+    # open file" - and "no markdown findings were invented" read as a PASS off
+    # the back of it. Prove the run happened before believing anything it did
+    # not say.
+    ran = "swept" in combined
+    check(name, "the sweep actually ran", ran, combined)
+    if not ran:
+        return
+    check(name, "an unconfigured sweep exits 0", res.returncode == 0, combined)
+    # The denominator is DERIVED from git rather than written here as a
+    # literal. `install` adds markdown of its own - the agent skill and the
+    # slash command - so a hand-counted 4 was wrong the moment the payload
+    # arrived, and would have been wrong again at the next thing setup writes.
+    tracked = [p for p in sh(repo, "git", "ls-tree", "-r", "--name-only", "HEAD"
+                             ).stdout.split()
+               if p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst")]
+    check(name, "the denominator matches what git tracks",
+          f"swept {len(tracked)} markdown file(s)" in combined,
+          f"git says {len(tracked)}\n{combined}")
+
+    # Deleting `.extant.toml` does NOT make a repository unconfigured, and
+    # that surprised this scenario before it documented it: the defaults still
+    # name `NEXT_SESSION.md`, which exists here, so one document is vetted and
+    # the sweep still has something to gate on. The "nothing is configured"
+    # hint belongs to a repository where no vetted document is present at all,
+    # which is a different shape and is asserted separately below.
+    check(name, "defaults keep one document vetted with no config file",
+          "1 configured" in combined, combined)
+    check(name, "it still surveys and reports",
+          "docs/nope.md" in combined and "also-nope.md" in combined, combined)
+    # The rst file is swept, and the markdown link rules must not have run on
+    # it - the ``[x](y.md)`` above is an rst literal, not a link.
+    check(name, "rst is swept without markdown rules inventing findings",
+          "y.md" not in combined, combined)
+
+    # Now configure one document and break it. Only that one may gate.
+    install(repo)
+    write(repo, "NEXT_SESSION.md",
+          ENTRY.format("Merged to `main` at `" + "dead" + "0" * 36 + "`."))
+    commit(repo, "docs: a dead claim in the configured document")
+    res = tool(repo, "--sweep")
+    combined = res.stdout + res.stderr
+    check(name, "a configured document gates the sweep",
+          res.returncode == 1, combined)
+    check(name, "the unreviewed half is still only surveyed",
+          "not gated" in combined or "do not affect the exit code" in combined,
+          combined)
+
+    # And the shape that makes the mode safe to adopt: repairing the CONFIGURED
+    # document turns the build green even though the survey still has findings.
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing wrong here."))
+    commit(repo, "docs: repair")
+    res = tool(repo, "--sweep")
+    combined = res.stdout + res.stderr
+    check(name, "unreviewed findings alone cannot fail a build",
+          res.returncode == 0 and "docs/nope.md" in combined, combined)
+
+    # The genuinely unconfigured shape: markdown exists, but no document the
+    # configuration names is present. Nothing can gate, and saying so is the
+    # difference between "this repository is clean" and "nothing here was
+    # checked" - which exit 0 alone cannot express.
+    bare = new_repo(f"{name}-bare")
+    write(bare, "docs/guide.md", "# Guide\n\nSee [gone](nope.md).\n")
+    commit(bare, "chore: init")
+    install(bare)
+    (bare / ".extant.toml").unlink(missing_ok=True)
+    for stray in ("NEXT_SESSION.md", "README.md"):
+        (bare / stray).unlink(missing_ok=True)
+    commit(bare, "chore: no document the defaults name")
+    res = tool(bare, "--sweep")
+    combined = res.stdout + res.stderr
+    if "swept" not in combined:
+        check(name, "the bare sweep ran", False, combined)
+    else:
+        check(name, "with no vetted document it says so",
+              "nothing is configured" in combined, combined)
+        check(name, "and it cannot fail", res.returncode == 0, combined)
+
+
 # Counted, never spelled out. The README beside this file claimed "Three tools"
 # for two commits after the fourth and fifth arrived, and this line said
 # "12 scenarios" as a literal - a hand-maintained denominator in a harness whose
@@ -1179,7 +1430,7 @@ SCENARIOS = (s1_node_master_status, s2_release_tags, s3_ticket_branches,
              s13_monorepo, s14_adr, s15_github_dir, s16_alternate_trunks,
              s17_tag_shapes, s18_encodings, s19_deep_relative_links,
              s20_maven, s21_every_preset, s22_cross_platform_agents,
-             s23_gitflow)
+             s23_gitflow, s24_generated_sites, s25_sweep)
 
 
 def main() -> int:

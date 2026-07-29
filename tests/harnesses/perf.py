@@ -1,6 +1,6 @@
 """Performance measurement for extant.
 
-Six questions, in descending order of how much they matter:
+Eight questions, in descending order of how much they matter:
 
 1. What does the post-commit hook add to EVERY commit? If that number is bad,
    people uninstall the tool and the other three stop mattering.
@@ -10,9 +10,20 @@ Six questions, in descending order of how much they matter:
 4. Which rule actually costs the time?
 5. What does a baseline cost on every run, where it is most needed?
 6. What does each output format cost?
+7. What does `--sweep` cost, whose unit of work is the repository?
+8. What does one generator config file cost a single `--validate`?
 
 Reports absolute numbers and the scaling ratio, because "1.2 seconds" means
 nothing without knowing whether it becomes 12 or 120 at ten times the size.
+
+The last two were added after the anchor work, and the second of them is the
+reason to re-run this after any change to a rule's INPUTS rather than only to
+its logic. Every repository built here had been generator-free, so the eager
+project-wide anchor union - reached by one `conf.py` existing - was invisible
+to a harness whose whole job is finding costs like it. Eagerly it cost about
+400 ms per run at 1600 files, paid by a post-commit hook, and measuring it is
+what got it fixed: the union is built on demand now, and section 8 measures all three
+paths so that the remaining cost is visible rather than declared absent.
 """
 from __future__ import annotations
 
@@ -279,6 +290,108 @@ def format_cost() -> None:
         print(f"  {fmt:<8} {elapsed:6.2f}s   {kb:8.0f} KB on stdout")
 
 
+# ------------------------------------------------------------- 7. the sweep
+def corpus_repo(name: str, files: int) -> Path:
+    """A repository of `files` committed markdown documents."""
+    repo = new_repo(name)
+    for n in range(files):
+        write(repo, f"docs/section{n % 20}/page{n}.md",
+              f"# Page {n}\n\n## Detail {n}\n\nSee [next](page{n + 1}.md).\n"
+              f"Jump to [detail](#detail-{n}).\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "corpus")
+    return repo
+
+
+def sweep_scaling() -> None:
+    """`--sweep` reads every tracked markdown file, so its cost scales with the
+    REPOSITORY rather than with one document.
+
+    This is the mode a newcomer runs first, on the biggest repository they have,
+    with no configuration and no patience - and it is the only mode whose cost
+    nobody here had measured. It shipped in 0.13.0, and the harness that exists
+    to ask "is this fast enough to leave installed" predates it by a week.
+    """
+    print("\n=== 7. Scaling of --sweep with REPOSITORY size ===")
+    print(f"  {'files':>7} {'time':>9} {'ms/file':>9}  ratio")
+    previous = None
+    for files in (100, 400, 1600):
+        repo = corpus_repo(f"perf-sweep-{files}", files)
+        elapsed = timed(lambda: sh(repo, PY, str(repo / "tools/extant_collect.py"),
+                                   "--repo", str(repo), "--sweep"), runs=3)
+        ratio = "" if previous is None else f"x{elapsed/previous:.2f} for x4 files"
+        print(f"  {files:>7} {elapsed:>8.2f}s {elapsed/files*1000:>8.1f}  {ratio}")
+        previous = elapsed
+    # A sweep is not a hook, so slow here is a worse first impression rather
+    # than a reason to uninstall. Stated because the budget differs from every
+    # other section's and a reader should not carry the hook's over.
+    print("  (a survey run by hand, not per commit - seconds are affordable here)")
+
+
+# --------------------------------------------- 8. what one config file costs
+def generator_cliff() -> None:
+    """What a single `conf.py` costs a repository validating ONE document.
+
+    `validate_md_anchors` asks `_has_global_anchors` before it examines a single
+    link, and on a hit unions in every anchor from every tracked markdown file.
+    The union is CORRECT - MyST and Sphinx resolve labels project-wide, so the
+    page is the wrong namespace and 168 of mystmd's findings proved it - but it
+    is built eagerly, for a document that may contain no anchor links at all.
+
+    The trigger is one file existing. `conf.py` is Sphinx's, which makes this
+    the ordinary case across a large slice of Python projects rather than an
+    exotic one, and it was paid on every post-commit hook run. Nothing else in
+    this harness could see it: every other repository built here has no
+    generator config, so every other number on the page is the cheap path.
+
+    The union is now built ON DEMAND, so the three columns measure different
+    things and all three are worth having:
+
+      plain    - no generator, nothing ambient to consult
+      local    - a generator, and a fragment the document defines itself
+      ambient  - a generator, and a fragment that lives in ANOTHER file
+
+    Only the third can force the union to be built, because only there can the
+    answer change a finding. The middle column is what most documents actually
+    do, and it is where the eager version spent roughly 400 ms at 1600 files
+    for nothing. Reporting only that column would replace one misleading number
+    with another, so the cost that remains is measured beside it.
+    """
+    print("\n=== 8. What one generator config costs a single --validate ===")
+    print(f"  {'files':>7} {'plain':>9} {'local':>9} {'ambient':>9}   "
+          f"{'local-cost':>10} {'ambient-cost':>12}")
+    for files in (100, 400, 1600):
+        repo = corpus_repo(f"perf-cliff-{files}", files)
+        # A SMALL document either way. The point is that the cost does not come
+        # from what is being validated.
+        local_doc = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+                     "Jump to [detail](#1-ref).\n\n## 1. Ref\n\nx\n")
+        # `## Detail 42` lives in docs/section2/page42.md, so resolving this
+        # one REQUIRES the project-wide union.
+        ambient_doc = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+                       "Jump to [detail](#detail-42).\n\n## 1. Ref\n\nx\n")
+        write(repo, "NEXT_SESSION.md", local_doc)
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", "doc")
+
+        def validate():
+            sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
+               str(repo), "--validate", "NEXT_SESSION.md")
+
+        plain = timed(validate, runs=3)
+        write(repo, "conf.py", "project = 'x'\n")
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", "sphinx")
+        local = timed(validate, runs=3)
+        write(repo, "NEXT_SESSION.md", ambient_doc)
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", "cross-file fragment")
+        ambient = timed(validate, runs=3)
+        print(f"  {files:>7} {plain:>8.2f}s {local:>8.2f}s {ambient:>8.2f}s   "
+              f"{(local - plain) * 1000:>+9.0f} ms {(ambient - plain) * 1000:>+11.0f} ms")
+    print("  (only the ambient column can force the union to be built)")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     hook_latency()
@@ -287,6 +400,8 @@ def main() -> int:
     per_rule()
     baseline_cost()
     format_cost()
+    sweep_scaling()
+    generator_cliff()
     return 0
 
 

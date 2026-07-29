@@ -1,8 +1,12 @@
 # Harnesses
 
-Five tools that audit the test suite and the installed product, rather than the
+Tools that audit the test suite and the installed product, rather than the
 code paths a unit test can reach. They are **not** run by pytest: each takes
 minutes, and each answers a question `python -m pytest` structurally cannot.
+
+(The count used to be written out here. It said "Three" for two commits after
+the fourth and fifth arrived, and "Five" for a week after the sixth did. The
+table below is the list; a numeral in front of it is a second copy that rots.)
 
 | Tool | Asks | In CI |
 |---|---|---|
@@ -59,6 +63,20 @@ preset matrix caught that a Unity project whose README carries no version badge
 got a permanent "the pattern matches nothing" finding, because the installer
 verified its consistency FILES existed and never that its patterns matched.
 
+And again for `--sweep`, generated sites and reStructuredText. That round is
+worth reading as a warning about harness DRIFT rather than about any of those
+features. All three shipped across two releases while `perf.py` and `stress.py`
+were untouched, so the tool acquired a whole-repository mode, a rule that reads
+every tracked file in the project, and a second markup language without a
+single measurement of what any of it cost. Nothing failed. Nothing could have:
+every repository those two harnesses build is generator-free and markdown-only,
+so the new cost lived entirely outside what they construct.
+
+The lesson generalises past this project. A harness measures the inputs it
+knows how to build, so a change to what the code READS is invisible to it in a
+way that a change to what the code DOES is not. Re-run these after adding an
+input, not only after adding a rule.
+
 ## `mutate.py` - does the suite pin anything?
 
 ```sh
@@ -109,6 +127,49 @@ any change to the code it targets, and repair what it reports.
 `--check-only` re-verifies every mutation against the current source in
 seconds, running no tests. It is cheap enough for CI, which is where that rot
 should be caught rather than at the next half-hour campaign.
+
+`--only SUBSTRING[,SUBSTRING...]` runs one group. A campaign is half an hour,
+which is long enough that nobody runs it after touching a single rule, so the
+group belonging to whatever just changed can be re-verified on its own. It
+prints the selection against the total AND a count per pattern, then refuses a
+filter that selected nothing: a typo'd substring would otherwise run zero
+mutations and report "0 survived", which is the healthiest-looking output this
+harness can produce and means precisely nothing.
+
+The sweep group exists for one mutation in particular. Reading git's INDEX
+instead of HEAD's tree is a bug this project has now shipped twice - once in
+`raw-lfs-blob`, then again in `tracked_markdown` after the first was found,
+fixed and written up in the changelog. Knowing about it did not prevent it, so
+it is pinned in both places. Its failure mode is the worst available: an
+incomplete checkout leaves the index empty while HEAD's tree is full, so the
+sweep reports a clean repository having examined nothing.
+
+The generator group breaks detection in BOTH directions on purpose. Blind,
+starlight reported 235 of its own working links as dead; universally on, every
+genuinely dead link in a plain repository stops being reported. A mutation for
+only one of those would leave the other free to ship.
+
+Those 19 mutations found four real gaps on their first campaign, and all four
+were the same shape: behaviour that the unit suite reached by a route which
+bypassed the thing being changed.
+
+- The sweep's accounting for a file it cannot decode had no test at all,
+  because nothing in the suite had ever handed it one.
+- Hugo's `_`-prefix guard was unpinned from both sides. One test has no
+  `hugo.toml`, so the fragment scan never runs; the other asserts an anchor IS
+  found, which only gets easier as more files become ambient. The case the
+  guard actually protects - a Hugo repository whose heading sits in an ordinary
+  content directory - was missing.
+- `_format_for` is the dispatch that chooses rst, and every test in
+  `test_rst.py` sets `_DOC_FORMAT` by hand. The rules were correct for a format
+  nothing would ever select.
+- `_MARKDOWN_ONLY` looked covered and was not. Two mechanisms suppress a
+  markdown link in rst - the format gate, and rst literal-stripping - and the
+  existing test put its payload inside a literal, so the stripping alone
+  carried it. Moving the payload into bare prose leaves only the gate.
+
+All four now have tests, and the campaign was re-run to confirm each mutation
+is killed rather than assumed to be.
 
 The cross-platform group is aimed at the failure that would be least visible:
 setup renders agent instructions to two paths from one set of observations, so
@@ -174,6 +235,30 @@ The cross-platform scenario checks the agent instructions setup writes for
 tools other than Claude Code: the file lands at the Agent Skills standard path,
 its frontmatter parses as a non-Claude tool would read it, it is rendered
 rather than copied, and both agent files name the same document.
+
+A fourth set covers generated sites and the whole-repository sweep. The
+generator matrix asserts both directions of every detection rule - a route is a
+dead file with no generator and is not judged with one, a config under `docs/`
+counts where a root-only search missed jekyll's, a `mix.exs` naming `ex_doc` is
+a generator and one without it is not - and then the namespace split, which is
+the one pair where being right for MkDocs means being wrong for MyST. Whatever
+the namespace, an anchor defined nowhere is still reported: a project-wide
+union that forgives everything is the same failure as a baseline that does.
+
+The sweep scenario earned its place by catching itself. Its first draft ran
+before `install` had copied the payload, so the tool printed "can't open file"
+and the assertion that no markdown rules had invented findings on an `.rst`
+file PASSED off the back of that error. Every check in that block is a negative
+or a substring test, and all of them are true of a crash. It now proves the run
+happened before believing anything it did not say.
+
+That scenario also corrected a belief rather than a bug: deleting `.extant.toml`
+does NOT make a repository unconfigured, because the defaults still name
+`NEXT_SESSION.md`. The "nothing is configured" hint belongs to a repository
+where no vetted document is present at all, which is asserted separately. Its
+file-count assertion is derived from `git ls-tree` rather than written as a
+literal, since `install` adds markdown of its own and a hand-counted four was
+wrong the moment the payload arrived.
 
 It later went red for a better reason: after the trunk guard became opt-in, the
 hooks scenario still asserted that a default install wires a `pre-commit` hook.
@@ -254,6 +339,24 @@ the escaper demonstrably RAN, by requiring a literal `%` to come out as `%25`.
 Every new probe here was checked by breaking the product and confirming the
 probe went red; two did not, and both were repaired.
 
+The sweep probes go at the mode's own version of the project's core failure: a
+repository with no markdown, where "0 findings" and "0 files examined" both
+exit 0; a tracked file that is not valid UTF-8, which must be counted and named
+rather than skipped; both directions of the vetted/unvetted gate; SARIF purity
+across several documents at once; and a DIRECTORY named `mkdocs.yml`, which
+must not be enough to switch route checking off.
+
+All five were confirmed by mutating the product, and getting there took two
+corrections worth recording. Four of them first appeared to detect their
+mutation while actually crashing: the scratchpad path was long enough that
+`<arena>/sweep-empty/tools/extant_collect.py` approached MAX_PATH and git
+failed intermittently inside `tracked_markdown`, so the probes went red for a
+reason that had nothing to do with what they test. Run that verification under
+a SHORT path. The fifth then stayed genuinely green, because it linked to
+`docs/gone.md` - a plain file reference, which no generator setting has ever
+controlled. Site mode suppresses ROUTES, so the probe had been aimed slightly
+beside its target and passed against the very bug it was written to catch.
+
 ## `corpus.py` - what does it say about somebody else's repository?
 
 ```sh
@@ -286,6 +389,20 @@ No baseline file is committed. Those counts describe repositories this project
 does not control, so a recorded one would be stale within a week - precisely
 the kind of claim this tool exists to catch.
 
+Then it made the same mistake it was built to prevent. Findings were counted by
+matching `": line "`, which is the PREFIXED shape a sweep uses outside the
+primary document, so every finding in the VETTED document counted as zero -
+blind to exactly the half that gates. Measured on a one-document repository:
+the sweep reported one finding and the harness reported none.
+
+Each run now also reports what would explain a count moving: the generator each
+repository declares and the namespace it implies, the split between `.md` and
+`.rst`, and the totals per rule. Across 41 repositories 91 percent of findings
+were link or anchor and 8 percent git-history, and on agent-written plan
+documents that ratio inverts almost exactly - a total alone cannot show which
+of those a corpus is made of, and the mix is what says whether a change to one
+rule will move anything.
+
 ## `perf.py` - is it fast enough to leave installed?
 
 ```sh
@@ -295,7 +412,50 @@ python tests/harnesses/perf.py <extracted-package> <scratch-dir>
 Asked in descending order of importance: what the hooks add to every commit,
 whether validation scales with document size, whether it scales with
 repository size, which rule spends the time, what a baseline costs on every
-run, and what each output format costs.
+run, what each output format costs, what `--sweep` costs, and what one
+generator config file costs a single `--validate`.
+
+The last of those is the reason to re-run this after a change to what the code
+READS rather than only to what it does, and it is the one measurement here that
+has already paid for itself.
+
+`validate_md_anchors` asks whether the repository declares a project-wide
+namespace, and on a hit unions in every anchor from every tracked markdown
+file. That is correct - MyST and Sphinx resolve labels project-wide, and 168 of
+mystmd's findings named labels that existed - but it used to be built EAGERLY,
+before a single link was examined, for documents that may contain no anchor
+links at all. The trigger is one file existing, and that file is `conf.py` for
+Sphinx, so this was the ordinary shape across a large slice of Python projects
+and it was paid on every post-commit hook run.
+
+It was invisible here for a week, because every repository this harness builds
+is generator-free and so every other number on the page is the cheap path.
+Measuring it is what got it fixed. The union is built on demand now, and the
+section reports three columns rather than two:
+
+| | 100 files | 400 files | 1600 files |
+|---|---|---|---|
+| local fragment | within noise of zero | within noise of zero | within noise of zero |
+| cross-file fragment | +50 to +60 ms | +125 to +190 ms | +390 to +500 ms |
+
+The document is held identical and only the config is added, so the delta is
+the union and nothing else. The first row is what most documents do, and it is
+now free. The second is unchanged, which is the point: laziness did not make
+the union cheaper, it made it conditional on a fragment that could not be
+resolved locally - the only case where the answer can change a finding.
+
+Reporting only the first row would have replaced one misleading number with
+another, which is why the cost that remains is measured beside it.
+
+RANGES, and the ranges are the honest form. This page carried `+406 ms` in one
+place and `+495 ms` in another for the same measurement, which a reviewer
+caught - and re-measuring to settle it produced 390 ms, which would have made
+three. The union reads every tracked file, so it is bound by I/O and varies by
+about a quarter between runs on the same machine. A single figure to the
+milliseconds implies a precision this measurement does not have, and pinning
+one would have been prose rot with a decimal point. The local row is stated the
+same way for the same reason: it measures between -13 ms and +5 ms, which is to
+say it measures nothing.
 
 The baseline measurement matters more than its size suggests. A baseline is
 adopted by big neglected repositories, which are precisely the ones where a
@@ -316,6 +476,33 @@ cost is mostly interpreter startup and shell spawns rather than the tool's own
 work, so numbers on Linux are likely lower - **unverified**, since these were
 not measured there.
 
+Measured 2026-07-29: a sweep of 1600 files takes about 1 second, down from 49.
+Both halves of that came from profiling this harness's own repositories rather
+than from reading the code, and neither was where reading would have looked.
+
+The first was `_own_remote`, which answers a question about the repository and
+was being asked once per document - 70 percent of a 400-file run, spent
+spawning `git remote get-url` for a string that cannot change. The second was
+`validate()` rebuilding its per-call caches for every document in the sweep,
+which turned 20 distinct questions about the filesystem into 128,000 Path
+objects.
+
+`--verify` was measured for the same scope and deliberately left alone: 5 ms
+saved out of 337, which does not justify relaxing a correctness promise on the
+path that gates commits. Measuring a candidate and declining it is a result.
+
+`stress.py` measures the anchor union at +29 seconds for 3000 files against
+this section's few hundred milliseconds for 1600, which looks like a
+contradiction and is not.
+That is one COLD run over files written moments earlier; this takes the median
+of three, so its later runs read a warm cache. Both are real. The cold number
+is the one shaped like a post-commit hook, which happens once and pays whatever
+the cache does not.
+
+That case also barely moved while the rest of the sweep got four times faster,
+which is the expected shape: the union reads every tracked file, so it is bound
+by cold I/O rather than by the per-document work that was hoisted out.
+
 ## `stress.py` - where does it fall over?
 
 ```sh
@@ -335,7 +522,23 @@ with 500 branches and 200 tags, 3000 links across a deep tree, a 500-entry
 archive, 50 extra documents, a 1 MB single line, peak memory, 40 back-to-back
 runs, `--search` over a 2000-entry archive, a 200-file consistency check, 500
 renamed references in one document, a 5000-entry baseline, SARIF and GitHub
-output for 5000 findings, and 500 install snippets pinning this repository.
+output for 5000 findings, 500 install snippets pinning this repository, a
+3000-file sweep, a small document in a 3000-file tree with a `conf.py`, 2000
+anchor links into 2000 distinct files, and 2000 reStructuredText files.
+
+The newest four follow the same rule as the rest, which is to aim where an
+optimisation stops helping. `_target_anchors` memoises per PATH, so a document
+linking repeatedly into one file costs a single read and proves nothing; two
+thousand links into two thousand DIFFERENT files get nothing from that cache.
+That is the same shape as the distinct-SHA case, and it is why that one is
+here.
+
+The sweep and rst cases each carry a correctness assertion beside the timing,
+because both are modes where being fast and being blind look identical. The
+sweep case asserts its denominator names every file and that a planted fault
+still gates; the rst case plants a markdown link inside an rst literal in all
+2000 files, so a rule that strayed out of its own markup language reports two
+thousand findings rather than none.
 
 The last three follow the same principle as the rest, aimed at the newer
 surfaces. A baseline is read on every run including the hook, so the scale

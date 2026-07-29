@@ -16,6 +16,12 @@ the loops were wrong three times in one session:
   - a repository whose checkout never completed reported "swept 0 markdown
     files", which reads exactly like a clean repository.
 
+And then this file made the same mistake itself. It counted findings by looking
+for `": line "`, which is the PREFIXED shape a sweep uses outside the primary
+document - so every finding in the vetted document counted as zero. Measured on
+a one-document repository: the sweep reported 1 finding and this reported 0.
+The blind spot was exactly the half that gates.
+
 The common shape is a measurement that omits something without saying so. So
 the rule here is that a repository which cannot be measured is a FAILURE, never
 an omission: preconditions are asserted before anything is counted, and a
@@ -63,8 +69,42 @@ def usable(repo: Path) -> str | None:
     return None
 
 
-def sweep(repo: Path) -> tuple[int, int]:
-    """(markdown files swept, findings). Raises if the tool did not report."""
+# A finding renders bare in the primary document and path-prefixed everywhere
+# else, so matching only the prefixed shape undercounts silently - the one
+# error this harness is least entitled to make.
+FINDING = re.compile(r"(?:^|: )line \d+: \[([a-z-]+)\]")
+
+
+def toolchain(repo: Path) -> str:
+    """Which generator this repository declares, and which namespace it implies.
+
+    The single largest determinant of what a sweep reports. Detection being
+    wrong is worth more than any individual rule: blind, starlight reported 235
+    of its own working links as dead; universally on, every real dead link in a
+    plain repository stops being reported.
+
+    Recorded per repository so that a corpus run says WHY a count moved, and so
+    that detection silently changing on somebody else's repository is visible
+    here rather than inferred later from a number that drifted.
+    """
+    payload = COLLECTOR.parent
+    if str(payload) not in sys.path:
+        sys.path.insert(0, str(payload))
+    try:
+        import extant_collect as ec
+    except ImportError as exc:                                  # pragma: no cover
+        return f"unknown ({exc.__class__.__name__})"
+    if not ec._is_generated_site(repo):
+        return "none"
+    if ec._has_global_anchors(repo):
+        return "site/project-ns"
+    if ec._has_partial_anchors(repo):
+        return "site/partials"
+    return "site/page-ns"
+
+
+def sweep(repo: Path) -> tuple[int, int, dict[str, int]]:
+    """(files swept, findings, findings by kind). Raises if nothing was reported."""
     result = subprocess.run(
         [sys.executable, str(COLLECTOR), "--repo", str(repo), "--sweep"],
         capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -77,8 +117,28 @@ def sweep(repo: Path) -> tuple[int, int]:
         # and a findings count without one is the failure this file exists to
         # prevent. Refuse it rather than record a number.
         raise RuntimeError(f"{repo.name}: no denominator in output\n{out[-600:]}")
-    findings = sum(1 for line in out.splitlines() if ": line " in line)
-    return int(match.group(1)), findings
+    kinds: dict[str, int] = {}
+    for line in out.splitlines():
+        found = FINDING.search(line)
+        if found:
+            kinds[found.group(1)] = kinds.get(found.group(1), 0) + 1
+    return int(match.group(1)), sum(kinds.values()), kinds
+
+
+def formats(repo: Path) -> dict[str, int]:
+    """Tracked documentation files by extension.
+
+    Yield tracks the novelty of a repository's doc TOOLCHAIN rather than its
+    size, and format is half of that: `.rst` behaves nothing like `.md`, and
+    numpy alone carries 555 of them. A corpus that reports only a total cannot
+    show which half of it a change touched.
+    """
+    counts: dict[str, int] = {}
+    for path in _git(repo, "ls-tree", "-r", "--name-only", "HEAD").splitlines():
+        suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+        if suffix in ("md", "markdown", "mdx", "rst"):
+            counts[suffix] = counts.get(suffix, 0) + 1
+    return counts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -101,26 +161,46 @@ def main(argv: list[str] | None = None) -> int:
 
     broken: list[tuple[str, str]] = []
     results: dict[str, dict[str, int]] = {}
-    print(f"{'repository':<24} {'files':>7} {'findings':>9}")
+    totals: dict[str, int] = {}
+    by_format: dict[str, int] = {}
+    print(f"{'repository':<24} {'files':>7} {'rst':>5} {'findings':>9}  toolchain")
     for repo in repos:
         reason = usable(repo)
         if reason:
             broken.append((repo.name, reason))
-            print(f"{repo.name:<24} {'-':>7} {'UNUSABLE':>9}  {reason}")
+            print(f"{repo.name:<24} {'-':>7} {'-':>5} {'UNUSABLE':>9}  {reason}")
             continue
         try:
-            files, findings = sweep(repo)
+            files, findings, kinds = sweep(repo)
         except RuntimeError as exc:
             broken.append((repo.name, str(exc).splitlines()[0]))
-            print(f"{repo.name:<24} {'-':>7} {'FAILED':>9}")
+            print(f"{repo.name:<24} {'-':>7} {'-':>5} {'FAILED':>9}")
             continue
+        shapes = formats(repo)
+        for suffix, count in shapes.items():
+            by_format[suffix] = by_format.get(suffix, 0) + count
+        for kind, count in kinds.items():
+            totals[kind] = totals.get(kind, 0) + count
         results[repo.name] = {"files": files, "findings": findings}
-        print(f"{repo.name:<24} {files:>7} {findings:>9}")
+        print(f"{repo.name:<24} {files:>7} {shapes.get('rst', 0):>5} "
+              f"{findings:>9}  {toolchain(repo)}")
 
     files = sum(r["files"] for r in results.values())
     findings = sum(r["findings"] for r in results.values())
     print(f"\nmeasured {len(results)} of {len(repos)} repositories: "
           f"{files} markdown files, {findings} findings")
+    if by_format:
+        print("  by format:   " + ", ".join(
+            f"{suffix} {count}" for suffix, count in sorted(by_format.items())))
+    # Which RULES produced the findings, not just how many. Measured across 41
+    # repositories, 91% were link or anchor findings and 8% git-history - but on
+    # agent-written plan documents that inverts almost exactly. A total alone
+    # cannot show which of those a corpus is made of, and the mix is the thing
+    # that says what a change to one rule will actually move.
+    if totals:
+        print("  by rule:     " + ", ".join(
+            f"{kind} {count}" for kind, count in
+            sorted(totals.items(), key=lambda kv: -kv[1])))
 
     baseline_path = Path(args.baseline) if args.baseline else None
     if baseline_path and args.update:

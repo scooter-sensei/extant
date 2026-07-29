@@ -212,3 +212,34 @@ def test_an_empty_repository_says_so_instead_of_passing_quietly(git_repo) -> Non
     assert "swept 0 markdown files" in result.stdout + result.stderr, (
         result.stdout + result.stderr
     )
+
+
+def test_a_file_that_cannot_be_decoded_is_named_not_skipped(git_repo) -> None:
+    """A file that could not be read is not a file with no findings.
+
+    The two are indistinguishable in an exit code, so a sweep that skips a
+    latin-1 document quietly under-reports on every repository holding one -
+    and the denominator would still say it examined that file, which is the
+    worse half: the count claims coverage the run did not have.
+
+    Found by a mutation campaign. Replacing the `unreadable.append(...)` with a
+    bare `continue` changed the behaviour and the entire suite stayed green,
+    because nothing here had ever handed the sweep a file it could not decode.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# R\n\nFine.\n", "chore: init")
+    # Not valid UTF-8 in any position, and tracked, so the sweep must meet it.
+    (repo / "broken.md").write_bytes(b"# Caf\xe9\n\nSee [x](gone.md).\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "chore: latin-1"], cwd=repo,
+                   check=True, capture_output=True)
+
+    result = sweep(repo)
+
+    combined = result.stdout + result.stderr
+    assert "could not be read" in combined, (
+        "an undecodable file has to be reported as such:\n" + combined
+    )
+    assert "broken.md" in combined, (
+        "and it has to be NAMED, or nobody can act on it:\n" + combined
+    )
