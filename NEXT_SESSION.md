@@ -57,12 +57,23 @@ gaps.
 **Status.** Suite was 352 tests at the time, all passing. Eleven rules,
 eighteen presets. `v0.14.1` was tagged, released, and on PyPI.
 
-Release pages exist for every tag except `v0.13.0`, `v0.13.1` and `v0.13.2`,
-whose changes are written up in the `v0.14.0` page instead. `v0.13.1` is a tag
-that never published at all: the release gate added in it rejected it, which is
-the gate working. The claim here used to read "each has a release page", which
-was true when written and stopped being true three tags later - the exact decay
-this project exists to catch, in the document it validates against.
+Every tag has a release page. The four that did not - `v0.13.0`, `v0.13.1`,
+`v0.13.2` and `v0.14.1` - were backfilled from their changelog entries on
+2026-07-29. `v0.13.1` is the odd one and its page says so at the top: the tag
+exists, no `0.13.1` was ever published to PyPI, and the release gate added in
+that very version is what rejected it.
+
+The sentence here used to carry a hand-maintained list of exceptions, and it
+decayed twice in the same way. First it read "each has a release page", which
+stopped being true three tags later. It was then corrected to name three
+exceptions, and stopped being true again when `v0.14.1` shipped without a page
+and was never added. No rule can catch either: an enumeration is not a
+falsifiable claim about one thing, it is a claim about everything not
+mentioned.
+
+So the list is gone rather than corrected a third time. "Every tag has a page"
+is checkable by counting two sets, and it is the only form of this sentence
+that does not rot.
 
 **What Shipped.**
 
