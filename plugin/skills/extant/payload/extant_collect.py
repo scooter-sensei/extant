@@ -400,6 +400,10 @@ _CONFIG_DERIVED: dict[str, Callable[[StatusConfig], object]] = {
     "ARCHIVE_DOC": lambda c: c.archive_doc,
     "RETAIN_ENTRIES": lambda c: c.retain_entries,
     "TRUNK": lambda c: c.trunk,
+    # None means unbounded, which is the default. Routed through this table
+    # rather than assigned beside it, because a value kept in two places is how
+    # `--sweep` shipped broken in 0.13.0.
+    "_CONSISTENCY_TIMEOUT": lambda c: c.consistency_timeout_seconds,
     "_ARCHIVE_HEADER": lambda c: c.archive_header,
     "_BASE_HEADER": lambda c: c.base_header,
     "_PHASE_PREFIX": lambda c: c.entry_prefix,
@@ -2375,6 +2379,71 @@ def _consistency_for(repo: Path) -> dict[str, tuple[tuple[str, object], ...]]:
         return {}
 
 
+# None means unbounded, which is the default and the historical behaviour.
+# Set from configuration below. See `_search_with_limit` for why an unbounded
+# default is the right one rather than an oversight.
+_CONSISTENCY_TIMEOUT: float | None = None
+
+
+class _Captured:
+    """A stand-in exposing the one method the caller uses on a match.
+
+    `_search_with_limit` cannot return a real `re.Match` from a subprocess,
+    because a match object holds a reference to the compiled pattern and the
+    subject string and does not survive being pickled across a pipe. The caller
+    only ever asks for `group(1)`, so that is what this provides.
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def group(self, _index: int = 0) -> str:
+        return self._value
+
+
+def _search_with_limit(pattern: "re.Pattern[str]", content: str,
+                       timeout: float | None):
+    """`pattern.search(content)`, optionally under a wall-clock bound.
+
+    Unbounded by default, and that is deliberate rather than neglected. Python's
+    `re` does not release the GIL while matching, so a watchdog thread never
+    runs and cannot interrupt a catastrophic backtrack. Process isolation is the
+    only mechanism that actually works, and it costs a spawn per pattern -
+    which `stress.py` case 11 puts at 200 per verify. Charging every user that
+    for a problem almost none of them have is the wrong trade, so it is opt-in.
+
+    Raises TimeoutError when the bound is exceeded. Returns None or an object
+    exposing `group(1)`, matching what the caller does with a real match.
+    """
+    if timeout is None:
+        return pattern.search(content)
+    program = (
+        "import re, sys, json\n"
+        "spec = json.loads(sys.stdin.read())\n"
+        "found = re.compile(spec['p'], spec['f']).search(spec['c'])\n"
+        "sys.stdout.write(json.dumps("
+        "found.group(1) if found and found.groups() else None))\n"
+    )
+    payload = json.dumps({"p": pattern.pattern, "f": pattern.flags,
+                          "c": content})
+    try:
+        done = subprocess.run(
+            [sys.executable, "-c", program], input=payload, text=True,
+            capture_output=True, timeout=timeout, encoding="utf-8",
+        )
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(timeout) from None
+    if done.returncode != 0:
+        # The child failed for some reason other than time - a pattern the
+        # parent compiled but the child could not, say. Fall back rather than
+        # invent a finding about a pattern that may be perfectly good.
+        return pattern.search(content)
+    captured = json.loads(done.stdout or "null")
+    return None if captured is None else _Captured(captured)
+
+
 def _file_identity(path: Path) -> tuple[object, ...]:
     """A value equal for two paths that reach the same file.
 
@@ -2468,7 +2537,19 @@ def validate_consistency(repo: Path, text: str) -> list[Finding]:
                 ))
                 continue
             content = target.read_text(encoding="utf-8", errors="replace")
-            match = pattern.search(content)
+            try:
+                match = _search_with_limit(pattern, content, _CONSISTENCY_TIMEOUT)
+            except TimeoutError:
+                # A hang is a worse failure than an error, which is the whole
+                # reason the bound exists. Naming the file and the pattern is
+                # what makes it actionable.
+                findings.append(Finding(
+                    1, "inconsistent-artifact",
+                    f"consistency check `{name}` gave up on `{relative}` after "
+                    f"{_CONSISTENCY_TIMEOUT}s; the pattern backtracks and needs "
+                    f"simplifying",
+                ))
+                continue
             if match is None:
                 # A pattern matching nothing is the silent failure this project
                 # is about: the check would pass forever having compared one

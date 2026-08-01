@@ -78,6 +78,11 @@ DEFAULTS: dict[str, object] = {
     "primary_doc": "NEXT_SESSION.md",
     "archive_doc": "docs/status-archive.md",
     "retain_entries": 3,
+    # None leaves user-supplied consistency patterns unbounded, which is the
+    # historical behaviour. A positive number bounds each search, at the cost
+    # of a process spawn per pattern. See _search_with_limit for why there is
+    # no cheaper mechanism that actually works.
+    "consistency_timeout_seconds": None,
     "trunk": "main",
     "plans_dir": "docs/superpowers/plans",
     "archive_header": "# Cerene - Status Archive\n\nOlder phase entries, newest first.\n\n",
@@ -190,6 +195,7 @@ class StatusConfig:
     primary_doc: str
     archive_doc: str
     retain_entries: int
+    consistency_timeout_seconds: float | None
     trunk: str
     plans_dir: str
     archive_header: str
@@ -437,6 +443,17 @@ def load_config(repo: Path) -> StatusConfig:
     # matches nothing, which is this module's named failure mode.
     merge_src = str(values["merge_claim"]).replace("{trunk}", re.escape(trunk))
 
+    def _timeout(raw: object) -> float | None:
+        """A positive number of seconds, or None for unbounded."""
+        if raw is None or raw == "":
+            return None
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool) or raw <= 0:
+            raise ValueError(
+                "consistency_timeout_seconds must be a positive number of "
+                "seconds, or absent to leave patterns unbounded"
+            )
+        return float(raw)
+
     def optional(key: str) -> re.Pattern[str] | None:
         """A disableable pattern: empty means off, not 'use the default'."""
         raw = values[key]
@@ -446,6 +463,7 @@ def load_config(repo: Path) -> StatusConfig:
         primary_doc=str(values["primary_doc"]),
         archive_doc=str(values["archive_doc"]),
         retain_entries=int(values["retain_entries"]),
+        consistency_timeout_seconds=_timeout(values["consistency_timeout_seconds"]),
         trunk=trunk,
         plans_dir=str(values["plans_dir"]),
         archive_header=str(values["archive_header"]),

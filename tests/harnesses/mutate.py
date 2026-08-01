@@ -255,6 +255,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        if len(present) >= 2 and len({_file_identity(repo / rel)\n"
          "                                      for rel in present}) < 2:",
          "        if len(present) >= 2:"),
+        # The pattern bound. NOT mutated by removing the bound itself: that
+        # would leave a catastrophic backtrack running unbounded and hang the
+        # campaign rather than being killed by it. A mutation has to fail fast
+        # to be a mutation. These two change the branches around it instead.
+        ("a bounded consistency search stops reporting its timeout", collect,
+         '                    f"consistency check `{name}` gave up on `{relative}` after "',
+         '                    f"consistency check `{name}` finished `{relative}` after "'),
+        ("the consistency bound becomes always-on rather than opt-in", collect,
+         "    if timeout is None:\n        return pattern.search(content)",
+         "    if False:\n        return pattern.search(content)"),
 
         # --- search --------------------------------------------------------------
         ("search only looks at the live document", collect,
