@@ -490,10 +490,18 @@ def p_consistency_abuse() -> None:
         ok("a case variant reaching one file is reported")
     elif "lists the same file twice" in combined:
         ok("the case variant was rejected at config load instead")
+    elif "which does not exist" in combined:
+        # On a case-SENSITIVE filesystem these are genuinely two files and the
+        # second is absent, which the rule reports as a missing source. That is
+        # the correct answer there, so it is not a finding.
+        #
+        # This branch was described in a comment and not written, so the probe
+        # fell through to note() and failed CI on Linux while passing on
+        # Windows. A probe verified on one filesystem has been verified on one
+        # filesystem.
+        ok("on a case-sensitive filesystem these are two files, and the "
+           "missing one is reported")
     else:
-        # On a case-SENSITIVE filesystem these really are two files, and the
-        # second does not exist - which the rule reports as a missing source.
-        # That is correct there, so it is not a finding.
         note("BY-DESIGN", "a check can list the same file under two spellings",
              "a case variant reached one file and was not reported:\n"
              + combined[:300])
