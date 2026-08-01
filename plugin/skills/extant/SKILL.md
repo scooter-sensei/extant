@@ -37,7 +37,7 @@ session was told to read end to end.
 
 | File | Role |
 |---|---|
-| `tools/extant_collect.py` | Collector + validator. Six modes: `--sweep`, `--collect`, `--archive`, `--validate`, `--verify`, `--selftest` |
+| `tools/extant_collect.py` | Collector + validator. Modes: `--sweep`, `--validate`, `--verify`, `--deleted-since`, `--search`, `--collect`, `--archive`, `--selftest`. Counted from the parser, never written out here: this line said "Six modes" while listing six and omitting `--search`. |
 | `tools/extant_config.py` | All project-specific values; reads `.extant.toml` |
 | `tools/hooks/extant-verify` | Re-checks the document after every commit and merge |
 | `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
@@ -56,12 +56,27 @@ are full of example claims like `abc1234`. So the unreviewed half is surveyed
 and reported, never gated on. Promoting a file into `extra_docs` is what turns a
 survey into a gate, and is the intended adoption path.
 
+`--deleted-since REF` reports claims that were present at REF, are still
+false today, and are no longer written down anywhere. It ALWAYS exits 0.
+
+That is deliberate, not caution. Whether a removal was evasion or repair is a
+question about intent and git cannot settle it - a document that deletes a
+false claim now tells the truth, which is the whole point of the tool, so a
+gating rule would fail a build on the correct fix. Use it in review, not as a
+gate.
+
+It defaults to `HEAD~1`, which answers "what did this commit remove" and is
+right for a post-commit hook. In CI pass the merge base instead, or a removal
+split across two commits hides from it. Relocating an entry to the archive is
+not a deletion, because the token stays findable; moving a claim into a code
+fence IS one, because a fence exempts it from every other rule.
+
 `--search TEXT` finds past entries in the live document and the archive
 together, returning whole entries. `--suggest-fixes` prints a patch repointing
 references at files git recorded as renamed; it writes nothing, and stdout
 carries only the patch so it can be piped to `git apply`.
 
-`--validate` and `--verify` take `--format=text` (default), `--format=github`
+`--validate`, `--verify`, `--sweep` and `--deleted-since` take `--format=text` (default), `--format=github`
 for Actions annotations, or `--format=sarif`. SARIF puts nothing but JSON on
 stdout; every human diagnostic moves to stderr.
 

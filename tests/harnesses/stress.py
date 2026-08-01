@@ -754,6 +754,57 @@ def case_rst_corpus() -> None:
            else f"{len(_finding_lines(proc.stdout))} findings - rst read as markdown")
 
 
+# ------------------------------------------- 20. a deletion scan over history
+def case_deleted_since_large_archive() -> None:
+    """`--deleted-since` re-validates the PREVIOUS version of every changed
+    document, so its worst case is a large document that changed.
+
+    A 2000-entry archive is the shape that exists in practice: a project that
+    has been running this for years and archives on every phase. One claim is
+    removed from it, and the scan must still find that one - a mode that loses
+    the finding at scale is worse than no mode, because the project believes it
+    is covered.
+    """
+    print("\n[20] --deleted-since across a 2000-entry archive")
+    repo = new_repo("stress-deleted")
+    shas = bulk_commits(repo, 5)
+    dead = "dead" + "0" * 36
+    entries = "".join(
+        f"## Phase {n} - work (shipped, 2026-01-01)\n\n"
+        f"Merged to `main` at `{shas[0]}`.\nBody line for entry {n}.\n\n"
+        for n in range(2000))
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 2001 - now (in progress, 2026-01-01)\n\n"
+          f"Merged at `{dead}`.\n\n## 1. Ref\n")
+    write(repo, "docs/status-archive.md", f"# Archive\n\n{entries}")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "docs: a large archive and one dead claim")
+
+    # Remove the one false claim, leaving the archive untouched.
+    write(repo, "NEXT_SESSION.md",
+          "# S\n\n## Phase 2001 - now (in progress, 2026-01-01)\n\n"
+          "Cleaned up.\n\n## 1. Ref\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "docs: remove it")
+
+    proc, elapsed = run_timed(repo, "--deleted-since", "HEAD~1", budget=60,
+                              timeout=600)
+    report("deleted-since", "2000-entry archive, one claim removed",
+           verdict_for(elapsed, 60))
+    if not proc:
+        return
+    combined = proc.stdout + proc.stderr
+    report("deleted-since", "the removed claim is still found at scale",
+           "yes" if dead in combined else "NO - lost among 2000 entries")
+    # The archive did not change, so it must not be re-read. That is the
+    # difference between scanning a commit and scanning a repository.
+    report("deleted-since", "the unchanged archive was skipped",
+           "yes" if "examined 1 changed document" in combined
+           else f"NO - {[l for l in combined.splitlines() if 'examined' in l][:1]}")
+    report("deleted-since", "it never gates",
+           "yes" if proc.returncode == 0 else f"NO - exit {proc.returncode}")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     cases = [case_distinct_shas, case_huge_document, case_large_repository,
@@ -763,7 +814,8 @@ def main() -> int:
              case_suggest_fixes_many_renames, case_huge_baseline,
              case_huge_sarif, case_many_pinned_refs,
              case_sweep_whole_repo, case_global_anchor_union,
-             case_distinct_cross_file_anchors, case_rst_corpus]
+             case_distinct_cross_file_anchors, case_rst_corpus,
+             case_deleted_since_large_archive]
     for case in cases:
         try:
             case()

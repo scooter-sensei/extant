@@ -286,6 +286,22 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("deletion re-reads documents that did not change", collect,
          "    for relative in _changed_between(repo, ref, documents):",
          "    for relative in documents:"),
+        # The subject a claim is about. A rule that stops recording one is
+        # invisible to `--deleted-since`, and the mode reports the skip rather
+        # than hiding it - so the loss is quiet rather than silent, which is
+        # still not good enough to leave unpinned.
+        ("a rule stops recording which token its claim is about", collect,
+         '            findings.append(Finding(number, "dead-md-link", detail,\n'
+         "                                    subject=target))",
+         '            findings.append(Finding(number, "dead-md-link", detail))'),
+        # SARIF's contract is that stdout is one valid document, always. Zero
+        # bytes fails a CI upload rather than reading as "no results", so a
+        # clean run looks exactly like a broken one.
+        ("the deletion mode emits nothing when it has nothing to report", collect,
+         "    else:\n"
+         "        # ALWAYS, even with nothing to report.",
+         "    elif gone:\n"
+         "        # ALWAYS, even with nothing to report."),
         ("the deletion mode starts gating", collect,
          '              "why it never fails a run.", file=out)\n    return 0',
          '              "why it never fails a run.", file=out)\n'

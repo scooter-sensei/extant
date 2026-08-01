@@ -564,6 +564,38 @@ than solved it.
 Each measurement carries a budget, so "slow" is a stated expectation being
 missed rather than a number someone has to judge by eye.
 
+## The hardening pass, and what each harness had to grow
+
+Four loopholes were closed and every harness needed a new fixture to see any of
+it, which is the recurring lesson here: a harness measures the inputs it knows
+how to build, so a change to what the code READS is invisible until its
+fixtures grow.
+
+`perf.py` gained a ninth section timing `--deleted-since` beside a plain
+`--verify`, because that mode re-validates the previous version of each CHANGED
+document and its cost tracks the commit rather than the repository.
+
+`stress.py` gained a 2000-entry archive with one claim removed from the live
+document. Two things are asserted beside the timing: the removal is still found
+at that size, and the unchanged archive is NOT re-read - a mode that scanned
+every document would be scanning a repository rather than a commit.
+
+`smoke.py` gained probes for the new mode's error paths, and one of them found
+a real defect on its first run. A previous version that is not valid UTF-8 was
+decoded inside a subprocess READER THREAD, so the traceback printed while the
+process carried on and reported "examined 0". A crash and a silent zero at the
+same time. Reading bytes and decoding in-place fixed it, and the skip is now
+counted and named.
+
+`smoke.py` also lost two EXPECTED entries, and the second departure is the
+instructive one. "A check can list the same file under two spellings" was
+listed as by-design, and its probe called `note()` UNCONDITIONALLY in an else
+branch - it checked only that the tool had not crashed, then declared the
+loophole open whether or not it was. It reported identically before and after
+the loophole was closed. That is this harness committing the exact defect it
+exists to detect, and no amount of running it would have surfaced that; only
+reading it did.
+
 ## Reading the output
 
 All of them print a denominator: how many mutations, scenarios, probes, cases or

@@ -124,6 +124,30 @@ def test_a_missing_ref_is_reported_not_crashed(git_repo, capsys) -> None:
     assert "examined" in printed.out + printed.err
 
 
+def test_sarif_stdout_is_a_document_even_with_nothing_to_report(
+        git_repo, capsys) -> None:
+    """SARIF's contract is that stdout is one valid document, always.
+
+    A machine consumer handed zero bytes fails its upload rather than reading
+    "no results", so a clean run looks exactly like a broken one. `--sweep` and
+    `--validate` both emit an empty document here; this mode emitted nothing
+    at all until it was measured against them.
+    """
+    import json
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", ENTRY.format("Nothing wrong."), "docs: init")
+
+    assert hc.run_deleted_since(repo, "HEAD", "sarif") == 0
+    printed = capsys.readouterr()
+    parsed = json.loads(printed.out)
+    assert parsed["runs"][0]["results"] == [], parsed["runs"][0]["results"]
+    assert "examined" in printed.err, (
+        "the denominator belongs on stderr in SARIF mode, or it corrupts the "
+        "document on stdout"
+    )
+
+
 def test_a_correction_that_swaps_the_token_is_reported(git_repo) -> None:
     """Recorded deliberately, so nobody later 'fixes' it into a heuristic.
 

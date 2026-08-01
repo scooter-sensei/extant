@@ -1160,6 +1160,7 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
                     f"claims work merged to `{ref}` at `{sha}`, but this "
                     f"repository has no such branch and that commit is on no "
                     f"integration branch either",
+                    subject=sha,
                 ))
             continue
         key = (ref, sha)
@@ -1170,6 +1171,7 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
                 number, "false-merge-claim",
                 f"claims work merged to {ref} at `{sha}`, but that commit "
                 f"is not an ancestor of {ref}",
+                subject=sha,
             ))
     return findings
 
@@ -1221,7 +1223,8 @@ def validate_path_pointers(repo: Path, text: str) -> list[Finding]:
                     moved = _renamed_to(repo, raw)
                     if moved:
                         detail += f"; git shows it renamed to `{moved}`"
-                findings.append(Finding(number, "dead-path-pointer", detail))
+                findings.append(Finding(number, "dead-path-pointer", detail,
+                                        subject=raw))
     return findings
 
 
@@ -1280,7 +1283,8 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
                     f"claims `{branch}` unmerged, but that branch no longer exists "
                     "(merged and cleaned up, or the claim is stale)"
                 )
-            findings.append(Finding(line, "stale-live-claim", detail))
+            findings.append(Finding(line, "stale-live-claim", detail,
+                                    subject=branch))
     return findings
 
 
@@ -1807,7 +1811,8 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
                 moved = _renamed_to(repo, target)
                 if moved:
                     detail += f"; git shows it renamed to `{moved}`"
-            findings.append(Finding(number, "dead-md-link", detail))
+            findings.append(Finding(number, "dead-md-link", detail,
+                                    subject=target))
     return findings
 
 
@@ -1899,6 +1904,7 @@ def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
                 findings.append(Finding(
                     number, "dead-md-anchor",
                     f"links to `{raw}`, but this document has no such heading",
+                    subject=raw,
                 ))
                 continue
             if target.startswith("/"):
@@ -1916,6 +1922,7 @@ def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
                 number, "dead-md-anchor",
                 f"links to `{raw}`, but `{_rel(repo, resolved)}` has no such "
                 "heading",
+                subject=raw,
             ))
     return findings
 
@@ -2244,6 +2251,7 @@ def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
                 line, "unknown-branch",
                 f"names `{branch}`, which does not exist and appears in no "
                 f"merge commit (a typo, or work that was never integrated)",
+                subject=branch,
             ))
     return findings
 
@@ -2276,6 +2284,7 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
                 findings.append(Finding(
                     number, "dead-release-tag",
                     f"claims release `{tag}`, but no such tag exists",
+                    subject=tag,
                 ))
                 continue
             if not _integrated_by(repo, f"refs/tags/{tag}"):
@@ -2283,6 +2292,7 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
                     number, "dead-release-tag",
                     f"tag `{tag}` exists but is on no integration branch "
                     f"({', '.join(_integration_refs(repo))})",
+                    subject=tag,
                 ))
     return findings
 
@@ -2384,6 +2394,7 @@ def validate_pinned_refs(repo: Path, text: str) -> list[Finding]:
                 number, "dead-pinned-ref",
                 f"install snippet pins `{ref}`, which does not exist here; "
                 f"anyone copying this block gets an error",
+                subject=ref,
             ))
     return findings
 
@@ -3683,8 +3694,17 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
     gone, examined, skipped, undecodable = deleted_claims(repo, ref)
     out = sys.stderr if fmt == "sarif" else sys.stdout
 
-    if gone:
-        print(f"\nCLAIMS REMOVED WHILE STILL FALSE (since {ref})", file=out)
+    if fmt == "text":
+        if gone:
+            print(f"\nCLAIMS REMOVED WHILE STILL FALSE (since {ref})", file=out)
+            for line in render_findings(gone, fmt)[0]:
+                print(line)
+    else:
+        # ALWAYS, even with nothing to report. SARIF's contract is that stdout
+        # is one valid document, and a machine consumer that gets zero bytes
+        # fails its upload rather than reading "no results" - which is how a
+        # clean run would look like a broken one. `--sweep` and `--validate`
+        # both emit an empty document here; this used to emit nothing at all.
         for line in render_findings(gone, fmt)[0]:
             print(line)
 
