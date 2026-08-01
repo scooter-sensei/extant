@@ -598,6 +598,20 @@ class Finding:
     line: int
     kind: str
     detail: str
+    # The bare token this claim is about, unquoted: `abc1234`, `v2.1`,
+    # `docs/plan.md`. Consumers that need to ask "is this claim still written
+    # down anywhere" would otherwise have to scrape backticks out of `detail`,
+    # which is prose and rots.
+    #
+    # Optional because it is populated rule by rule. `--deleted-since` skips
+    # findings without one and REPORTS how many it skipped, so partial coverage
+    # is visible in the denominator rather than silently narrowing what that
+    # mode can see.
+    #
+    # Deliberately outside the baseline fingerprint, which keys on
+    # (path, kind, detail). Folding it in would invalidate every baseline
+    # already recorded in every project that has one.
+    subject: str | None = None
 
     def render(self) -> str:
         return f"line {self.line}: [{self.kind}] {self.detail}"
@@ -777,7 +791,9 @@ def validate_references(repo: Path, text: str) -> list[Finding]:
     for number, token in backticked:
         if token not in alive:
             findings.append(
-                Finding(number, "dead-sha", f"`{token}` does not resolve in this repo")
+                Finding(number, "dead-sha",
+                        f"`{token}` does not resolve in this repo",
+                        subject=token)
             )
     # I-1(b): a bare token that RESOLVES is merely unstyled, not broken -
     # flagging it would be noise, so only a bare token that fails to resolve
@@ -788,6 +804,7 @@ def validate_references(repo: Path, text: str) -> list[Finding]:
                 number, "bare-dead-sha",
                 f"`{token}` is un-backticked and does not resolve; "
                 "backtick real SHAs so they are checked",
+                subject=token,
             ))
     return findings
 
