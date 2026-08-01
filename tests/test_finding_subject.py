@@ -22,7 +22,7 @@ def test_a_backticked_dead_sha_names_its_token(git_repo) -> None:
     repo, commit = git_repo
     commit("README.md", "x\n", "chore: init")
 
-    findings = hc.validate_shas(repo, f"Shipped in `{DEAD}`.\n")
+    findings = hc.validate_references(repo, f"Shipped in `{DEAD}`.\n")
     assert findings, "the fixture must produce a finding or this proves nothing"
     assert findings[0].kind == "dead-sha", findings[0]
     assert findings[0].subject == DEAD, findings[0]
@@ -33,7 +33,7 @@ def test_a_bare_dead_sha_names_its_token(git_repo) -> None:
     repo, commit = git_repo
     commit("README.md", "x\n", "chore: init")
 
-    findings = hc.validate_shas(repo, f"Shipped in {DEAD} last week.\n")
+    findings = hc.validate_references(repo, f"Shipped in {DEAD} last week.\n")
     bare = [f for f in findings if f.kind == "bare-dead-sha"]
     assert bare, f"the fixture produced {[f.kind for f in findings]}"
     assert bare[0].subject == DEAD, bare[0]
