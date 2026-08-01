@@ -99,6 +99,7 @@ The other two modes, once you want them:
 | Command | For |
 |:---|:---|
 | `--sweep` | the survey. No config, exits 0, shows everything |
+| `--deleted-since <ref>` | claims removed while still false. Always exits 0; pass the merge base in CI |
 | `--validate <file>` | one document, exits 1 on findings |
 | `--verify` | every document `.extant.toml` names. What the git hooks run |
 

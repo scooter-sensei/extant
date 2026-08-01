@@ -1,5 +1,76 @@
 # Changelog
 
+## Unreleased
+
+Loopholes, closed where closing them costs nothing and reported where closing
+them would cost the truth.
+
+**`--deleted-since <ref>` reports claims removed while still false.** Deleting
+the offending sentence has always been a way past every rule, because the rules
+compare a document against git and never against its own previous version.
+
+This began as a twelfth rule and was demoted to a report before any of it was
+written, which is the part worth reading. Whether a removal was evasion or
+repair is a question about intent, and git cannot settle it. Worse, the common
+case cuts the wrong way: a document claims work was merged, it was not, someone
+deletes the sentence, and the document now tells the truth - so a gating rule
+would fail the build on the correct fix. This mode always exits 0.
+
+The mechanism is one idea: validate each document as it stood at `ref` against
+TODAY's git. Every finding that survives is a claim false right now, so there is
+no separate still-false check. It is reported when its subject appears in no
+configured document today, AS PROSE - which keeps `--archive` legitimate,
+catches a claim moved into a code fence, and distinguishes removal from
+relocation without guessing. `HEAD~1` by default; pass the merge base in CI, or
+splitting a removal across two commits hides it.
+
+**A consistency block reaching one file by two routes now says so.** The guard
+was a string comparison at config load, so `docs/x.md` and `docs/./x.md` were
+caught and a symlink, hardlink or case variant was not. Such a block agreed with
+itself forever while appearing to compare two things. It asks the filesystem
+now. The fallback matters as much: FAT32 and some network shares report `st_ino`
+as 0, and keying naively on it would report self-comparison on every
+configuration - a false positive on every run, worse than the hole it closes.
+
+**`consistency_timeout_seconds` bounds a user-supplied pattern.** Absent by
+default. A watchdog thread cannot work, because `re` holds the GIL while
+matching; static rejection of dangerous constructs breaks patterns that work
+today; an always-on subprocess costs a spawn per pattern and the stress suite
+puts 200 files through this rule. Process isolation is what remains, so it is
+opt-in, and left unset the hang is still possible. A mitigation on request, not
+a cure.
+
+**A baseline forgives the occurrences it recorded, not every future copy.**
+Entries carry a count. The line number stays out of the fingerprint, so
+reflowing a paragraph still does not un-suppress everything.
+
+**Findings carry a `subject`**, the bare token a claim is about, so a consumer
+need not scrape backticks out of prose. Optional and populated rule by rule;
+`--deleted-since` reports how many findings it skipped for want of one.
+
+### Verified
+
+Ten real repositories produced byte-identical output before and after, across
+2,163 findings. Fixtures alongside them are required to DIFFER, because a
+comparison set that never reaches the changed code proves nothing - this
+project has a comparison of seven repositories in its history that came out
+identical while the code under test was never executed.
+
+`--deleted-since` cannot be differenced at all, being a mode the old collector
+does not have, so it is checked for existence instead: the old binary must
+refuse the flag and the new one must run it.
+
+### And a probe that was lying
+
+`smoke.py` listed "a check can list the same file under two spellings" as
+by-design. Its probe called `note()` unconditionally in an `else` branch,
+checking only that the tool had not crashed, so it declared the loophole open
+whether or not it was - and reported identically before and after it was
+closed. That is the harness committing the defect it exists to detect. It now
+checks both routes and flags only if neither is caught.
+
+Two of the three by-design entries are gone; one remains.
+
 ## 0.15.0 (2026-07-29)
 
 **A sweep reads reStructuredText.** The Sphinx ecosystem was invisible to a

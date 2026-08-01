@@ -36,7 +36,7 @@ def test_a_deleted_false_claim_is_reported(git_repo) -> None:
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("NEXT_SESSION.md", ENTRY.format("Nothing to see here."), "docs: remove")
 
-    gone, examined, _skipped = hc.deleted_claims(repo, "HEAD~1")
+    gone, examined, _skipped, _bad = hc.deleted_claims(repo, "HEAD~1")
     assert examined == 1, f"examined {examined} documents"
     assert [f for f in gone if f.finding.subject == DEAD], [f.finding for f in gone]
 
@@ -53,7 +53,7 @@ def test_a_claim_that_became_true_is_not_reported(git_repo) -> None:
     # The branch now exists, so the old text's claim is true today.
     _run(repo, "branch", "feature/pending")
 
-    gone, _examined, _skipped = hc.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = hc.deleted_claims(repo, "HEAD~1")
     assert not [f for f in gone if "feature/pending" in f.finding.detail], (
         [f.finding.detail for f in gone]
     )
@@ -70,7 +70,7 @@ def test_relocating_to_the_archive_is_not_a_deletion(git_repo) -> None:
            "docs: archive it")
     commit("NEXT_SESSION.md", ENTRY.format("Moved to the archive."), "docs: relocate")
 
-    gone, _examined, _skipped = hc.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = hc.deleted_claims(repo, "HEAD~1")
     assert not [f for f in gone if f.finding.subject == DEAD], (
         "the token is still findable in the archive: " + str([f.finding for f in gone])
     )
@@ -85,7 +85,7 @@ def test_moving_a_claim_into_a_fence_is_a_deletion(git_repo) -> None:
     commit("NEXT_SESSION.md",
            ENTRY.format(f"```\nMerged at `{DEAD}`.\n```"), "docs: hide it")
 
-    gone, _examined, _skipped = hc.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = hc.deleted_claims(repo, "HEAD~1")
     assert [f for f in gone if f.finding.subject == DEAD], (
         "a claim moved into a fence is still a claim withdrawn from prose"
     )
@@ -99,7 +99,7 @@ def test_an_unchanged_document_is_not_re_read(git_repo) -> None:
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("other.txt", "unrelated\n", "chore: touch something else")
 
-    _gone, examined, _skipped = hc.deleted_claims(repo, "HEAD~1")
+    _gone, examined, _skipped, _bad = hc.deleted_claims(repo, "HEAD~1")
     assert examined == 0, "the document did not change; it must not be re-read"
 
 
@@ -138,7 +138,7 @@ def test_a_correction_that_swaps_the_token_is_reported(git_repo) -> None:
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{OTHER}`."), "docs: swap")
 
-    gone, _examined, _skipped = hc.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = hc.deleted_claims(repo, "HEAD~1")
     assert [f for f in gone if f.finding.subject == DEAD], (
         "the removed token is still dead, so it is reported"
     )

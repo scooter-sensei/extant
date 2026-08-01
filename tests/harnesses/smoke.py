@@ -1069,6 +1069,53 @@ def p_sweep_site_config_that_is_a_directory() -> None:
              f"what that is meant to require:\n{res.stdout[:300]}")
 
 
+def p_deleted_since_abuse() -> None:
+    """The new mode's error paths. It promises to exit 0 on every input, and a
+    mode that gates by accident is worse than one that never reports."""
+    print("\n[deleted-since] a bad ref, a first commit, and an undecodable old version")
+    repo = new_repo("deleted-abuse")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing yet."))
+    commit(repo, "init")
+
+    res = tool(repo, "--deleted-since", "no-such-ref-anywhere")
+    combined = res.stdout + res.stderr
+    if res.returncode != 0:
+        note("BROKEN", "a nonexistent ref made the deletion scan gate",
+             f"exit {res.returncode}\n{combined[:200]}")
+    elif "examined" in combined:
+        ok("a nonexistent ref reports what it examined and exits 0")
+    else:
+        note("SILENT", "a nonexistent ref printed no denominator", combined[:200])
+
+    # The first commit has no parent, so HEAD~1 does not resolve. Same shape,
+    # different cause, and both must be survivable rather than a traceback.
+    res = tool(repo, "--deleted-since", "HEAD~1")
+    combined = res.stdout + res.stderr
+    if "Traceback" in res.stderr:
+        note("CRASH", "a first commit crashed the deletion scan", res.stderr[:300])
+    elif res.returncode == 0 and "examined" in combined:
+        ok("a repository with no previous commit is handled")
+    else:
+        note("BROKEN", "the deletion scan on a first commit",
+             f"exit {res.returncode}\n{combined[:200]}")
+
+    # An old version that is not valid UTF-8. The mode reads history, so it
+    # meets bytes the working tree no longer has.
+    (repo / "NEXT_SESSION.md").write_bytes(b"# S\n\nCaf\xe9 \xff\xfe broken\n")
+    commit(repo, "latin-1 in history")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Repaired."))
+    commit(repo, "repair")
+    res = tool(repo, "--deleted-since", "HEAD~1")
+    if "Traceback" in res.stderr:
+        note("CRASH", "an undecodable previous version crashed the scan",
+             res.stderr[:300])
+    elif res.returncode == 0:
+        ok("an undecodable previous version is survived")
+    else:
+        note("BROKEN", "an undecodable previous version gated",
+             f"exit {res.returncode}")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     probes = [p_empty_repo, p_detached_head, p_no_git_at_all, p_binary_document,
@@ -1084,7 +1131,8 @@ def main() -> int:
               p_offline, p_install_over_existing_agent_files,
               p_sweep_nothing_to_sweep, p_sweep_unreadable_file,
               p_sweep_gates_only_on_configured, p_sweep_sarif_purity,
-              p_sweep_site_config_that_is_a_directory]
+              p_sweep_site_config_that_is_a_directory,
+              p_deleted_since_abuse]
     for probe in probes:
         try:
             probe()

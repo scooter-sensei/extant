@@ -3543,11 +3543,30 @@ def run_sweep(repo: Path, fmt: str) -> int:
 
 
 def _document_at(repo: Path, ref: str, relative: str) -> str | None:
-    """A document as it stood at `ref`, or None if it was not there."""
+    """A document as it stood at `ref`, or None if it was not there.
+
+    A previous version that is not valid UTF-8 raises rather than returning
+    None, because "absent" and "unreadable" are different facts and the caller
+    counts them separately. Decoding it with errors="replace" would be worse
+    than either: every rule would then run against silently corrupted text and
+    report findings about bytes that are not there.
+    """
+    # BYTES, then decoded here. `_git` passes text=True, which makes
+    # subprocess decode inside a reader THREAD - so invalid UTF-8 raises where
+    # no caller can catch it. The observed result was the worst of both: a
+    # UnicodeDecodeError traceback printed from the thread, the process
+    # continuing, and the document silently counted as examining nothing.
+    #
+    # Decoding strictly, and letting the error reach the caller, is what makes
+    # "unreadable" a fact this mode can report instead of a mess it prints.
     try:
-        return _git(repo, "show", f"{ref}:{relative}")
-    except (subprocess.CalledProcessError, OSError):
+        done = subprocess.run(["git", "show", f"{ref}:{relative}"], cwd=repo,
+                              capture_output=True)
+    except OSError:
         return None
+    if done.returncode != 0:
+        return None
+    return done.stdout.decode("utf-8")
 
 
 def _changed_between(repo: Path, ref: str, candidates: list[str]) -> list[str]:
@@ -3598,13 +3617,13 @@ def _live_prose(repo: Path, documents: list[str]) -> str:
     return "\n".join(parts)
 
 
-def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int]:
+def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
     """Claims present at `ref`, false today, and no longer written anywhere.
 
-    Returns (found, documents_examined, skipped_for_no_subject). All three come
-    from ONE pass: computing the skip count in a second loop would re-validate
-    every document and double exactly the cost `_changed_between` exists to
-    avoid.
+    Returns (found, examined, skipped_for_no_subject, undecodable). All four
+    come from ONE pass: computing any of them in a second loop would
+    re-validate every document and double exactly the cost `_changed_between`
+    exists to avoid.
 
     A claim is reported when both hold:
 
@@ -3620,9 +3639,15 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int]:
     documents = _configured_documents()
     haystack = _live_prose(repo, documents)
     found: list[Located] = []
-    examined = skipped = 0
+    examined = skipped = undecodable = 0
     for relative in _changed_between(repo, ref, documents):
-        previous = _document_at(repo, ref, relative)
+        try:
+            previous = _document_at(repo, ref, relative)
+        except UnicodeDecodeError:
+            # A previous version that cannot be decoded is not a version with
+            # no claims. Counted and reported, never passed over in silence.
+            undecodable += 1
+            continue
         if previous is None:
             continue
         examined += 1
@@ -3644,7 +3669,7 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int]:
             if finding.subject in haystack:
                 continue                    # still written down somewhere
             found.append(Located(relative, finding, primary=False))
-    return found, examined, skipped
+    return found, examined, skipped, undecodable
 
 
 def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
@@ -3655,7 +3680,7 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
     truth, which is this tool's entire purpose. Gating here would fail a build
     on the correct remedy. So this states a fact and lets a reader judge.
     """
-    gone, examined, skipped = deleted_claims(repo, ref)
+    gone, examined, skipped, undecodable = deleted_claims(repo, ref)
     out = sys.stderr if fmt == "sarif" else sys.stdout
 
     if gone:
@@ -3673,6 +3698,9 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
         print("  a skipped finding belongs to a rule that does not yet record "
               "which token it is about, so this mode cannot look for it",
               file=out)
+    if undecodable:
+        print(f"  {undecodable} previous version(s) could not be decoded and "
+              f"were not examined", file=out)
     if gone:
         print("  a swapped or corrected reference looks the same as a hidden "
               "one from git's side. This reports; it does not judge, which is "

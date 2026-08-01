@@ -130,24 +130,54 @@ recorded because an undisclosed limit is indistinguishable from an unknown one:
 the harness prints each of these as a flagged observation on every run, and a
 flag with nothing written down here would read as a fresh defect every time.
 
-**Claim deletion passes.** The validator compares claims against git; it cannot
-compare a document against its own previous version. Deleting the offending
-sentence is therefore always a way through. Mitigated only at the workflow
-level, by the anti-gaming rules below.
+**Claim deletion passes, and no rule will ever catch it.** The validator
+compares claims against git. Deleting the offending sentence removes the claim,
+so there is nothing left to check and every rule goes quiet.
 
-**A user-supplied regex can hang.** Configuration accepts patterns, and Python's
-`re` has no timeout, so a catastrophically backtracking pattern spins. The blast
-radius is the author's own repository and the fix is to simplify the pattern,
-but a hang is a worse failure mode than an error and is worth knowing about.
+This is now REPORTED rather than closed, and the distinction is the point. See
+`--deleted-since` below: whether a removal was evasion or repair is a question
+about intent, which git cannot settle, and a document that deletes a false
+claim now tells the truth - which is this tool's entire purpose. A rule that
+gated on it would fail a build on the correct remedy. So the mode states the
+fact and never affects an exit code, and the workflow-level anti-gaming rules
+below still carry the rest.
 
-**A consistency check can name the same file twice and always agree.** The
-check rejects a single-file block, because comparing a file against itself
-proves nothing, and it normalises paths so `docs/x.md` and `docs/./x.md` are
-caught as one file under two spellings. What it cannot catch is the same file
-reached by genuinely different routes, a symlink or a case variant on a
-case-insensitive filesystem. Such a block passes forever while appearing to
-compare two things. The two-file minimum catches the obvious shape and not this
-one.
+**A user-supplied regex can hang, unless you ask it not to.** Configuration
+accepts patterns and Python's `re` has no timeout, so a catastrophically
+backtracking pattern spins. `consistency_timeout_seconds` bounds each search,
+and is absent by default.
+
+Three cheaper mechanisms were tried and rejected. A watchdog thread cannot
+work: `re` does not release the GIL while matching, so the watchdog is never
+scheduled. Static rejection of dangerous constructs is a heuristic whose false
+positives reject patterns that work today, which for that user is worse than
+the hang. An always-on subprocess costs a spawn per pattern, and `stress.py`
+case 11 puts 200 files through this rule.
+
+Process isolation is what remains, so it is opt-in and nobody pays for it
+unless they have hit the problem. Left unset, the hang is still possible. That
+is a mitigation available on request rather than a cure, and saying so is the
+point of recording it here.
+
+**A consistency check naming the same file twice is now caught.** It was not,
+and the history is worth keeping. The check rejects a single-file block and
+normalises paths, so `docs/x.md` and `docs/./x.md` are caught at config load as
+one file under two spellings. That is a STRING comparison and it never touches
+the filesystem, so a symlink, a hardlink, or a case variant on a
+case-insensitive filesystem reached the same file by a genuinely different
+route and the block agreed with itself forever while appearing to compare two
+things.
+
+The rule now asks the filesystem instead, comparing `(st_dev, st_ino)` and
+counting distinct identities rather than distinct path strings.
+
+The fallback in that identity function matters as much as the mechanism. FAT32
+and some network shares report `st_ino` as 0, and keyed naively on it every
+file on such a volume compares equal - which would report self-comparison on
+every configuration, a false positive on every run and worse than the hole it
+closes. A zero inode therefore falls back to the resolved, case-normalised
+path, and a test asserts the function distinguishes two known-different files
+before anything is built on it.
 
 **Fenced code is exempt from claim rules.** An example in a fence is not a
 promise, so claims there are ignored. Inline backticks are treated differently
@@ -488,6 +518,82 @@ validations kept answering "no origin", so `dead-pinned-ref` examined nothing
 and reported clean. A cache that outlives its scope does not produce a wrong
 answer anybody sees; it produces silence, which is this project's own failure
 mode aimed at itself.
+
+## `--deleted-since`: a report, deliberately not a rule
+
+Claims that were present at a git ref, are false today, and are no longer
+written down anywhere.
+
+**It began as a twelfth rule and was demoted, which is the interesting part.**
+Every rule here asks a question git or the filesystem can settle. "Was this
+claim deleted to hide something, or because it was wrong?" is a question about
+intent, and nothing in git answers it. Worse, the common case cuts against a
+gating rule: a document claims work was merged, it was not, someone deletes the
+sentence, and the document now tells the truth. Gating would fail the build on
+the correct fix.
+
+So it reports and always exits 0. A human judges intent, because only a human
+can.
+
+**The mechanism is one idea.** Take each configured document as it stood at the
+ref, and validate it against TODAY's git. Every finding that survives is a
+claim which is false right now, so there is no separate still-false check to
+get wrong. A claim is then reported when its subject appears in no configured
+document today, AS PROSE.
+
+Those last two words do three jobs. `--archive` stays legitimate, because
+relocating an entry keeps the token findable. A claim moved into a code fence
+is caught, which matters because fenced code is exempt from every claim rule
+and would otherwise silence this one too. And removal is distinguished from
+relocation without guessing.
+
+**Findings carry a `subject` for this.** The token lives inside the detail's
+English, and scraping backticks out of a sentence is the reason-about-the-
+wording trap this project keeps being bitten by. It is optional and populated
+rule by rule; the mode skips findings without one and REPORTS how many it
+skipped, so partial coverage stays visible in the denominator.
+
+**The ref is a parameter and the default is a tripwire.** `HEAD~1` answers
+"what did this commit remove", which is right for a post-commit hook and useless
+against a removal split across two commits. CI should pass the merge base,
+where splitting within a pull request buys nothing.
+
+**A swapped reference looks the same as a hidden one.** Replacing a dead SHA
+with a different token removes the first, and the first is still dead. From
+git's side that is indistinguishable from concealment. The mode says so in its
+own output rather than guessing, and there is a test asserting it IS reported,
+so that nobody later improves it into a heuristic.
+
+## The baseline forgives what it recorded, and no more
+
+The fingerprint excludes the line number so that reflowing a paragraph does not
+un-suppress everything. The price was that one recorded finding forgave the
+same claim pasted anywhere, forever - listed in `smoke.py` as a by-design
+consequence for several releases.
+
+Entries now carry an occurrence count. Suppression covers that many; the
+surplus is reported. The line number stays out of the fingerprint, so
+churn-immunity is unchanged, and an entry written before counts existed
+forgives one - the shape it had when it was written.
+
+Raising the count by re-recording remains possible. That is acceptable: it is
+an explicit act and it shows up in the diff, which is what a baseline is for.
+
+## Examined and declined
+
+Recorded so a later reader does not mistake either for an oversight.
+
+**Entry-scope burial.** `stale-live-claim` reads the newest entry only, so
+moving a live claim into an older entry silences it. Not closed: older entries
+are historical record, and re-judging them would fire on every past status in
+every project that keeps one. That is a guaranteed false-positive class traded
+for a narrow evasion. The authoring constraint below - paraphrase past
+statuses, never quote them - is the mitigation.
+
+**The `raw-lfs-blob` size shortcut.** Reading every governed blob rather than
+only the small ones changes cost and never a verdict, so it is not a loophole.
+It is also why that shortcut has no mutation in `mutate.py`: a mutation nothing
+can kill survives every campaign and reads as a gap the tests do not have.
 
 ## Authoring constraints these rules impose
 

@@ -1,6 +1,6 @@
 """Performance measurement for extant.
 
-Eight questions, in descending order of how much they matter:
+Nine questions, in descending order of how much they matter:
 
 1. What does the post-commit hook add to EVERY commit? If that number is bad,
    people uninstall the tool and the other three stop mattering.
@@ -12,6 +12,7 @@ Eight questions, in descending order of how much they matter:
 6. What does each output format cost?
 7. What does `--sweep` cost, whose unit of work is the repository?
 8. What does one generator config file cost a single `--validate`?
+9. What does `--deleted-since` add, against a plain `--verify`?
 
 Reports absolute numbers and the scaling ratio, because "1.2 seconds" means
 nothing without knowing whether it becomes 12 or 120 at ten times the size.
@@ -392,6 +393,48 @@ def generator_cliff() -> None:
     print("  (only the ambient column can force the union to be built)")
 
 
+# -------------------------------------------------- 9. what a deletion scan costs
+def deleted_since_cost() -> None:
+    """`--deleted-since` re-validates the PREVIOUS version of each document.
+
+    That is the one mode whose work scales with how much a commit changed, and
+    the reason it only re-reads documents that actually differ: an unchanged
+    document cannot have lost a claim, so skipping it is a correctness
+    simplification as much as a saving.
+
+    Measured beside a plain `--verify` so the cost of adopting it in a hook is
+    legible rather than assumed.
+    """
+    print("\n=== 9. What --deleted-since costs, against --verify ===")
+    print(f"  {'changed docs':>13} {'verify':>9} {'deleted-since':>15} {'delta':>9}")
+    for changed in (1, 10, 50):
+        repo = new_repo(f"perf-deleted-{changed}")
+        names = [f"docs/note{n}.md" for n in range(changed)]
+        for name in names:
+            write(repo, name, "# Note\n\nNothing claimed here.\n")
+        write(repo, "NEXT_SESSION.md",
+              "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\nx\n\n## 1. Ref\n")
+        extras = ", ".join(f'"{n}"' for n in names)
+        write(repo, ".extant.toml", f"extra_docs = [{extras}]\n")
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", "init")
+        # Change every configured document, so the mode has the most to do.
+        for name in names:
+            write(repo, name, "# Note\n\nRewritten today.\n")
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", "rewrite")
+
+        verify = timed(lambda: sh(repo, PY, str(repo / "tools/extant_collect.py"),
+                                  "--repo", str(repo), "--verify"), runs=3)
+        scan = timed(lambda: sh(repo, PY, str(repo / "tools/extant_collect.py"),
+                                "--repo", str(repo), "--deleted-since", "HEAD~1"),
+                     runs=3)
+        print(f"  {changed:>13} {verify:>8.2f}s {scan:>14.2f}s "
+              f"{(scan - verify) * 1000:>+8.0f} ms")
+    print("  (it validates the OLD version of each CHANGED document, so the "
+          "cost tracks the commit rather than the repository)")
+
+
 def main() -> int:
     ARENA.mkdir(parents=True, exist_ok=True)
     hook_latency()
@@ -402,6 +445,7 @@ def main() -> int:
     format_cost()
     sweep_scaling()
     generator_cliff()
+    deleted_since_cost()
     return 0
 
 

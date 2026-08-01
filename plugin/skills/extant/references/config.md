@@ -61,6 +61,7 @@ that has none of them.
 | `retain_entries` | `3` | Entries kept in the live document. |
 | `plans_dir` | `docs/superpowers/plans` | Scanned for the current plan's checkboxes. |
 | `venv_python` | `.venv/Scripts/python.exe` | Interpreter, relative to the main working tree. |
+| `consistency_timeout_seconds` | *(unset)* | Bounds each user-supplied consistency pattern, in seconds. Absent leaves them unbounded, which is the historical behaviour. Set it only if a pattern hangs: it costs a process spawn per pattern, because Python's `re` holds the GIL while matching and no in-process mechanism can interrupt it. Left unset, a catastrophically backtracking pattern can still spin. |
 | `extra_docs` | *(empty)* | Further documents to check: `CLAUDE.md`, `AGENTS.md`, a README. They get every whole-file rule. The entry-scoped rules are skipped, because these have no dated entries and "the newest entry" would name nothing. |
 
 ## Running the suite - any ecosystem
