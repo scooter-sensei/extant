@@ -3261,7 +3261,7 @@ def _fingerprint(path: str, kind: str, detail: str) -> str:
 BASELINE_NAME = ".extant-baseline.json"
 
 
-def _baseline_entry(item: Located) -> dict[str, str]:
+def _baseline_entry(item: Located, count: int = 1) -> dict[str, object]:
     """One recorded finding, written so a human can review the diff.
 
     The fingerprint alone would be enough to match on, and would make the file
@@ -3275,6 +3275,12 @@ def _baseline_entry(item: Located) -> dict[str, str]:
         "path": item.path,
         "kind": item.finding.kind,
         "detail": item.finding.detail,
+        # How many occurrences this amnesty covers. The fingerprint excludes
+        # the line number so that reflowing a paragraph does not un-suppress
+        # everything, and the price of that was forgiving the same claim pasted
+        # anywhere, forever. Bounding the count keeps the churn-immunity and
+        # removes the unbounded part.
+        "count": count,
     }
 
 
@@ -3301,7 +3307,16 @@ def load_baseline(path: Path) -> dict[str, dict[str, str]]:
 
 def write_baseline(path: Path, located: list[Located]) -> int:
     """Record every current finding. Returns how many were written."""
-    entries = [_baseline_entry(item) for item in located]
+    # Grouped by fingerprint, not one entry per occurrence. A baseline is a
+    # list of things a project has agreed to leave broken and it is read in
+    # review, so a repeated claim must stay one legible line with a count.
+    tally: dict[str, int] = {}
+    first: dict[str, Located] = {}
+    for item in located:
+        key = _fingerprint(item.path, item.finding.kind, item.finding.detail)
+        tally[key] = tally.get(key, 0) + 1
+        first.setdefault(key, item)
+    entries = [_baseline_entry(first[key], tally[key]) for key in sorted(tally)]
     document = {
         "version": 1,
         "tool": "extant",
@@ -4175,6 +4190,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(exc, file=sys.stderr)
                 return 2
         matched: set[str] = set()
+        # Occurrences already forgiven, per fingerprint, for this run.
+        used: dict[str, int] = {}
         suppressed = 0
 
         def record(path: str, items: list[Finding], *, primary: bool) -> int:
@@ -4194,9 +4211,19 @@ def main(argv: list[str] | None = None) -> int:
                 item = Located(path, finding, primary)
                 fingerprint = _fingerprint(path, finding.kind, finding.detail)
                 if fingerprint in baselined:
-                    matched.add(fingerprint)
-                    suppressed += 1
-                    continue
+                    # Bounded by what was recorded. An entry written before
+                    # counts existed has none, and forgives one - the shape it
+                    # had when it was written.
+                    allowed = baselined[fingerprint].get("count", 1)
+                    try:
+                        allowed = int(allowed)
+                    except (TypeError, ValueError):
+                        allowed = 1
+                    if used.get(fingerprint, 0) < max(allowed, 1):
+                        used[fingerprint] = used.get(fingerprint, 0) + 1
+                        matched.add(fingerprint)
+                        suppressed += 1
+                        continue
                 new += 1
                 located.append(item)
                 if args.format == "text":
