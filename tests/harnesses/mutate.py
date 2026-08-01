@@ -266,6 +266,31 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    if timeout is None:\n        return pattern.search(content)",
          "    if False:\n        return pattern.search(content)"),
 
+        # --- claims removed while still false --------------------------------
+        # The haystack is PROSE, not raw text. Built from raw text, a claim
+        # moved into a code fence stays findable and this mode goes as blind to
+        # it as every claim rule already is.
+        ("the deletion haystack stops blanking fenced code", collect,
+         "            parts.append(_prose(handle.read()))",
+         "            parts.append(handle.read())"),
+        # And the other direction. `_strip_code` also blanks INLINE backticks,
+        # which is where a claim is normally written - so this would empty the
+        # haystack and report every claim in the document as deleted.
+        ("the deletion haystack also blanks inline code", collect,
+         "            parts.append(_prose(handle.read()))",
+         "            parts.append(_strip_code(handle.read()))"),
+        ("deletion checks only the primary document, not the archive", collect,
+         "    return [d for d in (CONFIG.primary_doc, CONFIG.archive_doc,\n"
+         "                        *CONFIG.extra_docs) if d]",
+         "    return [d for d in (CONFIG.primary_doc,) if d]"),
+        ("deletion re-reads documents that did not change", collect,
+         "    for relative in _changed_between(repo, ref, documents):",
+         "    for relative in documents:"),
+        ("the deletion mode starts gating", collect,
+         '              "why it never fails a run.", file=out)\n    return 0',
+         '              "why it never fails a run.", file=out)\n'
+         "    return 1 if gone else 0"),
+
         # --- search --------------------------------------------------------------
         ("search only looks at the live document", collect,
          "    for relative in (PRIMARY_DOC, ARCHIVE_DOC):\n"

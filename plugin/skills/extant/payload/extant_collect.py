@@ -3527,6 +3527,144 @@ def run_sweep(repo: Path, fmt: str) -> int:
     return 1 if results["vetted"] else 0
 
 
+def _document_at(repo: Path, ref: str, relative: str) -> str | None:
+    """A document as it stood at `ref`, or None if it was not there."""
+    try:
+        return _git(repo, "show", f"{ref}:{relative}")
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
+def _changed_between(repo: Path, ref: str, candidates: list[str]) -> list[str]:
+    """Only the candidates that actually changed between `ref` and HEAD.
+
+    A document that did not change cannot have lost a claim, so this is a
+    correctness simplification as much as it is the difference between doubling
+    a verify and not.
+
+    A ref git cannot resolve yields an empty list rather than an exception: the
+    mode reports what it examined, and examining nothing because the ref was
+    wrong is a legitimate answer as long as the denominator says so.
+    """
+    try:
+        out = _git(repo, "diff", "--name-only", ref, "HEAD")
+    except (subprocess.CalledProcessError, OSError):
+        return []
+    changed = {line.strip().replace("\\", "/") for line in out.splitlines()
+               if line.strip()}
+    return [c for c in candidates if c.replace("\\", "/") in changed]
+
+
+def _configured_documents() -> list[str]:
+    """Primary, archive and extras, in that order, skipping any left unset."""
+    return [d for d in (CONFIG.primary_doc, CONFIG.archive_doc,
+                        *CONFIG.extra_docs) if d]
+
+
+def _live_prose(repo: Path, documents: list[str]) -> str:
+    """Every configured document's PROSE, concatenated, fenced code blanked.
+
+    Prose, not raw text, and the distinction is the whole of condition 2 below.
+    A claim moved into a code fence is exempt from every claim rule, so a
+    haystack built from raw text would let a fence hide a claim from this mode
+    as well as from the others.
+
+    Inline backticks are kept, because a claim is normally written inside them
+    and `_prose` blanks fences only. Using `_strip_code` here would blank the
+    token in every claim and report the entire document as deleted.
+    """
+    parts = []
+    for relative in documents:
+        try:
+            with open(repo / relative, encoding="utf-8", newline="") as handle:
+                parts.append(_prose(handle.read()))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return "\n".join(parts)
+
+
+def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int]:
+    """Claims present at `ref`, false today, and no longer written anywhere.
+
+    Returns (found, documents_examined, skipped_for_no_subject). All three come
+    from ONE pass: computing the skip count in a second loop would re-validate
+    every document and double exactly the cost `_changed_between` exists to
+    avoid.
+
+    A claim is reported when both hold:
+
+      1. it appears when the OLD text is validated against TODAY's git, which
+         means it is false right now, and
+      2. its subject appears in no configured document today, as prose
+
+    Condition 1 is why there is no separate still-false check. Condition 2 is
+    what keeps `--archive` legitimate and what catches a claim moved into a
+    fence.
+    """
+    global _DOC_FORMAT
+    documents = _configured_documents()
+    haystack = _live_prose(repo, documents)
+    found: list[Located] = []
+    examined = skipped = 0
+    for relative in _changed_between(repo, ref, documents):
+        previous = _document_at(repo, ref, relative)
+        if previous is None:
+            continue
+        examined += 1
+        # `base` is a parameter; `_DOC_FORMAT` is not, so it is the one piece
+        # of global state this has to set - and it is restored in `finally`,
+        # because a rule raising part-way would otherwise leave the process
+        # reading every later document in the wrong markup language.
+        previous_format = _DOC_FORMAT
+        _DOC_FORMAT = _format_for(relative)
+        try:
+            was = validate(repo, previous, base=(repo / relative).parent,
+                           has_entries=(relative == CONFIG.primary_doc))
+        finally:
+            _DOC_FORMAT = previous_format
+        for finding in was:
+            if finding.subject is None:
+                skipped += 1
+                continue
+            if finding.subject in haystack:
+                continue                    # still written down somewhere
+            found.append(Located(relative, finding, primary=False))
+    return found, examined, skipped
+
+
+def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
+    """Report claims removed while still false. Never gates: returns 0.
+
+    Whether a removal was evasion or repair is a question about intent, which
+    git cannot settle - and a document that deletes a false claim now tells the
+    truth, which is this tool's entire purpose. Gating here would fail a build
+    on the correct remedy. So this states a fact and lets a reader judge.
+    """
+    gone, examined, skipped = deleted_claims(repo, ref)
+    out = sys.stderr if fmt == "sarif" else sys.stdout
+
+    if gone:
+        print(f"\nCLAIMS REMOVED WHILE STILL FALSE (since {ref})", file=out)
+        for line in render_findings(gone, fmt)[0]:
+            print(line)
+
+    # The denominator. This mode always exits 0, so the count is the only thing
+    # separating a clean result from a broken one: "no deletions" and "no
+    # documents examined" are otherwise the same output.
+    print(f"\nexamined {examined} changed document(s) since {ref}: "
+          f"{len(gone)} claim(s) removed while still false, "
+          f"{skipped} skipped for carrying no subject", file=out)
+    if skipped:
+        print("  a skipped finding belongs to a rule that does not yet record "
+              "which token it is about, so this mode cannot look for it",
+              file=out)
+    if gone:
+        print("  a swapped or corrected reference looks the same as a hidden "
+              "one from git's side. This reports; it does not judge, which is "
+              "why it never fails a run.", file=out)
+    return 0
+
+
 def tracked_markdown(repo: Path) -> list[str]:
     """Every markdown file git tracks, repo-relative, sorted.
 
@@ -3756,6 +3894,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--archive", action="store_true", help="split old entries out")
     mode.add_argument("--validate", metavar="FILE", help="validate a status document")
     mode.add_argument("--verify", action="store_true", help="validate the committed doc")
+    mode.add_argument("--deleted-since", metavar="REF",
+                      help="report claims removed while still false, since "
+                           "REF; never gates. Use the merge base in CI, so "
+                           "splitting a removal across commits does not hide it")
     mode.add_argument("--sweep", action="store_true",
                       help="survey every tracked markdown file; needs no config")
     mode.add_argument("--selftest", action="store_true",
@@ -3939,6 +4081,8 @@ def main(argv: list[str] | None = None) -> int:
         counts = archive(repo)
         print(f"retained={counts['retained']} archived={counts['archived']}")
         return 0
+    if args.deleted_since:
+        return run_deleted_since(repo, args.deleted_since, args.format)
     if args.sweep:
         # Refused rather than ignored. A baseline suppresses findings, and a
         # survey whose whole job is to SHOW them would be silently gutted by
