@@ -54,10 +54,22 @@ CLEAN: list[str] = []
 # So a flag surviving is weaker evidence than a flag vanishing. When a rule is
 # removed, its probes have to be removed with it rather than left to keep
 # reporting.
+# Two entries left here after the hardening work, and both departures are
+# instructive.
+#
+# "a recorded finding forgives future copies of itself" went when the baseline
+# started recording an occurrence count. The ledger reported it MISSING, which
+# is how a fix announces itself here.
+#
+# "a check can list the same file under two spellings" went for a worse reason:
+# its probe never tested anything. It called note() unconditionally in an else
+# branch, checking only that the tool had not crashed, so it declared the
+# loophole open whether or not it was. That is the harness committing the
+# failure it exists to detect - an assertion indistinguishable from a
+# declaration. The probe now checks both routes and flags only if neither is
+# caught.
 EXPECTED = {
     "deleting a claim makes the document pass",
-    "a check can list the same file under two spellings",
-    "a recorded finding forgives future copies of itself",
 }
 
 # Observations that depend on the machine rather than on the code, so neither
@@ -439,18 +451,52 @@ def p_consistency_abuse() -> None:
            f"exit {res.returncode}, reported rather than crashed")
 
     # A check whose two files are the same file: it can only agree with itself.
+    #
+    # TWO routes, and they are caught by different mechanisms. The string
+    # spelling is rejected at config load, by path normalisation. A case
+    # variant on a case-insensitive filesystem reaches the same file without
+    # any string differing, so only the filesystem can settle it.
+    #
+    # This probe used to call note() unconditionally in an else branch and
+    # declare the loophole open regardless of what the tool did. It reported
+    # exactly the same thing before and after the loophole was closed, which is
+    # the defect this whole harness exists to make visible, committed by the
+    # harness itself.
     write(repo, ".extant.toml",
           "[extant.consistency.same]\n"
           "\"NEXT_SESSION.md\" = 'Phase (1)'\n"
           "\"./NEXT_SESSION.md\" = 'Phase (1)'\n")
     commit(repo, "same file twice")
     res = tool(repo, "--verify")
+    combined = res.stdout + res.stderr
     if "Traceback" in res.stderr:
         note("CRASH", "consistency check listing one file twice", res.stderr)
+    elif "lists the same file twice" in combined:
+        ok("two spellings of one path are rejected at config load")
     else:
         note("BY-DESIGN", "a check can list the same file under two spellings",
-             "it then always agrees, which is a vacuous pass. The two-file "
-             "minimum catches the obvious case and not this one.")
+             "it then always agrees, which is a vacuous pass:\n" + combined[:300])
+
+    write(repo, ".extant.toml",
+          "[extant.consistency.same]\n"
+          "\"NEXT_SESSION.md\" = 'Phase (1)'\n"
+          "\"next_session.md\" = 'Phase (1)'\n")
+    commit(repo, "same file by case variant")
+    res = tool(repo, "--verify")
+    combined = res.stdout + res.stderr
+    if "Traceback" in res.stderr:
+        note("CRASH", "consistency check listing one file by case", res.stderr)
+    elif "are the same file" in combined:
+        ok("a case variant reaching one file is reported")
+    elif "lists the same file twice" in combined:
+        ok("the case variant was rejected at config load instead")
+    else:
+        # On a case-SENSITIVE filesystem these really are two files, and the
+        # second does not exist - which the rule reports as a missing source.
+        # That is correct there, so it is not a finding.
+        note("BY-DESIGN", "a check can list the same file under two spellings",
+             "a case variant reached one file and was not reported:\n"
+             + combined[:300])
 
 
 def p_search_abuse() -> None:
