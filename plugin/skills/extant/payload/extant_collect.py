@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -2374,6 +2375,34 @@ def _consistency_for(repo: Path) -> dict[str, tuple[tuple[str, object], ...]]:
         return {}
 
 
+def _file_identity(path: Path) -> tuple[object, ...]:
+    """A value equal for two paths that reach the same file.
+
+    `(st_dev, st_ino)` is the filesystem's own answer, and it handles symlinks,
+    hardlinks and case variants uniformly without knowing which it is looking
+    at. It is not universally available: FAT32 and some network shares report
+    `st_ino` as 0, and keyed on that every file on the volume would compare
+    equal - reporting self-comparison on every configuration, which is a false
+    positive on every run and worse than the hole this closes.
+
+    A zero inode therefore falls back to the resolved, case-normalised path,
+    which still follows symlinks and still collapses case variants on the
+    platforms where those exist. A test asserts this distinguishes two
+    known-different files before anything is built on it.
+    """
+    try:
+        stat = path.stat()
+        if stat.st_ino:
+            return ("stat", stat.st_dev, stat.st_ino)
+    except OSError:
+        pass
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    return ("path", os.path.normcase(str(resolved)))
+
+
 def validate_consistency(repo: Path, text: str) -> list[Finding]:
     """Named values that must agree across several files in the repository.
 
@@ -2413,6 +2442,22 @@ def validate_consistency(repo: Path, text: str) -> list[Finding]:
     findings: list[Finding] = []
     for name, sources in consistency.items():
         seen: dict[str, list[str]] = {}
+        # Two spellings of one path are rejected at config load, by string.
+        # A symlink, a hardlink, or a case variant on a case-insensitive
+        # filesystem is a genuinely different route to the same bytes, and no
+        # string comparison can see it - so the filesystem is asked instead.
+        # Such a block agrees with itself forever while appearing to compare
+        # two things, which is the shape of failure this project exists to
+        # make visible.
+        present = [rel for rel, _pattern in sources if (repo / rel).is_file()]
+        if len(present) >= 2 and len({_file_identity(repo / rel)
+                                      for rel in present}) < 2:
+            findings.append(Finding(
+                1, "inconsistent-artifact",
+                f"consistency check `{name}` reads {len(present)} paths that "
+                f"are the same file, so it compares a value with itself",
+            ))
+            continue
         for relative, pattern in sources:
             target = repo / relative
             if not target.is_file():

@@ -243,6 +243,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("consistency reads the INSTALLED config, not the target repo's", collect,
          "        consistency = _consistency_for(repo)",
          "        consistency = CONFIG.consistency"),
+        # Two routes to one file. The string guard at config load cannot see a
+        # symlink or a case variant, so this is the check that asks the
+        # filesystem. Both directions are mutated: blind, a self-comparing
+        # block passes forever; universally on, every honest block is reported.
+        ("consistency stops noticing two routes to one file", collect,
+         "        if len(present) >= 2 and len({_file_identity(repo / rel)\n"
+         "                                      for rel in present}) < 2:",
+         "        if False:"),
+        ("every consistency block is called self-comparing", collect,
+         "        if len(present) >= 2 and len({_file_identity(repo / rel)\n"
+         "                                      for rel in present}) < 2:",
+         "        if len(present) >= 2:"),
 
         # --- search --------------------------------------------------------------
         ("search only looks at the live document", collect,
