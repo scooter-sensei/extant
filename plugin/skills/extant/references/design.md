@@ -463,6 +463,54 @@ one and they mean different things. Jekyll's `_posts` are whole pages,
 Docusaurus's `__tests__` is fixtures. Treating those as ambient would forgive
 real findings in four repositories to fix one.
 
+## What a held-out corpus said about detection
+
+Ten repositories the original narrowing never saw - Rails, Laravel, Ktor, Zig,
+Docsify, Nextra, Slate, dplyr, Terraform, Symfony - produced 951 findings
+across 1,100 files. Two results reordered the work.
+
+**The rules that fire on other people's repositories are the link and anchor
+rules, and nothing else.** Of those 951 findings, 943 were `dead-md-link` or
+`dead-md-anchor`. `unknown-branch`, `false-merge-claim`, `dead-path-pointer`
+and `dead-pinned-ref` fired ZERO times between them. Those rules exist for
+plan, spec and status documents, which no public repository corpus contains,
+so widening them could only add noise here. The eight coverage candidates
+planned for this phase were aimed almost entirely at rules this corpus cannot
+exercise.
+
+**And 526 of the 558 link findings were noise the tool already knew how to
+suppress**, in projects whose generator it did not recognise. Three changes
+followed, each keyed on a measurement.
+
+**A `.html` target is never judged, in any repository.** Measured across 20
+repositories in two corpora: 407 markdown links point at a `.html` target and
+NOT ONE resolves to a checked-in file. A link to `.html` is a link to a
+rendered page. This used to be gated on generator detection, which is why
+rails reported 276 of its own guide links dead - its guides compile
+`guides/source/*.md` to HTML with a bespoke builder shipping none of the
+configs detected here. The gate was protecting nothing, so it is gone.
+
+The other two shapes keep the gate. In a plain repository an extensionless
+target can be a real file - `LICENSE`, `Makefile` - so silencing those
+everywhere would stop the rule working at all.
+
+**Next.js counts as a generator**, because it routes by file path and a
+markdown link inside one is a route. Nextra builds on it and reported 227 of
+its own links dead.
+
+**Docsify declares itself inside `index.html`**, having no config of its own,
+and keeps it under `docs/`. So the marker search walks the same subdirectories
+as the config search rather than looking only at the root - the root-only
+version was the shipped bug for jekyll, whose `_config.yml` sits there too.
+
+Held-out findings fell from 951 to 424, and the original corpus was unchanged
+at 2,154 in every repository - the point of measuring both.
+
+The 424 that remain are mostly real. Rails links to `#helpers` from a document
+with no such heading; dplyr's revdepcheck output links to `failures.md#amt`
+where the heading is `# amt (0.3.0.0)`, whose slug is `amt-0300`. Both were
+checked by hand rather than assumed to be noise because they were numerous.
+
 ## reStructuredText, skipped rather than tuned
 
 `.rst` is read for claims and never for markdown syntax. The Sphinx ecosystem

@@ -1789,9 +1789,20 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             # an absolute path from the site root. None can be settled by the
             # filesystem, so none is judged. See _SITE_CONFIGS for the
             # measurement.
+            # A `.html` target is a rendered page, in every repository and
+            # not only in a detected one. MEASURED across 20 repositories in
+            # two corpora: 407 markdown links point at a `.html` target and
+            # NOT ONE resolves to a checked-in file. Gating this on generator
+            # detection is what made rails report 276 of its own guide links
+            # dead - its guides compile to HTML with a bespoke builder that
+            # ships none of the configs detected below.
+            if target.endswith(".html"):
+                continue
+            # The other two shapes still need the gate. In a plain repository
+            # an extensionless target can be a real file - LICENSE, Makefile -
+            # so silencing those everywhere would stop the rule working.
             if _is_generated_site(repo) and (
-                    target.startswith("/") or target.endswith(".html")
-                    or not Path(target).suffix):
+                    target.startswith("/") or not Path(target).suffix):
                 continue
             # A generator that flattens its guides into one namespace resolves
             # a sibling by bare name from any depth. Phoenix links to
@@ -2081,6 +2092,10 @@ _SITE_CONFIGS = (
     # files. MyST builds a site from `myst.yml` the same way.
     "astro.config.mjs", "astro.config.ts", "astro.config.js",
     "myst.yml", "antora.yml", "conf.py",
+    # Next.js routes by file path, so a markdown link inside one is a route.
+    # Nextra builds on it: shuding/nextra reported 227 of its own links dead,
+    # every one extensionless or root-relative, declaring `docs/next.config.ts`.
+    "next.config.js", "next.config.ts", "next.config.mjs",
 )
 
 
@@ -2091,7 +2106,14 @@ _SITE_CONFIGS = (
 # does exactly that and links to `Mix.Tasks.Phx.Gen.Auth.html` and to sibling
 # guides by bare name, both of which ExDoc resolves and the filesystem cannot:
 # 104 findings, every one a link that works on hexdocs.
-_SITE_MARKERS_IN_FILE = (("mix.exs", "ex_doc"),)
+_SITE_MARKERS_IN_FILE = (
+    ("mix.exs", "ex_doc"),
+    # Docsify ships no config of its own: one `index.html` loads the script and
+    # every page is a route resolved at runtime. docsifyjs/docsify keeps its at
+    # `docs/index.html`, which is why the marker search below walks _SITE_DIRS
+    # rather than looking only at the root.
+    ("index.html", "docsify"),
+)
 
 
 # Where a generator config sits. The site is often a subdirectory of a project
@@ -2203,12 +2225,15 @@ def _is_generated_site(repo: Path) -> bool:
         for name, marker in _SITE_MARKERS_IN_FILE:
             if found:
                 break
-            path = repo / name
-            try:
-                found = path.is_file() and marker in path.read_text(
-                    encoding="utf-8", errors="replace")
-            except OSError:
-                found = False
+            for directory in _SITE_DIRS:
+                path = repo / directory / name
+                try:
+                    if path.is_file() and marker in path.read_text(
+                            encoding="utf-8", errors="replace"):
+                        found = True
+                        break
+                except OSError:
+                    continue
         _SITE[key] = found
     return _SITE[key]
 

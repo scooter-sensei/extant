@@ -601,9 +601,33 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("generator config is looked for at the root only", collect,
          '_SITE_DIRS = ("", "docs", "site", "www", "website")',
          '_SITE_DIRS = ("",)'),
+        # Retargeted when the tuple gained docsify and went multi-line. The old
+        # anchor named a single-line form that no longer exists, and
+        # --check-only caught it at the commit that moved it - which is the
+        # whole reason that mode is in CI rather than only in the campaign.
         ("a generator declared inside another file is missed", collect,
-         '_SITE_MARKERS_IN_FILE = (("mix.exs", "ex_doc"),)',
-         "_SITE_MARKERS_IN_FILE = ()"),
+         '    ("mix.exs", "ex_doc"),',
+         '    ("mix.exs", "never-matches-anything"),'),
+        # The marker search walks _SITE_DIRS now, because docsify keeps its
+        # index.html under docs/. Root-only was the shipped bug for jekyll,
+        # whose _config.yml sits there too.
+        ("markers inside a file are looked for at the root only", collect,
+         "            for directory in _SITE_DIRS:\n"
+         "                path = repo / directory / name",
+         '            for directory in ("",):\n'
+         "                path = repo / directory / name"),
+        # A `.html` target is a rendered page. Measured at 407 links across 20
+        # repositories in two corpora, with ZERO resolving to a checked-in
+        # file. Re-gating it on generator detection is what made rails report
+        # 276 of its own guide links dead.
+        ("a .html target is judged again unless a generator is declared", collect,
+         '            if target.endswith(".html"):\n                continue',
+         "            if False:\n                continue"),
+        # Next.js routes by file path. Without it, nextra reported 227 of its
+        # own links dead.
+        ("next.config stops counting as a generator", collect,
+         '    "next.config.js", "next.config.ts", "next.config.mjs",',
+         '    "next.config.never", "next.config.matches", "next.config.nothing",'),
         # The namespace is a property of the GENERATOR, and the measurement that
         # settled it cuts both ways. Applying a project-wide union everywhere
         # forgave two of encode/httpx's three genuinely dead anchors; applying it
