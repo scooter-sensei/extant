@@ -93,6 +93,14 @@ not, by any amount worth measuring; the existing call was the whole cost.
 `perf.py` could not answer the question either, every document it builds being
 full of links rather than claims, so it has grown a section that can.
 
+**The corpus harness reports which rules a corpus reaches.** `corpus.py` always
+refused a findings count without a denominator, and the denominator was files
+swept - which says the run happened, not which rules it touched. It prints
+found over examined per rule now, and names the rules a corpus cannot speak
+for. That is the column the survey below turned on. Its README carries the
+thirty repositories and the clone flags, recorded as what was measured once
+rather than as a bar to clear again.
+
 ### Eight widenings measured, and none of them shipped
 
 A coverage phase surveyed eight ways to make the rules ask more, gated on a
