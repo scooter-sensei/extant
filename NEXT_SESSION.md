@@ -56,6 +56,16 @@ tagged with no gaps.
 - Eleven unit tests could not catch a regression that `scenarios.py` caught on
   its first run. A fix derived from a corpus inherits that corpus's blind
   spots, and no repository in any of the three configures the rule in question.
+- **A probe verified on one filesystem has been verified on one filesystem.**
+  The `smoke` job went red on Linux and nowhere else, one commit into this
+  phase: a case variant is one file on Windows and two on a case-sensitive
+  filesystem, and the branch for the second outcome existed as a COMMENT
+  describing it rather than as code handling it, so the probe fell through and
+  declared a by-design gap. Reading the code showed the case considered, and
+  considered is not handled - the same absence-is-invisible shape as a check
+  that examines nothing. The run is still in this repository's history as the
+  only red one on `main`; it is `7b50a67`, fixed in `81cc1c4`, and it is
+  recorded here so nobody has to guess later.
 - The tool failed its own build twice on this work. Writing prose to explain a
   false positive reproduced it, and the paragraph recording THAT did it again.
   A rule cannot tell a quotation from a claim - already known for live claims,

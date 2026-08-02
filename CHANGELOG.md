@@ -163,8 +163,18 @@ refuse the flag and the new one must run it.
 by-design. Its probe called `note()` unconditionally in an `else` branch,
 checking only that the tool had not crashed, so it declared the loophole open
 whether or not it was - and reported identically before and after it was
-closed. That is the harness committing the defect it exists to detect. It now
-checks both routes and flags only if neither is caught.
+closed. That is the harness committing the defect it exists to detect.
+
+Rewriting it to actually check the routes then failed CI on Linux, and only on
+Linux. A case variant is one file on Windows and two on a case-sensitive
+filesystem, where the second is genuinely absent and the rule correctly reports
+a missing source. That third outcome was present as a COMMENT describing the
+case and not as a branch handling it, so the probe fell through to `note()` -
+green on the machine it was written on, red on the one it was not.
+
+The comment is what made it invisible: reading the code showed the case
+considered, and considered is not handled. **A probe verified on one filesystem
+has been verified on one filesystem.** It checks all three routes now.
 
 Two of the three by-design entries are gone; one remains.
 
