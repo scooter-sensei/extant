@@ -1043,18 +1043,46 @@ def _integration_refs(repo: Path) -> list[str]:
     at all, because a merge claim names its own ref.
 
     The configured trunk is always included, even if it is unconventional or
-    has a slash, because a project that named its trunk has said so.
+    has a slash, because a project that named its trunk has said so - but only
+    if it EXISTS. A trunk that is not in this repository cannot settle whether
+    anything reached it, and returning it anyway made every caller answer "no"
+    to a question it had never asked. symfony has no `main` and no `master`;
+    its branches are version numbers and its default is `8.2`, so with the
+    default configuration every one of its release tags was reported as
+    shipped on nothing. Measured across 30 repositories, 3 are in that
+    position - laravel/framework on `13.x` and slate on `migration-notice`
+    are the others - so this is roughly a tenth of real projects, not a
+    corner.
+
+    An EMPTY list is therefore meaningful and callers must treat it as "cannot
+    settle" rather than as "integrated nowhere".
     """
+    key = str(repo)
+    if key in _INTEGRATION:
+        return _INTEGRATION[key]
     refs = [TRUNK]
     try:
         out = _git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads")
     except (subprocess.CalledProcessError, OSError):
-        return refs
-    present = set(out.split())
-    for name in _INTEGRATION_NAMES:
-        if name in present and name not in refs:
-            refs.append(name)
-    return refs
+        present: set[str] = set()
+    else:
+        present = set(out.split())
+        for name in _INTEGRATION_NAMES:
+            if name in present and name not in refs:
+                refs.append(name)
+    _INTEGRATION[key] = [ref for ref in refs
+                         if _resolve_ref(repo, ref) is not None]
+    return _INTEGRATION[key]
+
+
+# Memoised for the lifetime of one call, exactly like the ancestry indexes and
+# for the same reason: the same handful of refs is asked for once per claim,
+# and each miss was a `for-each-ref` SUBPROCESS. Measured on a document with
+# 200 release claims and 30 tags: 11.6 seconds before, and this is the whole
+# difference. Two of this project's worst measured costs have been a
+# subprocess per claim - ancestry was 17.7 of 18.0 seconds once - so a git
+# call reached from inside a per-claim loop is the shape to watch.
+_INTEGRATION: dict[str, list[str]] = {}
 
 
 def _integrated_by(repo: Path, rev: str, *, exclude: str = "") -> list[str]:
@@ -1154,6 +1182,8 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
             # there is no false claim left to hide.
             if not quoted:
                 continue        # a bare word, likelier prose than a ref
+            if not _integration_refs(repo):
+                continue        # no integration branch here to have taken it
             if not _integrated_by(repo, sha):
                 findings.append(Finding(
                     number, "false-merge-claim",
@@ -2096,6 +2126,12 @@ _SITE_CONFIGS = (
     # Nextra builds on it: shuding/nextra reported 227 of its own links dead,
     # every one extensionless or root-relative, declaring `docs/next.config.ts`.
     "next.config.js", "next.config.ts", "next.config.mjs",
+    # Mintlify serves `.mdx` by route from a single declaration.
+    # humanlayer/humanlayer keeps `docs/mint.json` and reported 5 of its own
+    # `/core/require-approval` links dead. Only `mint.json` is listed: the
+    # newer `docs.json` spelling is too generic a filename to treat as a
+    # signature, and no repository measured here carries one.
+    "mint.json",
 )
 
 
@@ -2140,8 +2176,15 @@ _GLOBAL_ANCHOR_CONFIGS = ("myst.yml", "conf.py", "antora.yml")
 def _has_global_anchors(repo: Path) -> bool:
     key = str(repo)
     if key not in _GLOBAL_NS:
-        _GLOBAL_NS[key] = any((repo / d / name).is_file()
-                              for d in _SITE_DIRS
+        # The same directory list as `_is_generated_site`, deliberately. Two
+        # searches for "where does this project keep its generator config"
+        # that disagree is a latent bug, and this exact shape has been a
+        # shipped one twice: root-only missed jekyll's `docs/_config.yml`, and
+        # then the marker search missed docsify's `docs/index.html`. Measured
+        # across 30 repositories it changes nothing today; it exists so the
+        # two cannot answer differently about the same repository tomorrow.
+        _GLOBAL_NS[key] = any((d / name).is_file()
+                              for d in _site_dirs(repo)
                               for name in _GLOBAL_ANCHOR_CONFIGS)
     return _GLOBAL_NS[key]
 
@@ -2163,8 +2206,8 @@ _PARTIAL_CONFIGS = ("hugo.toml", "hugo.yaml", "hugo.json")
 def _has_partial_anchors(repo: Path) -> bool:
     key = str(repo)
     if key not in _PARTIAL_NS:
-        _PARTIAL_NS[key] = any((repo / d / name).is_file()
-                               for d in _SITE_DIRS
+        _PARTIAL_NS[key] = any((d / name).is_file()
+                               for d in _site_dirs(repo)
                                for name in _PARTIAL_CONFIGS)
     return _PARTIAL_NS[key]
 
@@ -2216,17 +2259,39 @@ _GLOBAL_NS: dict[str, bool] = {}
 _PROJECT_ANCHORS: dict[str, set[str]] = {}
 
 
+def _site_dirs(repo: Path) -> list[Path]:
+    """Every directory a generator config can sit in, one level of nesting deep.
+
+    A site is often a subdirectory of a subdirectory. aider keeps a Jekyll site
+    at `aider/website/_config.yml` - a package directory, and the site inside
+    it - so a search that only tried `website/` found nothing and the whole
+    repository was judged as plain. It reported 29 of its own asset links dead,
+    every one of them served by Jekyll from `aider/website/assets/`.
+
+    Bounded to ONE extra level on purpose, and to the same directory names. An
+    unbounded walk would scan every directory in the repository to answer a
+    question asked on every run, and a config found ten levels down is likelier
+    to be a fixture or a vendored copy than this project's site.
+    """
+    dirs = [repo / d for d in _SITE_DIRS]
+    for name in _SITE_DIRS:
+        if name:
+            dirs.extend(repo.glob(f"*/{name}"))
+    return dirs
+
+
 def _is_generated_site(repo: Path) -> bool:
     """Does this repository compile its markdown into a website?"""
     key = str(repo)
     if key not in _SITE:
-        found = any((repo / d / name).is_file()
-                    for d in _SITE_DIRS for name in _SITE_CONFIGS)
+        directories = _site_dirs(repo)
+        found = any((d / name).is_file()
+                    for d in directories for name in _SITE_CONFIGS)
         for name, marker in _SITE_MARKERS_IN_FILE:
             if found:
                 break
-            for directory in _SITE_DIRS:
-                path = repo / directory / name
+            for directory in directories:
+                path = directory / name
                 try:
                     if path.is_file() and marker in path.read_text(
                             encoding="utf-8", errors="replace"):
@@ -2301,30 +2366,112 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
     # Claims inside code are examples, not promises. See _prose.
     text = _prose(text)
     findings: list[Finding] = []
+    # A KNOWN false positive lives here, measured and deliberately left in.
+    # rust-lang/rfcs has zero tags and discusses Rust's releases throughout, so
+    # "(released in 1.75)" is reported as a dead tag of its own. Skipping
+    # repositories with no tags would fix it and was tried; it also silences a
+    # never-tagged project making a false claim about itself, which is this
+    # rule's simplest case and one this project has actually lived through.
+    # Nothing in prose marks who a version claim is ABOUT - `dead-pinned-ref`
+    # can only stay honest because `repo:` says so on the line above - so the
+    # cost is recorded rather than traded for a worse one.
     for number, line in enumerate(text.splitlines(), start=1):
         for tag in _RELEASE_TAG.findall(line):
-            try:
-                _git(repo, "rev-parse", "--verify", f"refs/tags/{tag}")
-            except (subprocess.CalledProcessError, OSError):
+            resolved = _released_tag(repo, tag)
+            if resolved is None:
                 findings.append(Finding(
                     number, "dead-release-tag",
                     f"claims release `{tag}`, but no such tag exists",
                     subject=tag,
                 ))
                 continue
-            if not _integrated_by(repo, f"refs/tags/{tag}"):
+            if not _integration_refs(repo):
+                continue        # no integration branch here to have shipped it
+            if not _integrated_by(repo, f"refs/tags/{resolved}"):
                 findings.append(Finding(
                     number, "dead-release-tag",
-                    f"tag `{tag}` exists but is on no integration branch "
+                    f"tag `{resolved}` exists but is on no integration branch "
                     f"({', '.join(_integration_refs(repo))})",
                     subject=tag,
                 ))
     return findings
 
 
+def _tags(repo: Path) -> set[str]:
+    """Every tag in this repository, read once."""
+    key = str(repo)
+    if key not in _TAGS:
+        _TAGS[key] = set(_git_soft(repo, "tag", "-l").split())
+    return _TAGS[key]
+
+
+def _tag_prefixes(repo: Path) -> list[str]:
+    """What this repository puts BEFORE a version number in a tag.
+
+    Read from `git tag -l` rather than configured, because which convention a
+    project uses is a fact git already holds. Measured across 30 repositories:
+    black tags `18.3a0`, poetry `0.1.0`, ruff and uv likewise - all bare -
+    while symfony tags `v8.0.0`. A claim written in the other convention
+    resolves to nothing, so the rule reported a release that had shipped.
+    """
+    key = str(repo)
+    if key not in _TAG_PREFIXES:
+        prefixes = set()
+        for tag in _tags(repo):
+            digit = re.search(r"\d", tag)
+            if digit is not None:
+                prefixes.add(tag[:digit.start()])
+        _TAG_PREFIXES[key] = sorted(prefixes)
+    return _TAG_PREFIXES[key]
+
+
+def _released_tag(repo: Path, version: str) -> str | None:
+    """The real tag a release claim names, or None if there is none.
+
+    Two things stand between a claimed version and a tag, and both are the
+    project's own habits rather than the author's error.
+
+    The PREFIX: see `_tag_prefixes`. A claimed `v8.0` and a claimed `8.0` mean
+    the same release, and which spelling is correct depends on the repository.
+
+    The SERIES: a claim names one far more often than it names a tag. Symfony's
+    own triage guide says work "shipped in 8.0" and no tag is called that - the
+    tags are `v8.0.0`, `v8.0.1` and so on. A claimed version that is the stem
+    of a real tag has therefore shipped, and saying otherwise is pedantry about
+    a number rather than a fact about git.
+    """
+    tags = _tags(repo)
+    # LITERALLY FIRST, and this is not an optimisation. A project can configure
+    # `release_tag` to capture its whole tag name - the installer derives such
+    # a pattern from repositories tagging `release-1.2.3` or `api@2.0.0` - and
+    # for those the captured text IS the tag. Trying prefixes first turns
+    # `release-1.2.3` into `release-release-1.2.3`, resolves nothing, and
+    # reports a shipped release as dead. Caught by the scenario harness rather
+    # than by any unit test here, every one of which used a bare or
+    # `v`-prefixed version.
+    if version in tags:
+        return version
+    bare = version.removeprefix("v")
+    for prefix in _tag_prefixes(repo):
+        exact = prefix + bare
+        if exact in tags:
+            return exact
+        series = sorted(tag for tag in tags if tag.startswith(exact + "."))
+        if series:
+            return series[0]
+    return None
+
+
+_TAGS: dict[str, set[str]] = {}
+_TAG_PREFIXES: dict[str, list[str]] = {}
+
+
 # An install snippet pins a version. `repo:` and `rev:` are pre-commit's fixed
 # syntax rather than any project's habit, so like markdown link syntax there is
 # nothing here to measure and nothing to configure.
+# YAML quoting around a rev. Named rather than inlined so the mutation that
+# removes it has a legible anchor.
+_PIN_QUOTES = "'\""
 _PIN_REPO = re.compile(r"^\s*(?:-\s*)?repo:\s*(\S+)")
 _PIN_REV = re.compile(r"^\s*rev:\s*([^\s#]+)")
 
@@ -2387,7 +2534,21 @@ def _pinned_refs(repo: Path, text: str) -> list[tuple[int, str]]:
             continue
         match = _PIN_REV.match(line)
         if match and governing == own:
-            found.append((number, match.group(1)))
+            # `rev: ''` is pre-commit's OWN documented placeholder - the state
+            # a snippet ships in for `pre-commit autoupdate` to fill. It is not
+            # a pin that broke; it is the absence of one, and reporting it
+            # accuses a project of the idiom its own tool prescribes.
+            # python-poetry/poetry ships two, and both were reported.
+            #
+            # Quotes come off for the same reason a bare rev is accepted:
+            # `rev: 'v1.2.3'` is the same pin, and looking it up with the
+            # quotes attached finds nothing. Measured across 30 repositories -
+            # 69 bare, 4 quoted, 2 empty - so the quoted spelling is a latent
+            # false positive waiting on the first project to pin itself
+            # that way.
+            ref = match.group(1).strip(_PIN_QUOTES)
+            if ref:
+                found.append((number, ref))
     return found
 
 
@@ -3202,11 +3363,13 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     for callers that have no particular file in mind.
     """
     global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
-    global _OWN_REMOTE
+    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION
     previous, previous_cache = _LINK_BASE, _DIRCACHE
     previous_ancestors, previous_refs, previous_lfs = _ANCESTORS, _REFS, _LFS
     previous_target_anchors = _TARGET_ANCHORS
     previous_own_remote = _OWN_REMOTE
+    previous_tags, previous_prefixes = _TAGS, _TAG_PREFIXES
+    previous_integration = _INTEGRATION
     if base is not None:
         _LINK_BASE = base
     if _STABLE_SCOPE:
@@ -3239,6 +3402,12 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         # examined nothing and reported clean. Held for one call, exactly like
         # every other answer git gives.
         _OWN_REMOTE = {}
+        # Tags, and the prefix convention derived from them, for the same
+        # reason and with the same lifetime. A tag created between two
+        # validate() calls would otherwise keep resolving to nothing.
+        _TAGS = {}
+        _TAG_PREFIXES = {}
+        _INTEGRATION = {}
     try:
         findings: list[Finding] = []
         primary = not in_archive and has_entries
@@ -3264,6 +3433,8 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         _LFS = previous_lfs
         _TARGET_ANCHORS = previous_target_anchors
         _OWN_REMOTE = previous_own_remote
+        _TAGS, _TAG_PREFIXES = previous_tags, previous_prefixes
+        _INTEGRATION = previous_integration
 
 
 FORMATS = ("text", "github", "sarif")
@@ -3501,9 +3672,10 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # time. Restored in `finally` so a library caller that sweeps and then
     # validates something else gets the per-call behaviour back.
     global _STABLE_SCOPE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
-    global _OWN_REMOTE
+    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION
     _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}, {}
     _OWN_REMOTE = {}
+    _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
     _STABLE_SCOPE = True
     # `_LINK_BASE` and `_DOC_FORMAT` are per-DOCUMENT rather than per-scope, and
     # they are saved here because the loop below reassigns them. Restoring them
@@ -3538,6 +3710,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
         _DIRCACHE = None
         _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}
         _OWN_REMOTE = {}
+        _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
         _LINK_BASE = previous_link_base
         _DOC_FORMAT = previous_format
 

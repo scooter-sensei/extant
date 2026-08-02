@@ -13,6 +13,7 @@ Nine questions, in descending order of how much they matter:
 7. What does `--sweep` cost, whose unit of work is the repository?
 8. What does one generator config file cost a single `--validate`?
 9. What does `--deleted-since` add, against a plain `--verify`?
+10. What does a document full of CLAIMS cost, as opposed to one full of links?
 
 Reports absolute numbers and the scaling ratio, because "1.2 seconds" means
 nothing without knowing whether it becomes 12 or 120 at ten times the size.
@@ -393,6 +394,53 @@ def generator_cliff() -> None:
     print("  (only the ambient column can force the union to be built)")
 
 
+# ------------------------------------------------ 10. a document full of CLAIMS
+def claim_scaling() -> None:
+    """The section that would have caught an 11.6-second rule.
+
+    Every other document this harness builds carries almost no release claim,
+    so section 4 reported `dead-release-tag` at 8 ms and 2.6% of a run that
+    never exercised it. A purpose-built document with 200 of them took 11.6
+    seconds, because `_integration_refs` spawned a `for-each-ref` per claim -
+    in the SHIPPED tool, measured at the same 11.6 seconds against the previous
+    release, rather than in the change that found it.
+
+    ms/claim is the column that matters and the reason this is not just
+    another total. A git call reached from inside a per-claim loop holds it
+    FLAT while the count grows; hoisting the call out makes it fall. A total
+    alone shows a big number and cannot say which.
+
+    This is the third time a cost was invisible here for want of the right
+    fixture - the anchor union was the first, `--deleted-since` the second -
+    and each time the harness measured the inputs it knew how to build.
+    """
+    print("\n=== 10. Scaling with the number of CLAIMS in a document ===")
+    repo = new_repo("perf-claims")
+    write(repo, "NEXT_SESSION.md", "# S\n")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "init")
+    for n in range(30):
+        sh(repo, "git", "tag", f"v1.{n}.0")
+
+    print(f"   {'claims':>8} {'time':>9} {'ms/claim':>10}  ratio")
+    previous = None
+    for claims in (25, 100, 400):
+        body = ["# Status\n", "\n## Phase 1 - x (complete, 2026-01-01)\n\n"]
+        body += [f"- The fix was released in v1.{n % 30}.0 that week.\n"
+                 for n in range(claims)]
+        write(repo, "NEXT_SESSION.md", "".join(body))
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", f"docs: {claims} claims")
+        seconds = timed(lambda: sh(repo, PY,
+                                   str(repo / "tools" / "extant_collect.py"),
+                                   "--verify", "--repo", str(repo)))
+        ratio = f"x{seconds / previous:.2f} for x4 claims" if previous else ""
+        print(f"   {claims:>8} {seconds:8.2f}s {seconds / claims * 1000:9.1f}"
+              f"   {ratio}")
+        previous = seconds
+    print("   (a flat ms/claim means a git call per claim; it should FALL)")
+
+
 # -------------------------------------------------- 9. what a deletion scan costs
 def deleted_since_cost() -> None:
     """`--deleted-since` re-validates the PREVIOUS version of each document.
@@ -446,6 +494,7 @@ def main() -> int:
     sweep_scaling()
     generator_cliff()
     deleted_since_cost()
+    claim_scaling()
     return 0
 
 

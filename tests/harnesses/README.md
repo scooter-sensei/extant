@@ -503,6 +503,42 @@ That case also barely moved while the rest of the sweep got four times faster,
 which is the expected shape: the union reads every tracked file, so it is bound
 by cold I/O rather than by the per-document work that was hoisted out.
 
+### What this harness could not see, and how that surfaced
+
+Section 4 reported `dead-release-tag` at 8 ms, 2.6% of a run. That is true of
+the document this harness builds and says nothing about the rule, because every
+document it builds carries almost no release claim. A document with 200 of them
+took **11.6 seconds**, and the cause was `_integration_refs` spawning a
+`for-each-ref` per claim - memoised for the call, the same document takes
+**1.2 seconds**.
+
+Section 10 exists so that is visible without anyone going looking, and its
+`ms/claim` column is the whole point. A git call inside a per-claim loop holds
+it flat while the count grows; hoisting the call out makes it fall:
+
+| claims | shipped in 0.15.0 | with the call hoisted |
+|---|---|---|
+| 25 | 2.3s, 94 ms/claim | 1.1s, 44 ms/claim |
+| 100 | 6.4s, 64 ms/claim | 1.2s, 12 ms/claim |
+| 400 | 22.0s, 55 ms/claim | 1.25s, 3 ms/claim |
+
+The right-hand column flattens in TOTAL and falls per claim; the left grows
+x3.45 for x4 claims, which is a per-claim cost stated in the only column that
+can show one. A total alone reads as a big number and cannot say which.
+
+Two things are worth carrying away. The first is that the 11.6 seconds was in
+the SHIPPED tool, measured against `origin/main` on the same fixture at 11.6
+seconds: it was found while checking whether a new call site had made things
+worse, and the honest answer was that the new call cost nothing measurable
+while the existing one cost 9x. Asking the question is what found it.
+
+The second is the harness's own limit, which its opening docstring already
+names: a harness measures the inputs it knows how to build. Section 8 exists
+because the anchor union was invisible for a week for exactly this reason, and
+this is the same hole in a different rule. A per-rule percentage is a statement
+about the fixture, not about the rule, and the fixtures here are documents with
+links rather than documents with claims.
+
 ## `stress.py` - where does it fall over?
 
 ```sh

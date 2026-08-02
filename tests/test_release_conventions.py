@@ -1,0 +1,240 @@
+"""Release claims read against the conventions a repository actually uses.
+
+Measured on a 30-repository corpus, `dead-release-tag` and `dead-pinned-ref`
+fired four times between them and every one was wrong. Each cause here is a
+project habit rather than an author's error, so the tests name the repository
+the habit was measured on.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
+           / "extant" / "payload")
+sys.path.insert(0, str(PAYLOAD))
+
+
+def git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True,
+                   capture_output=True)
+
+
+def _reset():
+    import extant_collect as hc
+    hc._TAGS, hc._TAG_PREFIXES = {}, {}
+    hc._REFS = {}
+
+
+def _tags(repo, text):
+    from extant_collect import validate_release_tags
+    _reset()
+    return [f.kind for f in validate_release_tags(repo, text)]
+
+
+# --- the prefix a project puts before its version ----------------------------
+
+def test_a_claim_resolves_under_the_prefix_this_repository_uses(git_repo) -> None:
+    """Half the ecosystem tags `v1.2.3` and half tags `1.2.3`.
+
+    Measured: black tags `18.3a0`, poetry `0.1.0`, ruff and uv likewise, all
+    bare; symfony tags `v8.0.0`. A claim written in the other convention
+    resolved to nothing, so the rule reported a release that had shipped.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "2.1.0")            # tagged BARE, claimed with a `v`
+
+    assert "dead-release-tag" not in _tags(repo, "Released in v2.1.0.\n")
+
+
+def test_the_other_direction_too(git_repo) -> None:
+    """Tagged with a `v`, claimed bare. symfony's shape."""
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v2.1.0")
+
+    assert "dead-release-tag" not in _tags(repo, "Released in 2.1.0.\n")
+
+
+def test_a_version_that_was_never_tagged_is_still_reported(git_repo) -> None:
+    """The control. Prefix trying must not forgive a release that never
+    happened, or the rule stops doing anything at all."""
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v2.1.0")
+
+    assert "dead-release-tag" in _tags(repo, "Released in 9.9.9.\n")
+
+
+def test_a_claim_naming_a_series_rather_than_a_tag(git_repo) -> None:
+    """A claim names a series far more often than it names a tag.
+
+    Symfony's own bug-triage guide says work "shipped in 8.0" and no tag is
+    called that - the tags are `v8.0.0`, `v8.0.1` and so on. Reporting that as
+    a dead release is pedantry about a number, not a fact about git.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v8.0.0")
+
+    assert "dead-release-tag" not in _tags(repo, "Shipped in 8.0 last year.\n")
+
+
+def test_a_series_that_matches_no_tag_is_still_reported(git_repo) -> None:
+    """The control for the series case. `8.5` must not be forgiven by `v8.0.0`
+    merely because both begin with an 8."""
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v8.0.0")
+
+    assert "dead-release-tag" in _tags(repo, "Shipped in 8.5 last year.\n")
+
+
+def test_a_pattern_capturing_the_whole_tag_name_still_resolves(git_repo) -> None:
+    """A project can configure `release_tag` to capture its entire tag name.
+
+    The installer derives exactly such a pattern from repositories tagging
+    `release-1.2.3` or `api@2.0.0`, and for those the captured text IS the tag.
+    Trying this repository's prefixes FIRST turns `release-1.2.3` into
+    `release-release-1.2.3`, resolves nothing, and reports a shipped release as
+    dead - verified by reconstructing the pre-fix order, which returns None
+    here.
+
+    Every other test in this file uses a bare or `v`-prefixed version, so none
+    of them could have caught it. The scenario harness did.
+    """
+    import re
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "-a", "release-1.2.3", "-m", "release")
+    git(repo, "tag", "-a", "api@2.0.0", "-m", "package")
+
+    previous = hc._RELEASE_TAG
+    hc._RELEASE_TAG = re.compile(r"[Ss]hipped in `([\w.@-]+)`")
+    try:
+        assert "dead-release-tag" not in _tags(repo, "Shipped in `release-1.2.3`.\n")
+        # The control, under the same pattern: a tag that was never cut.
+        assert "dead-release-tag" in _tags(repo, "Shipped in `release-9.9.9`.\n")
+    finally:
+        hc._RELEASE_TAG = previous
+
+
+def test_a_literal_tag_name_beginning_with_v_is_not_mangled(git_repo) -> None:
+    """The case that makes trying the literal spelling FIRST load-bearing.
+
+    A mutation campaign found the first version of this file could not tell
+    the two mechanisms apart: both a literal-first lookup and an empty entry in
+    the prefix list satisfied `release-1.2.3`, so removing either left the
+    suite green and both mutations SURVIVED.
+
+    Resolving that is what produced this test and deleted the empty prefix. A
+    tag whose name merely BEGINS with `v` is the case only literal-first
+    handles: `removeprefix("v")` turns `vendor-1.0` into `endor-1.0`, and no
+    prefix this repository uses reconstructs it. The empty entry was dead code
+    - a tag starting with a digit already derives `""` as its prefix.
+    """
+    import re
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "-a", "vendor-1.0", "-m", "vendored")
+
+    previous = hc._RELEASE_TAG
+    hc._RELEASE_TAG = re.compile(r"[Ss]hipped in `([\w.@-]+)`")
+    try:
+        assert "dead-release-tag" not in _tags(repo, "Shipped in `vendor-1.0`.\n")
+        assert "dead-release-tag" in _tags(repo, "Shipped in `vendor-9.9`.\n")
+    finally:
+        hc._RELEASE_TAG = previous
+
+
+# --- an integration branch that is not there ---------------------------------
+
+def test_a_tag_is_not_judged_when_no_integration_branch_exists(git_repo) -> None:
+    """symfony has no `main` and no `master`; its branches are version numbers
+    and its default is `8.2`. With the default configuration the rule asked
+    whether each tag was an ancestor of a branch that does not exist, got
+    "no", and reported every release as shipped on nothing.
+
+    Measured across 30 repositories: 3 are in this position - laravel/framework
+    on `13.x` and slate on `migration-notice` are the others - so it is about a
+    tenth of real projects.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v2.1.0")
+    git(repo, "branch", "-m", "8.2")     # no main, no master, as symfony has
+
+    assert "dead-release-tag" not in _tags(repo, "Released in v2.1.0.\n")
+
+
+def test_a_tag_on_no_branch_is_still_reported_when_a_trunk_exists(git_repo) -> None:
+    """The control. Where an integration branch DOES exist, a tag that never
+    reached it is still the finding this rule is for - a release abandoned or
+    rewritten away."""
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "checkout", "-q", "-b", "abandoned")
+    commit("b.py", "b = 1\n", "feat: b")
+    git(repo, "tag", "v2.1.0")
+    git(repo, "checkout", "-q", "main")
+
+    assert "dead-release-tag" in _tags(repo, "Released in v2.1.0.\n")
+
+
+# --- how a pin is written ----------------------------------------------------
+
+def _pins(repo, text):
+    from extant_collect import validate_pinned_refs
+    import extant_collect as hc
+    hc._OWN_REMOTE = {}
+    return [f.kind for f in validate_pinned_refs(repo, text)]
+
+
+def test_an_empty_rev_is_a_placeholder_not_a_broken_pin(git_repo) -> None:
+    """`rev: ''` is pre-commit's OWN documented placeholder - the state a
+    snippet ships in for `pre-commit autoupdate` to fill.
+
+    python-poetry/poetry ships two of them in `docs/pre-commit-hooks.md`, and
+    both were reported as pins that do not exist. Reporting it accuses a
+    project of following the idiom its own tool prescribes.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "remote", "add", "origin", "https://github.com/o/r")
+
+    text = ("```yaml\n-   repo: https://github.com/o/r\n"
+            "    rev: ''  # add version here\n    hooks: []\n```\n")
+    assert _pins(repo, text) == []
+
+
+def test_a_quoted_rev_is_the_same_pin_as_a_bare_one(git_repo) -> None:
+    """`rev: 'v1.2.3'` names the same tag as `rev: v1.2.3`, and looking it up
+    with the quotes attached finds nothing.
+
+    Measured across 30 repositories: 69 bare, 4 quoted, 2 empty. No quoted one
+    happened to govern its own repository, so this was a false positive waiting
+    on the first project to pin itself that way.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v1.2.3")
+    git(repo, "remote", "add", "origin", "https://github.com/o/r")
+
+    text = ("```yaml\n-   repo: https://github.com/o/r\n"
+            "    rev: 'v1.2.3'\n    hooks: []\n```\n")
+    assert _pins(repo, text) == []
+
+
+def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo) -> None:
+    """The control. Stripping quotes must not stop the rule reading the pin."""
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "remote", "add", "origin", "https://github.com/o/r")
+
+    text = ("```yaml\n-   repo: https://github.com/o/r\n"
+            "    rev: 'v9.9.9'\n    hooks: []\n```\n")
+    assert _pins(repo, text) == ["dead-pinned-ref"]

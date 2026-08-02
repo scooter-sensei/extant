@@ -47,16 +47,21 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # measured integration set, so its two failure directions each get a
         # mutation: naming nothing makes them blind, naming everything makes
         # them permissive.
+        # Both retargeted when the ref list learned to drop names that do not
+        # resolve: the scan moved into an `else` branch and the indentation
+        # changed with it. The first anchor still matched by accident, being a
+        # substring of the newly indented line, which is exactly the kind of
+        # near-miss --check-only exists to stop being lucky about.
         ("integration refs collapse to the configured trunk alone", collect,
-         "    present = set(out.split())",
-         "    present = set()"),
+         "        present = set(out.split())",
+         "        present = set()"),
         ("any branch counts as an integration branch", collect,
-         "    for name in _INTEGRATION_NAMES:\n"
-         "        if name in present and name not in refs:\n"
-         "            refs.append(name)",
-         "    for name in sorted(present):\n"
-         "        if name not in refs:\n"
-         "            refs.append(name)"),
+         "        for name in _INTEGRATION_NAMES:\n"
+         "            if name in present and name not in refs:\n"
+         "                refs.append(name)",
+         "        for name in sorted(present):\n"
+         "            if name not in refs:\n"
+         "                refs.append(name)"),
         ("merge claims stop checking the ref the claim names", collect,
          "            merged[key] = _reachable_from(repo, sha, ref)",
          "            merged[key] = _reachable_from(repo, sha, TRUNK)"),
@@ -88,10 +93,62 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("branch rule loses the merge-history rescue", collect,
          "            if _branch_exists(repo, branch) or _named_in_merge_history(repo, branch):",
          "            if _branch_exists(repo, branch):"),
+        # Half the ecosystem tags `v1.2.3` and half tags `1.2.3`. Reading the
+        # prefix from the repository is what stops a claim written in the other
+        # convention reporting a release that shipped.
+        ("release claims stop using this repository's tag prefix", collect,
+         "        _TAG_PREFIXES[key] = sorted(prefixes)",
+         '        _TAG_PREFIXES[key] = [""]'),
+        # A configured pattern can capture the WHOLE tag name - the installer
+        # derives one for repositories tagging `release-1.2.3`. Trying this
+        # repository's prefixes first makes that `release-release-1.2.3`.
+        ("a captured tag name is not tried literally first", collect,
+         "    if version in tags:\n        return version",
+         "    if False:\n        return version"),
+        # A claim names a SERIES more often than a tag: symfony names the 8.0
+        # series and the tags are `v8.0.0`, `v8.0.1`.
+        ("a claimed version stops matching a tag series", collect,
+         '        series = sorted(tag for tag in tags if tag.startswith(exact + "."))',
+         "        series = []"),
+        # The tag list is per-CALL. A plain dict that is never reset becomes
+        # permanent rather than merely slow, which is the failure `_OWN_REMOTE`
+        # already had once: the answer stays whatever the first call saw.
+        ("the tag list outlives the call that built it", collect,
+         "        _TAGS = {}\n"
+         "        _TAG_PREFIXES = {}\n"
+         "        _INTEGRATION = {}",
+         "        _TAGS = _TAGS\n"
+         "        _TAG_PREFIXES = {}\n"
+         "        _INTEGRATION = {}"),
+        # A cost contract: reverting it gives identical findings and a tool
+        # that got slower between releases. 200 release claims took 11.6
+        # seconds without it and 1.2 with it.
+        ("integration refs are rescanned once per claim", collect,
+         "    if key in _INTEGRATION:\n        return _INTEGRATION[key]",
+         "    if False:\n        return _INTEGRATION[key]"),
+        # An integration ref that does not resolve cannot settle anything, and
+        # returning it anyway made every caller answer "no" to a question it
+        # never asked. symfony has no main and no master.
+        # Retargeted when the list learned to memoise itself and the filter
+        # moved into the assignment.
+        ("integration refs include ones that do not exist", collect,
+         "    _INTEGRATION[key] = [ref for ref in refs\n"
+         "                         if _resolve_ref(repo, ref) is not None]",
+         "    _INTEGRATION[key] = refs"),
+        # `rev: ''` is pre-commit's own placeholder and `rev: 'v1.2.3'` is the
+        # same pin as the bare spelling. 69 bare, 4 quoted, 2 empty across 30
+        # repositories.
+        ("a pin is read with its yaml quotes attached", collect,
+         "            ref = match.group(1).strip(_PIN_QUOTES)\n"
+         "            if ref:",
+         "            ref = match.group(1)\n"
+         "            if True:"),
         # Retargeted when the tag rule stopped asking about trunk and started
         # asking whether the tag is on ANY integration branch.
+        # Retargeted a second time when the rule started asking about the tag
+        # it RESOLVED the claim to rather than the string the author wrote.
         ("release-tag ancestry check dropped", collect,
-         '            if not _integrated_by(repo, f"refs/tags/{tag}"):',
+         '            if not _integrated_by(repo, f"refs/tags/{resolved}"):',
          "            if False:"),
         ("path/branch guard removed (a file becomes a phantom branch)", collect,
          "            if _looks_like_a_path(repo, branch):\n"
@@ -588,12 +645,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # links as dead. Universally on, every genuinely dead link in a plain
         # repository stops being reported.
         ("site detection goes blind, so routes are dead files again", collect,
-         "        found = any((repo / d / name).is_file()\n"
-         "                    for d in _SITE_DIRS for name in _SITE_CONFIGS)",
+         "        found = any((d / name).is_file()\n"
+         "                    for d in directories for name in _SITE_CONFIGS)",
          "        found = False"),
         ("every repository is treated as a generated site", collect,
-         "        found = any((repo / d / name).is_file()\n"
-         "                    for d in _SITE_DIRS for name in _SITE_CONFIGS)",
+         "        found = any((d / name).is_file()\n"
+         "                    for d in directories for name in _SITE_CONFIGS)",
          "        found = True"),
         # The root-only search is a shipped bug, not a hypothetical. jekyll/jekyll
         # keeps its own site under `docs/` with `docs/_config.yml`, and a search
@@ -612,10 +669,32 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # index.html under docs/. Root-only was the shipped bug for jekyll,
         # whose _config.yml sits there too.
         ("markers inside a file are looked for at the root only", collect,
-         "            for directory in _SITE_DIRS:\n"
-         "                path = repo / directory / name",
-         '            for directory in ("",):\n'
-         "                path = repo / directory / name"),
+         "            for directory in directories:\n"
+         "                path = directory / name",
+         "            for directory in (repo,):\n"
+         "                path = directory / name"),
+        # aider keeps a Jekyll site at `aider/website/_config.yml`: a package
+        # directory, and the site inside it. Searching only `website/` found
+        # nothing, so the repository was judged plain and 29 of its own asset
+        # links were reported dead.
+        ("a site one directory deeper is never found", collect,
+         '    for name in _SITE_DIRS:\n'
+         '        if name:\n'
+         '            dirs.extend(repo.glob(f"*/{name}"))',
+         "    for name in ():\n"
+         "        if name:\n"
+         '            dirs.extend(repo.glob(f"*/{name}"))'),
+        # The other half: the search is bounded to one extra level. Unbounded,
+        # it scans every directory in the repository to answer a question asked
+        # on every run, and a vendored copy four levels down silences the lot.
+        ("the deeper search stops being bounded to one level", collect,
+         '            dirs.extend(repo.glob(f"*/{name}"))',
+         '            dirs.extend(repo.glob(f"**/{name}"))'),
+        # Mintlify serves .mdx by route from one declaration. humanlayer
+        # reported 5 of its own `/core/require-approval` links dead without it.
+        ("mint.json stops counting as a generator", collect,
+         '    "mint.json",\n)',
+         '    "mint.never-matches.json",\n)'),
         # A `.html` target is a rendered page. Measured at 407 links across 20
         # repositories in two corpora, with ZERO resolving to a checked-in
         # file. Re-gating it on generator detection is what made rails report
@@ -632,14 +711,24 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # settled it cuts both ways. Applying a project-wide union everywhere
         # forgave two of encode/httpx's three genuinely dead anchors; applying it
         # nowhere left 168 of mystmd's findings naming labels that exist.
-        ("cross-reference namespace is the page everywhere", collect,
+        # The third spelling of "where does this project keep its
+        # generator config". Left one level shallower than the other two,
+        # detection and the namespace disagree about the same repository.
+        ("the namespace search looks less deep than detection does", collect,
+         "        _GLOBAL_NS[key] = any((d / name).is_file()\n"
+         "                              for d in _site_dirs(repo)\n"
+         "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
          "        _GLOBAL_NS[key] = any((repo / d / name).is_file()\n"
          "                              for d in _SITE_DIRS\n"
+         "                              for name in _GLOBAL_ANCHOR_CONFIGS)"),
+        ("cross-reference namespace is the page everywhere", collect,
+         "        _GLOBAL_NS[key] = any((d / name).is_file()\n"
+         "                              for d in _site_dirs(repo)\n"
          "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
          "        _GLOBAL_NS[key] = False"),
         ("cross-reference namespace is the project everywhere", collect,
-         "        _GLOBAL_NS[key] = any((repo / d / name).is_file()\n"
-         "                              for d in _SITE_DIRS\n"
+         "        _GLOBAL_NS[key] = any((d / name).is_file()\n"
+         "                              for d in _site_dirs(repo)\n"
          "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
          "        _GLOBAL_NS[key] = True"),
         # The project union is built ON DEMAND, and this reverts it to eager.

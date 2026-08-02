@@ -265,10 +265,16 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     whatever the first one happened to see.
 
     This has to go through a MERGE claim. The obvious version used a release
-    tag, and it pinned nothing at all: `validate_release_tags` shells out to
-    git directly and never touches these indexes, so the test passed with the
-    reset deleted. Picking the rule that actually reads the cache is the whole
-    content of this test.
+    tag, and it pinned nothing at all: at the time `validate_release_tags`
+    shelled out to git directly and never touched these indexes, so the test
+    passed with the reset deleted. Picking the rule that actually reads the
+    cache is the whole content of this test.
+
+    The release-tag rule has since grown caches of its own - `_TAGS`,
+    `_TAG_PREFIXES` and `_INTEGRATION` - so the version that would once have
+    proved nothing would now prove something. It is still the wrong test for
+    THIS cache, which is why the two below exist separately rather than this
+    one being loosened to cover them.
     """
     import subprocess
     import extant_collect as hc
@@ -296,4 +302,75 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     assert "false-merge-claim" not in after, (
         "a merge performed between two validate() calls was not seen, so the "
         "ancestry index is outliving the call that built it: " + str(after)
+    )
+
+
+def test_tags_are_re_read_between_validate_calls(git_repo) -> None:
+    """The tag list and the prefix convention read from it are per-call too.
+
+    Both are plain dicts that default to empty, so a missing reset makes them
+    permanent rather than merely slow - the failure mode `_OWN_REMOTE` already
+    had once, where the answer stays whatever the first call happened to see.
+    A release cut between two validations is the ordinary way that happens.
+    """
+    import subprocess
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("README.md", "# R\n", "chore: init")
+    subprocess.run(["git", "tag", "v1.0.0"], cwd=repo, check=True,
+                   capture_output=True)
+
+    text = "# R\n\nReleased in v2.0.0 last week.\n"
+    before = [f.kind for f in hc.validate(repo, text, has_entries=False)]
+    assert "dead-release-tag" in before, (
+        "v2.0.0 does not exist yet, so the claim is false: " + str(before)
+    )
+
+    subprocess.run(["git", "tag", "v2.0.0"], cwd=repo, check=True,
+                   capture_output=True)
+
+    after = [f.kind for f in hc.validate(repo, text, has_entries=False)]
+    assert "dead-release-tag" not in after, (
+        "a tag cut between two validate() calls was not seen, so the tag list "
+        "is outliving the call that built it: " + str(after)
+    )
+
+
+def test_integration_refs_are_asked_for_once_not_once_per_claim(
+        git_repo, monkeypatch) -> None:
+    """`_integration_refs` answers a question about the REPOSITORY.
+
+    It was consulted once per claim and each miss spawned a `for-each-ref`.
+    Measured on a document with 200 release claims and 30 tags: 11.6 seconds
+    before, 1.2 after - and the 11.6 was in the shipped tool, not introduced
+    by the change that found it.
+
+    A cost contract, so no ordinary test can see it: reverting the cache gives
+    identical findings and only a tool that got slower between releases.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("README.md", "# R\n", "chore: init")
+    import subprocess
+    for n in range(3):
+        subprocess.run(["git", "tag", f"v1.{n}.0"], cwd=repo, check=True,
+                       capture_output=True)
+
+    calls: list[tuple[str, ...]] = []
+    real = hc._git
+
+    def counted(target, *args):
+        calls.append(args)
+        return real(target, *args)
+
+    monkeypatch.setattr(hc, "_git", counted)
+    text = ("# R\n\n"
+            + "".join(f"- shipped in v1.{n % 3}.0 that week.\n"
+                      for n in range(40)))
+    hc.validate(repo, text, has_entries=False)
+
+    scans = [c for c in calls if c[:1] == ("for-each-ref",)]
+    assert len(scans) <= 1, (
+        f"40 release claims spawned {len(scans)} `for-each-ref` processes; the "
+        "branch list cannot change while one validation runs"
     )

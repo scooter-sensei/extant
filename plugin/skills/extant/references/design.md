@@ -504,7 +504,106 @@ as the config search rather than looking only at the root - the root-only
 version was the shipped bug for jekyll, whose `_config.yml` sits there too.
 
 Held-out findings fell from 951 to 424, and the original corpus was unchanged
-at 2,154 in every repository - the point of measuring both.
+in every repository - the point of measuring both.
+
+Its total was recorded at the time as 2,154, and that figure was an artifact.
+Those clones were made with `--depth 1`, which leaves every historical SHA
+unresolvable, so the SHA rules fired on nearly everything: vite alone supplied
+2,094 of them and reports 3 when cloned with its history. The "unchanged"
+conclusion holds, because both sides read the same clones. The number did not.
+
+## The coverage phase: eight widenings, none shipped
+
+The eight candidates above were then measured properly, one at a time, against
+three corpora - the original ten re-cloned with history, ten more held out for
+toolchain novelty, and ten chosen for density of git-checkable claims. Thirty
+repositories, 3,821 markdown files, 960 baseline findings.
+
+All eight were rejected. The reason generalises past this tool.
+
+**A rule keyed on a PHRASE has a denominator of zero outside the project whose
+phrasing it came from. A rule keyed on a TOKEN SHAPE does not.** `dead-sha`
+looks for hex, `dead-md-link` for link syntax, `dead-path-pointer` for a path;
+all three fire everywhere. `false-merge-claim` looks for "merged to X at
+`sha`", and across 3,821 files it matches nothing at all. Neither does "merged
+in `<sha>`", "landed in `<sha>`" or "fixed in `<sha>`". What projects actually
+write is "commit `<sha>`" - 890 times - which the shape-keyed rule already
+catches without needing the verb.
+
+So the claim rules cannot be gated by any public corpus. That does not make
+them wrong; they exist for agent-written handoff documents, and this project's
+own status file exercises them. It does mean a future widening there has to be
+justified by something other than measurement against other people's
+repositories, and saying so is cheaper than discovering it twice.
+
+Where a measurement was possible it was decisive, not marginal. Judging a path
+mentioned without an operative marker takes the tool from 960 findings to
+3,964. Dropping the letter requirement from the SHA shape admits 7 findings of
+which 7 are numbers: a date, two durations in seconds, a timestamp version.
+Resolving anchors through site routes changed nothing across 3,821 files - and
+a fixture proves that is a real zero rather than a patch that failed to apply,
+which is the only way a zero is worth reporting.
+
+**Two rules were wrong on every firing they had.** `dead-release-tag` and
+`dead-pinned-ref` produced four findings across the whole 30-repository corpus
+and all four were false positives - which is what justifies acting on a sample
+that small, because a 100% error rate is not the same situation as a few
+mistakes among hundreds of correct results.
+
+That prefix fix also nearly shipped the failure it was written to remove. A
+project can configure `release_tag` to capture its whole tag name, and the
+installer derives such a pattern for repositories tagging `release-1.2.3`;
+trying this repository's prefixes first makes that `release-release-1.2.3` and
+reports a shipped release as dead. Eleven unit tests covered the change and
+none could see it, every one having used a bare or `v`-prefixed version -
+which is the shape the corpus was about. `scenarios.py` caught it. A fix
+derived from a corpus inherits that corpus's blind spots, and no repository in
+any of the three configures this rule at all.
+
+Every cause was a project habit rather than an author's error. Half the
+ecosystem tags `v1.2.3` and half tags `1.2.3`, so the prefix is read from
+`git tag -l` now instead of assumed. A claim names a SERIES more often than a
+tag - symfony's own triage guide names the 8.0 series while the tags are
+`v8.0.0`, `v8.0.1` - so a version that is the stem of a real tag has shipped.
+symfony also has no `main` and no `master`, its branches being version numbers,
+and the integration-ref list returned the configured trunk whether or not it
+resolved: every rule asking "did this reach an integration branch" compared
+against a ref that is not there, got "no", and reported every release as
+shipped on nothing. 3 of 30 repositories have no conventionally named trunk.
+And `rev: ''` is pre-commit's own placeholder rather than a broken pin.
+
+**Two detection fixes came out of it**, both from reading the 38 findings that
+blanket route-suppression would have silenced. All 38 were false positives.
+A site can be a subdirectory of a subdirectory - aider's Jekyll lives at
+`aider/website/_config.yml` - so the config search goes one level deeper,
+bounded there. And Mintlify's `mint.json` is a signature; its newer `docs.json`
+spelling is not, being too generic a filename to trust.
+
+All of it together: **960 findings to 920, 40 removed, 0 added**, every removal
+individually confirmed as a false positive.
+
+Three are left in deliberately, because a known false positive is cheaper than
+a guessed rule. A bare-domain link (`[x](kubernetes.io/docs/...)`) is 1
+finding, and every rule that would catch it also catches `README.md`. A
+relative target climbing out of the repository is 3 findings in one file of one
+repository - implemented, then reverted when a scan found no second instance
+anywhere, because deriving a rule from a sample of one project is the error
+this phase exists to document. And rust-lang/rfcs, which has no tags and
+discusses Rust's releases throughout, reads a mention of the 1.75 toolchain as
+a claim about itself; skipping untagged repositories fixes that and silences a
+never-tagged project making a false claim about its own release, which is the
+worse trade.
+
+That last paragraph is worth reading twice, because the first draft of it
+tripped the rule it describes. Quoting the offending sentence in order to
+explain it REPRODUCED it, here, and `--verify` failed the build. Then the
+paragraph written to record THAT did it a second time, for the same reason.
+
+The rule cannot tell a quotation from a claim. `CLAUDE.md` already records the
+property for live claims, where the standing instruction is to paraphrase a
+past status rather than quote it; it holds for release claims identically, and
+the tool proved it twice on the document announcing the fix. Paraphrase, or
+the sentence you write about a false positive becomes one.
 
 The 424 that remain are mostly real. Rails links to `#helpers` from a document
 with no such heading; dplyr's revdepcheck output links to `failures.md#amt`
