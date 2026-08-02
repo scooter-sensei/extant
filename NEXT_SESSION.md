@@ -41,8 +41,12 @@ tagged with no gaps.
   30 repositories and 3,821 markdown files, ten of them chosen for claim
   density, the merge-claim pattern matches nothing at all. What projects write
   is "commit `<sha>`", 890 times, which a shape-keyed rule already catches. All
-  eight coverage widenings were rejected on measurement; six could not be gated
-  by any public corpus, and saying so is worth more than shipping them blind.
+  eight coverage widenings were rejected, and saying so is worth more than
+  shipping them blind. FOUR of the eight were rejected on real numbers - the
+  rules they aim at were examined 89, 1142, 2422 and 6987 times. The other four
+  aim at rules examined three times or fewer, two of them never; of those, one
+  is unanswerable without the network and one the design already called a
+  non-loophole, so exactly TWO are blocked on a corpus that does not exist.
 - Two corpora were unusable and neither said so. Clones made `--depth 1` leave
   every historical SHA unresolvable, so one repository reported 2,094 findings
   and reports 3 with its history; a partial clone fetches blobs over the

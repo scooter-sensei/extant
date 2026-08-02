@@ -391,9 +391,10 @@ gate a change to one:
 
 A widening measured where the rule never fires reports no new false positives
 from a denominator of zero, and that is indistinguishable from a widening that
-is safe. Eight were surveyed against 30 repositories and six aimed at rules
-with a denominator of zero across all 3,821 files; without this column the
-survey would have called them harmless.
+is safe. Eight were surveyed against 30 repositories and half of them aimed at
+rules examined three times or fewer across all 3,821 files - `false-merge-claim`
+and `raw-lfs-blob` never at all, `dead-release-tag` twice, `dead-pinned-ref`
+three times. Without this column the survey would have called them harmless.
 
 `bare-dead-sha` is folded into `dead-sha` because `count_examined` counts both
 kinds of SHA candidate against one denominator. Reporting 277 findings against
