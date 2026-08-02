@@ -9,7 +9,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 12 - Loopholes, and eight widenings that did not survive measurement (shipped, 2026-08-02)
 
 **Status.** Suite is 434 tests, all passing. Eleven rules, eighteen presets.
-`v0.16.0` is tagged. Every release from `v0.5.0` is tagged with no gaps.
+`v0.16.0` is tagged, released and on PyPI. Every release from `v0.5.0` is
+tagged with no gaps.
 
 **What shipped.**
 
