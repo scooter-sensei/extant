@@ -374,6 +374,72 @@ repositories skipped because Git Bash paths are not Windows paths, two clones
 that failed on MAX_PATH and reported no documentation, and one whose checkout
 never completed and read as clean.
 
+### The column that says whether a corpus can gate anything
+
+`files swept` says the run happened. **`found / examined` per rule** says which
+rules it reached, and that is the number that decides whether a corpus can
+gate a change to one:
+
+```
+  found/examined per rule:
+    dead-sha                    284 / 1365  (incl. bare)
+    dead-md-link                 75 / 1003
+    dead-path-pointer            33 / 81
+    false-merge-claim             0 / 0
+  CANNOT GATE A CHANGE to these - nothing here exercises them: ...
+```
+
+A widening measured where the rule never fires reports no new false positives
+from a denominator of zero, and that is indistinguishable from a widening that
+is safe. Eight were surveyed against 30 repositories and six aimed at rules
+with a denominator of zero across all 3,821 files; without this column the
+survey would have called them harmless.
+
+`bare-dead-sha` is folded into `dead-sha` because `count_examined` counts both
+kinds of SHA candidate against one denominator. Reporting 277 findings against
+zero examined, or dropping them, would misreport the busiest rule in the
+corpus.
+
+### What was measured, and how to clone it
+
+Recorded as a RECORD of one measurement rather than as a fixed gate, and the
+distinction matters. Committing a corpus makes the numbers auditable; treating
+the same corpus as the bar to clear one release later makes it a training set,
+and this project's own rule is that a measurement over a sample chosen by the
+thing being measured is not a measurement. Anyone repeating this work should
+add repositories, not re-run these.
+
+Three sets of ten, measured 2026-08-02 at 3,821 markdown files:
+
+| set | chosen for | repositories |
+|---|---|---|
+| original | the set the current rules were narrowed against | `spf13/cobra` `expressjs/express` `pallets/flask` `helm/helm` `encode/httpx` `python-poetry/poetry` `pytest-dev/pytest` `psf/requests` `rust-lang/rfcs` `vitejs/vite` |
+| held out | doc toolchains absent from the original | `docsifyjs/docsify` `tidyverse/dplyr` `laravel/framework` `ktorio/ktor` `shuding/nextra` `rails/rails` `slatedocs/slate` `symfony/symfony` `hashicorp/terraform` `ziglang/zig` |
+| claims | density of git-checkable claims | `Aider-AI/aider` `psf/black` `simonw/datasette` `humanlayer/humanlayer` `pre-commit/pre-commit` `astral-sh/ruff` `github/spec-kit` `simonw/sqlite-utils` `obra/superpowers` `astral-sh/uv` |
+
+The third set exists because the second could not gate anything: of its 951
+findings, 943 were link or anchor, and four rules fired zero times between
+them. A widening measured where the rule never runs reports no new false
+positives from a denominator of zero.
+
+Clone them like this, because both flags are load-bearing:
+
+```sh
+git clone --filter=blob:none https://github.com/<owner>/<repo> <dir>
+git -C <dir> config diff.renames false
+```
+
+Without the first, the clones are about 20 GB. Without the second, every sweep
+fetches blobs from GitHub on demand to run rename detection, and one repository
+stalled for over half an hour with `git fetch` running underneath it; the same
+sweep takes 5.4 seconds with renames off, and the setting moves no counts
+because the rename lookup only appends a clause to a finding's detail.
+
+Do NOT clone `--depth 1`. A shallow clone leaves every historical SHA
+unresolvable, so the SHA rules fire on nearly everything: one repository
+reported 2,094 findings that way and reports 3 with its history. It is the
+worst kind of wrong result, because it looks like a thorough tool.
+
 So a repository that cannot be measured is a FAILURE here, never an omission.
 Preconditions are asserted before anything is counted - is it a directory, a
 git repository, does HEAD resolve, is HEAD's tree non-empty - and a corpus with

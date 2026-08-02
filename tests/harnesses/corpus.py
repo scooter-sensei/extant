@@ -125,6 +125,34 @@ def sweep(repo: Path) -> tuple[int, int, dict[str, int]]:
     return int(match.group(1)), sum(kinds.values()), kinds
 
 
+def examined(repo: Path) -> dict[str, int]:
+    """How many candidates each RULE looked at, summed over the repository.
+
+    The other denominator, and the one that decides whether a corpus can gate a
+    change at all. `files swept` says the run happened; this says which rules it
+    reached. A widening measured where the rule never fires reports no new false
+    positives from a denominator of zero, and that reads exactly like a widening
+    that is safe.
+
+    It is not hypothetical. Eight coverage widenings were surveyed against 30
+    repositories and six aimed at rules with a denominator of zero across all
+    3,821 files - the merge-claim pattern matches nothing anyone else writes.
+    Without this column that survey would have shipped them as harmless.
+    """
+    sys.path.insert(0, str(COLLECTOR.parent))
+    import extant_collect as hc
+
+    totals: dict[str, int] = {}
+    for relative in hc.tracked_markdown(repo):
+        try:
+            text = (repo / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for kind, count in hc.count_examined(repo, text).items():
+            totals[kind] = totals.get(kind, 0) + count
+    return totals
+
+
 def formats(repo: Path) -> dict[str, int]:
     """Tracked documentation files by extension.
 
@@ -162,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     broken: list[tuple[str, str]] = []
     results: dict[str, dict[str, int]] = {}
     totals: dict[str, int] = {}
+    looked: dict[str, int] = {}
     by_format: dict[str, int] = {}
     print(f"{'repository':<24} {'files':>7} {'rst':>5} {'findings':>9}  toolchain")
     for repo in repos:
@@ -181,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             by_format[suffix] = by_format.get(suffix, 0) + count
         for kind, count in kinds.items():
             totals[kind] = totals.get(kind, 0) + count
+        for kind, count in examined(repo).items():
+            looked[kind] = looked.get(kind, 0) + count
         results[repo.name] = {"files": files, "findings": findings}
         print(f"{repo.name:<24} {files:>7} {shapes.get('rst', 0):>5} "
               f"{findings:>9}  {toolchain(repo)}")
@@ -201,6 +232,25 @@ def main(argv: list[str] | None = None) -> int:
         print("  by rule:     " + ", ".join(
             f"{kind} {count}" for kind, count in
             sorted(totals.items(), key=lambda kv: -kv[1])))
+    # Found over EXAMINED, per rule. See `examined` for why the second number
+    # is the one that says whether this corpus can gate a change.
+    if looked:
+        # `bare-dead-sha` shares `dead-sha`'s denominator, because
+        # count_examined counts backticked and bare SHA candidates together.
+        # Printing its findings against a denominator of zero, or omitting
+        # them, would misreport the busiest rule in the corpus.
+        shared = {"bare-dead-sha": "dead-sha"}
+        found: dict[str, int] = {}
+        for kind, count in totals.items():
+            found[shared.get(kind, kind)] = found.get(shared.get(kind, kind), 0) + count
+        print("  found/examined per rule:")
+        for kind in sorted(looked, key=lambda k: -looked[k]):
+            note = "  (incl. bare)" if kind == "dead-sha" else ""
+            print(f"    {kind:<24} {found.get(kind, 0):>6} / {looked[kind]}{note}")
+        blind = [k for k, n in sorted(looked.items()) if n == 0]
+        if blind:
+            print("  CANNOT GATE A CHANGE to these - nothing here exercises "
+                  "them: " + ", ".join(blind))
 
     baseline_path = Path(args.baseline) if args.baseline else None
     if baseline_path and args.update:
