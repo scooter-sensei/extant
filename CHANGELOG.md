@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0 (2026-08-02)
 
 Loopholes, closed where closing them costs nothing and reported where closing
 them would cost the truth.
@@ -48,6 +48,88 @@ reflowing a paragraph still does not un-suppress everything.
 need not scrape backticks out of prose. Optional and populated rule by rule;
 `--deleted-since` reports how many findings it skipped for want of one.
 
+**Two more generators are recognised, worth 37 false positives.** A site is
+often a subdirectory of a subdirectory: aider keeps Jekyll at
+`aider/website/_config.yml`, and a search that tried `website/` but not
+`*/website/` judged the whole repository plain and called 29 of its own asset
+links dead - each one served out of `aider/website/assets/`, where 203 files
+are tracked. The config search now goes one level deeper, bounded there.
+Mintlify's `mint.json` is recognised too; humanlayer declares one and reported
+8 of its own route links dead. `docs.json`, Mintlify's newer spelling, is not
+recognised - it is too generic a filename to be a signature, and no repository
+in three corpora carries one.
+
+**Release claims are read against the conventions a project actually uses.**
+Four findings from `dead-release-tag` and `dead-pinned-ref` exist across a
+30-repository corpus and every one was wrong, each because of a habit rather
+than an error.
+
+Half the ecosystem tags `v1.2.3` and half tags `1.2.3`, so the prefix is now
+read from `git tag -l` instead of assumed. A claim names a SERIES more often
+than a tag - symfony's own guide says work "shipped in 8.0" while the tags are
+`v8.0.0`, `v8.0.1` - so a version that is the stem of a real tag counts as
+shipped. And symfony has no `main` and no `master` at all: its branches are
+version numbers. The integration-ref list returned the configured trunk whether
+or not it existed, so every rule asking "did this reach an integration branch"
+compared against a ref that does not resolve and reported every release as
+shipped on nothing. **3 of 30 repositories have no conventionally named trunk**,
+so that is about a tenth of projects, not a corner. Refs that do not resolve
+are dropped now, and an empty list means "cannot settle".
+
+`rev: ''` is no longer read as a broken pin. It is pre-commit's own documented
+placeholder, the state a snippet ships in for `autoupdate` to fill, and poetry
+ships two. Quotes come off a rev for the same reason - `rev: 'v1.2.3'` is the
+same pin, and 4 of 75 revs in the corpus are written that way.
+
+**A document full of release claims is an order of magnitude faster.** The
+branch list is asked for once per validation rather than once per claim, each
+miss having been a `for-each-ref` subprocess. At 400 claims and 30 tags,
+**22.0 seconds to 1.25**; at 200, 11.6 to 1.2.
+
+The cost was in 0.15.0 too - the same fixture run against it takes the same
+11.6 seconds - and it surfaced only because the work above added a second call
+site and prompted the question of whether that had made anything worse. It had
+not, by any amount worth measuring; the existing call was the whole cost.
+`perf.py` could not answer the question either, every document it builds being
+full of links rather than claims, so it has grown a section that can.
+
+### Eight widenings measured, and none of them shipped
+
+A coverage phase surveyed eight ways to make the rules ask more, gated on a
+held-out corpus with the original kept as a regression check. All eight were
+rejected, and the reason is worth more than any of them would have been.
+
+**A rule keyed on a PHRASE has a denominator of zero outside the project whose
+phrasing it came from.** Across 30 repositories and 3,821 markdown files -
+including ten picked specifically for their density of git-checkable claims -
+the pattern behind `false-merge-claim` matches **nothing**. Neither does
+"merged in `<sha>`", "landed in `<sha>`", or "fixed in `<sha>`". What real
+projects write is "commit `<sha>`", 890 times, and that is already caught by a
+rule keyed on the shape of a token rather than on a verb. Two release-tag
+claims exist in all 30 repositories.
+
+So no public corpus can gate a change to those rules. They remain useful - they
+exist for agent-written handoff documents, which is what this tool is for - but
+a future widening there cannot be justified by measurement against other
+people's repositories, and this release does not pretend otherwise.
+
+The rejections that could be measured were decisive rather than marginal.
+Judging a path mentioned without an operative marker takes the tool from 960
+findings to 3,964, nearly all of them CHANGELOG entries describing files that
+were deleted on purpose. Dropping the letter requirement from the SHA shape
+admits 7 findings of which 7 are numbers - a date, two durations in seconds, a
+timestamp version. Resolving anchors through site routes changed nothing at all
+across 3,821 files, which a fixture confirms is a real zero and not a patch
+that failed to apply.
+
+Two false positives are recorded and deliberately left in, because a known one
+is cheaper than a guessed rule. A markdown link to a bare domain
+(`[x](kubernetes.io/docs/...)`) is 1 finding, and every rule that would catch
+it also catches `README.md`. And rust-lang/rfcs, which has no tags and
+discusses Rust's releases throughout, has "(released in 1.75)" read as a claim
+about itself - the fix for that silences a never-tagged project making a false
+claim about its own release, which is a worse trade.
+
 ### Verified
 
 Ten real repositories produced byte-identical output before and after, across
@@ -55,6 +137,13 @@ Ten real repositories produced byte-identical output before and after, across
 comparison set that never reaches the changed code proves nothing - this
 project has a comparison of seven repositories in its history that came out
 identical while the code under test was never executed.
+
+That 2,163 is larger than it should be, and the coverage phase found out why:
+those clones were made with `--depth 1`, which leaves every historical SHA
+unresolvable, so the SHA rules fired on almost everything. vite alone accounted
+for 2,094 of them and reports 3 when cloned with its history. The equivalence
+the differential proves is unaffected - both sides read the same clones - but
+the count describes an artifact rather than a corpus.
 
 `--deleted-since` cannot be differenced at all, being a mode the old collector
 does not have, so it is checked for existence instead: the old binary must

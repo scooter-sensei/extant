@@ -6,11 +6,65 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 12 - Loopholes, and eight widenings that did not survive measurement (shipped, 2026-08-02)
+
+**Status.** Suite is 434 tests, all passing. Eleven rules, eighteen presets.
+`v0.16.0` is tagged. Every release from `v0.5.0` is tagged with no gaps.
+
+**What shipped.**
+
+- `--deleted-since <ref>` reports claims removed while still false. It began as
+  a twelfth rule and was demoted to a non-gating report before any of it was
+  written: whether a removal was evasion or repair is a question about intent,
+  and the common case cuts the wrong way - deleting a false sentence makes the
+  document true, so a gating rule would fail the build on the correct fix.
+- A consistency block that reaches one file by two routes now asks the
+  filesystem rather than comparing strings, with a realpath fallback for the
+  filesystems that report `st_ino` as 0. `consistency_timeout_seconds` bounds a
+  user-supplied pattern, opt-in because `re` holds the GIL and a watchdog
+  thread therefore cannot work.
+- Findings carry a `subject`, the bare token a claim is about. A baseline
+  forgives the occurrences it recorded rather than every future copy.
+- Two more generators are recognised, worth 37 false positives: a site can be a
+  subdirectory of a subdirectory, and Mintlify declares itself in `mint.json`.
+- Release claims are read against the conventions a project actually uses - the
+  tag prefix, a version naming a series rather than a tag, an integration
+  branch that is not there, and pre-commit's `rev: ''` placeholder.
+- A document full of release claims is an order of magnitude faster: 22.0
+  seconds to 1.25 at 400 claims. The cost was in 0.15.0 too.
+
+**What was learned.**
+
+- **A rule keyed on a PHRASE has a denominator of zero outside the project
+  whose phrasing it came from; a rule keyed on a TOKEN SHAPE does not.** Across
+  30 repositories and 3,821 markdown files, ten of them chosen for claim
+  density, the merge-claim pattern matches nothing at all. What projects write
+  is "commit `<sha>`", 890 times, which a shape-keyed rule already catches. All
+  eight coverage widenings were rejected on measurement; six could not be gated
+  by any public corpus, and saying so is worth more than shipping them blind.
+- Two corpora were unusable and neither said so. Clones made `--depth 1` leave
+  every historical SHA unresolvable, so one repository reported 2,094 findings
+  and reports 3 with its history; a partial clone fetches blobs over the
+  network mid-sweep to run rename detection, and a single repository stalled
+  for half an hour. More findings reads as thoroughness and no output reads as
+  slowness.
+- A mutation that SURVIVES can mean two mechanisms masking each other rather
+  than a missing test. Two survived here; investigating showed one was
+  load-bearing and the other was dead code, and the right fix was to delete the
+  dead one and test the case only the survivor handles.
+- Eleven unit tests could not catch a regression that `scenarios.py` caught on
+  its first run. A fix derived from a corpus inherits that corpus's blind
+  spots, and no repository in any of the three configures the rule in question.
+- The tool failed its own build twice on this work. Writing prose to explain a
+  false positive reproduced it, and the paragraph recording THAT did it again.
+  A rule cannot tell a quotation from a claim - already known for live claims,
+  and true of release claims for the same reason. Paraphrase.
+
 ## Phase 11 - reStructuredText, and the cost of doing the same work twice (shipped, 2026-07-29)
 
-**Status.** Suite is 382 tests, all passing. Eleven rules, eighteen presets.
-`v0.15.0` is tagged and released. Every release from `v0.5.0` is tagged with no
-gaps.
+**Status.** Suite was 382 tests at the time, all passing. Eleven rules,
+eighteen presets. `v0.15.0` was tagged and released, with every release from
+`v0.5.0` tagged and no gaps.
 
 **What shipped.**
 
