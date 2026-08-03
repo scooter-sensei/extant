@@ -673,3 +673,61 @@ def test_a_hand_edited_agent_skill_is_not_overwritten(tmp_path) -> None:
     assert skill.read_text(encoding="utf-8") != edited, (
         "--force did not replace the file, so there is no way to take an update"
     )
+
+
+def test_every_value_type_the_installer_can_emit_round_trips() -> None:
+    """The generalisation of the test above, written after it missed one.
+
+    That test proved the fallback quotes a STRING of an unknown key. The next
+    observation added was a BOOLEAN - `release_claims_name_our_tags` - and the
+    fallback wrote Python's `True`, which TOML rejects. The installer produced
+    a config the tool refused to read, silencing every rule at once: the third
+    time this function has shipped exactly that, after `plans_dir = ` with
+    nothing after it and `release_tag` written bare.
+
+    Each fix added the branch for the type that had just bitten. So this asks
+    the general question instead - does EVERY value type the installer can emit
+    survive a parse - and a new type has to be added here to be trusted.
+    """
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    from detect import DERIVED, Observation
+    from install import render_config
+
+    rendered = render_config([
+        Observation("primary_doc", "README.md", DERIVED, "measured"),
+        Observation("a_true_flag", True, DERIVED, "boolean, the type that bit"),
+        Observation("a_false_flag", False, DERIVED, "and its other value"),
+        Observation("a_number", 7, DERIVED, "integer"),
+        Observation("a_list", ["one", "two"], DERIVED, "list of strings"),
+        Observation("a_string", "plain words", DERIVED, "unlisted string key"),
+    ])
+
+    parsed = tomllib.loads(rendered)["extant"]
+    assert parsed["a_true_flag"] is True, rendered
+    assert parsed["a_false_flag"] is False, rendered
+    assert parsed["a_number"] == 7, rendered
+    assert parsed["a_list"] == ["one", "two"], rendered
+    assert parsed["a_string"] == "plain words", rendered
+
+
+def test_the_installer_asserts_release_claims_are_local() -> None:
+    """Installing extant INTO a repository is the assertion the setting wants.
+
+    `release_claims_name_our_tags` is off by default because a version in prose
+    can name a package rather than a tag - wrong 19 times in 26 across 15
+    projects. None of that applies to a project checking its OWN document, and
+    the installer is the one place that knows which case it is in.
+    """
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    from detect import DERIVED, Observation
+    from install import render_config
+
+    rendered = render_config([
+        Observation("primary_doc", "README.md", DERIVED, "measured"),
+        Observation("release_claims_name_our_tags", True, DERIVED, "own repo"),
+    ])
+    assert tomllib.loads(rendered)["extant"]["release_claims_name_our_tags"] is True

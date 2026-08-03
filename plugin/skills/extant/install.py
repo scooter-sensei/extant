@@ -657,6 +657,22 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
     archive = f"{parent}/status-archive.md" if parent != "." else "status-archive.md"
     obs.append(Observation("archive_doc", archive, DERIVED, "placed beside the document"))
 
+    # A release claim in THIS project's own status document is about THIS
+    # project's tags, and the installer is the one place that can say so.
+    #
+    # The setting is off by default because in general it is unknowable: a
+    # version in prose can name a git tag, an npm or PyPI release, a
+    # sub-package or somebody else's toolchain, and reading every one as a
+    # local tag was wrong 19 times out of 26 across 15 projects that write such
+    # claims. None of that ambiguity applies here. Installing extant INTO a
+    # repository to check that repository's own document is precisely the
+    # assertion the setting exists to record, so the installer records it.
+    obs.append(Observation(
+        "release_claims_name_our_tags", True, DERIVED,
+        "this document describes this repository, so its release claims name "
+        "these tags",
+    ))
+
     # Entry header: repeated AND date-bearing headers score above reference ones.
     scores = info["header_scores"]  # type: ignore[index]
     if scores and scores[0][1] > 1:
@@ -731,6 +747,20 @@ def render_config(obs: list[Observation]) -> str:
         lines.append(f"# [{o.confidence}] {o.evidence}")
         if o.value is None:
             lines.append(f"# {o.key} = '...'   # NOT DETERMINED - set this by hand")
+        elif isinstance(o.value, bool):
+            # TOML booleans are lowercase. `str(True)` is "True", which TOML
+            # rejects, so the bare fallback at the bottom wrote a file the tool
+            # then refused to read - silencing every rule at once.
+            #
+            # That is the THIRD time this shape has shipped from this function:
+            # `plans_dir = ` with nothing after it, then `release_tag` written
+            # bare, now the first boolean observation. The fallback grew a
+            # string branch and a list branch each time and still had no branch
+            # for the type nobody had used yet, which is what the comment below
+            # means by "an allowlist of keys cannot protect a key nobody has
+            # thought of". Booleans are the type that was missing; the test
+            # that parses every generated config is the guard that generalises.
+            lines.append(f"{o.key} = {'true' if o.value else 'false'}")
         elif o.key in regexy:
             value = str(o.value)
             if "'" in value:  # literal strings cannot contain a single quote
