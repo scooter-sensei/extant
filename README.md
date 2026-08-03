@@ -117,7 +117,7 @@ Eleven rules. Every one answers a question git or the filesystem can settle.
 | `false-merge-claim` | "merged into `develop` at `abc1234`" when that commit is not on `develop` |
 | `stale-live-claim` | "not merged yet" about something merged last week |
 | `unknown-branch` | "work is on branch X" when git has never seen that name |
-| `dead-release-tag` | "released in v2.1" when no such tag exists, or it never shipped |
+| `dead-release-tag` | "released in v2.1" when that tag is in your repo but reached no integration branch. Also when no such tag exists, if you set `release_claims_name_our_tags` - the installer does |
 | `dead-path-pointer` | "see the file at this path" when the file moved |
 | `dead-md-link` | `[a link](to/a/file.md)` whose target is gone |
 | `dead-md-anchor` | a `#jump-to-section` link with no such heading, in this file or a linked one |

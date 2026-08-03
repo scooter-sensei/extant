@@ -133,7 +133,7 @@ and both destroy the tool's value.
 | `stale-live-claim` | "not yet merged" about work that reached an integration branch | **newest entry only** |
 | `unknown-branch` | a branch git has never seen, in refs or any merge commit | **newest entry only** |
 | `false-merge-claim` | "merged to X at Y" where Y is not an ancestor of **X** | whole file, **including the archive** |
-| `dead-release-tag` | "released in v2.1" where the tag is missing or on no integration branch | whole file |
+| `dead-release-tag` | "released in v2.1" where the tag is on no integration branch; also where it is missing, when `release_claims_name_our_tags` is set (the installer sets it) | whole file |
 | `dead-path-pointer` | "Plan: X" / "see X" where X does not exist | operative references only |
 | `dead-md-link` | `[text](path)` whose file is gone | whole file |
 | `dead-md-anchor` | `[text](#fragment)` and `[text](other.md#fragment)` with no such heading | this document, and any linked file that resolves |

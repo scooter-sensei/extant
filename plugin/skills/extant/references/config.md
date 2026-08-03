@@ -63,6 +63,12 @@ that has none of them.
 | `venv_python` | `.venv/Scripts/python.exe` | Interpreter, relative to the main working tree. |
 | `consistency_timeout_seconds` | *(unset)* | Bounds each user-supplied consistency pattern, in seconds. Absent leaves them unbounded, which is the historical behaviour. Set it only if a pattern hangs: it costs a process spawn per pattern, because Python's `re` holds the GIL while matching and no in-process mechanism can interrupt it. Left unset, a catastrophically backtracking pattern can still spin. |
 | `extra_docs` | *(empty)* | Further documents to check: `CLAUDE.md`, `AGENTS.md`, a README. They get every whole-file rule. The entry-scoped rules are skipped, because these have no dated entries and "the newest entry" would name nothing. |
+| `release_claims_name_our_tags` | `false` | Whether a release claim in these documents names a tag of THIS repository. Off by default because nothing in prose says so: a version can name a git tag, an npm or PyPI release, a sub-package, a plugin or somebody else's toolchain. Measured across 15 projects that write such claims, reading every one as a local tag was wrong 19 times in 26. **The installer sets it to `true`**, because installing extant into a repository to check that repository's own document is exactly the assertion it records. Turn it off if your documents discuss other projects' releases. |
+
+`release_claims_name_our_tags` decides only HALF of `dead-release-tag`. The
+other half - the tag is in this repository and reached no integration branch,
+so the release shipped on nothing - is always checked and needs no assertion
+from you. It was right 7 times out of 7 on the same corpus.
 
 ## Running the suite - any ecosystem
 
@@ -71,9 +77,10 @@ mention it needs no Python at all**, which is how a non-Python project uses the
 measured path.
 
 ```toml
-suite_command = ["npm", "test"]          # jest / vitest
-suite_passed  = '(\d+) passed'
-suite_failed  = '(\d+) failed'
+suite_command  = ["npm", "test"]         # jest / vitest
+suite_passed   = '(\d+) passed'
+suite_failed   = '(\d+) failed'
+suite_duration = '(?:in|took) ([\d.]+)s'  # optional; omit and no time is recorded
 ```
 
 | Runner | Output it prints | Default patterns work? |

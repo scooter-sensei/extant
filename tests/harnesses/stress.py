@@ -194,8 +194,17 @@ def case_large_repository() -> None:
     proc, elapsed = run_timed(repo, "--validate", "NEXT_SESSION.md", budget=15)
     report("large-repo", "5000 commits / 500 branches", verdict_for(elapsed, 15))
     if proc:
+        # The "no such tag" half of this rule is opt-in, and this fixture
+        # writes no config, so silence here means the DEFAULT rather than any
+        # failure of scale. The old wording blamed 5000 commits for a
+        # configuration answer, which is a gotcha with the wrong cause -
+        # worse than none, because it gets believed.
+        write(repo, ".extant.toml",
+              "[extant]\nrelease_claims_name_our_tags = true\n")
+        proc, _ = run_timed(repo, "--validate", "NEXT_SESSION.md", budget=15)
         report("large-repo", "phantom tag v99.9 still caught",
-               "yes" if "v99.9" in proc.stdout else "NO - rule went blind at scale")
+               "yes" if proc and "v99.9" in proc.stdout
+               else "NO - the rule went blind at 5000 commits")
 
 
 # --------------------------------------------------------- 4. many unique paths
@@ -417,7 +426,12 @@ def case_huge_baseline() -> None:
     print("\n[13] a 5000-entry baseline, read on every run")
     repo = new_repo("stress-baseline")
     shas = bulk_commits(repo, 3)
-    body = "\n".join(f"Ref {n} at `{n:040d}`." for n in range(5000))
+    # A LETTER is required for a token to be read as a SHA - an all-digit run
+    # is a number, which is why INT64_MAX is not a commit. This fixture used
+    # `{n:040d}`, so every one of the 5000 was skipped and the case recorded a
+    # 0-entry baseline while its own label said 5000. It measured the cost of
+    # reading an empty file, and reported it as the cost of reading a big one.
+    body = "\n".join(f"Ref {n} at `a{n:039d}`." for n in range(5000))
     write(repo, "NEXT_SESSION.md",
           f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
 

@@ -190,3 +190,29 @@ def test_the_python_floor_is_stated_consistently() -> None:
     assert not disagree, (
         f"requires-python says {declared!r}, but:\n  " + "\n  ".join(disagree)
     )
+
+
+def test_every_setting_is_documented_where_users_look() -> None:
+    """A config key nobody wrote down is a feature nobody can find.
+
+    The checks above compare documented `--flags` against argparse, which is
+    why a documented flag cannot rot. Nothing compared config KEYS against
+    anything, and that gap shipped: `release_claims_name_our_tags` changed what
+    `dead-release-tag` reports BY DEFAULT, and the rule tables in README.md and
+    SKILL.md went on promising the old behaviour while the setting itself
+    appeared in no user-facing document at all. It was written down twice, in a
+    comment inside `DEFAULTS` and in this repository's own `.extant.toml`,
+    neither of which anyone installing the tool reads.
+
+    `references/config.md` is where a user looks. Every default belongs there.
+    """
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    from extant_config import DEFAULTS
+
+    documented = (SKILL_ROOT / "references" / "config.md").read_text(
+        encoding="utf-8")
+    missing = sorted(key for key in DEFAULTS if key not in documented)
+    assert not missing, (
+        f"{len(missing)} of {len(DEFAULTS)} settings appear nowhere in "
+        f"references/config.md: {missing}"
+    )
