@@ -108,18 +108,27 @@ held-out corpus with the original kept as a regression check. All eight were
 rejected, and the reason is worth more than any of them would have been.
 
 **A rule keyed on a PHRASE has a denominator of zero outside the project whose
-phrasing it came from.** Across 30 repositories and 3,821 markdown files -
-including ten picked specifically for their density of git-checkable claims -
-the pattern behind `false-merge-claim` matches **nothing**. Neither does
-"merged in `<sha>`", "landed in `<sha>`", or "fixed in `<sha>`". What real
-projects write is "commit `<sha>`", 890 times, and that is already caught by a
-rule keyed on the shape of a token rather than on a verb. Two release-tag
-claims exist in all 30 repositories.
+phrasing it came from - as long as you sample the wrong population.** Across 30
+repositories and 3,821 markdown files, including ten picked for their density
+of git-checkable claims, the pattern behind `false-merge-claim` matched
+**nothing**. Neither did "merged in `<sha>`", "landed in `<sha>`", or "fixed in
+`<sha>`". What those projects write is "commit `<sha>`", 890 times, already
+caught by a rule keyed on the shape of a token rather than on a verb.
 
-So no public corpus can gate a change to those rules. They remain useful - they
-exist for agent-written handoff documents, which is what this tool is for - but
-a future widening there cannot be justified by measurement against other
-people's repositories, and this release does not pretend otherwise.
+**That conclusion was wrong, and this release corrects it.** The sampling frame
+was the fault, not the method: "claim density" was chosen by picking popular
+Python and JavaScript tools, which are dense in CHANGELOGS rather than in
+status claims. Scanning 229 repositories from the agent-tooling topics instead
+- 52,417 documentation files - finds the shipped merge pattern 35 times, the
+release pattern 97 times, the branch token 640 times and the live phrase 117
+times. **61 repositories exercise at least one.** The population these rules
+serve exists in public and had simply never been sampled.
+
+Measuring against it immediately found a coverage hole none of the eight
+candidates named, which is what the correction is worth: see the merge-claim
+entry above. It also found this rule's first true positive in somebody else's
+repository - neomjs/neo records work merged to `dev` at a commit that is not an
+ancestor of `dev`.
 
 The rejections that could be measured were decisive rather than marginal.
 Judging a path mentioned without an operative marker takes the tool from 960

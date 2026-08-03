@@ -36,17 +36,25 @@ tagged with no gaps.
 
 **What was learned.**
 
-- **A rule keyed on a PHRASE has a denominator of zero outside the project
-  whose phrasing it came from; a rule keyed on a TOKEN SHAPE does not.** Across
-  30 repositories and 3,821 markdown files, ten of them chosen for claim
-  density, the merge-claim pattern matches nothing at all. What projects write
-  is "commit `<sha>`", 890 times, which a shape-keyed rule already catches. All
-  eight coverage widenings were rejected, and saying so is worth more than
-  shipping them blind. FOUR of the eight were rejected on real numbers - the
-  rules they aim at were examined 89, 1142, 2422 and 6987 times. The other four
-  aim at rules examined three times or fewer, two of them never; of those, one
-  is unanswerable without the network and one the design already called a
-  non-loophole, so exactly TWO are blocked on a corpus that does not exist.
+- **A rule keyed on a PHRASE is invisible to any corpus that does not contain
+  the KIND of document it was written for.** Across 30 repositories and 3,821
+  markdown files, ten of them chosen for claim density, the merge-claim pattern
+  matched nothing at all, and that was read here as "no public corpus can gate
+  these rules". **The reading was wrong and the sampling frame was why**: claim
+  density had been chosen by picking popular Python and JavaScript tools, which
+  are dense in changelogs rather than in status claims. 229 repositories from
+  the agent-tooling topics - 52,417 files - carry the shipped merge pattern 35
+  times, the release pattern 97, the branch token 640, the live phrase 117; 61
+  of them exercise at least one. "I sampled 3,821 files and found nothing" is a
+  statement about the sample.
+- **All eight coverage widenings were still rejected, and the one that shipped
+  was not among them.** Measured on the agent-document corpus,
+  `false-merge-claim` required the commit in BACKTICKS and so examined zero of
+  the 32 claims one repository writes as `PR #499 merged into main at 6ff1f4ac`.
+  Making the backticks optional took the corpus from 3 examinations to 35 and
+  added no finding anywhere. The spec's own candidate for that rule - a bare
+  WORD after the merge verb - changes not one examination on the same corpus.
+  A plan guesses at a variant; the corpus has a different one.
 - Two corpora were unusable and neither said so. Clones made `--depth 1` leave
   every historical SHA unresolvable, so one repository reported 2,094 findings
   and reports 3 with its history; a partial clone fetches blobs over the

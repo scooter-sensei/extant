@@ -423,6 +423,29 @@ findings, 943 were link or anchor, and four rules fired zero times between
 them. A widening measured where the rule never runs reports no new false
 positives from a denominator of zero.
 
+**A fourth set exists because the third did not fix that, and the mistake is
+the instructive part.** "Claim density" was chosen by picking popular Python
+and JavaScript tools, which are dense in CHANGELOGS rather than in status
+claims, so `false-merge-claim` still examined nothing across all thirty
+repositories - and that got written up as "no public corpus can gate these
+rules". It was a statement about the sample.
+
+Scanning 229 repositories from the `agent-handoff`, `session-handoff` and
+`claude-code` topics - 52,417 documentation files - finds the shipped merge
+pattern 35 times, the release pattern 97, the branch token 640 and the live
+phrase 117, with **61 repositories exercising at least one**. Fifteen of them
+are the fourth set: `10CG/Aria`, `neomjs/neo`, `basilisk-labs/agentplane`,
+`mickeyyaya/evolve-loop`, `Pseudogiant-xr/Pseudolife-MCP`,
+`openbkn-ai/bkn-foundry`, `fr1j0/bitacora`, `dfrostar/neuralmind`,
+`d-o-hub/rust-self-learning-memory`, `gmickel/flow-next`, `nikzlabs/shipit`,
+`ramboz/jig`, `bejranonda/ExternalBrain`, `oomkapwn/enquire-mcp`,
+`eugenelim/agent-ready-repo`.
+
+Measuring against them found a coverage hole none of the eight planned
+widenings had named, and this rule's first true positive on somebody else's
+repository. **Pick a corpus by the KIND OF DOCUMENT a rule reads, not by how
+much documentation a project has.**
+
 Clone them like this, because both flags are load-bearing:
 
 ```sh

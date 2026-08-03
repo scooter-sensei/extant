@@ -530,11 +530,25 @@ in `<sha>`", "landed in `<sha>`" or "fixed in `<sha>`". What projects actually
 write is "commit `<sha>`" - 890 times - which the shape-keyed rule already
 catches without needing the verb.
 
-So the claim rules cannot be gated by any public corpus. That does not make
-them wrong; they exist for agent-written handoff documents, and this project's
-own status file exercises them. It does mean a future widening there has to be
-justified by something other than measurement against other people's
-repositories, and saying so is cheaper than discovering it twice.
+That was read as "the claim rules cannot be gated by any public corpus", and
+**it was wrong.** The method held; the SAMPLING FRAME did not. "Claim density"
+had been chosen by picking popular Python and JavaScript tools, which are dense
+in changelogs rather than in status claims, so the population these rules
+actually serve was never in the sample.
+
+Scanning 229 repositories from the agent-tooling topics - 52,417 documentation
+files - finds the shipped merge pattern 35 times, the release pattern 97 times,
+the branch token 640 times and the live phrase 117 times. **61 repositories
+exercise at least one.** A corpus of fifteen of them gives `false-merge-claim`
+a denominator, `dead-release-tag` 74 examinations against 2, and produced this
+rule's first true positive on somebody else's repository: neomjs/neo records
+work merged to `dev` at a commit that is not an ancestor of `dev`.
+
+The lesson survives the correction, in a sharper form. A phrase-keyed rule is
+invisible to any corpus that does not contain the KIND of document it was
+written for, and "I sampled 3,821 files and found nothing" is a statement about
+the sample. Widening it to a shape-keyed rule is still the robust move; giving
+up on measuring it was not.
 
 Where a measurement was possible it was decisive, not marginal. Judging a path
 mentioned without an operative marker takes the tool from 960 findings to
