@@ -35,6 +35,7 @@ nothing else. `--update` rewrites that file.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -103,8 +104,10 @@ def toolchain(repo: Path) -> str:
     return "site/page-ns"
 
 
-def sweep(repo: Path) -> tuple[int, int, dict[str, int]]:
-    """(files swept, findings, findings by kind). Raises if nothing was reported."""
+def sweep(repo: Path) -> tuple[int, int, dict[str, int], dict[str, str]]:
+    """(files swept, findings, findings by kind, digest of each kind's text).
+
+    Raises if nothing was reported."""
     result = subprocess.run(
         [sys.executable, str(COLLECTOR), "--repo", str(repo), "--sweep"],
         capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -118,11 +121,23 @@ def sweep(repo: Path) -> tuple[int, int, dict[str, int]]:
         # prevent. Refuse it rather than record a number.
         raise RuntimeError(f"{repo.name}: no denominator in output\n{out[-600:]}")
     kinds: dict[str, int] = {}
+    # The finding TEXT per rule, digested below. A count alone cannot see a
+    # verdict that changed in place: a release claim once moved from "no such
+    # tag exists" to "on no integration branch" - a different question about
+    # the same line - with the totals identical either side.
+    seen: dict[str, list[str]] = {}
     for line in out.splitlines():
         found = FINDING.search(line)
         if found:
-            kinds[found.group(1)] = kinds.get(found.group(1), 0) + 1
-    return int(match.group(1)), sum(kinds.values()), kinds
+            kind = found.group(1)
+            kinds[kind] = kinds.get(kind, 0) + 1
+            seen.setdefault(kind, []).append(line.strip())
+    digests = {
+        kind: hashlib.sha256(
+            "\n".join(sorted(lines)).encode("utf-8")).hexdigest()[:12]
+        for kind, lines in seen.items()
+    }
+    return int(match.group(1)), sum(kinds.values()), kinds, digests
 
 
 def examined(repo: Path) -> dict[str, int]:
@@ -200,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{repo.name:<24} {'-':>7} {'-':>5} {'UNUSABLE':>9}  {reason}")
             continue
         try:
-            files, findings, kinds = sweep(repo)
+            files, findings, kinds, digests = sweep(repo)
         except RuntimeError as exc:
             broken.append((repo.name, str(exc).splitlines()[0]))
             print(f"{repo.name:<24} {'-':>7} {'-':>5} {'FAILED':>9}")
@@ -212,7 +227,17 @@ def main(argv: list[str] | None = None) -> int:
             totals[kind] = totals.get(kind, 0) + count
         for kind, count in examined(repo).items():
             looked[kind] = looked.get(kind, 0) + count
-        results[repo.name] = {"files": files, "findings": findings}
+        # Per RULE, not just a total: a change that moves findings from one
+        # rule to another leaves the total alone. Denominators too, because
+        # a widening can treble what a rule examines while reporting the
+        # same findings - which is exactly what the merge-claim widening
+        # did, 3 examined to 35 with nothing added.
+        results[repo.name] = {
+            "files": files, "findings": findings,
+            "by_rule": dict(sorted(kinds.items())),
+            "digest": dict(sorted(digests.items())),
+            "examined": dict(sorted(examined(repo).items())),
+        }
         print(f"{repo.name:<24} {files:>7} {shapes.get('rst', 0):>5} "
               f"{findings:>9}  {toolchain(repo)}")
 
@@ -267,6 +292,43 @@ def main(argv: list[str] | None = None) -> int:
               f"{len(moved)} changed, {len(missing)} no longer measured")
         for name, was, now in moved:
             print(f"  {name:<22} {was} -> {now}")
+
+        # THREE THINGS A TOTAL CANNOT SEE, each of which happened during the
+        # work that added them:
+        #
+        #   by_rule   findings moving BETWEEN rules. A narrowing removed 19
+        #             `dead-release-tag` while a widening was adding elsewhere;
+        #             a total nets those off and reports nothing.
+        #   digest    a verdict changing IN PLACE. One release claim went from
+        #             "no such tag exists" to "on no integration branch" - a
+        #             different question about the same line - with identical
+        #             counts either side.
+        #   examined  COVERAGE. Making a merge claim's commit optional took one
+        #             rule from 3 candidates examined to 35 and added no
+        #             finding at all. A findings diff calls that "no change",
+        #             which is the opposite of what happened.
+        detailed = [n for n in results if "by_rule" in previous.get(n, {})]
+        if len(detailed) < len(results):
+            # Never compare less than advertised without saying so.
+            print(f"  NOTE: {len(results) - len(detailed)} repository(ies) were "
+                  f"recorded before per-rule detail existed, so only their "
+                  f"totals were compared. Re-run with --update to deepen it.")
+        for name in sorted(detailed):
+            was, now = previous[name], results[name]
+            for label, key in (("rule", "by_rule"), ("examined", "examined")):
+                old_map, new_map = was.get(key, {}), now.get(key, {})
+                for rule in sorted(set(old_map) | set(new_map)):
+                    a, b = old_map.get(rule, 0), new_map.get(rule, 0)
+                    if a != b:
+                        print(f"  {name:<22} {label:<8} {rule:<22} "
+                              f"{a} -> {b}")
+            old_dig, new_dig = was.get("digest", {}), now.get("digest", {})
+            for rule in sorted(set(old_dig) & set(new_dig)):
+                if (old_dig[rule] != new_dig[rule]
+                        and was.get("by_rule", {}).get(rule)
+                        == now.get("by_rule", {}).get(rule)):
+                    print(f"  {name:<22} REWORDED {rule}: same count, "
+                          f"different text")
         if missing:
             # A repository dropping out of the corpus silently is how a
             # regression hides. It is reported, and it fails the run.

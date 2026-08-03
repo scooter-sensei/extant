@@ -401,6 +401,25 @@ kinds of SHA candidate against one denominator. Reporting 277 findings against
 zero examined, or dropping them, would misreport the busiest rule in the
 corpus.
 
+### What `--baseline` compares, and why a total is not enough
+
+It recorded one findings count per repository. Three kinds of regression slip
+straight through that, and all three occurred while this was being written:
+
+| recorded | catches |
+|---|---|
+| `by_rule` | findings moving BETWEEN rules. A narrowing removed 19 `dead-release-tag` while other work added elsewhere; a total nets those off |
+| `digest` | a verdict changing IN PLACE. One release claim went from "no such tag exists" to "on no integration branch" - a different question about the same line - with identical counts either side |
+| `examined` | COVERAGE. Making a merge claim's commit optional took a rule from 3 candidates examined to 35 and added no finding at all. A findings diff calls that "no change", which is the opposite of what happened |
+
+Each was verified by corrupting a recorded baseline in exactly one of those
+three ways, leaving the total untouched, and watching the run report it while
+the summary line still said `0 changed`. That summary being wrong is the point:
+it is what the harness said before, about all three.
+
+A baseline written before this detail existed still compares - by total only -
+and the run SAYS SO rather than quietly checking less. `--update` deepens it.
+
 ### What was measured, and how to clone it
 
 Recorded as a RECORD of one measurement rather than as a fixed gate, and the
