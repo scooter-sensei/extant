@@ -110,6 +110,17 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a claimed version stops matching a tag series", collect,
          '        series = sorted(tag for tag in tags if tag.startswith(exact + "."))',
          "        series = []"),
+        # The rule's largest measured blind spot: requiring the commit in
+        # backticks hid 32 real merge claims in one repository, written as
+        # `PR #499 merged into main at 6ff1f4ac`, across 7,489 files.
+        ("a merge claim must backtick its commit again", collect.parent / "extant_config.py",
+         r'r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`?([0-9a-f]{7,40})`?(?![0-9a-f])"',
+         r'r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`([0-9a-f]{7,40})`"'),
+        # The boundary the closing backtick used to provide. Without it a
+        # 46-character hex run matches its first 40.
+        ("a longer hex run is truncated into a commit", collect.parent / "extant_config.py",
+         r"`?([0-9a-f]{7,40})`?(?![0-9a-f])",
+         r"`?([0-9a-f]{7,40})`?"),
         # The tag list is per-CALL. A plain dict that is never reset becomes
         # permanent rather than merely slow, which is the failure `_OWN_REMOTE`
         # already had once: the answer stays whatever the first call saw.

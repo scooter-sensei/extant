@@ -238,3 +238,49 @@ def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo) -> None:
     text = ("```yaml\n-   repo: https://github.com/o/r\n"
             "    rev: 'v9.9.9'\n    hooks: []\n```\n")
     assert _pins(repo, text) == ["dead-pinned-ref"]
+
+
+# --- how a merge claim writes its commit ------------------------------------
+
+def _merge(repo, text):
+    from extant_collect import validate_merge_claims
+    import extant_collect as hc
+    hc._ANCESTORS, hc._REFS, hc._INTEGRATION = {}, {}, {}
+    return [f.kind for f in validate_merge_claims(repo, text)]
+
+
+def test_a_merge_claim_may_write_its_commit_without_backticks(git_repo) -> None:
+    """The rule's largest measured blind spot.
+
+    basilisk-labs/agentplane writes 32 claims as
+    `PR #499 merged into main at 6ff1f4ac` - ref and commit both bare - and the
+    rule examined ZERO of them across 7,489 documentation files, because the
+    pattern required the commit in backticks. Widened, the corpus goes from 3
+    claims examined to 35 and gains no findings: all 32 are true.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")     # main must exist to branch off
+    git(repo, "checkout", "-q", "-b", "feature")
+    sha = commit("f.py", "f = 1\n", "feat: work")
+    git(repo, "checkout", "-q", "main")
+
+    text = f"PR #1 merged into main at {sha[:8]}.\n"
+    assert "false-merge-claim" in _merge(repo, text), (
+        "the commit is not on main, and a bare-spelled claim must be judged")
+
+    git(repo, "merge", "--no-ff", "-q", "-m", "merge", "feature")
+    assert "false-merge-claim" not in _merge(repo, text)
+
+
+def test_a_longer_hex_run_is_not_truncated_into_a_commit(git_repo) -> None:
+    """The boundary the closing backtick used to provide.
+
+    Without a trailing guard, `at 0123...` of 46 hex characters matches its
+    first 40 and the rule reports a commit nobody wrote.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+
+    long_hex = "0" * 46
+    assert not hc._MERGE_CLAIM.findall(f"merged to main at {long_hex}\n")

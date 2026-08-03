@@ -107,9 +107,25 @@ DEFAULTS: dict[str, object] = {
     #
     # A one-group pattern remains supported and keeps the old meaning, checked
     # against trunk, so a customised `merge_claim` does not break.
+    # The BACKTICKS AROUND THE COMMIT ARE OPTIONAL, and requiring them was the
+    # rule's largest blind spot. Measured on a corpus of agent-written project
+    # documents: basilisk-labs/agentplane writes 32 claims as
+    # `PR #499 merged into main at 6ff1f4ac`, with the ref and the commit both
+    # bare, and the rule examined ZERO of them across 7,489 files. Making the
+    # backticks optional takes the corpus from 3 claims examined to 35 and adds
+    # no findings at all - every one of the 32 is true, and all five distinct
+    # commits resolve, so ancestry was really checked rather than skipped.
+    #
+    # Safe by construction as well as by measurement: `validate_merge_claims`
+    # skips any claim whose SHA does not resolve, so a hex-looking token that
+    # is not a commit produces silence rather than a finding.
+    #
+    # The trailing lookahead replaces the boundary the closing backtick used to
+    # provide. Without it a 46-character hex run matches its first 40 and the
+    # rule reports a commit nobody wrote.
     "merge_claim": (
         r"(?:merged|shipped)\s+(?:to|into)\s+"
-        r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`([0-9a-f]{7,40})`"
+        r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`?([0-9a-f]{7,40})`?(?![0-9a-f])"
     ),
     "path_pointer": (
         r"(?:\*\*(?:Plan|Design|Spec|Authority|Source)s?:?\*\*|\bsee\b|\bread\b)"
