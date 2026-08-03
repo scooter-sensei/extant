@@ -425,6 +425,9 @@ _CONFIG_DERIVED: dict[str, Callable[[StatusConfig], object]] = {
     # be `main`: the claim names its own ref and is checked against that.
     "_MERGE_CLAIM": lambda c: c.merge_claim,
     "_RELEASE_TAG": lambda c: c.release_tag,
+    # Whether a release claim in these documents is about THIS repository's
+    # tags. Off by default; see the setting for the 19-of-26 measurement.
+    "_RELEASE_CLAIMS_ARE_OURS": lambda c: c.release_claims_name_our_tags,
     # COMPUTED, not copied. These three are why this table holds builders.
     "_SECTION_HEADER": lambda c: _section_header(c.entry_prefix),
     "_TODO_SCAN_EXCLUDED_FILES": lambda c: set(c.todo_exclude_files),
@@ -2366,24 +2369,41 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
     # Claims inside code are examples, not promises. See _prose.
     text = _prose(text)
     findings: list[Finding] = []
-    # A KNOWN false positive lives here, measured and deliberately left in.
-    # rust-lang/rfcs has zero tags and discusses Rust's releases throughout, so
-    # "(released in 1.75)" is reported as a dead tag of its own. Skipping
-    # repositories with no tags would fix it and was tried; it also silences a
-    # never-tagged project making a false claim about itself, which is this
-    # rule's simplest case and one this project has actually lived through.
-    # Nothing in prose marks who a version claim is ABOUT - `dead-pinned-ref`
-    # can only stay honest because `repo:` says so on the line above - so the
-    # cost is recorded rather than traded for a worse one.
     for number, line in enumerate(text.splitlines(), start=1):
         for tag in _RELEASE_TAG.findall(line):
             resolved = _released_tag(repo, tag)
             if resolved is None:
-                findings.append(Finding(
-                    number, "dead-release-tag",
-                    f"claims release `{tag}`, but no such tag exists",
-                    subject=tag,
-                ))
+                if _RELEASE_CLAIMS_ARE_OURS:
+                    findings.append(Finding(
+                        number, "dead-release-tag",
+                        f"claims release `{tag}`, but no such tag exists",
+                        subject=tag,
+                    ))
+                    continue
+                # "NO SUCH TAG EXISTS" IS NOT A QUESTION GIT CAN SETTLE, and
+                # this branch used to answer it anyway. A version in prose can
+                # name a git tag, an npm or PyPI release, a sub-package, a
+                # plugin, or a toolchain somebody else ships, and nothing in
+                # the sentence says which.
+                #
+                # Measured on 15 repositories that write prose release claims,
+                # it was wrong 19 times out of 26. eugenelim/agent-ready-repo
+                # tags `credbroker-v0.4.0` and writes "shipped as 0.27.0", an
+                # npm version; 10CG/Aria tags to v1.5.0 and cites v1.17.3
+                # through v1.24.1, its plugin's numbering; rust-lang/rfcs has
+                # no tags at all and discusses Rust's releases throughout.
+                #
+                # A range test was tried and does not separate them - two of
+                # the false positives sit inside the repository's own tag
+                # range - so there is no narrowing here, only a question the
+                # rule should not be asking. `dead-pinned-ref` stays honest on
+                # the same problem only because `repo:` names the owner on the
+                # line above; prose carries no such marker.
+                #
+                # The cost is real and stated: a project that claims a release
+                # it never tagged is no longer caught. What remains is the
+                # half that IS settleable - the tag is here, and it shipped on
+                # nothing - which was right 7 times out of 7.
                 continue
             if not _integration_refs(repo):
                 continue        # no integration branch here to have shipped it

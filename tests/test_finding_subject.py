@@ -80,6 +80,10 @@ def test_every_document_scoped_claim_carries_a_subject(git_repo) -> None:
         "Jump to [it](#no-such-heading).\n"
         "\n## 1. Ref\n"
     )
+    # `dead-release-tag`'s never-tagged branch is opt-in, and this fixture
+    # needs it to reach eight rule kinds. The denominator assertion below is
+    # what would otherwise turn that into a quietly weaker test.
+    hc._RELEASE_CLAIMS_ARE_OURS = True
     findings = hc.validate(repo, text)
     document_scoped = [f for f in findings
                        if f.kind not in ("inconsistent-artifact", "raw-lfs-blob")]

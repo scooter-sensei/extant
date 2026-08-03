@@ -6,9 +6,52 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 13 - The corpus that was never sampled (unreleased, 2026-08-03)
+
+**Status.** Suite is 438 tests, all passing. Eleven rules, eighteen presets.
+Unreleased work on top of `v0.16.0`.
+
+**What shipped.**
+
+- A merge claim may write its commit without backticks. Measured across 45
+  repositories: `false-merge-claim` went from 3 claims examined to 35, with no
+  finding added, removed or reworded. One repository writes 32 of them as
+  `PR #499 merged into main at 6ff1f4ac` and the rule saw none.
+- `dead-release-tag` stopped asking whether a version names a tag of THIS
+  repository, because nothing in prose says so. That half is now
+  `release_claims_name_our_tags`, off by default and set here. 19 findings
+  removed across the corpus, none added; the settleable half - the tag exists
+  and shipped on nothing - is always checked and was right 7 times out of 7.
+
+**What was learned.**
+
+- **The population a rule serves can exist in public and simply never have
+  been sampled.** Phase 12 concluded no public corpus could gate the claim
+  rules. 229 repositories from the agent-tooling topics - 52,417 files - carry
+  the shipped merge pattern 35 times, the release pattern 97, the branch token
+  640 and the live phrase 117. "Claim density" had been chosen by reaching for
+  popular Python and JavaScript tools, which are dense in changelogs rather
+  than in status claims.
+- **Three measurements were corrupted, and each looked like a result.** Shallow
+  clones made every historical SHA unresolvable and produced MORE findings;
+  lazy fetching in partial clones produced FEWER, drifting as the object store
+  warmed; and the gate compared the live payload against copies, which apply
+  different configuration because extant reads its config by walking up from
+  the SCRIPT rather than from `--repo`. None of the three announced itself. All
+  three were caught only by checking a number against a prior expectation.
+- **A warning already written down is still a warning you can ignore.**
+  `differential.py` had carried "both run from NEUTRAL directories outside any
+  repository" in its docstring from the start. It was read, then contradicted
+  by checking `load_config(repo)` in isolation and never asking whether the CLI
+  calls it for the target. It does not.
+- **A mutation campaign rewrites the source in place.** Running one alongside a
+  45-repository measurement meant the measurement swept mutated code, and the
+  mutation in question restored exactly the behaviour being measured away.
+
 ## Phase 12 - Loopholes, and eight widenings that did not survive measurement (shipped, 2026-08-02)
 
-**Status.** Suite is 434 tests, all passing. Eleven rules, eighteen presets.
+**Status.** Suite was 434 tests at the time, all passing. Eleven rules,
+eighteen presets.
 `v0.16.0` is tagged, released and on PyPI. Every release from `v0.5.0` is
 tagged with no gaps.
 

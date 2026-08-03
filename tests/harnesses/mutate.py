@@ -121,6 +121,20 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a longer hex run is truncated into a commit", collect.parent / "extant_config.py",
          r"`?([0-9a-f]{7,40})`?(?![0-9a-f])",
          r"`?([0-9a-f]{7,40})`?"),
+        # "No such tag exists" is not a question git can settle - a version in
+        # prose can name an npm release, a sub-package or a plugin - so it is
+        # opt-in. On by default it was wrong 19 times in 26 across 15 projects
+        # that write such claims.
+        ("a claimed release is judged local without being told", collect,
+         "            if resolved is None:\n"
+         "                if _RELEASE_CLAIMS_ARE_OURS:",
+         "            if resolved is None:\n"
+         "                if True:"),
+        ("the opt-in never fires even when it is set", collect,
+         "            if resolved is None:\n"
+         "                if _RELEASE_CLAIMS_ARE_OURS:",
+         "            if resolved is None:\n"
+         "                if False:"),
         # The tag list is per-CALL. A plain dict that is never reset becomes
         # permanent rather than merely slow, which is the failure `_OWN_REMOTE`
         # already had once: the answer stays whatever the first call saw.

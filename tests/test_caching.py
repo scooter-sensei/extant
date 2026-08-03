@@ -320,6 +320,9 @@ def test_tags_are_re_read_between_validate_calls(git_repo) -> None:
     subprocess.run(["git", "tag", "v1.0.0"], cwd=repo, check=True,
                    capture_output=True)
 
+    # The never-tagged branch is opt-in, and this test needs it: it proves the
+    # tag list is re-read by cutting a tag between two validations.
+    hc._RELEASE_CLAIMS_ARE_OURS = True
     text = "# R\n\nReleased in v2.0.0 last week.\n"
     before = [f.kind for f in hc.validate(repo, text, has_entries=False)]
     assert "dead-release-tag" in before, (

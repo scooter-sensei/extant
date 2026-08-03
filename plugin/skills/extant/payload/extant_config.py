@@ -83,6 +83,27 @@ DEFAULTS: dict[str, object] = {
     # of a process spawn per pattern. See _search_with_limit for why there is
     # no cheaper mechanism that actually works.
     "consistency_timeout_seconds": None,
+    # Does a release claim in these documents name a tag of THIS repository?
+    #
+    # OFF by default, because in general nothing in prose says so. A version in
+    # a sentence can name a git tag, an npm or PyPI release, a sub-package, a
+    # plugin, or a toolchain somebody else ships. Measured on 15 repositories
+    # that write prose release claims, treating every one as a tag of the local
+    # repository was wrong 19 times out of 26: eugenelim/agent-ready-repo tags
+    # `credbroker-v0.4.0` and writes "shipped as 0.27.0"; 10CG/Aria tags to
+    # v1.5.0 and cites its plugin's v1.17.3 through v1.24.1; rust-lang/rfcs has
+    # no tags at all and discusses Rust's releases throughout.
+    #
+    # ON, the rule also reports a claimed release that was never tagged. That
+    # is the right setting for a project validating ITS OWN status document -
+    # extant's primary use, where the author knows the claims are about these
+    # tags - and it is the author asserting it rather than the tool guessing.
+    # The half that needs no assertion, "this tag is here and shipped on
+    # nothing", is always checked; it was right 7 times out of 7.
+    #
+    # A range test was tried instead and does not separate the cases: two of
+    # the false positives sit inside the repository's own tag range.
+    "release_claims_name_our_tags": False,
     "trunk": "main",
     "plans_dir": "docs/superpowers/plans",
     "archive_header": "# Cerene - Status Archive\n\nOlder phase entries, newest first.\n\n",
@@ -212,6 +233,7 @@ class StatusConfig:
     archive_doc: str
     retain_entries: int
     consistency_timeout_seconds: float | None
+    release_claims_name_our_tags: bool
     trunk: str
     plans_dir: str
     archive_header: str
@@ -480,6 +502,8 @@ def load_config(repo: Path) -> StatusConfig:
         archive_doc=str(values["archive_doc"]),
         retain_entries=int(values["retain_entries"]),
         consistency_timeout_seconds=_timeout(values["consistency_timeout_seconds"]),
+        release_claims_name_our_tags=bool(
+            values["release_claims_name_our_tags"]),
         trunk=trunk,
         plans_dir=str(values["plans_dir"]),
         archive_header=str(values["archive_header"]),

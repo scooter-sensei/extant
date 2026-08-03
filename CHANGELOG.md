@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+Both changes here come from a corpus that did not exist when 0.16.0 shipped:
+fifteen projects that WRITE prose git claims, found by scanning 229
+repositories from the agent-tooling topics. 0.16.0 concluded no such corpus
+existed. That was a statement about the sample, and it is corrected below.
+
+**A merge claim may write its commit without backticks.** The rule's largest
+blind spot. basilisk-labs/agentplane records 32 claims as
+`PR #499 merged into main at 6ff1f4ac`, ref and commit both bare, and
+`false-merge-claim` examined ZERO of them across 7,489 documentation files.
+Measured across 45 repositories: 3 claims examined before, **35 after**, with
+no finding added, removed or reworded anywhere. All 32 are true and all five
+distinct commits resolve, so ancestry was really compared rather than skipped.
+A trailing guard replaces the boundary the closing backtick provided, without
+which a 46-character hex run matches its first 40.
+
+**`dead-release-tag` no longer asks a question git cannot settle.** "No such
+tag exists" was wrong **19 times out of 26** on projects that write release
+claims: eugenelim/agent-ready-repo tags `credbroker-v0.4.0` and writes "shipped
+as 0.27.0", an npm version; 10CG/Aria tags to v1.5.0 and cites its plugin's
+v1.17.3 through v1.24.1. A version in prose can name a tag, a package, a
+sub-component or somebody else's toolchain, and the sentence does not say
+which - `dead-pinned-ref` stays honest on the same problem only because
+`repo:` names the owner on the line above.
+
+That half is now `release_claims_name_our_tags`, **off by default**. On, it is
+the author asserting what the tool cannot infer, which is right for a project
+checking its own status document; this repository sets it. The half that needs
+no assertion - the tag is here and it shipped on nothing - is always checked
+and was right 7 times out of 7. Measured: 19 findings removed, none added.
+
+A range test was tried first and rejected: two of the false positives sit
+inside the repository's own tag range, so it separates nothing.
+
 ## 0.16.0 (2026-08-02)
 
 Loopholes, closed where closing them costs nothing and reported where closing

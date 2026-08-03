@@ -50,6 +50,16 @@ extra_docs = [
 # release-procedure gap, closed in CONTRIBUTING.md by verifying the tag exists,
 # not something to buy with four false positives on every run.
 
+# The release claims in these documents ARE about this repository's tags.
+#
+# Off by default, because in general a version in prose can name an npm or PyPI
+# release, a sub-package, a plugin or somebody else's toolchain, and nothing in
+# the sentence says which - measured wrong 19 times in 26 across 15 projects
+# that write such claims. Turning it on is the author asserting what the tool
+# cannot infer, and here it is simply true: this file lists four documents,
+# every one of them is about extant, and "v0.16.0 is tagged" means the git tag.
+release_claims_name_our_tags = true
+
 [extant.consistency.version]
 "plugin/.claude-plugin/plugin.json" = '"version":\s*"([^"]+)"'
 ".claude-plugin/marketplace.json" = '"version":\s*"([^"]+)"'

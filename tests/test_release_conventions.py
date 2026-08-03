@@ -25,6 +25,11 @@ def _reset():
     import extant_collect as hc
     hc._TAGS, hc._TAG_PREFIXES = {}, {}
     hc._REFS = {}
+    # These tests are about RESOLVING a claimed version against the tags a
+    # repository really uses, so they assert what `release_claims_name_our_tags`
+    # asserts: the claims are about this repository. The default is off, and
+    # the two tests at the bottom of this file are the ones that pin that.
+    hc._RELEASE_CLAIMS_ARE_OURS = True
 
 
 def _tags(repo, text):
@@ -284,3 +289,51 @@ def test_a_longer_hex_run_is_not_truncated_into_a_commit(git_repo) -> None:
 
     long_hex = "0" * 46
     assert not hc._MERGE_CLAIM.findall(f"merged to main at {long_hex}\n")
+
+
+# --- whose release is it, anyway ---------------------------------------------
+
+def test_a_claimed_release_that_was_never_tagged_is_silent_by_default(git_repo) -> None:
+    """The default, and the measurement behind it.
+
+    "No such tag exists" is not a question git can settle. A version in prose
+    can name a git tag, an npm or PyPI release, a sub-package, a plugin, or
+    somebody else's toolchain, and nothing in the sentence says which. Measured
+    across 15 repositories that write prose release claims, treating every one
+    as a local tag was wrong 19 times out of 26: eugenelim/agent-ready-repo
+    tags `credbroker-v0.4.0` and writes "shipped as 0.27.0"; 10CG/Aria tags to
+    v1.5.0 and cites its plugin's v1.17.3 through v1.24.1.
+
+    A range test was tried instead and does not separate the cases - two false
+    positives sit inside the repository's own tag range - so this is opt-in
+    rather than narrowed.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "v1.0.0")
+
+    _reset()
+    hc._RELEASE_CLAIMS_ARE_OURS = False          # the shipped default
+    from extant_collect import validate_release_tags
+    kinds = [f.kind for f in validate_release_tags(repo, "Released in v9.9.9.\n")]
+    assert "dead-release-tag" not in kinds, kinds
+
+
+def test_the_settleable_half_is_checked_whatever_the_setting(git_repo) -> None:
+    """The half that needs no assertion: the tag IS here, and it shipped on
+    nothing. That was right 7 times out of 7 on the same corpus, so it is
+    always checked - turning the setting off must not disable the rule."""
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "checkout", "-q", "-b", "abandoned")
+    commit("b.py", "b = 1\n", "feat: b")
+    git(repo, "tag", "v2.1.0")
+    git(repo, "checkout", "-q", "main")
+
+    _reset()
+    hc._RELEASE_CLAIMS_ARE_OURS = False
+    from extant_collect import validate_release_tags
+    kinds = [f.kind for f in validate_release_tags(repo, "Released in v2.1.0.\n")]
+    assert "dead-release-tag" in kinds, kinds

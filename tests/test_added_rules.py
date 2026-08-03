@@ -171,6 +171,8 @@ def test_a_release_claim_ending_a_sentence_is_not_broken_by_the_full_stop(git_re
     implementation that restores the greedy tail fails here.
     """
     from extant_collect import validate_release_tags
+    import extant_collect as hc
+    hc._RELEASE_CLAIMS_ARE_OURS = True   # these assert the claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "v2.1")
@@ -308,6 +310,8 @@ def test_branch_rule_ignores_older_entries(git_repo) -> None:
 
 def test_missing_release_tag_is_flagged(git_repo) -> None:
     from extant_collect import validate_release_tags
+    import extant_collect as hc
+    hc._RELEASE_CLAIMS_ARE_OURS = True   # these assert the claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
@@ -325,6 +329,8 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo) -> None:
     Dropping the ancestry check left every other test in this file green.
     """
     from extant_collect import validate_release_tags
+    import extant_collect as hc
+    hc._RELEASE_CLAIMS_ARE_OURS = True   # these assert the claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "checkout", "-q", "-b", "abandoned")
@@ -345,6 +351,8 @@ def test_existing_tag_on_trunk_is_silent(git_repo) -> None:
     """Catches a rule that flags real releases, which would make it unusable for
     the CHANGELOG-keeping projects it exists to serve."""
     from extant_collect import validate_release_tags
+    import extant_collect as hc
+    hc._RELEASE_CLAIMS_ARE_OURS = True   # these assert the claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "v1.0")
