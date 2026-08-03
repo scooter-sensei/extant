@@ -18,6 +18,27 @@ Found by the first full mutation campaign in this project's history - 136
 mutations, one full suite run each. It reported two survivors, both in the
 installer; writing a unit test for the first is what surfaced this.
 
+**Branches, tags and ref lookups are one `for-each-ref`.** They were three
+separate questions - `tag -l`, a `for-each-ref` of its own, and a
+`rev-parse --verify` per ref - each paying a process spawn, which is the
+expensive thing on Windows. A validate of this project's own status document
+went from **8 git subprocesses to 6**, and from **261 ms to 214**. Verified
+byte-identical across 45 repositories: 18,862 findings, none added, removed,
+reworded, or examined differently.
+
+Bare names resolve the way git resolves them, tags before heads, so a
+repository holding a branch and a tag of the same name agrees with
+`rev-parse`. Annotated tags are peeled to the commit they tag - without that
+they resolve to the tag object, which is an ancestor of nothing, and every
+correctly annotated release would be reported as having shipped on no
+integration branch. Nothing in 443 tests noticed that until a mutation
+survived, because every fixture in the suite used lightweight tags.
+
+An earlier attempt at the same goal was reverted. Memoising commit resolution
+worked exactly as designed - the second rule to ask found 24 of its 25 tokens
+already known - and a controlled A/B measured **261 ms against 265**. The cost
+is the spawn, not the payload.
+
 ## 0.16.1 (2026-08-03)
 
 Both changes here come from a corpus that did not exist when 0.16.0 shipped:

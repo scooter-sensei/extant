@@ -1006,13 +1006,66 @@ def _resolve_ref(repo: Path, ref: str) -> str | None:
     key = (str(repo), ref)
     if key in _REFS:
         return _REFS[key]
-    try:
-        resolved = _git(repo, "rev-parse", "--verify", "--quiet",
-                        f"{ref}^{{commit}}").strip() or None
-    except (subprocess.CalledProcessError, OSError):
-        resolved = None
+    # The ref TABLE first, which one `for-each-ref` builds for the whole call.
+    # Measured on this repository's own status document, a validate spawned
+    # eight git subprocesses and three of them asked questions this table
+    # already answers: two `rev-parse --verify` and one `tag -l`, beside the
+    # `for-each-ref` that was being run anyway.
+    heads, tags = _ref_table(repo)
+    # TAGS BEFORE HEADS, because that is git's precedence for a bare name:
+    # `refs/tags/<name>` is tried before `refs/heads/<name>`. Reversing it
+    # would resolve a repository that has both to a different commit than
+    # `rev-parse` does, which is the kind of divergence that shows up once, in
+    # somebody else's repository, as a merge claim reported false.
+    resolved = tags.get(ref) or heads.get(ref)
+    if resolved is None:
+        # Not a plain branch or tag name: a raw SHA, a remote-tracking ref,
+        # `HEAD`, `main~3`. Those still need git, and still cost a spawn.
+        try:
+            resolved = _git(repo, "rev-parse", "--verify", "--quiet",
+                            f"{ref}^{{commit}}").strip() or None
+        except (subprocess.CalledProcessError, OSError):
+            resolved = None
     _REFS[key] = resolved
     return resolved
+
+
+def _ref_table(repo: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """Every local branch and tag, by short name, with annotated tags peeled.
+
+    One subprocess answers what `rev-parse --verify` per ref, `tag -l` and
+    `for-each-ref refs/heads` were each asking separately. `%(*objectname)` is
+    the peeled commit for an annotated tag and empty otherwise, which is the
+    same dereference `^{commit}` performs - without it an annotated tag yields
+    the tag object's own SHA, which appears in no rev-list.
+
+    Held for one call, like every other answer git gives here.
+    """
+    key = str(repo)
+    if key not in _REF_TABLE:
+        heads: dict[str, str] = {}
+        tags: dict[str, str] = {}
+        try:
+            out = _git(repo, "for-each-ref",
+                       "--format=%(refname)\t%(objectname)\t%(*objectname)",
+                       "refs/heads", "refs/tags")
+        except (subprocess.CalledProcessError, OSError):
+            out = ""
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+            full, obj, peeled = parts
+            commit = peeled or obj
+            if full.startswith("refs/heads/"):
+                heads[full[len("refs/heads/"):]] = commit
+            elif full.startswith("refs/tags/"):
+                tags[full[len("refs/tags/"):]] = commit
+        _REF_TABLE[key] = (heads, tags)
+    return _REF_TABLE[key]
+
+
+_REF_TABLE: dict[str, tuple[dict[str, str], dict[str, str]]] = {}
 
 
 # The branch names the mainstream flows actually integrate into: gitflow and
@@ -1064,15 +1117,11 @@ def _integration_refs(repo: Path) -> list[str]:
     if key in _INTEGRATION:
         return _INTEGRATION[key]
     refs = [TRUNK]
-    try:
-        out = _git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads")
-    except (subprocess.CalledProcessError, OSError):
-        present: set[str] = set()
-    else:
-        present = set(out.split())
-        for name in _INTEGRATION_NAMES:
-            if name in present and name not in refs:
-                refs.append(name)
+    # The shared ref table, not a second `for-each-ref` of its own.
+    present = set(_ref_table(repo)[0])
+    for name in _INTEGRATION_NAMES:
+        if name in present and name not in refs:
+            refs.append(name)
     _INTEGRATION[key] = [ref for ref in refs
                          if _resolve_ref(repo, ref) is not None]
     return _INTEGRATION[key]
@@ -2419,10 +2468,9 @@ def validate_release_tags(repo: Path, text: str) -> list[Finding]:
 
 def _tags(repo: Path) -> set[str]:
     """Every tag in this repository, read once."""
-    key = str(repo)
-    if key not in _TAGS:
-        _TAGS[key] = set(_git_soft(repo, "tag", "-l").split())
-    return _TAGS[key]
+    # From the shared ref table rather than its own `tag -l`. Same names, one
+    # fewer subprocess; see `_ref_table`.
+    return set(_ref_table(repo)[1])
 
 
 def _tag_prefixes(repo: Path) -> list[str]:
@@ -3383,13 +3431,14 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     for callers that have no particular file in mind.
     """
     global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
-    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION
+    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
     previous, previous_cache = _LINK_BASE, _DIRCACHE
     previous_ancestors, previous_refs, previous_lfs = _ANCESTORS, _REFS, _LFS
     previous_target_anchors = _TARGET_ANCHORS
     previous_own_remote = _OWN_REMOTE
     previous_tags, previous_prefixes = _TAGS, _TAG_PREFIXES
     previous_integration = _INTEGRATION
+    previous_ref_table = _REF_TABLE
     if base is not None:
         _LINK_BASE = base
     if _STABLE_SCOPE:
@@ -3428,6 +3477,8 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         _TAGS = {}
         _TAG_PREFIXES = {}
         _INTEGRATION = {}
+        # Branches and tags, read once per call. See _ref_table.
+        _REF_TABLE = {}
     try:
         findings: list[Finding] = []
         primary = not in_archive and has_entries
@@ -3455,6 +3506,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         _OWN_REMOTE = previous_own_remote
         _TAGS, _TAG_PREFIXES = previous_tags, previous_prefixes
         _INTEGRATION = previous_integration
+        _REF_TABLE = previous_ref_table
 
 
 FORMATS = ("text", "github", "sarif")
@@ -3692,10 +3744,11 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # time. Restored in `finally` so a library caller that sweeps and then
     # validates something else gets the per-call behaviour back.
     global _STABLE_SCOPE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
-    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION
+    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
     _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}, {}
     _OWN_REMOTE = {}
     _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
+    _REF_TABLE = {}
     _STABLE_SCOPE = True
     # `_LINK_BASE` and `_DOC_FORMAT` are per-DOCUMENT rather than per-scope, and
     # they are saved here because the loop below reassigns them. Restoring them
@@ -3731,6 +3784,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
         _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}
         _OWN_REMOTE = {}
         _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
+        _REF_TABLE = {}
         _LINK_BASE = previous_link_base
         _DOC_FORMAT = previous_format
 

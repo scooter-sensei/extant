@@ -52,16 +52,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # changed with it. The first anchor still matched by accident, being a
         # substring of the newly indented line, which is exactly the kind of
         # near-miss --check-only exists to stop being lucky about.
+        # Retargeted a third time, when the branch scan moved into the shared
+        # ref table and this function stopped parsing `for-each-ref` itself.
         ("integration refs collapse to the configured trunk alone", collect,
-         "        present = set(out.split())",
-         "        present = set()"),
+         "    present = set(_ref_table(repo)[0])",
+         "    present = set()"),
         ("any branch counts as an integration branch", collect,
-         "        for name in _INTEGRATION_NAMES:\n"
-         "            if name in present and name not in refs:\n"
-         "                refs.append(name)",
-         "        for name in sorted(present):\n"
-         "            if name not in refs:\n"
-         "                refs.append(name)"),
+         "    for name in _INTEGRATION_NAMES:\n"
+         "        if name in present and name not in refs:\n"
+         "            refs.append(name)",
+         "    for name in sorted(present):\n"
+         "        if name not in refs:\n"
+         "            refs.append(name)"),
         ("merge claims stop checking the ref the claim names", collect,
          "            merged[key] = _reachable_from(repo, sha, ref)",
          "            merged[key] = _reachable_from(repo, sha, TRUNK)"),
@@ -145,6 +147,22 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                if _RELEASE_CLAIMS_ARE_OURS:",
          "            if resolved is None:\n"
          "                if False:"),
+        # Git resolves a bare name by trying `refs/tags/` BEFORE
+        # `refs/heads/`. Reading the table heads-first resolves a repository
+        # holding a branch and a tag of the same name to a different commit
+        # than `rev-parse` does.
+        ("a bare ref name resolves heads before tags", collect,
+         "    resolved = tags.get(ref) or heads.get(ref)",
+         "    resolved = heads.get(ref) or tags.get(ref)"),
+        # A cost contract: one ref scan answers what `tag -l`, a second
+        # `for-each-ref` and per-ref `rev-parse` each asked. 8 spawns per
+        # validate became 6, and 261 ms became 214.
+        ("the tag list goes back to its own subprocess", collect,
+         "    return set(_ref_table(repo)[1])",
+         '    return set(_git_soft(repo, "tag", "-l").split())'),
+        ("an annotated tag stops being peeled to its commit", collect,
+         "            commit = peeled or obj",
+         "            commit = obj"),
         # The tag list is per-CALL. A plain dict that is never reset becomes
         # permanent rather than merely slow, which is the failure `_OWN_REMOTE`
         # already had once: the answer stays whatever the first call saw.

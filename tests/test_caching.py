@@ -377,3 +377,110 @@ def test_integration_refs_are_asked_for_once_not_once_per_claim(
         f"40 release claims spawned {len(scans)} `for-each-ref` processes; the "
         "branch list cannot change while one validation runs"
     )
+
+
+def test_one_ref_scan_answers_branches_tags_and_lookups(git_repo, monkeypatch) -> None:
+    """Branches, tags and ref lookups are ONE `for-each-ref`, not four calls.
+
+    Measured on this project's own status document: a validate spawned eight
+    git subprocesses, and three asked what a single ref scan already answers -
+    two `rev-parse --verify` and one `tag -l`, beside the `for-each-ref` that
+    was running anyway. Routing them through one table took the validate from
+    8 spawns to 6, and from about 261 ms to 214.
+
+    A cost contract, so no ordinary test can see it: reverting gives identical
+    findings and only a tool that got slower between releases.
+    """
+    import subprocess as sp
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("README.md", "# R\n", "chore: init")
+    for n in range(3):
+        sp.run(["git", "tag", f"v1.{n}.0"], cwd=repo, check=True,
+               capture_output=True)
+
+    calls: list[str] = []
+    real = sp.run
+
+    def counted(cmd, *a, **k):
+        if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "git":
+            calls.append(" ".join(str(x) for x in cmd[1:3]))
+        return real(cmd, *a, **k)
+
+    monkeypatch.setattr(sp, "run", counted)
+    hc._REF_TABLE = {}
+    hc._tags(repo)
+    hc._integration_refs(repo)
+    hc._resolve_ref(repo, "main")
+    hc._resolve_ref(repo, "v1.1.0")
+
+    scans = [c for c in calls if c.startswith("for-each-ref")]
+    assert len(scans) == 1, (
+        f"four questions about refs spawned {len(scans)} ref scans; one table "
+        f"answers all of them"
+    )
+    assert not [c for c in calls if c.startswith("tag ")], (
+        "`tag -l` ran even though the ref table already lists the tags"
+    )
+
+
+def test_a_bare_name_resolves_the_way_git_resolves_it(git_repo) -> None:
+    """Git tries `refs/tags/<name>` BEFORE `refs/heads/<name>` for a bare name.
+
+    A repository with a branch and a tag of the same name is rare and real, and
+    reading the table heads-first would resolve it to a different commit than
+    `rev-parse` does - which surfaces once, in somebody else's repository, as a
+    merge claim reported false.
+    """
+    import subprocess as sp
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: a")
+    sp.run(["git", "checkout", "-q", "-b", "clash"], cwd=repo, check=True,
+           capture_output=True)
+    other = commit("b.py", "b = 1\n", "chore: b")
+    sp.run(["git", "checkout", "-q", "main"], cwd=repo, check=True,
+           capture_output=True)
+    # A TAG named `clash`, pointing somewhere else than the branch `clash`.
+    sp.run(["git", "tag", "clash", "HEAD"], cwd=repo, check=True,
+           capture_output=True)
+
+    hc._REF_TABLE, hc._REFS = {}, {}
+    ours = hc._resolve_ref(repo, "clash")
+    theirs = sp.run(["git", "rev-parse", "--verify", "--quiet", "clash^{commit}"],
+                    cwd=repo, capture_output=True, text=True).stdout.strip()
+    assert ours == theirs, (
+        f"the table resolved `clash` to {ours}, git resolves it to {theirs}; "
+        f"the branch commit is {other}"
+    )
+
+
+def test_the_ref_table_is_re_read_between_validate_calls(git_repo) -> None:
+    """Same lifetime as every other answer git gives here. A branch created
+    between two validations must be seen, or the table is a correctness bug
+    wearing a performance costume."""
+    import subprocess as sp
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("README.md", "# R\n", "chore: init")
+
+    # Asserted through a RULE, not by reading the table afterwards. `validate`
+    # restores every cache to its pre-call value in `finally`, so inspecting
+    # the table after the call sees the restored copy and says nothing about
+    # what the call itself used. The first version of this test did exactly
+    # that and failed against correct code.
+    text = ("# R\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+            "Work is NOT yet merged on `feature/new`.\n\n## 1. Ref\n")
+
+    hc._REF_TABLE = {}
+    before = [f.kind for f in hc.validate(repo, text)]
+    assert "unknown-branch" in before, (
+        "the branch does not exist yet, so it must be reported: " + str(before))
+
+    sp.run(["git", "branch", "feature/new"], cwd=repo, check=True,
+           capture_output=True)
+
+    after = [f.kind for f in hc.validate(repo, text)]
+    assert "unknown-branch" not in after, (
+        "a branch created between two validate() calls was not seen, so the "
+        "ref table is outliving the call that built it: " + str(after))

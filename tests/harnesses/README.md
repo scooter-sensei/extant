@@ -509,6 +509,25 @@ The last of those is the reason to re-run this after a change to what the code
 READS rather than only to what it does, and it is the one measurement here that
 has already paid for itself.
 
+### The fixtures are claim-SPARSE, and it shows up as a shrug
+
+Batching every branch, tag and ref lookup into one `for-each-ref` took a
+validate of this project's own status document from **8 git subprocesses to 6**
+and from **261 ms to 214**. The same change moves this harness by 1.5% on the
+per-rule total and by an amount indistinguishable from noise on the hook
+overhead, which varies about a quarter between runs.
+
+Both numbers are honest. They measure different documents. The documents here
+carry links and prose; `NEXT_SESSION.md` carries 24 commit references, merge
+claims and branch tokens, which is what makes it touch every ref lookup in the
+tool. A per-rule percentage is a statement about the fixture.
+
+That is the third time this has happened - section 8 exists because the anchor
+union was invisible for a week, section 10 because a rule cost 11.6 seconds
+while reporting 2.6% of a run it never exercised. The structural claim is the
+one worth pinning, and `test_caching.py` pins it: four questions about refs,
+one scan. A spawn count does not vary by a quarter between runs.
+
 `validate_md_anchors` asks whether the repository declares a project-wide
 namespace, and on a hit unions in every anchor from every tracked markdown
 file. That is correct - MyST and Sphinx resolve labels project-wide, and 168 of

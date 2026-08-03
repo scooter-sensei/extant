@@ -337,3 +337,34 @@ def test_the_settleable_half_is_checked_whatever_the_setting(git_repo) -> None:
     from extant_collect import validate_release_tags
     kinds = [f.kind for f in validate_release_tags(repo, "Released in v2.1.0.\n")]
     assert "dead-release-tag" in kinds, kinds
+
+
+def test_an_annotated_tag_resolves_to_the_commit_it_tags(git_repo) -> None:
+    """An annotated tag is an OBJECT, and its own SHA is in no rev-list.
+
+    `^{commit}` dereferences it; the ref table gets the same answer from
+    `%(*objectname)`, which is empty for a lightweight tag and the peeled
+    commit for an annotated one. Drop the peel and every annotated release
+    resolves to the tag object, is an ancestor of nothing, and gets reported as
+    having shipped on no integration branch - a false positive on every
+    correctly tagged project.
+
+    Found as a mutation SURVIVOR: nothing in the suite had noticed, because
+    every other fixture here uses lightweight tags.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    git(repo, "tag", "-a", "v3.0.0", "-m", "annotated release")
+
+    hc._REF_TABLE, hc._REFS, hc._TAGS, hc._TAG_PREFIXES = {}, {}, {}, {}
+    hc._INTEGRATION, hc._ANCESTORS = {}, {}
+    resolved = hc._resolve_ref(repo, "v3.0.0")
+    head = hc._resolve_ref(repo, "main")
+    assert resolved == head, (
+        f"the annotated tag resolved to {resolved}, not to the commit it tags "
+        f"({head}) - so it is an ancestor of nothing"
+    )
+
+    # And the rule that depends on it stays quiet, which is the point.
+    assert "dead-release-tag" not in _tags(repo, "Released in v3.0.0.\n")
