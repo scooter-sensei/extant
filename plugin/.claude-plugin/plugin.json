@@ -1,7 +1,7 @@
 {
   "name": "extant",
   "description": "Finds the commits, branches, tags and paths your documentation cites that no longer exist. Aimed at the plan, spec and status documents written during agent sessions, which are dense with commit references and are read back as fact by the next session. Checks every falsifiable claim against git and the filesystem, installs hooks that re-check after each commit and merge, and offers a --sweep mode that surveys every tracked markdown file with no configuration. Reports as text, GitHub annotations or SARIF, and can prove its own rules fire.",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "author": {
     "name": "scooter-sensei"
   },

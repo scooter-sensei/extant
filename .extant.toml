@@ -57,7 +57,7 @@ extra_docs = [
 # the sentence says which - measured wrong 19 times in 26 across 15 projects
 # that write such claims. Turning it on is the author asserting what the tool
 # cannot infer, and here it is simply true: this file lists four documents,
-# every one of them is about extant, and "v0.16.0 is tagged" means the git tag.
+# every one of them is about extant, so a release claim here means a git tag.
 release_claims_name_our_tags = true
 
 [extant.consistency.version]

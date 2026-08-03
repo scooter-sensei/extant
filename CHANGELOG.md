@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.1 (2026-08-03)
 
 Both changes here come from a corpus that did not exist when 0.16.0 shipped:
 fifteen projects that WRITE prose git claims, found by scanning 229

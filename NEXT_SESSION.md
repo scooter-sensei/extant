@@ -6,10 +6,13 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 13 - The corpus that was never sampled (unreleased, 2026-08-03)
+## Phase 13 - The corpus that was never sampled (shipped, 2026-08-03)
 
-**Status.** Suite is 438 tests, all passing. Eleven rules, eighteen presets.
-Unreleased work on top of `v0.16.0`.
+**Status.** Suite is 440 tests, all passing. Eleven rules, eighteen presets.
+This work is version 0.16.1. It could not fold into `v0.16.0`: that version was
+already on PyPI, which never lets a version number be re-uploaded, so moving
+the tag would have left the repository asserting that `v0.16.0` is code PyPI
+has never served.
 
 **What shipped.**
 
