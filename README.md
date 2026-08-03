@@ -124,6 +124,7 @@ Eleven rules. Every one answers a question git or the filesystem can settle.
 | `inconsistent-artifact` | two files in your project stating different values for the same thing |
 | `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |
 | `raw-lfs-blob` | an asset your `.gitattributes` says is in Git LFS, committed into git as a real binary instead |
+| `manifest-floor-mismatch` | your README says "requires Python 3.8+" while `pyproject.toml` says `>=3.10`. Only in a README or install guide, never in a changelog |
 
 Five details that are easy to miss:
 
