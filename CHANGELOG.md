@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.2 (2026-08-03)
 
 **The merge-claim fix below now reaches installed projects.** 0.16.1 widened
 the collector's DEFAULT so a bare commit is seen at all, and the installer

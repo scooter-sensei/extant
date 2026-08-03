@@ -6,10 +6,57 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 14 - What the campaign and the profiler found (shipped, 2026-08-03)
+
+**Status.** Suite is 447 tests, all passing. Eleven rules, eighteen presets.
+This work is version 0.16.2.
+
+**What shipped.**
+
+- **0.16.1's merge-claim fix now reaches installed projects.** It widened the
+  collector's DEFAULT; the installer writes its own `merge_claim` which
+  OVERRIDES that, so anyone who installed 0.16.1 kept missing exactly the
+  claims it was released to catch. The comment beside that line describes the
+  same trap from the first time it was sprung, and it was read while making the
+  change.
+- Branches, tags and ref lookups are one `for-each-ref`. A validate of this
+  repository's own status document went from 8 git subprocesses to 6, and from
+  261 ms to 214. Byte-identical across 45 repositories.
+- `corpus.py --baseline` compares per-rule counts, a digest of each rule's
+  finding text, and per-rule denominators. It recorded one total per
+  repository, and three kinds of regression walked through that during this
+  session alone.
+
+**What was learned.**
+
+- **The first full mutation campaign this project has run - 136 mutations, one
+  suite run each - reported two survivors and both were worth having.** One was
+  a shipped bug; the other was UNKILLABLE, its mutation breaking half of a
+  two-part guard whose other half rejected the same input independently. A
+  mutation nothing can kill survives every campaign and reads as a permanent
+  test gap.
+- **A green check is evidence only once you know what would make it red.**
+  Four times in one session a check passed for the wrong reason: a memo
+  measured against a PROFILED baseline looked 17% faster and was noise; a test
+  written for a survivor passed vacuously because the function emitted nothing
+  to loop over; a freshness test failed against correct code because `validate`
+  restores caches in `finally`; and a corruption meant to prove one check
+  fired changed two things at once, so the check that stayed quiet looked
+  broken.
+- **Measure the thing you are about to claim, with the method you will quote.**
+  The SHA memo was reverted after a controlled A/B in one process measured
+  261 ms against 265. It had looked like a clear win against a number taken a
+  different way.
+- A harness measures the inputs it knows how to build, for the third time. The
+  ref-table change moves `perf.py` by 1.5% and a real status document by 18%,
+  because its fixtures carry links where real documents carry commit
+  references. What gets pinned is the structural claim - four questions about
+  refs, one scan - since a spawn count does not vary by a quarter between runs.
+
 ## Phase 13 - The corpus that was never sampled (shipped, 2026-08-03)
 
-**Status.** Suite is 440 tests, all passing. Eleven rules, eighteen presets.
-This work is version 0.16.1. It could not fold into `v0.16.0`: that version was
+**Status.** Suite was 440 tests at the time, all passing. Eleven rules,
+eighteen presets. That work was version 0.16.1. It could not fold into `v0.16.0`: that version was
 already on PyPI, which never lets a version number be re-uploaded, so moving
 the tag would have left the repository asserting that `v0.16.0` is code PyPI
 has never served.
