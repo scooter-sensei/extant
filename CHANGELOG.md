@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+**The merge-claim fix below now reaches installed projects.** 0.16.1 widened
+the collector's DEFAULT so a bare commit is seen at all, and the installer
+went on writing the narrow backticked-only form into `.extant.toml` - which
+overrides the default. Anyone who installed 0.16.1 kept missing exactly the
+claims it was released to catch. Only a project running the tool without a
+generated config got the fix.
+
+This is the second time this trap has been sprung, and the comment beside the
+line describes the first: when the rule learned to check a claim against the
+branch the claim names, the installer kept emitting `{trunk}` and every fresh
+install stayed single-trunk. Both halves now have a mutation and a test.
+
+Found by the first full mutation campaign in this project's history - 136
+mutations, one full suite run each. It reported two survivors, both in the
+installer; writing a unit test for the first is what surfaced this.
+
 ## 0.16.1 (2026-08-03)
 
 Both changes here come from a corpus that did not exist when 0.16.0 shipped:

@@ -85,6 +85,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          detect.parent / "install.py",
          'rf"(?:{alt})\\s+(?:to|into|in|on)\\s+(`[^`\\n]+`|[\\w.\\-/]+)"',
          'rf"(?:{alt})\\s+(?:to|into|in|on)\\s+`?{{trunk}}`?"'),
+        # The SAME trap as the line above, sprung a second time. 0.16.1 widened
+        # the collector's default so a bare commit is seen at all; this line
+        # went on writing the backticked-only form, and the installed config
+        # overrides the default - so every freshly installed project kept
+        # missing `merged into main at 6ff1f4ac`. Found by a mutation SURVIVOR
+        # in the group above, whose test was being written when this surfaced.
+        ("the installer demands backticks round the commit again",
+         detect.parent / "install.py",
+         'rf"\\s+(?:at|in|as)\\s+`?([0-9a-f]{{7,40}})`?(?![0-9a-f])"',
+         'rf"\\s+(?:at|in|as)\\s+`([0-9a-f]{{7,40}})`"'),
         ("live-claim checks EVERY entry, not just the newest", collect,
          '        if kind != "phase" or newest_checked:\n            continue\n'
          "        newest_checked = True\n        if not _LIVE_PHRASES.search(entry):",
@@ -493,9 +503,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          detect.parent / "install.py",
          '    extras = [e for e in preset.get("extra_docs", []) if (repo / str(e)).is_file()]',
          '    extras = [str(e) for e in preset.get("extra_docs", [])]'),
+        # Retargeted at the WHOLE guard. It used to replace only the
+        # `is_file()` half, which cannot change behaviour on its own:
+        # `_pattern_matches` returns False for a file it cannot read, so the
+        # pattern half independently rejects an absent file. The mutation was
+        # therefore unkillable by construction and survived every campaign,
+        # reading as a permanent test gap - the same two-mechanisms-masking
+        # shape that hid dead code in the tag-prefix logic.
         ("preset emits a consistency check whose files are absent",
          detect.parent / "install.py",
-         "            if all((repo / f).is_file() for f in sources)",
+         "            if all((repo / f).is_file() for f in sources)\n"
+         "            and all(_pattern_matches(repo / f, pattern)\n"
+         "                    for f, pattern in sources.items())",
          "            if True"),
         ("preset stops switching off the features it disables",
          detect.parent / "install.py",

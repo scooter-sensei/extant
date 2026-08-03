@@ -703,8 +703,16 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
         # scenario runs the real installer and caught it immediately.
         obs.append(Observation(
             "merge_claim",
+            # The backticks around the COMMIT are optional, matching the
+            # default. This is the same trap the paragraph above describes,
+            # sprung a second time: 0.16.1 widened the collector's default so
+            # that `PR #499 merged into main at 6ff1f4ac` is seen at all - 32
+            # such claims in one repository were being examined zero times -
+            # and this line kept writing the narrow form. The installed config
+            # overrides the default, so every freshly installed project would
+            # have gone on missing them no matter what the rule supported.
             rf"(?:{alt})\s+(?:to|into|in|on)\s+(`[^`\n]+`|[\w.\-/]+)"
-            rf"\s+(?:at|in|as)\s+`([0-9a-f]{{7,40}})`",
+            rf"\s+(?:at|in|as)\s+`?([0-9a-f]{{7,40}})`?(?![0-9a-f])",
             DERIVED,
             f"{info['merge_count']} example(s) using: {', '.join(verbs)}",
         ))

@@ -731,3 +731,103 @@ def test_the_installer_asserts_release_claims_are_local() -> None:
         Observation("release_claims_name_our_tags", True, DERIVED, "own repo"),
     ])
     assert tomllib.loads(rendered)["extant"]["release_claims_name_our_tags"] is True
+
+
+def test_the_installer_emits_a_merge_claim_that_names_its_own_ref(tmp_path) -> None:
+    """The installed config OVERRIDES the default, so the collector supporting
+    two trunks is not enough on its own.
+
+    This regressed once already: the rule learned to check a claim against the
+    branch the claim names, and every freshly installed project kept the old
+    single-trunk behaviour because the installer went on writing `{trunk}` into
+    `.extant.toml`.
+
+    Found again by a mutation campaign, as a SURVIVOR - the gitflow scenario
+    catches it, and nothing in the unit suite did, so a campaign that runs only
+    pytest reported "no test noticed". Both statements were true.
+    """
+    import subprocess
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    from install import observe
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True,
+                   capture_output=True)
+    doc = repo / "STATUS.md"
+    doc.write_text(
+        "# Status\n\n## Phase 1 - x (done, 2026-01-01)\n\n"
+        "Merged to `develop` at `abc1234`.\n"
+        "Merged into `main` at `def5678`.\n",
+        encoding="utf-8")
+
+    obs, _info = observe(repo, doc)
+    claim = next((o for o in obs if o.key == "merge_claim" and o.value), None)
+    assert claim is not None, "the installer derived no merge_claim at all"
+
+    import re
+    # IGNORECASE, because that is how the collector compiles it.
+    pattern = re.compile(str(claim.value), re.IGNORECASE)
+    assert pattern.groups >= 1, (
+        f"a one-group pattern means the target is hard-coded: {claim.value!r}"
+    )
+    # The point of the two-group form: the REF is captured, so a claim about
+    # `develop` is checked against `develop` rather than against a trunk.
+    found = pattern.findall("Merged to `develop` at `abc1234`.")
+    assert found and "develop" in str(found[0]), (
+        f"the pattern did not capture the ref the claim names: {claim.value!r}"
+    )
+    # And the commit may be written BARE, as the default allows since 0.16.1.
+    # The installed config overrides the default, so a narrow pattern here
+    # silently undoes that fix for every freshly installed project - which is
+    # exactly how the single-trunk regression happened, one release earlier.
+    bare = pattern.findall("Merged into main at 6ff1f4ac and shipped.")
+    assert bare, (
+        f"the installer's pattern still demands backticks round the commit, "
+        f"so an installed project misses `merged into main at 6ff1f4ac`: "
+        f"{claim.value!r}"
+    )
+
+
+def test_a_preset_consistency_check_needs_its_files_to_exist(tmp_path) -> None:
+    """A check naming an absent file reports a finding on the first run, which
+    teaches the reader that this tool complains about nothing.
+
+    Also a mutation SURVIVOR: covered by a scenario, uncovered by the unit
+    suite.
+    """
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    from install import apply_preset
+
+    repo = tmp_path / "repo"
+    (repo / "sub").mkdir(parents=True)
+    # A python preset wants pyproject.toml; give the repo neither that nor any
+    # other file its consistency check names.
+    (repo / "README.md").write_text("# R\n", encoding="utf-8")
+
+    obs, _notes = apply_preset("python", [], repo)
+    emitted = [o for o in obs if o.key == "consistency" and o.value]
+    for o in emitted:
+        for _check, sources in dict(o.value).items():   # type: ignore[arg-type]
+            for path in sources:
+                assert (repo / path).is_file(), (
+                    f"emitted a consistency check naming {path!r}, which this "
+                    f"repository does not have"
+                )
+
+    # THE DENOMINATOR. Without this the test above passes on a preset that
+    # emits no consistency check at all, for any reason - which is exactly
+    # what it did: `apply_preset` returned zero of them, the loop never ran,
+    # and the mutation survived a test written to catch it.
+    (repo / "pyproject.toml").write_text('version = "1.0.0"\n', encoding="utf-8")
+    (repo / "CHANGELOG.md").write_text("## 1.0.0\n", encoding="utf-8")
+    obs, _notes = apply_preset("python", [], repo)
+    present = [o for o in obs if o.key == "consistency" and o.value]
+    assert present, (
+        "with both files present and both patterns matching, the preset must "
+        "emit its consistency check - otherwise the assertion above is vacuous"
+    )
