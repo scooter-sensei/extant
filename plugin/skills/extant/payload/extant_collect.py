@@ -4635,7 +4635,7 @@ def _survivable_output() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _LINK_BASE
+    global _LINK_BASE, _DOC_PATH
     _survivable_output()
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -4882,6 +4882,14 @@ def main(argv: list[str] | None = None) -> int:
                     print(format_text([item])[0], file=stream)
             return new
 
+        # Which document this is, for rules that key on the FILENAME. Set
+        # before validate rather than passed into it: validate restores the
+        # value it found on entry, so count_examined below still sees the
+        # document the rules just read. Without this, manifest-floor-mismatch
+        # works in --sweep and is silent in --verify, and reports 0 examined
+        # beside 0 findings - the exact conflation the denominator exists to
+        # prevent. Found by running the gate, not by any test.
+        _DOC_PATH = _rel(repo, target)
         findings = validate(repo, text)
         exit_code = 1 if record(_rel(repo, target), findings, primary=True) else 0
 
@@ -4912,6 +4920,7 @@ def main(argv: list[str] | None = None) -> int:
                     with open(archive_path, "w", encoding="utf-8", newline="") as fh:
                         fh.write(archive_text)
                     diag(f"translated {archive_changed} stale SHA reference(s) in {ARCHIVE_DOC}")
+            _DOC_PATH = ARCHIVE_DOC
             archive_findings = validate(repo, archive_text, in_archive=True)
             if record(ARCHIVE_DOC, archive_findings, primary=False):
                 exit_code = 1
@@ -4938,6 +4947,7 @@ def main(argv: list[str] | None = None) -> int:
             with open(extra, encoding="utf-8", newline="") as fh:
                 extra_text = fh.read()
             _LINK_BASE = extra.parent
+            _DOC_PATH = relative
             extra_findings = validate(repo, extra_text, has_entries=False)
             new_extra = record(relative, extra_findings, primary=False)
             examined_extra = count_examined(repo, extra_text)

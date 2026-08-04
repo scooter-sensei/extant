@@ -358,6 +358,74 @@ def test_a_real_sweep_reaches_the_rule(git_repo) -> None:
     assert "manifest-floor-mismatch" in combined, combined
 
 
+def test_verify_reaches_the_rule_for_an_extra_document(git_repo) -> None:
+    """--verify is a separate wiring from --sweep, and it was missed.
+
+    0.17.0 shipped with the rule working in --sweep and silent in --verify:
+    that path calls validate and count_examined without saying which document
+    it is reading, so a project listing README.md in extra_docs got nothing,
+    and the denominator agreed with it by reporting 0 examined beside 0
+    findings. Found by running the corpus gate, not by any test here.
+
+    The payload has to sit in tools/ for the target's own .extant.toml to be
+    read at all; a first attempt put it at the repository root and the config
+    was silently ignored, which made a broken run look like a clean one.
+    """
+    import shutil
+    import subprocess
+    repo, commit = git_repo
+    commit("pyproject.toml", PYPROJECT, "chore: manifest")
+    commit("README.md", "# d\n\nRequirements:\n\n- Python 3.8 or higher\n",
+           "docs: readme")
+    commit("NEXT_SESSION.md", "# Status\n\nnothing here\n", "docs: status")
+    commit(".extant.toml", 'extra_docs = ["README.md"]\n', "chore: config")
+    tools = repo / "tools"
+    tools.mkdir(exist_ok=True)
+    for name in ("extant_collect.py", "extant_config.py"):
+        shutil.copyfile(PAYLOAD / name, tools / name)
+    result = subprocess.run(
+        [sys.executable, str(tools / "extant_collect.py"),
+         "--verify", "--repo", str(repo)],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+        errors="replace")
+    combined = result.stdout + result.stderr
+    assert "settings came from defaults" not in combined, (
+        f"the target's config was not read, so this proves nothing:\n{combined}")
+    assert "manifest-floor-mismatch" in combined
+    assert "manifest-floor-mismatch 1" in combined, (
+        f"the finding fired but the denominator said 0:\n{combined}")
+
+
+def test_verify_reaches_the_rule_for_the_primary_document(git_repo) -> None:
+    """`primary_doc` is configurable, and a project may point it at a README.
+
+    The extra-document path and the primary-document path are two separate
+    call sites in --verify, and a mutation proved the test above watches only
+    the first: blanking the primary one survived every other test in this file.
+    """
+    import shutil
+    import subprocess
+    repo, commit = git_repo
+    commit("pyproject.toml", PYPROJECT, "chore: manifest")
+    commit("README.md", "# d\n\nRequirements:\n\n- Python 3.8 or higher\n",
+           "docs: readme")
+    commit(".extant.toml", 'primary_doc = "README.md"\n', "chore: config")
+    tools = repo / "tools"
+    tools.mkdir(exist_ok=True)
+    for name in ("extant_collect.py", "extant_config.py"):
+        shutil.copyfile(PAYLOAD / name, tools / name)
+    result = subprocess.run(
+        [sys.executable, str(tools / "extant_collect.py"),
+         "--verify", "--repo", str(repo)],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+        errors="replace")
+    combined = result.stdout + result.stderr
+    assert "settings came from defaults" not in combined, (
+        f"the target's config was not read, so this proves nothing:\n{combined}")
+    assert "manifest-floor-mismatch 1" in combined, (
+        f"the primary document was not read as itself:\n{combined}")
+
+
 def test_the_document_path_is_restored_after_validate(git_repo) -> None:
     """A leaked global makes the NEXT document be judged as this one."""
     import extant_collect as hc
