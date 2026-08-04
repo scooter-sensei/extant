@@ -6,11 +6,69 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 17 - The survey learns to state its own denominator (shipped, 2026-08-04)
+
+**Status.** Suite is 520 tests, all passing. Thirteen rules, eighteen presets.
+This work is version 0.19.0.
+
+**What shipped.**
+
+- **`--sweep` reports a per-rule denominator**, summed across every document it
+  read, with a `NOTE:` naming rules that examined nothing anywhere. It had
+  printed how many files it read and how many repository-wide rules ran;
+  neither said whether a RULE examined anything. `--verify` has reported this
+  since the beginning and the sweep never called `count_examined` at all.
+- **One definition of which rules run.** A sweep skips entry-scoped rules
+  outside the primary document, markdown-only rules for `.rst`, and runs
+  repository-scoped rules once for the survey. The predicate came out of
+  `validate` into `_rule_applies`, so the findings loop and the count read the
+  same answer instead of two that drift.
+- **The denominator had been counting claims inside code blocks.** Six rules
+  strip code first, because a claim in a fence is an example rather than a
+  promise, while `count_examined` scanned the raw document. `rust-lang/rfcs`
+  reported `dead-sha 23` where the rule reads 11. It affects `--verify`
+  identically, so any project quoting a SHA inside a fence will see its
+  `checked` numbers drop; the old ones were overstated.
+- **Sweeps cost 24-33% more**, measured on 651- and 308-document repositories.
+  An initial 43-76% was cut by caching the two functions the rules and the
+  count both compute, which profiling named precisely.
+- The gate harness never set `_DOC_FORMAT`, so it stripped reStructuredText as
+  markdown across numpy's 555 rst files. Already wrong for `dead-md-link`
+  before this change.
+
+**What was learned.**
+
+- **Writing a residual down is what gets it fixed.** This entire release is the
+  first residual of the previous one, closed the same day it was recorded. The
+  cost of the note was three sentences.
+- **A two-part guard hides a weak test twice over.** The mutation for
+  "repository rules counted once" survived because the assignment after the
+  loop masks the `continue` inside it, and then survived a second time because
+  the fixture had no primary document, so the applicability check excluded
+  those rules on its own and the wrong implementation gave the right answer.
+  Neither masking is visible when reading the test.
+- **Checking one field of a config is not checking the config.** A corpus
+  comparison reported a rule firing where the code had nothing to do with it.
+  The right hypothesis - two payloads configured differently - was raised,
+  tested against `CONFIG.release_tag`, which came back identical, and set
+  aside. The pattern is shared; `release_claims_name_our_tags` beside it is
+  not. A comparison harness that cannot show both sides were configured alike
+  will eventually report its own setup as a finding.
+- **Symmetry is not correctness.** A new cache was given the save/restore that
+  every other cache in `validate` has. Those are dicts mutated in place; this
+  one is a rebound tuple, so restoring discarded exactly the entry its caller
+  needed. It cached nothing, read as correct, and was found by re-profiling.
+
+**Verification.** 520 tests. 8 of 8 mutations killed, after the first run
+killed 7. Corpus: 39 repositories, 2,148 findings, 0 changed, with the harness
+printing its configuration-parity check before comparing anything.
+
 ## Phase 16 - A thirteenth rule, and the hole between it and an old one (shipped, 2026-08-04)
 
-**Status.** Suite is 512 tests, all passing. Thirteen rules, eighteen presets.
-This work is version 0.18.1. All 27 tags from `v0.5.0` carry a GitHub release,
-and only the newest holds the Latest badge.
+**Status.** Suite was 512 tests at the time, all passing. Thirteen rules,
+eighteen presets. That work was version 0.18.1, and it left all 27 tags from
+`v0.5.0` carrying a GitHub release with only the newest holding the Latest
+badge.
 
 **What shipped.**
 

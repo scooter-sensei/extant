@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.19.0 (2026-08-04)
+
+**A sweep now reports what each rule examined, not just what it found.** It
+printed how many files it read and how many repository-wide rules ran. Neither
+said whether a RULE examined anything, so a survey of a repository where every
+pattern missed printed the same summary as a survey of a clean one. `--verify`
+has reported the per-rule count since the beginning; `--sweep` never called it
+at all.
+
+```
+swept 2 markdown file(s): 0 configured (0 finding(s)), 2 unreviewed (3 finding(s))
+  2 repository-wide rule(s) ran once (0 finding(s))
+  examined: dead-sha 1, stale-live-claim 0, unknown-branch 0, false-merge-claim 1, ...
+  NOTE: these rules examined nothing anywhere here - either no document makes
+  such claims, or the pattern does not match how this project writes them: ...
+```
+
+Summing the counts was the easy half. A sweep does not run every rule on every
+document: entry-scoped rules are skipped outside the primary file, markdown-only
+rules for `.rst`, and repository-scoped rules run once for the whole survey.
+Counting them anyway would report coverage that was never provided, so the
+rule-selection predicate moved into one function that both the findings loop
+and the count now read.
+
+**Fixed: the denominator counted claims inside code blocks.** Six rules open by
+stripping code, because a claim inside a fence is an example rather than a
+promise. The count scanned the raw document, so fenced sample claims were
+reported as candidates no rule had read. On `rust-lang/rfcs` that was
+`dead-sha 23` where the rule reads 11.
+
+This affects `--verify` as well, and it is the reason to read this entry before
+upgrading in CI: **any project that quotes a SHA, a merge claim or a path
+pointer inside a code fence will see its `checked <doc>:` numbers drop.** The
+old numbers were overstated. Nothing about which findings are reported has
+changed - verified across 39 repositories, 2,148 findings, none moved.
+
+Sweeps are 24-33% slower, measured rather than estimated: `rust-lang/rfcs`
+13.0s to 16.1s over 651 documents, `pytest` 2.8s to 3.7s over 308. Counting
+candidates means a second pass over each document. Profiling cut that from an
+initial 43-76% by caching the two functions the rules and the count both
+compute.
+
 ## 0.18.1 (2026-08-04)
 
 **Three crashes on first contact, and a setting that did nothing.** Found by a
