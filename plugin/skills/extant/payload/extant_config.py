@@ -148,9 +148,29 @@ DEFAULTS: dict[str, object] = {
         r"(?:merged|shipped)\s+(?:to|into)\s+"
         r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`?([0-9a-f]{7,40})`?(?![0-9a-f])"
     ),
+    # A TRAILING LINE SUFFIX IS TOLERATED and excluded from the capture, so
+    # `docs/plan.md:99` is read as a pointer to `docs/plan.md`. Without it the
+    # extension had to sit immediately before the closing backtick, and a
+    # pointer carrying a line number matched NOTHING - so a missing file was
+    # invisible to this rule while the same sentence without `:99` was caught.
+    # `dead-line-pointer` did not cover it either: that rule requires the file
+    # to resolve before it counts lines. Between them the two rules left a
+    # dead path wearing a line number checked by neither.
+    #
+    # UNMEASURABLE ON THE PUBLIC CORPUS, and that is stated rather than
+    # glossed. Across 39 repositories the widening adds no findings AND moves
+    # no denominator - `dead-path-pointer` examines 92 either way - because
+    # not one of them writes an operative pointer with a line suffix. So the
+    # corpus proves the change breaks nothing and cannot prove it helps. It
+    # ships on a hole demonstrated in a fixture, not on a corpus result.
+    #
+    # `:` was already inside the character class, for Windows drive letters,
+    # which is why the suffix has to be excluded explicitly rather than simply
+    # not matched.
     "path_pointer": (
         r"(?:\*\*(?:Plan|Design|Spec|Authority|Source)s?:?\*\*|\bsee\b|\bread\b)"
-        r"[^`\n]{0,40}`([\w:.\\/-]+\.(?:py|qml|md|txt|json|toml|cfg|ini))`"
+        r"[^`\n]{0,40}`([\w:.\\/-]+\.(?:py|qml|md|txt|json|toml|cfg|ini))"
+        r"(?::\d+(?:[:-]\d+)?)?`"
     ),
     # Release-tag claims: "released in v2.1", "shipped as v2.1.0". Measured as
     # ABSENT from the corpus this was built on, which is why the denominator

@@ -1176,6 +1176,42 @@ def test_live_path_pointer_stays_silent(git_repo):
     assert validate_path_pointers(repo, "**Plan:** `docs/plans/real.md`\n") == []
 
 
+def test_a_pointer_carrying_a_line_number_is_still_a_pointer(git_repo):
+    """The hole between this rule and `dead-line-pointer`, found by auditing.
+
+    The extension had to sit immediately before the closing backtick, so
+    `docs/plan.md:99` matched nothing here - and `dead-line-pointer` will not
+    look at it either, because that rule requires the file to RESOLVE before
+    it counts lines. A dead path wearing a line number was checked by neither,
+    while the identical sentence without `:99` was caught.
+
+    Unmeasurable on the public corpus: across 39 repositories the widening
+    adds no findings and moves no denominator, because not one of them writes
+    an operative pointer with a line suffix. This fixture is the evidence, not
+    a corpus result.
+    """
+    from extant_collect import validate_path_pointers
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a - base")
+    for cited in ("docs/gone.md:99", "docs/gone.md:99-105",
+                  "docs/gone.md:99:14"):
+        findings = validate_path_pointers(repo, f"**Plan:** `{cited}`\n")
+        assert [f.kind for f in findings] == ["dead-path-pointer"], cited
+        # The line suffix is excluded from the capture, so the finding names
+        # the path rather than a path that never existed under that spelling.
+        assert findings[0].subject == "docs/gone.md", cited
+
+
+def test_a_live_pointer_with_a_line_number_stays_silent(git_repo):
+    """Catches a widening that reports the suffix as part of the path, which
+    would make every line-numbered pointer to a REAL file a false positive."""
+    from extant_collect import validate_path_pointers
+    repo, commit = git_repo
+    commit("docs/plans/real.md", "# plan\n", "docs: plan - real")
+    assert validate_path_pointers(
+        repo, "**Plan:** `docs/plans/real.md:12`\n") == []
+
+
 def test_descriptive_path_mentions_are_not_flagged(git_repo):
     """The finding that shaped this rule: of 88 path-shaped tokens in the real
     documents, 23 do not exist and ALL 23 are legitimate - historical layout,
