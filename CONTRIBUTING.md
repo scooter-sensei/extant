@@ -120,6 +120,27 @@ The changelog's other `rev:` lines are prose about past mistakes and
 illustrative examples of `dead-pinned-ref`. Leave those alone too - a pin is
 only an instruction when it sits under an install snippet.
 
+**Push `main` and wait for CI to go green BEFORE tagging.** A successful push
+says the remote accepted the commits, not that the run passed, and the two
+workflows are independent: `publish.yml` triggers on the tag and does not
+consult `tests.yml`, so a red suite does not stop an upload.
+
+    gh run list --branch main --limit 1     # or open the Actions tab
+
+0.19.0 shipped to PyPI with `tests` failing on the very commit it tagged. The
+push succeeded, the tag went up ninety seconds later, and the release was
+announced as verified before anyone opened Actions. Nothing about the artifact
+was wrong - the failure was two mutation anchors that a refactor had left
+pointing at code no longer there - but that was luck rather than process, and
+the tag is the one step here that cannot be taken back: PyPI does not allow
+replacing a released version.
+
+A green `pytest -q` is not the same signal. **The self-check job runs steps the
+suite does not**, deliberately: `mutate.py --check-only`, `--selftest`, and a
+timing run all live in CI because they are too slow, too platform-specific, or
+too self-referential for pytest to carry. Whatever passed locally, the question
+before tagging is what the runner said about that SHA.
+
 **Then create the tag, and confirm it exists before you stop.** Bumping the
 `rev:` in the README is a promise that the tag is there; 0.10.0 was bumped,
 committed and pushed without ever being tagged, so for as long as that was the
