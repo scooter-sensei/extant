@@ -8,9 +8,9 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 15 - A twelfth rule, measured before it was written (shipped, 2026-08-04)
 
-**Status.** Suite is 477 tests, all passing. Twelve rules, eighteen presets.
-This work is version 0.17.1. Every tag from `v0.5.0` now has a GitHub release;
-five were missing, `v0.16.0` through `v0.17.1`.
+**Status.** Suite is 482 tests, all passing. Twelve rules, eighteen presets.
+This work is version 0.17.2. Every tag from `v0.5.0` has a GitHub release; six
+were missing when this phase began, `v0.16.0` onward.
 
 **What shipped.**
 
@@ -41,6 +41,12 @@ five were missing, `v0.16.0` through `v0.17.1`.
 - The measurement corpus was given its history back and the full gate run:
   2 findings added, 0 removed, 0 reworded, denominator 0 to 7, and no other
   rule moved.
+- **0.17.2 made `inconsistent-artifact` and `raw-lfs-blob` run in a sweep at
+  all.** Both are repository-scoped, so `validate` runs them only on the
+  primary pass, and in a sweep that means the configured status document,
+  which a swept repository usually does not have. They now run once per sweep
+  in their own section, outside the per-file totals and not gating, and the
+  sweep prints how many repository-wide rules ran.
 
 **What was learned.**
 
@@ -69,6 +75,12 @@ five were missing, `v0.16.0` through `v0.17.1`.
   `Rust` inside "trust". Nothing in the funnel looked wrong, because a
   plausible number of extra sites is indistinguishable from a corpus that has
   them.
+- **A gate can pass with a denominator of zero, and saying so is the
+  finding.** The sweep fix showed 2,145 findings before and after with nothing
+  added, removed or reworded, which proves no regression and nothing else:
+  none of the 39 repositories carries an LFS filter or a consistency block, so
+  the corpus never reaches either rule. Checking that, rather than accepting a
+  reassuring zero, is the same reflex that made the bug findable.
 - **A summarising model answers a leading question the way it was led.** Asked
   "is 0.17.0 present on PyPI", it said yes while pip could not find the
   package; asked to enumerate the index verbatim, it was right. Later it

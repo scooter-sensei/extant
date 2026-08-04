@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.17.2 (2026-08-04)
+
+**`inconsistent-artifact` and `raw-lfs-blob` never ran in a `--sweep`.** Both
+answer questions about the repository rather than about any document, so
+`validate` runs them only on the primary pass, guarded by `has_entries`. In a
+sweep that means "this file is the configured primary document", and a swept
+repository usually has no such file, because a sweep needs no configuration at
+all.
+
+It was invisible, because a rule examining nothing and a rule finding nothing
+print the same zero. It showed as `0 / 0` for both rules across all three
+Phase 3 corpora and was read as an absence of faults.
+
+The guard was right that one repository-wide disagreement must not be repeated
+once per swept document, and wrong about what "once" was tied to. They now run
+once per sweep, outside the document loop, in their own section.
+
+**The sweep now prints how many repository-wide rules ran**, which is the
+denominator the silence was hiding:
+
+```
+swept 37 markdown file(s): 0 configured (0 finding(s)), 37 unreviewed (1 finding(s))
+  2 repository-wide rule(s) ran once (0 finding(s))
+```
+
+Three constraints held deliberately. The count stays OUT of the per-file
+totals, because folding it in would report more findings than there are
+documents to hold them. The findings do NOT gate, so a survey command still
+cannot fail a build that never opted in. And each is attributed to the file
+that declares the claim, through a new `Rule.subject_file` - `.gitattributes`
+and `.extant.toml` - because that path feeds baseline fingerprints and had to
+be chosen once rather than drift.
+
+The corpus gate shows no regression, 2,145 findings before and after with
+nothing added, removed or reworded. It cannot validate the fix: none of the 39
+repositories carries an LFS filter or a consistency block, so the corpus never
+reaches either rule. That is recorded rather than reported as a pass.
+
 ## 0.17.1 (2026-08-04)
 
 **`manifest-floor-mismatch` worked in `--sweep` and did nothing in
