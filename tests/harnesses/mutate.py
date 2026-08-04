@@ -256,19 +256,27 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # so it keeps matching and silently mutates something adjacent. That
         # happened here when validate() gained a try/finally: one of these two
         # stopped matching outright and the other kept matching by accident.
+        # Retargeted a THIRD time, when both guards moved out of `validate` into
+        # `_rule_applies` so the sweep's per-rule denominator could ask the same
+        # question the findings loop asks. `continue` became `return False` and
+        # the body dedented by eight spaces, so both anchors matched nothing.
+        # Neither test noticed, because a mutation that matches nothing probes
+        # nothing and the suite stays green; `--check-only` in CI is what caught
+        # it. Third time for this pair, which is the argument for that mode
+        # existing at all.
         ("archive exemption ignored", collect,
-         "            if (in_archive or not has_entries) and not rule.in_archive:\n"
-         "                continue",
-         "            if False:\n                continue"),
+         "    if (in_archive or not has_entries) and not rule.in_archive:\n"
+         "        return False",
+         "    if False:\n        return False"),
         # Anchored on the CONDITION alone. It used to include the dispatch line
         # that followed, and the rst work inserted a format check between the
         # two, so the pair stopped matching while the behaviour it probes was
         # untouched. A mutation should name the smallest thing it is about.
         ("has_entries ignored (entry rules run on extra docs)", collect,
-         "            if (in_archive or not has_entries) and not rule.in_archive:\n"
-         "                continue\n",
-         "            if in_archive and not rule.in_archive:\n"
-         "                continue\n"),
+         "    if (in_archive or not has_entries) and not rule.in_archive:\n"
+         "        return False",
+         "    if in_archive and not rule.in_archive:\n"
+         "        return False"),
 
         # --- denominator ------------------------------------------------------
         ("denominator lies: dead-sha always 1", collect,
