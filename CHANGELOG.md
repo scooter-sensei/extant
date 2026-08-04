@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.17.0 (2026-08-04)
+
+**A twelfth rule: a documented version floor, read against the manifest that
+declares it.** A README saying "requires Python 3.8+" while `pyproject.toml`
+declares `>=3.10` is a contradiction between two files in one repository -
+the question `inconsistent-artifact` already established as legal, rather than
+a judgement about whether a number is correct.
+
+Measured on 39 repositories before it was written, because the obvious version
+of this rule is unusable. Keyed on shape it disagreed at 169 of 192 sites, and
+97 of those disagreements sat in changelogs and release notes, where the claim
+was true the day it was written and the manifest moving on does not make it
+false. A linter's own documentation makes it worse: ruff discusses Python
+versions constantly and almost none of it is ruff's floor.
+
+Keyed on entry-point documents, with a requirement verb or a bare
+`Requirements:` label above the line, and no third-party subject, it examines
+7 sites across those 39 repositories and finds 2. Both are real. `datasette`'s
+README offers Python 3.8 against a `>=3.10` manifest while its own
+installation guide says 3.10; `caddy`'s offers Go 1.25.0 against `go.mod`'s
+1.25.1.
+
+The finding carries the ecosystem's own enforcement, because the same
+contradiction means different things: pip refuses to install, `engines.node`
+only warns unless `engine-strict` is set, and the `go` directive quietly
+fetches a newer toolchain.
+
+Two things it deliberately will not do. A disjunction such as
+`^20.19.0 || >=22.12.0` is not examined at all rather than guessed at, and
+neither is a pair of coarse statements like "Node 18" against `>= 18`, where
+there is nothing to compare. Both are counted as not-examined, so the
+denominator never claims coverage that does not exist - this rule speaks about
+roughly 13% of repositories, which makes silence its normal output.
+
+`validate` now learns which document it is reading, through a `doc` keyword
+alongside the existing `base`. The keying needs the filename and a rule's
+`check` receives only text. A repository-scoped rule was tried first and
+rejected on evidence: such a rule runs only when `has_entries` holds, which in
+a sweep means the repository carries a configured status document, so in any
+other repository it would never have run at all.
+
 ## 0.16.2 (2026-08-03)
 
 **The merge-claim fix below now reaches installed projects.** 0.16.1 widened

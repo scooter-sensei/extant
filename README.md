@@ -109,7 +109,7 @@ The other two modes, once you want them:
 
 ## What it covers
 
-Eleven rules. Every one answers a question git or the filesystem can settle.
+Twelve rules. Every one answers a question git or the filesystem can settle.
 
 | Rule | Catches |
 |:---|:---|
@@ -246,7 +246,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.16.2
+    rev: v0.17.0
     hooks:
       - id: extant
 ```
