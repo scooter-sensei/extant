@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.18.0 (2026-08-04)
+
+**A thirteenth rule: a cited line number that is past the end of its file.**
+`core/engine.py:123` where that file has 40 lines. It does not ask whether
+line 123 still holds what the document says, which would be judging content.
+It asks whether the file has that many lines.
+
+Measured on 39 repositories before it was written. 7,775 candidate sites,
+6,525 outside a code block, and then a collapse to **51** - the rest name
+something the repository does not track. Those are pasted stack traces,
+third-party paths and example output, and whether a path exists is already
+`dead-path-pointer`'s question; asking it again would report one fault twice
+under two names.
+
+Of the 51, three cite a line past the end, all in `obra/superpowers` plan
+documents, all real: an implementer told to modify line 68 of a 64-line file.
+
+Coverage is thin and worth saying so. Only 3 of 39 repositories produce any
+examined site and 136 of 184 are in one of them. What the corpus does prove is
+precision: aider and directus supply 167 resolvable pointers between them and
+produce nothing.
+
+**A dead path wearing a line number was checked by nothing.**
+`dead-path-pointer` required the extension to sit immediately before the
+closing backtick, so ``**Plan:** `docs/gone.md:99` `` matched nothing at all,
+and the new rule will not look at it either because it requires the file to
+resolve before counting lines. A trailing suffix is now tolerated and excluded
+from the capture, so the finding names `docs/gone.md`. Ranges and line:column
+are covered.
+
+That fix is unmeasurable on the public corpus: it adds no finding and moves no
+denominator across 39 repositories, because not one writes an operative
+pointer with a line suffix. It ships on a hole demonstrated in a fixture, and
+the corpus proves only that it breaks nothing.
+
+Three smaller things, found by auditing the rule before release rather than by
+any failing test: `_LINECOUNT` was never cleared by `run_sweep` while every
+sibling cache was; `_LINE_COUNT_LIMIT` was defined after the function reading
+it; and two narrowings - a range is judged by its start, six digits is the cap
+- were undocumented and untested, which made them accidents rather than
+choices.
+
 ## 0.17.2 (2026-08-04)
 
 **`inconsistent-artifact` and `raw-lfs-blob` never ran in a `--sweep`.** Both

@@ -6,11 +6,67 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 16 - A thirteenth rule, and the hole between it and an old one (shipped, 2026-08-04)
+
+**Status.** Suite is 507 tests, all passing. Thirteen rules, eighteen presets.
+This work is version 0.18.0.
+
+**What shipped.**
+
+- **`dead-line-pointer`, the thirteenth rule.** `core/engine.py:123` where
+  that file has 40 lines. It does not ask whether line 123 still holds what
+  the document says, which would be judging content; it asks whether the file
+  has that many lines.
+- **Keyed by what the corpus made obvious.** 7,775 candidate sites, 6,525
+  outside a code block, and then a collapse to 51 - the rest name something
+  the repository does not track. Three of the 51 cite a line past the end, all
+  in `obra/superpowers` plan documents, all real: an implementer told to
+  modify line 68 of a 64-line file. The operative-use keying that
+  `path_pointer` and the manifest rule both needed proved unnecessary here,
+  because resolution to a tracked file does all the work.
+- **A dead path wearing a line number was checked by nothing.**
+  `dead-path-pointer` required the extension immediately before the closing
+  backtick, and the new rule requires the file to resolve before counting, so
+  between them neither looked. A trailing suffix is now tolerated and excluded
+  from the capture.
+- Three defects found by auditing the rule before releasing it: `_LINECOUNT`
+  was never cleared by `run_sweep` while every sibling cache was,
+  `_LINE_COUNT_LIMIT` was defined after its first use, and two narrowings were
+  undocumented and untested.
+
+**What was learned.**
+
+- **A harness that is less careful than the tool will invent a finding.** The
+  harvest reported four beyond-EOF sites and the rule reports three. The extra
+  was a pytest transcript inside a reStructuredText literal block:
+  **rst code blocks are indentation, not fences**, and the harness knew only
+  about fences while `_prose` is format aware. Precision was 3 of 3, not 3 of
+  4, and the difference was only visible by checking what the tool does rather
+  than trusting the measurement built to check it.
+- **The two-part guard is now a recognisable shape rather than a surprise.**
+  The first mutation run killed 3 of 7, and all four survivors were it: a test
+  input rejected independently by a second guard, so breaking the first
+  changed nothing. It has appeared in every rule built this session, and
+  isolating it always needs a deliberately awkward fixture.
+- **A fix can be right and unmeasurable at the same time.** The path-pointer
+  widening adds no finding and moves no denominator across 39 repositories,
+  because not one writes an operative pointer with a line suffix. The corpus
+  proves it breaks nothing and cannot prove it helps, so it ships on a hole
+  demonstrated in a fixture and says so in the code, the tests and the
+  changelog.
+- **Separating commits after the fact needs the intermediate state rebuilt,
+  and rebuilt states have to be run.** `git add -p` was unavailable, so the
+  audit changes were removed to recover the tree as it stood when the rule was
+  written. Each of the three commits was then checked out in a throwaway
+  worktree and the full suite run there - 499, 505, 507 - because the failure
+  mode of that technique is a first commit that quietly already contains the
+  second one's changes.
+
 ## Phase 15 - A twelfth rule, measured before it was written (shipped, 2026-08-04)
 
-**Status.** Suite is 482 tests, all passing. Twelve rules, eighteen presets.
-This work is version 0.17.2. All 25 tags from `v0.5.0` now have a GitHub
-release, against 19 at the start of this phase.
+**Status.** Suite was 482 tests at the time, all passing. Twelve rules,
+eighteen presets. That work was version 0.17.2, and it left every tag from
+`v0.5.0` carrying a GitHub release, against 19 at its start.
 
 **What shipped.**
 
