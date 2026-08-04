@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when documentation cites things git can settle and may have gone stale - a commit SHA, a merge claim like 'merged to main at abc1234', a branch name, a release tag, or a file path. Especially for the plan, spec, design and status documents written during agent sessions, which are dense with commit references and are read back as fact by the next session. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a --sweep mode that surveys every tracked markdown file with no configuration. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.17.0
+version: 0.17.1
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"

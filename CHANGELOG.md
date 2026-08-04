@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.17.1 (2026-08-04)
+
+**`manifest-floor-mismatch` worked in `--sweep` and did nothing in
+`--verify`.** Both verify call sites handed `validate` and `count_examined`
+the document's text without saying which document it was, so the rule - which
+keys on the filename, because a floor in a README is a promise and the same
+sentence in a changelog is history - saw no path and stayed silent. A project
+that installed 0.17.0 and listed `README.md` in `extra_docs` got nothing.
+
+The denominator agreed with it, reporting 0 examined beside 0 findings. That
+is the precise conflation this rule reports a denominator to prevent, and it
+is why the bug was findable at all.
+
+Three call sites now name their document: the primary, the archive, and each
+extra. The value is set before `validate` rather than passed into it, because
+`validate` restores what it found on entry and `count_examined` runs after it
+returns.
+
+Found by gating the release against a 39-repository corpus, which reported
+**2 findings and 0 examined on the same run**. Every unit test passed
+throughout, because all of them called `validate` directly and supplied the
+path themselves. The gate is the only thing that exercised the wiring a real
+install uses.
+
+Nothing else moved: across those 39 repositories the gate shows 2 findings
+added, 0 removed, 0 reworded, and no other rule changed its findings or the
+number of candidates it examined.
+
 ## 0.17.0 (2026-08-04)
 
 **A twelfth rule: a documented version floor, read against the manifest that

@@ -8,8 +8,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 14 - What the campaign and the profiler found (shipped, 2026-08-03)
 
-**Status.** Suite is 475 tests, all passing. Twelve rules, eighteen presets.
-This work is version 0.17.0.
+**Status.** Suite is 477 tests, all passing. Twelve rules, eighteen presets.
+This work is version 0.17.1.
 
 **What shipped.**
 
