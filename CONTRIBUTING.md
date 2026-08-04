@@ -121,9 +121,7 @@ illustrative examples of `dead-pinned-ref`. Leave those alone too - a pin is
 only an instruction when it sits under an install snippet.
 
 **Push `main` and wait for CI to go green BEFORE tagging.** A successful push
-says the remote accepted the commits, not that the run passed, and the two
-workflows are independent: `publish.yml` triggers on the tag and does not
-consult `tests.yml`, so a red suite does not stop an upload.
+says the remote accepted the commits, not that the run passed.
 
     gh run list --branch main --limit 1     # or open the Actions tab
 
@@ -134,6 +132,20 @@ was wrong - the failure was two mutation anchors that a refactor had left
 pointing at code no longer there - but that was luck rather than process, and
 the tag is the one step here that cannot be taken back: PyPI does not allow
 replacing a released version.
+
+`publish.yml` now enforces this rather than trusting it. Before building, it
+asks the API whether `tests.yml` succeeded for the commit the tag points at,
+and refuses otherwise - see `.github/scripts/require_green_tests.py`. The match
+is by COMMIT, because `tests.yml` runs on pushes to `main` and on pull requests
+and never on a tag. So **tagging before pushing the branch finds no run at all,
+and that fails**: a gate that read "nothing found" as "nothing wrong" would pass
+hardest in exactly the case its subject was never checked. The waiting is
+handled too, up to thirty minutes, so tagging promptly is a delay rather than a
+race.
+
+The step above is still worth doing by hand. Learning that a release is blocked
+is cheaper before the tag exists than after, since the tag is what triggers the
+attempt.
 
 A green `pytest -q` is not the same signal. **The self-check job runs steps the
 suite does not**, deliberately: `mutate.py --check-only`, `--selftest`, and a

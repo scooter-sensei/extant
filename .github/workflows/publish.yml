@@ -34,6 +34,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read          # to read the tests workflow's conclusion
     steps:
       - uses: actions/checkout@v7
 
@@ -80,6 +83,23 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $packaged"
             exit 1
           fi
+
+      # This workflow used to run whatever the tag pointed at, no matter what
+      # the suite said about it. The two are independent triggers, so a red
+      # `tests` run did not stop an upload: 0.19.0 was tagged ninety seconds
+      # after a push whose run was already failing, and published.
+      #
+      # Matched by COMMIT rather than by ref, because `tests.yml` runs on
+      # pushes to main and on pull requests and never on a tag - the run to
+      # find is the one for the commit the tag points at. Tagging before
+      # pushing the branch therefore finds nothing, and finding nothing FAILS
+      # here rather than passing quietly, which is the whole point.
+      - name: The tests must be green on this commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >
+          python .github/scripts/require_green_tests.py
+          --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --workflow tests.yml
 
       - name: Build
         run: |
