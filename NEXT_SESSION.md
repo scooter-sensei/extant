@@ -6,12 +6,74 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 17 - A denominator for the survey, and a gate for the release (shipped, 2026-08-04)
+## Phase 18 - Environment-variable rot, refused a second time (shipped, 2026-08-04)
 
 **Status.** Suite is 536 tests, all passing. Thirteen rules, eighteen presets.
-This work is version 0.19.0, published to PyPI and verified from the installed
-wheel rather than from the working tree. All 28 tags from `v0.5.0` carry a
-GitHub release, and only the newest holds the Latest badge.
+Still version 0.19.0: **no version was cut**, because nothing shipped but
+documentation. Twenty-eight tags from `v0.5.0`, each carrying a GitHub release.
+
+**What shipped.**
+
+- **The admission test gained an example that fails its SECOND half.** Both
+  copies of the candidate list refused everything by inspection - numbers, the
+  network, judgement - so a reader came away believing that finding a clean
+  falsifiable question is the hard part. Env rot is the counterexample: the
+  question needs no network, inspects no number, exercises no judgement, and is
+  language-agnostic. It still dies. `CONTRIBUTING.md` carries the short form
+  and `references/design.md` the long one.
+- Nothing links to the measurement. It lives outside this repository with the
+  other candidate evaluations, and a pointer to a path that does not exist is
+  what `dead-path-pointer` is for.
+
+**What was measured, and refused.**
+
+Six approaches to raising the rejected rule's 22% precision. Five measured,
+all dead:
+
+- **Ask git when the literal disappeared.** It never appeared. All three
+  sampled true positives were absent from source at every commit, confirmed
+  against a positive control because a pickaxe over a blobless clone returns
+  the same zero whether the token is missing or the blobs are.
+- **Gate on "this project declares literally".** No separation: flask 13
+  literal namespace strings, poetry 15, humanlayer 19.
+- **Docs against `.env.example`, as an omission.** Ambiguous by design - an
+  example file lists what you must set, docs list everything.
+- **Docs against a compose file, as a contradiction.** 8 of 39 repositories
+  carry such a file, and their values are third-party image settings and dev
+  examples rather than documented defaults.
+- **Documented default against source default.** The best of the six, because
+  it speaks only from a visible read and so never infers from absence. Zero
+  sites in four of five sampled repositories.
+- **Disqualifier markers** were refused without measurement: a skip-list that
+  grows silently, and it would miss poetry's bare string concatenation.
+
+**What was learned.**
+
+- **A falsifiable question is not a sound inference.** This is the distinction
+  the admission test was missing, and it is the whole reason the rule fails.
+- **A confidence gate can be contaminated by the signal it seeks.** Calibrating
+  on "what share of documented variables appear in source" silenced the only
+  repository with genuine findings, because having true positives is precisely
+  what lowers that score. Worth checking for in any per-project gate.
+- **Erring safe is not a defence for a wrong answer.** A check that refuses to
+  call anything clean trains its reader to overrule it, and the reader then
+  overrules it on the occasion it is right. Met twice today from opposite
+  directions: here, and in a worktree survey that called a merged tree
+  unmerged.
+- **The corpus is library-shaped, and that is not only an env-rot problem.**
+  Library projects configure through code, applications through declarative
+  files. `dead-line-pointer` draws a denominator from 3 of 39 repositories and
+  `manifest-floor-mismatch` examined 7 claims corpus-wide; some of that
+  thinness may be corpus skew rather than rule narrowness. Testable, and it
+  changes what "widen the rules" should mean.
+
+## Phase 17 - A denominator for the survey, and a gate for the release (shipped, 2026-08-04)
+
+**Status.** Suite was 536 tests at the time, all passing. Thirteen rules,
+eighteen presets. That work was version 0.19.0, published to PyPI and verified
+from the installed wheel rather than from the working tree, and it left all 28
+tags from `v0.5.0` carrying a GitHub release with only the newest holding the
+Latest badge.
 
 **What shipped.**
 
