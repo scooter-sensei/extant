@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.18.1 (2026-08-04)
+
+**Three crashes on first contact, and a setting that did nothing.** Found by a
+review of the whole codebase, each reproduced before it was believed.
+
+- **`--selftest` crashed** with `UnboundLocalError` on any repository lacking
+  the primary document. It called `diag`, which is defined 87 lines further
+  down the same function, so the message naming the missing document never
+  printed.
+- **`--sweep` crashed on a repository with no commits.** `git ls-tree HEAD`
+  exits 128 on an unborn HEAD, and a freshly created repository is exactly
+  what a first-run survey gets pointed at.
+- **`consistency_timeout_seconds` was inert.** `_apply_config()` runs at
+  import and set it; a later module-level ASSIGNMENT then replaced it with
+  `None`. The config parsed, the value reached `CONFIG`, and the global the
+  rule reads never saw it. It is now an annotation, which binds nothing.
+- **`--write-baseline` resolved a relative path against the process cwd**
+  while the read path resolved against `--repo`, so a git hook wrote a
+  baseline the next run could not find.
+
+**`SKILL.md` was two rules behind** and still headed "the eleven validation
+rules", because `test_every_rule_is_documented` only read `README.md`. That
+test now checks both tables. A reader of the installed skill never sees the
+README.
+
+**Publishing now requires a tag ref, including for `workflow_dispatch`.** That
+trigger previously skipped the tag-matches-version check entirely - its
+condition tested for a tag - so a manual run from any branch could publish a
+version with nothing pointing at the code that produced it.
+
+Smaller: Mintlify's renamed `docs.json` is recognised, by its CONTENT rather
+than its name, because the name alone is too generic to suppress link checking
+on. The installer's emitted `phase_task` pattern matches the one it measures
+with. A corpus baseline no longer reports a NEW repository as one recorded
+before per-rule detail existed. A stress timeout returns None rather than the
+budget. `archive`'s retain default is read at call time so `reload_config`
+reaches it. Test fixtures no longer depend on the runner having no global
+commit signing. Several hand-maintained counts that had drifted are gone;
+recorded historical measurements are kept, because those are evidence and do
+not go stale.
+
+No behaviour changed for any rule: across 39 repositories the gate shows 2,148
+findings before and after, nothing added, removed or reworded.
+
 ## 0.18.0 (2026-08-04)
 
 **A thirteenth rule: a cited line number that is past the end of its file.**

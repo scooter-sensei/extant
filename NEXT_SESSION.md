@@ -8,8 +8,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 16 - A thirteenth rule, and the hole between it and an old one (shipped, 2026-08-04)
 
-**Status.** Suite is 507 tests, all passing. Thirteen rules, eighteen presets.
-This work is version 0.18.0.
+**Status.** Suite is 512 tests, all passing. Thirteen rules, eighteen presets.
+This work is version 0.18.1.
 
 **What shipped.**
 
@@ -34,8 +34,33 @@ This work is version 0.18.0.
   `_LINE_COUNT_LIMIT` was defined after its first use, and two narrowings were
   undocumented and untested.
 
+- **0.18.1 fixed 26 findings from a whole-repository review.** Three crashes a
+  user meets on first contact - `--selftest` without the primary document,
+  `--sweep` on a repository with no commits, and a relative
+  `--write-baseline` - plus `consistency_timeout_seconds`, which was inert
+  because a module-level assignment ran after `_apply_config()` and replaced
+  the configured value with None. `SKILL.md` had fallen two rules behind, and
+  `workflow_dispatch` could publish an untagged version from any branch.
+
 **What was learned.**
 
+- **A whole-repository review finds what a diff review cannot.** Every one of
+  those four had been in the tree for releases, past a suite that grew to 507
+  tests, because nothing ever changed the lines they lived on. Reviewing
+  against the ROOT commit made the diff the entire codebase.
+- **"Fix all of them" is not the same as "apply all of them".** Three
+  suggestions were rejected on inspection: routing the pre-commit guard
+  through the advisory shim would have turned a blocking check into one that
+  cannot block; adding `docs.json` as a filename signature would have silently
+  stopped link checking for any project with an unrelated file of that name;
+  and three flagged "hard-coded counts" were historical measurements, which
+  are this project's evidence and do not drift the way a current-state count
+  does.
+- **The guard that let SKILL.md drift was the shape of the thing it guarded.**
+  `test_every_rule_is_documented` checked one table and there were two, so a
+  rule could ship documented in the place contributors read and absent from
+  the place users read. Proved the widened test works by deleting a row and
+  watching it go red.
 - **A harness that is less careful than the tool will invent a finding.** The
   harvest reported four beyond-EOF sites and the rule reports three. The extra
   was a pytest transcript inside a reStructuredText literal block:
