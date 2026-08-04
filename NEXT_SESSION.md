@@ -9,7 +9,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 16 - A thirteenth rule, and the hole between it and an old one (shipped, 2026-08-04)
 
 **Status.** Suite is 512 tests, all passing. Thirteen rules, eighteen presets.
-This work is version 0.18.1.
+This work is version 0.18.1. All 27 tags from `v0.5.0` carry a GitHub release,
+and only the newest holds the Latest badge.
 
 **What shipped.**
 
@@ -33,7 +34,6 @@ This work is version 0.18.1.
   was never cleared by `run_sweep` while every sibling cache was,
   `_LINE_COUNT_LIMIT` was defined after its first use, and two narrowings were
   undocumented and untested.
-
 - **0.18.1 fixed 26 findings from a whole-repository review.** Three crashes a
   user meets on first contact - `--selftest` without the primary document,
   `--sweep` on a repository with no commits, and a relative
