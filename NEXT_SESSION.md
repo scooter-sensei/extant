@@ -9,7 +9,9 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 17 - The survey learns to state its own denominator (shipped, 2026-08-04)
 
 **Status.** Suite is 520 tests, all passing. Thirteen rules, eighteen presets.
-This work is version 0.19.0.
+This work is version 0.19.0, published to PyPI and verified from the installed
+wheel rather than from the working tree. All 28 tags from `v0.5.0` carry a
+GitHub release, and only the newest holds the Latest badge.
 
 **What shipped.**
 
