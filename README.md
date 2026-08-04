@@ -94,7 +94,7 @@ are surveyed and reported, never gated on, because some of them will be
 examples rather than claims. It always prints how many files it looked at, so
 "nothing found" is distinguishable from "nothing checked".
 
-The other two modes, once you want them:
+The full set of modes:
 
 | Command | For |
 |:---|:---|
@@ -723,7 +723,9 @@ Anything it could not work out is left **switched off** rather than guessed.
 - Cannot judge whether a summary is a *good* summary.
 - Expects consistent headings for dated entries. A heading that does not match
   is skipped.
-- Assumes one main branch. Gitflow-style release branches are not modelled.
+- Reads the branch a merge claim NAMES, plus the conventional integration
+  branches that exist. A branch with an unconventional name that no claim
+  names is not treated as an integration branch.
 - **Checks links to your own files, not to the web.** Nothing here touches the
   network. Checking external links would make a passing run depend on someone
   else's uptime and rate limits, turning a definite answer into a coin flip.
@@ -795,8 +797,8 @@ plugin/
     install.py, detect.py         the setup program
     payload/                      what gets copied into your project
     references/                   the deeper documentation
-tests/                            219 tests
-tests/harnesses/                  five slow audits, run by hand
+tests/                            the unit suite
+tests/harnesses/                  slow audits, run by hand
 NEXT_SESSION.md                   this project's own status document
 ```
 
@@ -805,10 +807,11 @@ document, on every change, in CI. If it stopped working, this repository would
 be the first to find out.
 
 `tests/harnesses/` holds the audits pytest cannot perform: one that breaks the
-code on purpose to see whether any test notices (57 mutations, all caught), one
-that installs into twenty unlike projects (20 scenarios, 87 assertions), one
-that tries to abuse the tool (18 adversarial probes), and two that measure speed
-and load. Between them they found every defect fixed in 0.3.0, and the stale
+code on purpose to see whether any test notices, one that installs into unlike
+real projects, one that tries to abuse the tool, one that sweeps a corpus of
+outside repositories and compares the result against a recorded baseline, and
+ones that measure speed and load. Each prints its own counts when it runs;
+none are repeated here, because a number in prose is not checked by anything. Between them they found every defect fixed in 0.3.0, and the stale
 assertion caught in the audit before 0.6.0. The unit suite found none of them,
 because the unit suite was the thing being audited.
 

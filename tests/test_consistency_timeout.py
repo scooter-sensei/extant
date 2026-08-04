@@ -15,10 +15,34 @@ So process isolation is the mechanism and the option is off by default.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import re
 import sys
 import time
 from pathlib import Path
+
+import pytest
+
+
+def _with_deadline(call, *, seconds: float):
+    """Run `call`, failing the test rather than hanging the suite.
+
+    The thread cannot be killed - `re` holds the GIL while matching, which is
+    the whole reason this feature uses a subprocess - so the worker is left to
+    finish on a daemon executor while the test reports the timeout. That is
+    acceptable here and would not be in production code: the point is that a
+    regression in the very timeout under test must surface as ONE failed test
+    rather than as a suite that never returns.
+    """
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(call)
+    try:
+        return future.result(timeout=seconds)
+    except concurrent.futures.TimeoutError:
+        pytest.fail(f"did not return within {seconds}s: the timeout it is "
+                    f"meant to prove has regressed")
+    finally:
+        pool.shutdown(wait=False)
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -45,8 +69,13 @@ def test_a_timeout_turns_a_hang_into_a_finding(git_repo, monkeypatch) -> None:
     })
     monkeypatch.setattr(hc, "_CONSISTENCY_TIMEOUT", 2.0)
 
+    # A test for "it gives up" must not itself be able to hang forever. If the
+    # timeout regresses, the catastrophic pattern below backtracks without
+    # bound and this test would run until the whole suite was killed, which
+    # reports as an infrastructure problem rather than as this bug.
     started = time.perf_counter()
-    findings = hc.validate_consistency(repo, "")
+    findings = _with_deadline(lambda: hc.validate_consistency(repo, ""),
+                              seconds=60)
     elapsed = time.perf_counter() - started
 
     assert elapsed < 60, f"it did not give up: {elapsed:.0f}s"

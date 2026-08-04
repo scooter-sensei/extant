@@ -51,27 +51,12 @@ MARKER="# extant-verify-hook"
 
 mkdir -p "$HOOK_DIR"
 
-install_shim() {
-    name="$1"
-    script="$2"
-    marker="$3"
-    target="$HOOK_DIR/$name"
-
-    if [ -f "$target" ] && grep -q "$marker" "$target"; then
-        echo "already installed: $name"
-        return 0
-    fi
-    [ -f "$target" ] || printf '#!/bin/sh\n' > "$target"
-
-    cat >> "$target" <<EOF
-
-$marker
-_hk="\$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/$script"
-[ -f "\$_hk" ] && sh "\$_hk" || true
-EOF
-    chmod +x "$target"
-    echo "installed: $name -> $script"
-}
+# There is deliberately no shared shim helper. One existed and was never
+# called: the advisory hooks below and the pre-commit guard cannot share
+# an installer, because the guard must propagate a non-zero exit and an
+# advisory shim ends in `|| true`. A helper that looked like the
+# mechanism while nothing used it was worse than the duplication it was
+# meant to remove.
 
 if [ "$WITH_GUARD" -eq 1 ]; then
     # pre-commit is a BLOCKING guard, so it must propagate its exit status

@@ -205,7 +205,11 @@ def detect_commit_convention(repo: Path) -> list[Observation]:
     out: list[Observation] = []
     if phasey >= max(3, n // 20):
         out.append(Observation(
-            "phase_task", r"\((\d+(?:\.\d+)*[a-z]?)\s+\w+\b", DERIVED,
+            # `+`, matching `_PHASEY` above. With `*` the EMITTED pattern
+            # accepted single-component markers that the count never measured,
+            # so the evidence and the rule installed from it described
+            # different populations.
+            "phase_task", r"\((\d+(?:\.\d+)+[a-z]?)\s+\w+\b", DERIVED,
             f"{phasey}/{n} subjects carry a (version Task N) marker",
         ))
     elif ticketed >= max(3, n // 10):

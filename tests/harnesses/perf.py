@@ -1,6 +1,7 @@
 """Performance measurement for extant.
 
-Nine questions, in descending order of how much they matter:
+The questions below, in descending order of how much they matter. No count
+here: the list grows and a number in prose does not.
 
 1. What does the post-commit hook add to EVERY commit? If that number is bad,
    people uninstall the tool and the other three stop mattering.

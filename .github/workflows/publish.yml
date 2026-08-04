@@ -41,14 +41,31 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Publishing requires a TAG ref, including for workflow_dispatch.
+      #
+      # The dispatch trigger exists so a transient PyPI outage does not need a
+      # new tag, and GitHub's dispatch UI can select a tag, so nothing is lost
+      # by requiring one. What it removes is the hole: dispatch from a branch
+      # skipped the version check below entirely - its `if` tested for a tag
+      # ref - and published whatever version that branch happened to carry,
+      # under no tag at all. PyPI refusing to replace an existing version
+      # limits the damage without preventing it, because a NEW number can
+      # still be published with nothing pointing at the code that produced it.
+      - name: Refuse to publish from anything but a tag
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::publishing requires a tag ref; got ${GITHUB_REF} "
+            echo "::error::re-run this workflow selecting the tag, not a branch"
+            exit 1
+          fi
+
       # The tag and the packaged version must be the same thing. Without this,
       # pushing v0.12.1 while pyproject still says 0.12.0 publishes 0.12.0
       # under a tag that claims otherwise - a released artifact contradicting
       # the tag that produced it, which is precisely the class of drift this
-      # project exists to catch. Skipped for workflow_dispatch, which has no
-      # tag to compare against.
+      # project exists to catch. Unconditional now: the step above guarantees
+      # there is a tag to compare against.
       - name: The tag must match the packaged version
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           tag="${GITHUB_REF_NAME#v}"
           packaged="$(python -c "

@@ -12,7 +12,8 @@ All three before you edit anything, so a failure afterwards is yours rather
 than inherited. The third is the tool checking its own documentation, and it
 is the one people forget.
 
-Python 3.9 or newer and git. `tomllib` is the only thing in the payload
+Python 3.9 or newer, and git 2.31 or newer. The hook installer calls
+`git rev-parse --path-format=absolute`, which older git does not know. `tomllib` is the only thing in the payload
 newer than 3.9, and it is imported inside a try/except: below 3.11 the tool
 falls back to `tomli`, and without either it runs on defaults and says so
 when a config file is actually present. Two tests in `test_packaging.py`

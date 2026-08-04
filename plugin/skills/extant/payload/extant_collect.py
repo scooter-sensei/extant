@@ -468,13 +468,21 @@ def split_entries(text: str) -> tuple[str, list[tuple[str, str]], str]:
     return preamble, segments, base
 
 
-def archive(repo: Path, retain: int = RETAIN_ENTRIES) -> dict[str, int]:
+def archive(repo: Path, retain: int | None = None) -> dict[str, int]:
     """Move all but the newest `retain` phase entries into the archive doc.
+
+    `retain` defaults to None rather than to RETAIN_ENTRIES, because a
+    default expression is evaluated once at import. Written the other way it
+    froze whatever the module was configured with at import time, so
+    `reload_config` could update the global and this function would go on
+    using the stale one.
 
     Fails closed if any original line would be lost. This is the only
     irreversible file operation in the system, so conservation is asserted
     rather than trusted.
     """
+    if retain is None:
+        retain = RETAIN_ENTRIES
     doc = repo / PRIMARY_DOC
     with open(doc, encoding="utf-8", newline="") as fh:
         original = fh.read()
@@ -2213,6 +2221,13 @@ _SITE_MARKERS_IN_FILE = (
     # `docs/index.html`, which is why the marker search below walks _SITE_DIRS
     # rather than looking only at the root.
     ("index.html", "docsify"),
+    # Mintlify RENAMED `mint.json` to `docs.json`, so a current Mintlify site
+    # declares itself in a file whose name says nothing. Listing `docs.json`
+    # among the filename signatures would suppress link checking for any
+    # project that happens to keep an unrelated `docs/docs.json`, which is why
+    # it was left out. Content decides instead: Mintlify writes its own schema
+    # URL into the file, and nothing else does.
+    ("docs.json", "mintlify.com"),
 )
 
 
@@ -2674,9 +2689,16 @@ def _consistency_for(repo: Path) -> dict[str, tuple[tuple[str, object], ...]]:
 
 
 # None means unbounded, which is the default and the historical behaviour.
-# Set from configuration below. See `_search_with_limit` for why an unbounded
-# default is the right one rather than an oversight.
-_CONSISTENCY_TIMEOUT: float | None = None
+# See `_search_with_limit` for why an unbounded default is right rather than
+# an oversight.
+#
+# ANNOTATED, NOT ASSIGNED. `_apply_config()` runs at import, far above this
+# line, and sets this from `consistency_timeout_seconds`. An assignment here
+# then ran afterwards and silently replaced the configured bound with None,
+# so the opt-in was inert on every CLI run: the config parsed, the value
+# reached CONFIG, and the global the rule actually reads never saw it. An
+# annotation binds no value, so the one `_apply_config` set survives.
+_CONSISTENCY_TIMEOUT: float | None
 
 
 class _Captured:
@@ -3928,6 +3950,11 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     previous_tags, previous_prefixes = _TAGS, _TAG_PREFIXES
     previous_integration = _INTEGRATION
     previous_ref_table = _REF_TABLE
+    # Saved and restored like every sibling above. Without this a NESTED
+    # validate() cleared the caller's caches and never gave them back, so
+    # the outer call carried on against a half-empty view it had built.
+    previous_manifest_floors = _MANIFEST_FLOORS
+    previous_linecount = _LINECOUNT
     if base is not None:
         _LINK_BASE = base
     if doc is not None:
@@ -4005,6 +4032,8 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         _TAGS, _TAG_PREFIXES = previous_tags, previous_prefixes
         _INTEGRATION = previous_integration
         _REF_TABLE = previous_ref_table
+        _MANIFEST_FLOORS = previous_manifest_floors
+        _LINECOUNT = previous_linecount
 
 
 FORMATS = ("text", "github", "sarif")
@@ -4222,7 +4251,15 @@ def run_sweep(repo: Path, fmt: str) -> int:
     entries, so "the newest entry" is a category error rather than a pass.
     """
     global _LINK_BASE, _DOC_FORMAT, _MANIFEST_FLOORS
-    paths = tracked_markdown(repo)
+    try:
+        paths = tracked_markdown(repo)
+    except (subprocess.CalledProcessError, OSError):
+        # An UNBORN HEAD has no tree to list, so `git ls-tree HEAD` exits
+        # 128 and the error reached the user as a traceback. A repository
+        # someone has just created is a legitimate thing to point a
+        # first-run survey at, and the honest answer is the same one a
+        # repository with no markdown gets.
+        paths = []
     if not paths:
         print("swept 0 markdown files: git tracks none in this repository",
               file=sys.stderr)
@@ -4912,9 +4949,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.selftest:
         target = repo / PRIMARY_DOC
         if not target.is_file():
-            # diag, not print: in SARIF mode stdout carries nothing but JSON.
-            diag(f"no such document: {target}")
-            diag(f"  primary_doc is '{CONFIG.primary_doc}', from {CONFIG.source}")
+            # stderr directly, NOT `diag`: that helper is defined further
+            # down this same function, so calling it here raised
+            # UnboundLocalError and `--selftest` on any repository without
+            # the primary document ended in a traceback instead of this
+            # message. The reason for not using `print` to stdout stands:
+            # in SARIF mode stdout carries nothing but JSON.
+            print(f"no such document: {target}", file=sys.stderr)
+            print(f"  primary_doc is '{CONFIG.primary_doc}', from "
+                  f"{CONFIG.source}", file=sys.stderr)
             return 1
         try:
             with open(target, encoding="utf-8", newline="") as fh:
@@ -5205,6 +5248,12 @@ def main(argv: list[str] | None = None) -> int:
             # whatever it had just found, and the check would decay to nothing
             # while continuing to report success.
             path = Path(args.write_baseline)
+            # Against the REPO, not the process cwd, for the same reason the
+            # READ path resolves that way: a git hook passes --repo and runs
+            # from wherever the commit was made, so a relative path here
+            # wrote a baseline that the next --baseline could not find.
+            if not path.is_absolute():
+                path = repo / path
             written = write_baseline(path, located)
             diag(f"recorded {written} finding(s) in {_rel(repo, path)}")
             diag("Each is still wrong. They are excluded from future runs so "

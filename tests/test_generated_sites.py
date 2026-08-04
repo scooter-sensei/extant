@@ -146,14 +146,36 @@ def test_mintlify_declares_itself_in_mint_json(git_repo) -> None:
 
 
 def test_an_unrelated_json_under_docs_is_not_a_generator(git_repo) -> None:
-    """The control. Only `mint.json` is a signature; the newer `docs.json`
-    spelling is too generic a filename to treat as one, and no repository in
-    either corpus carries a config by that name."""
+    """The control. `docs.json` is too generic a NAME to be a signature.
+
+    Treating the filename alone as one would silently stop link checking for
+    any project that keeps an unrelated `docs/docs.json`, which is a false
+    negative and the worst kind: the tool would report a clean sweep.
+    """
     repo, commit = git_repo
     commit("docs/docs.json", '{"name": "x"}\n', "chore: data")
     commit("README.md", "x\n", "chore: init")
 
     assert "dead-md-link" in _kinds(repo, "See [core](/core/require-approval).\n")
+
+
+def test_a_mintlify_docs_json_is_recognised_by_its_content(git_repo) -> None:
+    """Mintlify renamed `mint.json` to `docs.json`, so a current site declares
+    itself in a file whose name says nothing.
+
+    Content decides, through `_SITE_MARKERS_IN_FILE`: Mintlify writes its own
+    schema URL into the file and nothing else does. Catches both halves -
+    dropping the marker makes a real Mintlify site report its routes dead,
+    and promoting `docs.json` to a filename signature breaks the control
+    above.
+    """
+    repo, commit = git_repo
+    commit("docs/docs.json",
+           '{"$schema": "https://mintlify.com/docs.json", "name": "x"}\n',
+           "chore: mintlify")
+    commit("README.md", "x\n", "chore: init")
+
+    assert "dead-md-link" not in _kinds(repo, "See [core](/core/require-approval).\n")
 
 
 def test_the_namespace_search_looks_exactly_where_detection_does(git_repo) -> None:

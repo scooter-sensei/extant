@@ -114,7 +114,11 @@ def run_timed(repo: Path, *args: str, budget: float, timeout: int = 600):
         proc = sh(repo, PY, str(repo / "tools/extant_collect.py"),
                   "--repo", str(repo), *args, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return None, timeout
+        # None, not `timeout`. Returning the budget made a run that was
+        # KILLED at the limit print the same elapsed time as one that
+        # finished exactly at it, and `verdict_for` already has a branch
+        # for None that says TIMED OUT.
+        return None, None
     return proc, time.perf_counter() - start
 
 

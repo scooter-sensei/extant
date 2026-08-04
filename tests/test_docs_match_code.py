@@ -83,15 +83,19 @@ def test_every_rule_is_documented() -> None:
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
     from extant_collect import RULES
 
-    readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
     kinds = [rule.kind for rule in RULES]
-
     assert len(kinds) > 5, f"only {len(kinds)} rules found; the import is wrong"
-    missing = [kind for kind in kinds if f"| `{kind}` |" not in readme]
-    assert not missing, (
-        "rules that ship but have no row in the README's rules table:\n  "
-        + "\n  ".join(missing)
-    )
+
+    # BOTH tables. Checking only the README let SKILL.md fall two rules behind
+    # while still heading its table "the eleven validation rules": a reader of
+    # the installed skill never sees the README, and no test looked.
+    for relative in ("README.md", "plugin/skills/extant/SKILL.md"):
+        text = (PACKAGE_ROOT / relative).read_text(encoding="utf-8")
+        missing = [kind for kind in kinds if f"| `{kind}` |" not in text]
+        assert not missing, (
+            f"rules that ship but have no row in {relative}'s rules table:\n  "
+            + "\n  ".join(missing)
+        )
 
 
 def test_no_document_invents_a_rule() -> None:

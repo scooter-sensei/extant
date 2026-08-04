@@ -307,12 +307,19 @@ def main(argv: list[str] | None = None) -> int:
         #             rule from 3 candidates examined to 35 and added no
         #             finding at all. A findings diff calls that "no change",
         #             which is the opposite of what happened.
+        # Three populations, not two. A repository ABSENT from the baseline is
+        # new and has nothing to compare against; one PRESENT without
+        # `by_rule` was recorded before per-rule detail existed. Counting the
+        # first as the second told the reader to re-run with --update to
+        # deepen a record that does not exist yet.
         detailed = [n for n in results if "by_rule" in previous.get(n, {})]
-        if len(detailed) < len(results):
+        shallow = [n for n in results
+                   if n in previous and "by_rule" not in previous[n]]
+        if shallow:
             # Never compare less than advertised without saying so.
-            print(f"  NOTE: {len(results) - len(detailed)} repository(ies) were "
-                  f"recorded before per-rule detail existed, so only their "
-                  f"totals were compared. Re-run with --update to deepen it.")
+            print(f"  NOTE: {len(shallow)} repository(ies) were recorded "
+                  f"before per-rule detail existed, so only their totals were "
+                  f"compared. Re-run with --update to deepen it.")
         for name in sorted(detailed):
             was, now = previous[name], results[name]
             for label, key in (("rule", "by_rule"), ("examined", "examined")):

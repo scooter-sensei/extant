@@ -83,8 +83,16 @@ def test_every_document_scoped_claim_carries_a_subject(git_repo) -> None:
     # `dead-release-tag`'s never-tagged branch is opt-in, and this fixture
     # needs it to reach eight rule kinds. The denominator assertion below is
     # what would otherwise turn that into a quietly weaker test.
+    # Restored in a `finally`. Left set, it leaked into every test that ran
+    # after this one in the same process, so `dead-release-tag`'s opt-in
+    # branch was silently on for them - and under xdist which of those tests
+    # saw it depended on scheduling.
+    previous = hc._RELEASE_CLAIMS_ARE_OURS
     hc._RELEASE_CLAIMS_ARE_OURS = True
-    findings = hc.validate(repo, text)
+    try:
+        findings = hc.validate(repo, text)
+    finally:
+        hc._RELEASE_CLAIMS_ARE_OURS = previous
     document_scoped = [f for f in findings
                        if f.kind not in ("inconsistent-artifact", "raw-lfs-blob")]
 

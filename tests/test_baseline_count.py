@@ -30,8 +30,12 @@ TWO = f"# Legacy\n\nShipped in `{DEAD}`.\nAnd again in `{DEAD}`.\n"
 def _repo(tmp_path: Path, body: str) -> Path:
     repo = tmp_path / "legacy"
     repo.mkdir()
+    # `commit.gpgsign false` so the fixture does not depend on whoever runs it
+    # having no global signing configured. A signed commit here fails with a
+    # GPG error that says nothing about the test.
     for cmd in (["init", "-b", "main"], ["config", "user.email", "t@t"],
-                ["config", "user.name", "T"]):
+                ["config", "user.name", "T"],
+                ["config", "commit.gpgsign", "false"]):
         subprocess.run(["git", *cmd], cwd=repo, capture_output=True, check=True)
     with open(repo / "README.md", "w", encoding="utf-8", newline="") as fh:
         fh.write(body)

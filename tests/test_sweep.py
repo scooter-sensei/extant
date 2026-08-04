@@ -4,10 +4,11 @@ The mode exists because the demonstration that shows what this tool is for -
 findings across a whole repository, from a standing start - was not a command.
 It took a hand-written shell loop over `git ls-files`, which nobody discovers.
 
-The tests that matter here are the ones about what a sweep does NOT do. Checking
-every markdown file in extant's own repository produces 18 findings and every
-one is false: `abc1234` and `v2.1` are the example claims inside the documents
-that document the rules. So the partition between configured and unreviewed is
+The tests that matter here are the ones about what a sweep does NOT do.
+Checking every markdown file in extant's own repository produces findings that
+are ALL false: `abc1234` and `v2.1` are the example claims inside the documents
+that document the rules. The exact count is not written down, because nothing
+here verifies it and it moves whenever a document is edited. So the partition between configured and unreviewed is
 not presentation, it is the difference between a useful survey and a validator
 that cries wolf on first contact.
 """

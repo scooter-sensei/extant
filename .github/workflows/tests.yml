@@ -38,7 +38,7 @@ jobs:
       # The TOOL has no third-party dependencies. The test suite is a separate
       # question and needs pytest, which is not in the standard library. This
       # step was originally missing, under a comment asserting that nothing
-      # needed installing, and all six matrix jobs failed identically.
+      # needed installing, and every matrix job failed identically.
       - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
 

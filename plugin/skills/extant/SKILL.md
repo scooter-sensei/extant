@@ -121,7 +121,12 @@ Then **derive the configuration from the real document - do not accept the
 defaults blindly.** See `references/porting.md`. This is the step that decides
 whether the tool works or silently does nothing.
 
-## The eleven validation rules
+## The validation rules
+
+<!-- No count in this heading on purpose: it was wrong for two releases,
+     because a number in a heading has to be maintained by whoever adds a
+     rule and nothing made them. `test_every_rule_is_documented` now checks
+     this table, so a missing ROW fails the suite. -->
 
 Each checks a different KIND of statement, and each is scoped differently. The
 scoping is not stylistic - getting it wrong produces either silence or noise,
@@ -140,6 +145,8 @@ and both destroy the tool's value.
 | `dead-pinned-ref` | an install snippet pinning a version of THIS repo that does not resolve | whole file, **inside code** |
 | `raw-lfs-blob` | a file `.gitattributes` routes through LFS, stored as a raw blob | repository |
 | `inconsistent-artifact` | configured files that state DIFFERENT values for the same thing | repository |
+| `manifest-floor-mismatch` | a documented version floor that contradicts the manifest declaring it | entry-point documents only |
+| `dead-line-pointer` | `file.py:123` where that file has fewer lines | files this repository tracks |
 
 `inconsistent-artifact` is the one rule that reads no document. It compares
 files against EACH OTHER, which is why it does not breach the no-numbers
