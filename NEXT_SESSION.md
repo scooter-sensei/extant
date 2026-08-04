@@ -6,9 +6,9 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 17 - The survey learns to state its own denominator (shipped, 2026-08-04)
+## Phase 17 - A denominator for the survey, and a gate for the release (shipped, 2026-08-04)
 
-**Status.** Suite is 520 tests, all passing. Thirteen rules, eighteen presets.
+**Status.** Suite is 536 tests, all passing. Thirteen rules, eighteen presets.
 This work is version 0.19.0, published to PyPI and verified from the installed
 wheel rather than from the working tree. All 28 tags from `v0.5.0` carry a
 GitHub release, and only the newest holds the Latest badge.
@@ -38,6 +38,35 @@ GitHub release, and only the newest holds the Latest badge.
   markdown across numpy's 555 rst files. Already wrong for `dead-md-link`
   before this change.
 
+**What the release itself then taught, in the same session.**
+
+- **0.19.0 shipped to PyPI with its own `tests` run red.** The refactor above
+  moved two rule-selection guards into `_rule_applies`, so two mutations
+  anchored on the old inline text matched nothing. `mutate.py --check-only` is
+  a CI step rather than a pytest test, so a green local suite said nothing
+  about it, and nobody opened Actions between pushing and tagging ninety
+  seconds later. Third time this pair has rotted through an unrelated refactor
+  of `validate`; retargeted, and confirmed to KILL rather than merely match.
+- **`publish.yml` now refuses a commit the suite has not passed.** The two
+  workflows were independent triggers, so a red suite never blocked an upload.
+  The build job asks the API whether `tests.yml` succeeded for this commit
+  before building anything, matched by COMMIT because `tests.yml` runs on
+  pushes to `main` and never on a tag. See
+  `.github/scripts/require_green_tests.py`.
+- **Finding no run FAILS.** That state is reachable in normal use, by tagging
+  before pushing the branch, and a gate reading "nothing found" as "nothing
+  wrong" passes hardest exactly when its subject was never checked. Pending
+  waits up to thirty minutes; only `success` is green, because a cancelled run
+  is not a passing one; a network error or missing configuration blocks rather
+  than allows.
+- **Proved end to end with a throwaway pre-release tag**, not only with
+  fixtures. A tag on a commit that was never pushed to `main` reached the gate
+  past the two checks before it and stopped there: `0 run(s) found -> fail`,
+  with build, wheel-check and upload all skipped and nothing published. Tag
+  deleted afterwards; the tag and release counts are back in step.
+- `CONTRIBUTING.md` records the manual check as well, because learning a
+  release is blocked is cheaper before the tag exists than after.
+
 **What was learned.**
 
 - **Writing a residual down is what gets it fixed.** This entire release is the
@@ -60,10 +89,22 @@ GitHub release, and only the newest holds the Latest badge.
   every other cache in `validate` has. Those are dicts mutated in place; this
   one is a rebound tuple, so restoring discarded exactly the entry its caller
   needed. It cached nothing, read as correct, and was found by re-profiling.
+- **A green test of a component is not evidence the component runs.** The
+  publish gate had eleven passing tests and five killed mutations while its
+  workflow step, its `actions: read` permission and its token wiring were all
+  unexercised - every one of those drove `decide()` with hand-built
+  dictionaries. That is the same shape as the two mutation anchors: passing
+  every local check while pointed at nothing. Only a real tag settled it.
+- **A local suite is not the gate.** The self-check job runs `--check-only`,
+  `--selftest` and a timing run, none of which pytest carries, deliberately.
+  So `pytest -q` being green answers a different question from the one a tag
+  depends on.
 
-**Verification.** 520 tests. 8 of 8 mutations killed, after the first run
-killed 7. Corpus: 39 repositories, 2,148 findings, 0 changed, with the harness
-printing its configuration-parity check before comparing anything.
+**Verification.** 536 tests. 8 of 8 mutations killed for the denominator work
+after the first run killed 7, and 5 of 5 for the publish gate. Corpus: 39
+repositories, 2,148 findings, 0 changed, with the harness printing its
+configuration-parity check before comparing anything. `mutate.py --check-only`
+reports 139 of 139 matching.
 
 ## Phase 16 - A thirteenth rule, and the hole between it and an old one (shipped, 2026-08-04)
 
