@@ -3486,6 +3486,14 @@ class Rule:
     # document offers nothing to corrupt. REQUIRED, and why --selftest exists:
     # a rule that cannot state how to make itself fire cannot be shown to work.
     probe: object
+    # For a REPOSITORY-scoped rule: the repo-relative file that DECLARES
+    # the claim being checked. Such a finding is about the repository and
+    # belongs to no document, so a sweep has nothing to attribute it to;
+    # `--verify` prints it under whichever document happened to be in hand,
+    # which is the primary one. Naming the declaring file is more useful
+    # than either. Left None for document-scoped rules, which carry their
+    # own path already.
+    subject_file: str | None = None
 
 
 def count_examined(repo: Path, text: str) -> dict[str, int]:
@@ -3665,6 +3673,7 @@ RULES: tuple[Rule, ...] = (
         in_archive=False,
         falsifiable="do the configured files state the same value?",
         probe=_probe_consistency,
+        subject_file=".extant.toml",
     ),
     Rule(
         kind="dead-pinned-ref",
@@ -3681,6 +3690,7 @@ RULES: tuple[Rule, ...] = (
         in_archive=False,
         falsifiable="does every path under an LFS filter store a pointer?",
         probe=_probe_lfs_storage,
+        subject_file=".gitattributes",
     ),
 )
 
@@ -4065,7 +4075,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     primary = CONFIG.primary_doc.replace("\\", "/")
     sections: list[tuple[str, list[str], bool]] = [
         ("vetted", vetted, True), ("unvetted", unvetted, False)]
-    results: dict[str, list[Located]] = {"vetted": [], "unvetted": []}
+    results: dict[str, list[Located]] = {"vetted": [], "unvetted": [],
+                                         "repository": []}
     unreadable: list[str] = []
 
     # One scope for the whole survey. Every document here is read from the same
@@ -4110,6 +4121,27 @@ def run_sweep(repo: Path, fmt: str) -> int:
                 results[label].extend(
                     Located(relative, f, primary=(relative == primary))
                     for f in findings)
+
+        # Repository-scoped rules answer a question about the REPOSITORY,
+        # so they run ONCE here rather than inside the loop above.
+        #
+        # `validate` runs them only on the primary pass, which in a sweep
+        # means the file named by `primary_doc` - and a swept repository
+        # usually has no such file, because a sweep needs no configuration
+        # at all. So both were silent in every sweep of nearly every
+        # repository, and silently: a rule examining nothing and a rule
+        # finding nothing print the same zero. It read as 0 / 0 across
+        # three corpora and was taken for an absence of faults.
+        #
+        # The guard was right that one repository-wide disagreement must
+        # not be repeated per document, and wrong about what "once" was
+        # tied to. Running them here keeps the once and drops the document.
+        for rule in RULES:
+            if rule.scope != "repository":
+                continue
+            results["repository"].extend(
+                Located(rule.subject_file or ".", finding, primary=False)
+                for finding in rule.check(repo, ""))  # type: ignore[operator]
     finally:
         _STABLE_SCOPE = False
         _DIRCACHE = None
@@ -4126,14 +4158,19 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # because the two streams flush independently.
     out = sys.stderr if fmt == "sarif" else sys.stdout
     if fmt == "text":
-        for label, heading in (("vetted", "CONFIGURED - these decide the exit code"),
-                               ("unvetted", "UNREVIEWED - surveyed only, not gated")):
+        for label, heading in (
+                ("vetted", "CONFIGURED - these decide the exit code"),
+                ("unvetted", "UNREVIEWED - surveyed only, not gated"),
+                ("repository", "REPOSITORY - about the repository itself, "
+                               "not gated")):
             if results[label]:
                 print(f"\n{heading}", file=out)
                 for line in format_text(results[label]):
                     print(line, file=out)
     else:
-        for line in render_findings(results["vetted"] + results["unvetted"], fmt)[0]:
+        for line in render_findings(
+                results["vetted"] + results["unvetted"]
+                + results["repository"], fmt)[0]:
             print(line)
 
     # The denominator, per section. "0 findings" and "0 files looked at" print
@@ -4143,6 +4180,14 @@ def run_sweep(repo: Path, fmt: str) -> int:
           f"{len(vetted)} configured ({len(results['vetted'])} finding(s)), "
           f"{len(unvetted)} unreviewed ({len(results['unvetted'])} finding(s))",
           file=out)
+    # Counted separately, never folded into the document totals: these are
+    # findings about the repository, and adding them to a per-file count would
+    # report more findings than there are documents to hold them. A rule that
+    # ran and found nothing now says so, which is the whole point - the count
+    # of rules that RAN is the denominator the silence was hiding.
+    repository_rules = sum(1 for rule in RULES if rule.scope == "repository")
+    print(f"  {repository_rules} repository-wide rule(s) ran once "
+          f"({len(results['repository'])} finding(s))", file=out)
     if unreadable:
         print(f"  {len(unreadable)} could not be read: {', '.join(unreadable)}",
               file=out)
