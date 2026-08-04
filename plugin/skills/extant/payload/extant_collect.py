@@ -3222,6 +3222,109 @@ def validate_manifest_floors(repo: Path, text: str) -> list[Finding]:
     return findings
 
 
+# --- line pointers ------------------------------------------------------
+#
+# `core/engine.py:123` where that file has 40 lines. Derived from a
+# 39-repository corpus measured 2026-08-04: 7,775 candidate sites, of which
+# 6,525 sit outside a code block, 51 name a file this repository actually
+# tracks, and 3 cite a line past its end. All three were real - plan documents
+# instructing an implementer to edit a line of a file that has since shrunk.
+#
+# The narrow claim is deliberate. This does NOT ask whether line 123 still
+# holds what the document says, which would be judging content and is the
+# question no rule here may ask. It asks whether the file has that many lines.
+#
+# The 6,474 pointers naming something this repository does not track are left
+# alone. They are pasted stack traces, third-party paths and example output,
+# and whether a path exists is already `dead-path-pointer`'s question - asking
+# it again here would report the same fault twice under two names.
+_LINE_POINTER = re.compile(
+    r"(?<![\w/.\\-])"
+    r"((?:[\w.\-]+[/\\])*[\w.\-]+\.[A-Za-z]\w{0,9})"
+    r":(\d{1,6})"
+    r"(?![\w.])")
+
+_LINECOUNT: dict[str, int | None] = {}
+
+
+def _line_count(repo: Path, relative: str) -> int | None:
+    """Lines in a tracked file, or None when it cannot be counted here.
+
+    None means "do not judge": the path is absent, unreadable, or too large to
+    be worth reading. A rule that treated None as zero would report every
+    binary and every missing file as a pointer past the end.
+
+    Counted in BINARY mode. Decoding first would make a file with one invalid
+    byte unreadable, and the question here is how many newlines it has, which
+    does not need the text. Memoised for the lifetime of a validate() call,
+    like every other repository fact: a document citing forty lines of one
+    file would otherwise read it forty times.
+    """
+    key = f"{repo}\0{relative}"
+    if key in _LINECOUNT:
+        return _LINECOUNT[key]
+    count: int | None = None
+    target = repo / relative
+    try:
+        if target.is_file() and target.stat().st_size <= _LINE_COUNT_LIMIT:
+            with open(target, "rb") as handle:
+                count = sum(1 for _ in handle)
+    except (OSError, ValueError):
+        count = None
+    _LINECOUNT[key] = count
+    return count
+
+
+# A generated bundle or a vendored blob is not something a document points
+# into, and reading one per pointer is the only cost this rule can incur.
+_LINE_COUNT_LIMIT = 2_000_000
+
+def _line_pointer_sites(repo: Path, text: str) -> list[tuple[int, str, int, int]]:
+    """Pointers this rule can actually decide, as (line, target, cited, total).
+
+    The DENOMINATOR, computed exactly where the rule computes its findings, so
+    the two describe one population. A pointer whose target this repository
+    does not track is not counted: the rule cannot decide it, and reporting
+    coverage it does not have is worse than reporting none.
+    """
+    sites: list[tuple[int, str, int, int]] = []
+    for number, line in enumerate(_prose(text).splitlines(), start=1):
+        for match in _LINE_POINTER.finditer(line):
+            raw, cited = match.group(1), int(match.group(2))
+            if cited < 1:
+                continue
+            exists, _actual = _resolve_reference(repo, repo, raw)
+            if not exists:
+                continue
+            total = _line_count(repo, raw)
+            if total is None:
+                continue
+            sites.append((number, raw, cited, total))
+    return sites
+
+
+def validate_line_pointers(repo: Path, text: str) -> list[Finding]:
+    """A cited line number that is past the end of the file it cites.
+
+    The file is here and git tracks it; the line is not. That is settled by
+    counting newlines, and nothing about it is a judgement.
+
+    Whole-file and in the archive, like path pointers: a pointer is an
+    instruction at any age, and retiring the entry that holds it does not make
+    line 211 of a 167-line file exist.
+    """
+    findings: list[Finding] = []
+    for number, raw, cited, total in _line_pointer_sites(repo, text):
+        if cited <= total:
+            continue
+        findings.append(Finding(
+            number, "dead-line-pointer",
+            f"points at `{raw}:{cited}`, but that file has {total} line"
+            f"{'' if total == 1 else 's'}",
+            subject=f"{raw}:{cited}"))
+    return findings
+
+
 def validate_lfs_storage(repo: Path, text: str) -> list[Finding]:
     """A file `.gitattributes` says lives in LFS, stored as a raw blob instead.
 
@@ -3547,6 +3650,11 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         # repositories, so silence is its normal output and the denominator
         # is the only thing separating a working rule from a broken one.
         "manifest-floor-mismatch": len(_floor_claims(repo, text)),
+        # Pointers whose target this repository tracks and can count. One
+        # naming a file we do not have is not counted: the rule cannot
+        # decide it, and `dead-path-pointer` already asks whether a path
+        # exists. On a 39-repository corpus that was 51 of 6,525.
+        "dead-line-pointer": len(_line_pointer_sites(repo, text)),
     }
 
 
@@ -3582,12 +3690,46 @@ def _probe_manifest_floor(repo: Path, text: str) -> str | None:
     return "".join(lines)
 
 
+def _probe_line_pointer(repo: Path, text: str) -> str | None:
+    """Push a real line pointer past the end of the file it names.
+
+    Located BY LINE, like the manifest probe: the first `path:number` in a
+    document is often inside a transcript that the rule never reads, so a
+    pattern-located probe would corrupt something invisible and then report
+    that the rule did not fire.
+
+    Returns None when this document cites no line of a file this repository
+    tracks, which is the ordinary case.
+    """
+    sites = _line_pointer_sites(repo, text)
+    if not sites:
+        return None
+    number, raw, cited, total = sites[0]
+    lines = text.splitlines(keepends=True)
+    index = number - 1
+    if index >= len(lines):
+        return None
+    needle = f"{raw}:{cited}"
+    if needle not in lines[index]:
+        return None
+    lines[index] = lines[index].replace(needle, f"{raw}:{total + 9999}", 1)
+    return "".join(lines)
+
+
 # THE ADMISSION TEST for anything added here: it must answer a yes/no question
 # to git or the filesystem, and produce zero false positives on the real corpus.
 # A rule that inspects numbers or dates fails it - historical facts are true
 # when written and stale forever after, so checking them cries wolf, and a
 # validator that cries wolf stops being read.
 RULES: tuple[Rule, ...] = (
+    Rule(
+        kind="dead-line-pointer",
+        check=validate_line_pointers,
+        scope="whole-file",
+        in_archive=True,
+        falsifiable="does the cited file have at least that many lines?",
+        probe=_probe_line_pointer,
+    ),
     Rule(
         kind="manifest-floor-mismatch",
         check=validate_manifest_floors,
@@ -3765,7 +3907,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     """
     global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
     global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
-    global _DOC_PATH, _MANIFEST_FLOORS
+    global _DOC_PATH, _MANIFEST_FLOORS, _LINECOUNT
     previous, previous_cache = _LINK_BASE, _DIRCACHE
     previous_doc = _DOC_PATH
     previous_ancestors, previous_refs, previous_lfs = _ANCESTORS, _REFS, _LFS
@@ -3819,6 +3961,9 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         # Declared version floors, same lifetime and same reason: a sweep
         # would otherwise re-read every manifest once per document.
         _MANIFEST_FLOORS = {}
+        # Same lifetime, same reason: a sweep would otherwise re-count the
+        # lines of a file once per document that cites it.
+        _LINECOUNT = {}
     try:
         findings: list[Finding] = []
         primary = not in_archive and has_entries

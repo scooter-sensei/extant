@@ -1,0 +1,252 @@
+"""A cited line number that is past the end of the file it cites.
+
+Derived from a 39-repository corpus measured 2026-08-04: 7,775 candidate
+sites, 6,525 outside a code block, 51 naming a file the repository tracks, and
+3 citing a line past its end. All three were real - plan documents telling an
+implementer to modify a line of a file that had since shrunk.
+
+The two big filters are why it is usable. Code blocks are excluded, and so are
+the 6,474 pointers naming something the repository does not track: those are
+pasted stack traces and third-party paths, and whether a path exists is
+already `dead-path-pointer`'s question.
+
+Each test names the wrong implementation it would catch.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
+           / "extant" / "payload")
+sys.path.insert(0, str(PAYLOAD))
+
+
+def _reset():
+    import extant_collect as hc
+    hc._LINECOUNT = {}
+    hc._DOC_FORMAT = "markdown"
+
+
+def _check(repo, text: str):
+    import extant_collect as hc
+    _reset()
+    return hc.validate_line_pointers(repo, text)
+
+
+def _examined(repo, text: str) -> int:
+    import extant_collect as hc
+    _reset()
+    return len(hc._line_pointer_sites(repo, text))
+
+
+# --- the claim itself --------------------------------------------------
+
+def test_a_line_past_the_end_is_reported(git_repo) -> None:
+    """The corpus case: a plan says modify line 211 of a 167-line file.
+
+    Catches a rule that only checks the path and never counts the lines.
+    """
+    repo, commit = git_repo
+    commit("src/app.py", "".join(f"line {n}\n" for n in range(1, 41)),
+           "feat: app")
+    findings = _check(repo, "**Modify:** `src/app.py:123`\n")
+    assert [f.kind for f in findings] == ["dead-line-pointer"]
+    assert "40 lines" in findings[0].detail
+    assert findings[0].subject == "src/app.py:123"
+
+
+def test_a_line_inside_the_file_is_silent(git_repo) -> None:
+    """Catches a rule that fires on every pointer it can parse."""
+    repo, commit = git_repo
+    commit("src/app.py", "".join(f"line {n}\n" for n in range(1, 41)),
+           "feat: app")
+    assert _check(repo, "See `src/app.py:40` for the detail.\n") == []
+
+
+def test_the_last_line_is_inside_the_file(git_repo) -> None:
+    """An off-by-one here reports every pointer at the final line.
+
+    Catches `cited < total` where `cited <= total` is meant.
+    """
+    repo, commit = git_repo
+    commit("src/app.py", "a\nb\nc\n", "feat: app")
+    assert _check(repo, "See `src/app.py:3`.\n") == []
+    assert len(_check(repo, "See `src/app.py:4`.\n")) == 1
+
+
+def test_a_one_line_file_reads_as_singular(git_repo) -> None:
+    """Prose detail, and the only place a plural is computed."""
+    repo, commit = git_repo
+    commit("one.py", "solo\n", "feat: one")
+    assert "has 1 line" in _check(repo, "See `one.py:9`.\n")[0].detail
+
+
+# --- what it refuses to judge -----------------------------------------
+
+def test_a_pointer_inside_a_fence_is_not_read(git_repo) -> None:
+    """A pasted traceback is a record of what was true when captured.
+
+    Catches dropping `_prose`, which is what keeps stack traces out.
+    """
+    repo, commit = git_repo
+    commit("src/app.py", "a\nb\n", "feat: app")
+    text = ("```\n"
+            'File "src/app.py", line 99\n'
+            "src/app.py:99 in handler\n"
+            "```\n")
+    assert _check(repo, text) == []
+
+
+def test_a_pointer_inside_an_rst_literal_block_is_not_read(git_repo) -> None:
+    """reStructuredText code blocks are INDENTATION, not fences.
+
+    The corpus harness missed this and reported a pytest transcript as a
+    finding; the real rule did not, because `_prose` is format aware. Catches
+    a rule that assumes every code block is fenced.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("conftest.py", "a\nb\nc\nd\n", "feat: conftest")
+    text = ("then you will see this:\n\n"
+            ".. code-block:: pytest\n\n"
+            "    SKIPPED [2] conftest.py:13: cannot run on platform linux\n")
+    _reset()
+    hc._DOC_FORMAT = "rst"
+    try:
+        assert hc.validate_line_pointers(repo, text) == []
+    finally:
+        hc._DOC_FORMAT = "markdown"
+
+
+def test_a_path_the_repository_does_not_track_is_not_judged(git_repo) -> None:
+    """6,474 of 6,525 corpus pointers were this: third-party paths and
+    transcripts. Whether a path exists is `dead-path-pointer`'s question, and
+    asking it again here reports one fault twice under two names.
+
+    Catches a rule that treats "cannot read it" as "zero lines".
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    assert _check(repo, "See `vendor/other/thing.py:900`.\n") == []
+
+
+def test_a_time_or_a_port_is_not_a_pointer(git_repo) -> None:
+    """`localhost:8080` and `12:30` share the shape and are not pointers.
+
+    Catches a pattern without the extension requirement or the boundaries.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    text = ("Run on localhost:8080 at 12:30, ratio 3:1, see "
+            "https://example.com:443/x and note: this is prose.\n")
+    assert _check(repo, text) == []
+    assert _examined(repo, text) == 0
+
+
+def test_a_wrong_case_path_is_not_judged(git_repo) -> None:
+    """Resolution is case-correct, and only that guard rejects this.
+
+    On a case-insensitive filesystem `is_file()` says yes to `src/app.py`
+    when the file is `src/App.py`, so counting its lines succeeds and the
+    pointer would be judged against a file the document did not name. Only
+    `_resolve_reference` catches it, which is why the case matters here and
+    the ordinary missing-path case does not isolate the guard.
+    """
+    repo, commit = git_repo
+    commit("src/App.py", "a\nb\n", "feat: app")
+    assert _check(repo, "See `src/app.py:99`.\n") == []
+
+
+def test_a_directory_is_not_counted_as_a_file(git_repo) -> None:
+    """A path can resolve and still be uncountable.
+
+    `pkg.d` exists, so resolution passes; it is not a file, so counting
+    returns None. Catches treating "cannot count it" as zero lines, which
+    would report every directory as a pointer past the end.
+    """
+    repo, commit = git_repo
+    commit("pkg.d/keep.md", "x\n", "feat: a directory that looks like a file")
+    assert _check(repo, "See `pkg.d:99`.\n") == []
+    assert _examined(repo, "See `pkg.d:99`.\n") == 0
+
+
+def test_an_extensionless_name_is_not_a_pointer(git_repo) -> None:
+    """`Makefile:99` is not read, and that is a deliberate narrowing.
+
+    The pattern requires an extension because the corpus form is
+    `path/to/file.ext:line`. Extensionless files are real, and admitting them
+    would also admit every `word:number` in prose. Catches relaxing the
+    extension requirement, which nothing else in this file would notice.
+    """
+    repo, commit = git_repo
+    commit("Makefile", "a\nb\n", "feat: makefile")
+    assert _examined(repo, "See Makefile:99 for the target.\n") == 0
+    assert _check(repo, "See Makefile:99 for the target.\n") == []
+
+
+def test_a_dotted_suffix_after_the_number_is_not_a_line(git_repo) -> None:
+    """`app.py:2.0` names a version, not line 2.
+
+    Asserted on the DENOMINATOR rather than on findings: without the trailing
+    boundary the pointer is examined and simply agrees, so a findings-only
+    assertion would pass either way.
+    """
+    repo, commit = git_repo
+    commit("app.py", "a\nb\nc\n", "feat: app")
+    assert _examined(repo, "Tested against app.py:2.0 of the spec.\n") == 0
+
+
+# --- the denominator ---------------------------------------------------
+
+def test_a_resolvable_pointer_is_counted_even_when_it_is_fine(git_repo) -> None:
+    """Catches a denominator that counts findings rather than candidates."""
+    repo, commit = git_repo
+    commit("src/app.py", "a\nb\nc\n", "feat: app")
+    assert _examined(repo, "See `src/app.py:2`.\n") == 1
+
+
+def test_an_undecidable_pointer_is_not_counted_as_examined(git_repo) -> None:
+    """Coverage the rule does not have must not be claimed.
+
+    Catches counting every `path:line` match, which on the corpus would have
+    reported 6,525 examined where the rule could decide 51.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    assert _examined(repo, "See `nowhere/absent.py:5`.\n") == 0
+
+
+def test_count_examined_exposes_the_rule(git_repo) -> None:
+    """The registry's denominator must reach the reported one."""
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("src/app.py", "a\nb\n", "feat: app")
+    _reset()
+    assert hc.count_examined(repo, "See `src/app.py:1`.\n")[
+        "dead-line-pointer"] == 1
+
+
+# --- probe -------------------------------------------------------------
+
+def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
+    """A rule that cannot say how to make itself fire cannot be shown to work."""
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("src/app.py", "a\nb\nc\n", "feat: app")
+    text = "See `src/app.py:2` for the detail.\n"
+    assert _check(repo, text) == []
+    _reset()
+    probed = hc._probe_line_pointer(repo, text)
+    assert probed is not None
+    _reset()
+    assert len(hc.validate_line_pointers(repo, probed)) == 1
+
+
+def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
+    """None is the honest answer, and `--selftest` reports it as NO PROBE."""
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    _reset()
+    assert hc._probe_line_pointer(repo, "Nothing cited here.\n") is None

@@ -109,7 +109,7 @@ The other two modes, once you want them:
 
 ## What it covers
 
-Twelve rules. Every one answers a question git or the filesystem can settle.
+Thirteen rules. Every one answers a question git or the filesystem can settle.
 
 | Rule | Catches |
 |:---|:---|
@@ -125,6 +125,7 @@ Twelve rules. Every one answers a question git or the filesystem can settle.
 | `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |
 | `raw-lfs-blob` | an asset your `.gitattributes` says is in Git LFS, committed into git as a real binary instead |
 | `manifest-floor-mismatch` | your README says "requires Python 3.8+" while `pyproject.toml` says `>=3.10`. Only in a README or install guide, never in a changelog |
+| `dead-line-pointer` | "see `core/engine.py:123`" when that file has 40 lines. Only for files git tracks, and it never judges what line 123 now contains |
 
 Five details that are easy to miss:
 
