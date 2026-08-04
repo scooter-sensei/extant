@@ -9,8 +9,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 15 - A twelfth rule, measured before it was written (shipped, 2026-08-04)
 
 **Status.** Suite is 482 tests, all passing. Twelve rules, eighteen presets.
-This work is version 0.17.2. Every tag from `v0.5.0` has a GitHub release; six
-were missing when this phase began, `v0.16.0` onward.
+This work is version 0.17.2. All 25 tags from `v0.5.0` now have a GitHub
+release, against 19 at the start of this phase.
 
 **What shipped.**
 
@@ -47,6 +47,12 @@ were missing when this phase began, `v0.16.0` onward.
   which a swept repository usually does not have. They now run once per sweep
   in their own section, outside the per-file totals and not gating, and the
   sweep prints how many repository-wide rules ran.
+- **Six GitHub releases**, written from the annotated tag messages and the
+  changelog. Five tags were carrying no release, `v0.16.0` through `v0.17.1`;
+  `v0.17.2` was released as it was cut. Only the newest holds the Latest
+  badge, and the `v0.17.0` notes point at `v0.17.1`, because a release page
+  that omits a known defect is the kind of stale claim this project exists to
+  catch.
 
 **What was learned.**
 
