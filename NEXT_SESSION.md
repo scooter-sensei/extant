@@ -6,10 +6,79 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 14 - What the campaign and the profiler found (shipped, 2026-08-03)
+## Phase 15 - A twelfth rule, measured before it was written (shipped, 2026-08-04)
 
 **Status.** Suite is 477 tests, all passing. Twelve rules, eighteen presets.
-This work is version 0.17.1.
+This work is version 0.17.1. Every tag from `v0.5.0` now has a GitHub release;
+five were missing, `v0.16.0` through `v0.17.1`.
+
+**What shipped.**
+
+- **`manifest-floor-mismatch`, the twelfth rule.** A README saying "requires
+  Python 3.8+" against a `pyproject.toml` declaring `>=3.10`. Two statements of
+  one fact, both inside the repository, which is the question
+  `inconsistent-artifact` already established as legal rather than a judgement
+  about whether a number is correct.
+- **Keyed from a corpus, not from what the wording ought to be.** Keyed on
+  shape it disagreed at 169 of 192 sites, 97 of them in changelogs where the
+  claim was true the day it was written. Keyed on entry-point documents, with a
+  requirement verb or a bare `Requirements:` label, and no third-party subject,
+  it examines 7 sites across 39 repositories and finds 2. Both real:
+  datasette's README offers Python 3.8 against a `>=3.10` manifest while its
+  own installation guide says 3.10; caddy's offers Go 1.25.0 against `go.mod`'s
+  1.25.1.
+- **The finding carries the ecosystem's enforcement**, because the same
+  contradiction means different things: pip refuses, `engines.node` only warns,
+  the `go` directive fetches a newer toolchain. A disjunction and a pair of
+  coarse statements are not examined rather than guessed at.
+- **`validate` learns which document it is reading**, through a `doc` keyword
+  beside the existing `base`. A repository-scoped rule was tried first and
+  rejected on evidence: such a rule runs only when `has_entries` holds, which
+  in a sweep means the repository carries a configured status document.
+- **0.17.1 fixed the same rule being silent in `--verify`.** Both verify call
+  sites handed `validate` and `count_examined` a document's text without saying
+  which document it was.
+- The measurement corpus was given its history back and the full gate run:
+  2 findings added, 0 removed, 0 reworded, denominator 0 to 7, and no other
+  rule moved.
+
+**What was learned.**
+
+- **The denominator found a bug that 477 tests could not.** The first gate run
+  reported 2 findings and 0 examined for the same rule on the same run. That is
+  impossible, and chasing it was the only reason the `--verify` gap surfaced.
+  Every unit test passed throughout, because all of them called `validate`
+  directly and supplied the path themselves. Without the denominator the run
+  would have shown 2 findings and looked correct.
+- **A mutation that breaks SYNTAX proves nothing.** Deleting an assignment left
+  the next statement over-indented, so pytest died at collection and the
+  mutation scored as killed with zero tests red. Rewritten as an assignment of
+  `None`, it survived: the tests covered `extra_docs` and not `primary_doc`.
+- **A two-part guard makes a mutation unkillable by accident.** The first
+  campaign killed 8 of 14; five survivors were all one shape, where either half
+  independently rejected the test input. A Django decoy with no floor suffix,
+  a bare mention with no verb, a disjunction with a one-component version. Each
+  test had to be rewritten to isolate a single guard.
+- **A filter fitted to a corpus must be tested by removing it.** The
+  third-party filter carried four hard-coded package names, which would be fair
+  grounds to call the whole measurement overfitted. Re-measured with only the
+  structural phrases, the keying returned the same 7 examined and the same 2
+  findings.
+- **Word boundaries were 49% of one rule's harvest.** Without them, and with
+  `re.I`, `Go` matches inside "Django", "Mongo", "cargo" and a base64 key;
+  `Rust` inside "trust". Nothing in the funnel looked wrong, because a
+  plausible number of extra sites is indistinguishable from a corpus that has
+  them.
+- **A summarising model answers a leading question the way it was led.** Asked
+  "is 0.17.0 present on PyPI", it said yes while pip could not find the
+  package; asked to enumerate the index verbatim, it was right. Later it
+  reported 25 releases against 24 tags from a truncated page, which enumerating
+  three pages in the browser disproved.
+
+## Phase 14 - What the campaign and the profiler found (shipped, 2026-08-03)
+
+**Status.** Suite was 447 tests at the time, all passing. Eleven rules,
+eighteen presets. That work was version 0.16.2.
 
 **What shipped.**
 
