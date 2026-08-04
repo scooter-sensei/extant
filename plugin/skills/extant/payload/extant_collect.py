@@ -720,6 +720,15 @@ def find_sha_candidates(text: str) -> list[tuple[int, str]]:
     return out
 
 
+# Same idiom and same reasoning as `_STRIPPED` above: keyed on object IDENTITY,
+# so a different string simply misses and no lifecycle is needed. Added when the
+# sweep began reporting a per-rule denominator, which made `count_examined` a
+# second caller for the same document - this function and `_line_pointer_sites`
+# were then the two most expensive things in a sweep, each computed twice over
+# identical bytes. Measured on pytest's 308 documents: 617 calls, 1.20s.
+_BARE_SHAS: tuple[str, list[tuple[int, str]]] | None = None
+
+
 def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     """(line number, token) for every SHA-shaped token OUTSIDE backticks.
 
@@ -734,6 +743,16 @@ def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     one of them is skipped, so a token already inside backticks is never
     double-counted here.
     """
+    global _BARE_SHAS
+    if _BARE_SHAS is not None and _BARE_SHAS[0] is text:
+        return _BARE_SHAS[1]
+    result = _find_bare_sha_candidates(text)
+    _BARE_SHAS = (text, result)
+    return result
+
+
+def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
+    """The scan itself. Separate only so the cache above stays readable."""
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
         skip_spans = [m.span() for m in _BACKTICKED.finditer(line)]
@@ -3313,6 +3332,14 @@ def _line_count(repo: Path, relative: str) -> int | None:
     return count
 
 
+# Identity-keyed like `_STRIPPED` and `_BARE_SHAS`, and for the same reason: the
+# rule and the denominator ask for the same document's sites in the same pass.
+# The repo and the format are compared as well, because unlike those two this
+# reads both - a cache that ignored them would answer a question it was never
+# asked. Measured on pytest's 308 documents: 617 calls, 1.19s.
+_POINTER_SITES: tuple[str, Path, str, list[tuple[int, str, int, int]]] | None = None
+
+
 def _line_pointer_sites(repo: Path, text: str) -> list[tuple[int, str, int, int]]:
     """Pointers this rule can actually decide, as (line, target, cited, total).
 
@@ -3321,6 +3348,17 @@ def _line_pointer_sites(repo: Path, text: str) -> list[tuple[int, str, int, int]
     does not track is not counted: the rule cannot decide it, and reporting
     coverage it does not have is worse than reporting none.
     """
+    global _POINTER_SITES
+    if (_POINTER_SITES is not None and _POINTER_SITES[0] is text
+            and _POINTER_SITES[1] == repo and _POINTER_SITES[2] == _DOC_FORMAT):
+        return _POINTER_SITES[3]
+    sites = _line_pointer_sites_uncached(repo, text)
+    _POINTER_SITES = (text, repo, _DOC_FORMAT, sites)
+    return sites
+
+
+def _line_pointer_sites_uncached(
+        repo: Path, text: str) -> list[tuple[int, str, int, int]]:
     sites: list[tuple[int, str, int, int]] = []
     for number, line in enumerate(_prose(text).splitlines(), start=1):
         for match in _LINE_POINTER.finditer(line):
@@ -3647,9 +3685,17 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     showing 0 examined is either genuinely absent from this document or broken,
     and the reader needs to know which.
     """
-    backticked = len(find_sha_candidates(text))
-    bare = len(find_bare_sha_candidates(text))
-    _, segments, _ = split_entries(text)
+    # Computed from PROSE, because that is what the rules read. Six of them
+    # open with `text = _prose(text)` - claims inside code are examples, not
+    # promises - and counting the raw document reported candidates no rule ever
+    # looked at. Measured 2026-08-04: rust-lang/rfcs reported `dead-sha 23`
+    # where the rule read 11, so more than half that denominator was fenced
+    # example output. An overstated denominator is the worst of the three
+    # numbers available: it is the one that reassures.
+    prose = _prose(text)
+    backticked = len(find_sha_candidates(prose))
+    bare = len(find_bare_sha_candidates(prose))
+    _, segments, _ = split_entries(prose)
     newest = next((s for kind, s in segments if kind == "phase"), "")
     # Counts what the rules actually inspect, not what the pattern matched.
     # Path-shaped tokens are skipped by both branch rules, so counting them here
@@ -3665,9 +3711,9 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "dead-sha": backticked + bare,
         "stale-live-claim": branches_in_newest,
         "unknown-branch": branches_in_newest,
-        "false-merge-claim": len(_MERGE_CLAIM.findall(text)),
-        "dead-release-tag": len(_RELEASE_TAG.findall(text)),
-        "dead-path-pointer": len(_PATH_POINTER.findall(text)),
+        "false-merge-claim": len(_MERGE_CLAIM.findall(prose)),
+        "dead-release-tag": len(_RELEASE_TAG.findall(prose)),
+        "dead-path-pointer": len(_PATH_POINTER.findall(prose)),
         "dead-md-link": sum(1 for raw in links
                             if not _EXTERNAL.match(raw) and not raw.startswith("#")),
         "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),
@@ -3905,6 +3951,35 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
     return lines, fired, unprobeable
 
 
+def _rule_applies(rule: Rule, in_archive: bool, has_entries: bool) -> bool:
+    """Whether `rule` reads a document in this position.
+
+    ONE definition, because two callers ask the question: the loop that
+    produces findings, and the sweep's per-rule denominator. Answered
+    separately they drift, and drift UPWARD is the worst of the outcomes -
+    a denominator that counts candidates no rule looked at reports coverage
+    that was never provided, which is the reassuring number rather than the
+    honest one, and is precisely the failure a denominator exists to prevent.
+
+    Reads `_DOC_FORMAT`, so the caller must set it for the document in hand
+    before asking.
+    """
+    primary = not in_archive and has_entries
+    if rule.scope == "repository" and not primary:
+        # Repository-wide, so it must not be repeated for the archive and
+        # every extra document; the disagreement is the same one. A sweep
+        # runs these once outside its document loop instead.
+        return False
+    if (in_archive or not has_entries) and not rule.in_archive:
+        return False
+    if _DOC_FORMAT != "markdown" and rule.kind in _MARKDOWN_ONLY:
+        # Not tuned for the format, skipped for it. `[text](url)` is
+        # markdown's syntax; where it does not exist, every match is
+        # something else wearing its shape.
+        return False
+    return True
+
+
 def validate(repo: Path, text: str, *, in_archive: bool = False,
              has_entries: bool = True, base: Path | None = None,
              doc: str | None = None) -> list[Finding]:
@@ -3941,7 +4016,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     """
     global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
     global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
-    global _DOC_PATH, _MANIFEST_FLOORS, _LINECOUNT
+    global _DOC_PATH, _MANIFEST_FLOORS, _LINECOUNT, _POINTER_SITES
     previous, previous_cache = _LINK_BASE, _DIRCACHE
     previous_doc = _DOC_PATH
     previous_ancestors, previous_refs, previous_lfs = _ANCESTORS, _REFS, _LFS
@@ -3955,6 +4030,12 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     # the outer call carried on against a half-empty view it had built.
     previous_manifest_floors = _MANIFEST_FLOORS
     previous_linecount = _LINECOUNT
+    # `_POINTER_SITES` is deliberately NOT saved and restored here, unlike
+    # every cache above it. Those are dicts mutated in place, so saving the
+    # reference preserves what the call added; this one is rebound, so a
+    # restore would DISCARD the entry the rules just computed - and the caller
+    # that needs it, `count_examined`, runs immediately after this returns.
+    # Written the symmetrical way first, where it silently halved nothing.
     if base is not None:
         _LINK_BASE = base
     if doc is not None:
@@ -4003,20 +4084,16 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         # Same lifetime, same reason: a sweep would otherwise re-count the
         # lines of a file once per document that cites it.
         _LINECOUNT = {}
+        # Dropped WITH `_LINECOUNT`, because it is derived from it. Identity
+        # keying alone would be wrong here: a caller validating the same text
+        # object twice across a changed checkout is exactly what clearing
+        # `_LINECOUNT` exists to handle, and a sites cache that outlived it
+        # would answer from the checkout that moved on.
+        _POINTER_SITES = None
     try:
         findings: list[Finding] = []
-        primary = not in_archive and has_entries
         for rule in RULES:
-            if rule.scope == "repository" and not primary:
-                # Repository-wide, so it must not be repeated for the archive
-                # and every extra document; the disagreement is the same one.
-                continue
-            if (in_archive or not has_entries) and not rule.in_archive:
-                continue
-            if _DOC_FORMAT != "markdown" and rule.kind in _MARKDOWN_ONLY:
-                # Not tuned for the format, skipped for it. `[text](url)` is
-                # markdown's syntax; where it does not exist, every match is
-                # something else wearing its shape.
+            if not _rule_applies(rule, in_archive, has_entries):
                 continue
             findings += rule.check(repo, text)  # type: ignore[operator]
         return findings
@@ -4279,7 +4356,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # resolved refs, other documents' headings - are the same answers every
     # time. Restored in `finally` so a library caller that sweeps and then
     # validates something else gets the per-call behaviour back.
-    global _LINECOUNT
+    global _LINECOUNT, _POINTER_SITES
     global _STABLE_SCOPE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
     global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
     _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}, {}
@@ -4287,6 +4364,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
     _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
     _REF_TABLE = {}
     _LINECOUNT = {}
+    _POINTER_SITES = None
     _STABLE_SCOPE = True
     # `_LINK_BASE` and `_DOC_FORMAT` are per-DOCUMENT rather than per-scope, and
     # they are saved here because the loop below reassigns them. Restoring them
@@ -4296,6 +4374,13 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # wrong.
     previous_link_base, previous_format = _LINK_BASE, _DOC_FORMAT
     try:
+        # Seeded here, inside the stable scope, for two reasons at once: it
+        # fixes the printing ORDER to the one `--verify` uses, so the two modes
+        # can be read side by side, and its repository-scoped entries are the
+        # counts those rules get - they are the repository's candidates, not
+        # any document's, so they are read once rather than per file.
+        repository_examined = count_examined(repo, "")
+        examined: dict[str, int] = {kind: 0 for kind in repository_examined}
         for label, group, _gates in sections:
             for relative in group:
                 path = repo / relative
@@ -4318,6 +4403,19 @@ def run_sweep(repo: Path, fmt: str) -> int:
                     Located(relative, f, primary=(relative == primary))
                     for f in findings)
 
+                # The denominator, per rule, summed over the survey. Counted
+                # only for rules that actually READ this document: a sweep
+                # skips entry-scoped rules outside the primary file and
+                # markdown-only rules for `.rst`, and `count_examined` knows
+                # nothing about either. Summing it whole would report link
+                # candidates in a document where no link rule ran.
+                counted = count_examined(repo, text)
+                for rule in RULES:
+                    if rule.scope == "repository":
+                        continue        # counted once, below
+                    if _rule_applies(rule, False, relative == primary):
+                        examined[rule.kind] += counted[rule.kind]
+
         # Repository-scoped rules answer a question about the REPOSITORY,
         # so they run ONCE here rather than inside the loop above.
         #
@@ -4338,6 +4436,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
             results["repository"].extend(
                 Located(rule.subject_file or ".", finding, primary=False)
                 for finding in rule.check(repo, ""))  # type: ignore[operator]
+            examined[rule.kind] = repository_examined[rule.kind]
     finally:
         _STABLE_SCOPE = False
         _DIRCACHE = None
@@ -4350,6 +4449,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
         # the whole survey is the point - but holding it past the sweep
         # would answer from a checkout that may have moved on.
         _LINECOUNT = {}
+        _POINTER_SITES = None
         _LINK_BASE = previous_link_base
         _DOC_FORMAT = previous_format
 
@@ -4389,6 +4489,23 @@ def run_sweep(repo: Path, fmt: str) -> int:
     repository_rules = sum(1 for rule in RULES if rule.scope == "repository")
     print(f"  {repository_rules} repository-wide rule(s) ran once "
           f"({len(results['repository'])} finding(s))", file=out)
+    # One level finer, and the level that matters on a repository nobody here
+    # has seen before. "swept 37 files" says the run happened; this says which
+    # rules it REACHED. A rule whose pattern matches nothing anyone in this
+    # project writes reports a clean survey in exactly the voice of a rule that
+    # looked and found nothing, and eight coverage widenings were once measured
+    # against 30 repositories where six of them had a denominator of zero.
+    print("  examined: " + ", ".join(f"{kind} {n}"
+                                     for kind, n in examined.items()), file=out)
+    # Zero counts are REPORTED rather than filtered, and named again here. A
+    # rule examining nothing across a WHOLE repository is a far stronger signal
+    # than the same zero in one document, and it is the one a reader skimming a
+    # 13-entry line will miss.
+    blind = [kind for kind, n in examined.items() if n == 0]
+    if blind:
+        print("  NOTE: these rules examined nothing anywhere here - either no "
+              "document makes such claims, or the pattern does not match how "
+              "this project writes them: " + ", ".join(blind), file=out)
     if unreadable:
         print(f"  {len(unreadable)} could not be read: {', '.join(unreadable)}",
               file=out)

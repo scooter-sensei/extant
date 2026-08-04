@@ -103,10 +103,20 @@ def test_the_repository_finding_is_reported_once_not_once_per_document(
 
 
 def test_a_repository_with_no_fault_stays_silent(git_repo) -> None:
-    """Catches a fix that reports the rule rather than its findings."""
+    """Catches a fix that reports the rule rather than its findings.
+
+    Matched on `[raw-lfs-blob]`, the bracketed form a rendered FINDING carries,
+    rather than on the bare kind. The sweep now names every rule on its
+    denominator line whether it fired or not, which is the point of that line -
+    so the bare name appears on a clean run by design, and asserting its
+    absence would fail for the right output.
+    """
     repo, commit = git_repo
     commit("README.md", "# demo\n\nnothing claimed\n", "docs: readme")
-    assert "raw-lfs-blob" not in sweep(repo)
+    output = sweep(repo)
+    assert "[raw-lfs-blob]" not in output, output
+    # The denominator line is expected, and says the rule ran and saw nothing.
+    assert "raw-lfs-blob 0" in output, output
 
 
 def test_an_inconsistent_artifact_is_reported_by_a_sweep(git_repo) -> None:

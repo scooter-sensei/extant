@@ -158,13 +158,24 @@ def examined(repo: Path) -> dict[str, int]:
     import extant_collect as hc
 
     totals: dict[str, int] = {}
-    for relative in hc.tracked_markdown(repo):
-        try:
-            text = (repo / relative).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        for kind, count in hc.count_examined(repo, text).items():
-            totals[kind] = totals.get(kind, 0) + count
+    previous_format = hc._DOC_FORMAT
+    try:
+        for relative in hc.tracked_markdown(repo):
+            try:
+                text = (repo / relative).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            # Set per document, because `count_examined` reads it. Most of what
+            # it counts now comes from `_prose`, which strips reStructuredText
+            # by indentation and markdown by fences - so without this every
+            # `.rst` file was stripped as though it were markdown, and numpy
+            # alone carries 555 of them. The counts were wrong in the column
+            # this harness exists to provide.
+            hc._DOC_FORMAT = hc._format_for(relative)
+            for kind, count in hc.count_examined(repo, text).items():
+                totals[kind] = totals.get(kind, 0) + count
+    finally:
+        hc._DOC_FORMAT = previous_format
     return totals
 
 

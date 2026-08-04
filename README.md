@@ -60,10 +60,14 @@ $ extant --repo . --sweep
 
 UNREVIEWED - surveyed only, not gated
 docs/plans/phase-3.md: line 4: [dead-sha] `8f2a91c` does not resolve in this repo
-docs/plans/phase-3.md: line 3: [false-merge-claim] claims work merged to main at `04d559f`, but that commit is not an ancestor of main
+docs/plans/phase-3.md: line 3: [false-merge-claim] claims work merged to main at `1828109`, but that commit is not an ancestor of main
 docs/plans/phase-3.md: line 6: [dead-path-pointer] points at `docs/plans/phase-2.md`, which does not exist
 
 swept 2 markdown file(s): 0 configured (0 finding(s)), 2 unreviewed (3 finding(s))
+  2 repository-wide rule(s) ran once (0 finding(s))
+  examined: dead-sha 1, stale-live-claim 0, unknown-branch 0, false-merge-claim 1, dead-release-tag 0, dead-path-pointer 1, dead-md-link 0, dead-md-anchor 0, inconsistent-artifact 0, dead-pinned-ref 0, raw-lfs-blob 0, manifest-floor-mismatch 0, dead-line-pointer 0
+  NOTE: these rules examined nothing anywhere here - either no document makes such claims, or the pattern does not match how this project writes them: stale-live-claim, unknown-branch, dead-release-tag, dead-md-link, dead-md-anchor, inconsistent-artifact, dead-pinned-ref, raw-lfs-blob, manifest-floor-mismatch, dead-line-pointer
+  nothing is configured, so nothing here can fail. Set primary_doc or extra_docs in .extant.toml to gate on a file.
 ```
 
 That is real output, not an illustration. The middle line is the one nothing
@@ -71,8 +75,11 @@ else will give you: **the commit exists, and the sentence about it is still
 false.** Answering that means asking git for ancestry, which a text linter has
 no way to do.
 
-The `swept` line counts what it **looked at**, not what it found. It matters as
-much as the findings, and
+The last three lines count what it **looked at**, not what it found, and on a
+repository this small most rules have nothing to bite on. Saying so is the
+point: a rule reporting `0` examined either has no such claims to read here or
+does not recognise how this project writes them, and neither is the same as a
+pass. It matters as much as the findings, and
 [there is a section about why](#every-check-reports-its-denominator).
 
 ## Try it in one line
@@ -472,6 +479,10 @@ checked STATUS.md: dead-sha 36, stale-live-claim 1, false-merge-claim 2,
 If one of those reads `0`, that check found nothing to look at, which usually
 means a setting is wrong rather than that your file is spotless. Any rule that
 examined nothing is named on a `NOTE:` line.
+
+`--sweep` reports the same counts summed over every file it read, so a rule
+that is inert across a whole repository says so on the first run rather than
+after you have started trusting it.
 
 This is the single most important line in the output. "Found no problems" and
 "did not look" print identically otherwise, and only one of them is good news.
