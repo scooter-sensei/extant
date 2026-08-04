@@ -59,6 +59,18 @@ claims, ordering claims. Candidates that would fail: suite-count consistency and
 date validity (numbers, the forbidden class), issue links (needs the network),
 "does this summary match the diff" (judgement, not falsifiable).
 
+Those all fail clause 1, by inspection. **Environment-variable rot is the
+example that fails clause 2 instead**, and it is the one to read before
+proposing a rule that looks obviously fine. "Does this documented variable
+appear anywhere outside the documentation" is a clean filesystem question,
+language-agnostic, and cheap. It was measured at 37 examined, 8 true, 29 false,
+with every true positive in a single repository, and rejected. Prefix scanning
+(`FLASK_*`), names built by concatenation (`POETRY_*`), composition from a
+config key, and third-party variables (`CARGO_HOME`) all mean the literal is
+absent BY DESIGN. Six approaches have now been measured, including asking git
+when the name disappeared - it never appeared. A falsifiable question is not
+the same as a sound inference, and no amount of re-keying rescued this one.
+
 ## Two house rules
 
 **Every check must report its denominator.** "0 findings" and "0 examined"

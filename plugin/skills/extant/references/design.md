@@ -71,6 +71,43 @@ are numbers, which is the forbidden class; issue and PR links need the network,
 breaking the deterministic-local guarantee; "does this summary match the diff"
 is judgement, not falsifiable.
 
+### A falsifiable question is not a sound inference
+
+Every candidate above is refused by inspection, on the FIRST half of the test.
+The harder rejection is the one that clears the first half convincingly and
+dies on the second, and environment-variable rot is the worked example.
+
+"Does this documented variable appear anywhere outside the documentation" is a
+clean filesystem question. It needs no network, inspects no number, exercises
+no judgement, and unlike most candidates it is language-agnostic. It measured
+at **37 examined, 8 true, 29 false**, and every true positive was in one
+repository.
+
+The question was fine. The INFERENCE was wrong: absence of the literal does not
+mean absence of the variable. Prefix scanning reads `FLASK_SECRET_KEY` without
+that string existing; poetry builds all 32 of its names by concatenating onto
+`POETRY_`; minio composes one from a config key; `CARGO_HOME` is documented
+precisely because something else reads it. These are not edge cases, they are
+the ordinary ways environment configuration is written.
+
+Three further lessons, each of which cost a measurement:
+
+- **A confidence gate can be contaminated by the signal it seeks.** Calibrating
+  on "what share of documented variables appear in source" silenced the only
+  repository with genuine findings, because having true positives is exactly
+  what lowers that score. Any per-project gate needs checking for this shape.
+- **Absence in history is not the same as removal.** Asking git when the name
+  disappeared finds nothing, because the true positives were never in source at
+  any commit. They were never implemented rather than implemented and dropped.
+- **Erring safe is not a defence for a wrong answer.** A check that refuses to
+  call anything clean trains its reader to overrule it, and the reader then
+  overrules it on the occasion it is right.
+
+The full measurement, six approaches and five corpus probes, is kept outside
+this repository with the rest of the candidate evaluations. What belongs here
+is the shape: a rule can be perfectly falsifiable and still infer something the
+evidence does not support.
+
 `validate(repo, text, in_archive=...)` iterates the registry. The caller says
 what the document IS and the registry decides which rules follow - replacing a
 `check_live_claims` boolean that forced every caller to know the rule list and
