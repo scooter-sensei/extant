@@ -3243,6 +3243,22 @@ _LINE_POINTER = re.compile(
     r"((?:[\w.\-]+[/\\])*[\w.\-]+\.[A-Za-z]\w{0,9})"
     r":(\d{1,6})"
     r"(?![\w.])")
+# Two narrowings the pattern makes silently, recorded so they are choices
+# rather than accidents:
+#
+# A RANGE is read by its start. `SKILL.md:211-215` is checked at 211, so a
+# file of 213 lines is not reported even though 214 and 215 are missing.
+# Firing only when the FIRST cited line is already past the end keeps the
+# claim unarguable; widening it to the range end is a separate measurement.
+#
+# Six digits at most. A line number of 1,234,567 does not match at all,
+# rather than matching its first six digits and judging the wrong line.
+# Documents citing a line past a million are not a population this was
+# measured against.
+
+# A generated bundle or a vendored blob is not something a document points
+# into, and reading one per pointer is the only cost this rule can incur.
+_LINE_COUNT_LIMIT = 2_000_000
 
 _LINECOUNT: dict[str, int | None] = {}
 
@@ -3274,10 +3290,6 @@ def _line_count(repo: Path, relative: str) -> int | None:
     _LINECOUNT[key] = count
     return count
 
-
-# A generated bundle or a vendored blob is not something a document points
-# into, and reading one per pointer is the only cost this rule can incur.
-_LINE_COUNT_LIMIT = 2_000_000
 
 def _line_pointer_sites(repo: Path, text: str) -> list[tuple[int, str, int, int]]:
     """Pointers this rule can actually decide, as (line, target, cited, total).
@@ -4230,12 +4242,14 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # resolved refs, other documents' headings - are the same answers every
     # time. Restored in `finally` so a library caller that sweeps and then
     # validates something else gets the per-call behaviour back.
+    global _LINECOUNT
     global _STABLE_SCOPE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
     global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
     _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}, {}
     _OWN_REMOTE = {}
     _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
     _REF_TABLE = {}
+    _LINECOUNT = {}
     _STABLE_SCOPE = True
     # `_LINK_BASE` and `_DOC_FORMAT` are per-DOCUMENT rather than per-scope, and
     # they are saved here because the loop below reassigns them. Restoring them
@@ -4294,6 +4308,11 @@ def run_sweep(repo: Path, fmt: str) -> int:
         _OWN_REMOTE = {}
         _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
         _REF_TABLE = {}
+        # Cleared with its siblings. It is deliberately NOT cleared per
+        # document during the sweep - counting one file's lines once for
+        # the whole survey is the point - but holding it past the sweep
+        # would answer from a checkout that may have moved on.
+        _LINECOUNT = {}
         _LINK_BASE = previous_link_base
         _DOC_FORMAT = previous_format
 

@@ -197,6 +197,61 @@ def test_a_dotted_suffix_after_the_number_is_not_a_line(git_repo) -> None:
     assert _examined(repo, "Tested against app.py:2.0 of the spec.\n") == 0
 
 
+# --- narrowings found by a gap audit, pinned so they stay deliberate ---
+
+def test_a_range_is_read_by_its_start(git_repo) -> None:
+    """`app.py:2-9` on a three-line file is SILENT, and that is the choice.
+
+    Lines 4 to 9 do not exist, so a wider rule would report it. Firing only
+    when the FIRST cited line is already past the end keeps the claim
+    unarguable. Widening to the range end is a separate measurement, and this
+    test is what makes the current behaviour visible rather than accidental.
+    """
+    repo, commit = git_repo
+    commit("app.py", "a\nb\nc\n", "feat: app")
+    assert _check(repo, "See `app.py:2-9`.\n") == []
+    assert len(_check(repo, "See `app.py:8-9`.\n")) == 1
+
+
+def test_a_line_column_pointer_is_judged_on_its_line(git_repo) -> None:
+    """`app.py:2:14` is line 2, column 14, and only the line is checkable."""
+    repo, commit = git_repo
+    commit("app.py", "a\nb\nc\n", "feat: app")
+    assert _check(repo, "See `app.py:2:14`.\n") == []
+    assert len(_check(repo, "See `app.py:9:14`.\n")) == 1
+
+
+def test_line_zero_is_not_a_line(git_repo) -> None:
+    """Catches counting `:0` as a pointer, which every file would fail."""
+    repo, commit = git_repo
+    commit("app.py", "a\nb\nc\n", "feat: app")
+    assert _examined(repo, "See `app.py:0`.\n") == 0
+
+
+def test_a_seven_digit_line_is_not_examined(git_repo) -> None:
+    """The digit cap, pinned. Without it the pattern would match the first
+    six digits and judge a line the document never cited."""
+    repo, commit = git_repo
+    commit("app.py", "a\nb\nc\n", "feat: app")
+    assert _examined(repo, "See `app.py:1234567`.\n") == 0
+
+
+def test_an_empty_file_has_no_first_line(git_repo) -> None:
+    """0 lines is a real count, not a failure to count."""
+    repo, commit = git_repo
+    commit("empty.py", "", "feat: empty")
+    assert "has 0 lines" in _check(repo, "See `empty.py:1`.\n")[0].detail
+
+
+def test_a_file_without_a_trailing_newline_counts_its_last_line(git_repo) -> None:
+    """`a\\nb` is two lines. Counting newlines rather than lines would say one
+    and report the final line of every such file as missing."""
+    repo, commit = git_repo
+    commit("notrail.py", "a\nb", "feat: no trailing newline")
+    assert _check(repo, "See `notrail.py:2`.\n") == []
+    assert len(_check(repo, "See `notrail.py:3`.\n")) == 1
+
+
 # --- the denominator ---------------------------------------------------
 
 def test_a_resolvable_pointer_is_counted_even_when_it_is_fine(git_repo) -> None:
