@@ -6,11 +6,78 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 19 - Eight candidates refused, and the two clauses that predict it (shipped, 2026-08-05)
+
+**Status.** Suite is 536 tests, all passing. Thirteen rules, eighteen presets,
+twelve of which supply a consistency pairing. Still version 0.19.0: no code
+changed. Twenty-eight tags from `v0.5.0`, each carrying a GitHub release.
+
+**What shipped.** Two new clauses in the admission test, in `CONTRIBUTING.md`
+and `references/design.md`:
+
+- **Clause 3: a rule must name the PLACE the answer lives.** Every shipped rule
+  points at one bounded location - this ref, this file, this manifest, this
+  document. "Search the repository and report if the token is not found" is not
+  a location, because absence over an open space has innocent explanations:
+  built by concatenation, read through a prefix scan, re-exported, mounted
+  under a router prefix, or owned by a dependency.
+- **Clause 4: the two sides must name the same SINGLE fact.** Clause 3 alone is
+  not enough, and this was learned by trusting it: two candidates were chosen
+  BECAUSE clause 3 endorsed them, and both failed.
+
+**The eight candidates, all refused.** Two corpora: the existing 39
+library-shaped repositories, and a new 21-repository application corpus built
+because both earlier rejections had blamed corpus skew.
+
+| candidate | why it failed |
+|---|---|
+| env vars (2 attempts, 6 approaches) | absence of the literal is not absence of the variable |
+| code symbols | the `path:symbol` form does not exist: 5 sites in 39 repos, all placeholders, 0 in 21 apps |
+| HTTP endpoints | the measurement could not fail; see below |
+| CLI flags | 159 absent, dominated by `git --amend`, `docker --pull`, `celery --pool` |
+| ports | names its location, but a dev compose file publishes 76 of them |
+| image tags | zero cited in prose; the 316 counted were inside `docker run` fences |
+| manifest version vs README | 1 of 23 repos states it, and that README holds six version tokens |
+
+**What was learned.**
+
+- **A falsifiable question is not a sound inference.** Every candidate above
+  clears clause 1 cleanly. The admission test had no example of failing its
+  second clause, and now has one.
+- **Three of the eight died on one sentence:** a documented token this project
+  does not implement is usually a token belonging to something else.
+  `CARGO_HOME`, `git --amend`, `docker --pull`.
+- **A check whose input guarantees the answer prints like a clean pass.** The
+  endpoint measurement reported 347 examined and 0 findings across four
+  repositories and eight years of history, and was void: `git grep` searched
+  the document the claim came from, so every endpoint matched itself. Fixed in
+  the apparatus rather than remembered - `corpus_search.appears_outside` takes
+  a REQUIRED exclusion argument, and its selftest reproduces the fault before
+  demonstrating the fix.
+- **Every measurement in the family produced a defect in its own apparatus:**
+  config extensions counted as code symbols, a tautological search, markdown
+  separators read as CLI flags. The apparatus needs the same scepticism as the
+  rules and only gets it by cross-checking one measurement against another.
+- **`inconsistent-artifact` requiring configuration is not a usability
+  compromise.** Only the author knows which two strings in a repository name
+  one fact. It is the rule's essential input, and it is exactly what a port or
+  image-tag comparison cannot obtain.
+- **Recommendations made without looking are the recurring error.** The
+  `path:symbol` form was called viable without counting it; preset expansion
+  was proposed without checking that twelve presets already do it.
+
+**Where this leaves the rule family.** Exhausted for now. What remains either
+asks about absence over an open space, or cannot say which two values name one
+fact. The apparatus is kept: two corpora, a form counter, a recall harness over
+history, a match classifier, and a search helper whose defaults are no longer
+wrong.
+
 ## Phase 18 - Environment-variable rot, refused a second time (shipped, 2026-08-04)
 
-**Status.** Suite is 536 tests, all passing. Thirteen rules, eighteen presets.
-Still version 0.19.0: **no version was cut**, because nothing shipped but
-documentation. Twenty-eight tags from `v0.5.0`, each carrying a GitHub release.
+**Status.** Suite was 536 tests at the time, all passing. Thirteen rules,
+eighteen presets. No version was cut for that work, because nothing shipped but
+documentation, so it remained version 0.19.0 against twenty-eight tags from
+`v0.5.0`, each carrying a GitHub release.
 
 **What shipped.**
 

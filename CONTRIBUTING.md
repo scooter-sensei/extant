@@ -53,6 +53,36 @@ Rule(
    Measure before you write the pattern. `plugin/skills/extant/references/design.md` records the time
    this was skipped: a rule keyed on what a path looked like would have emitted
    23 findings on its first run, every one of them wrong.
+3. It names the PLACE the answer lives. Every rule here points at one bounded
+   location - this ref, this file, this manifest, this document - and asks
+   something with a definite answer there. "Search the repository and report if
+   the token is not found" is not a location.
+4. The two sides name the SAME SINGLE fact. One cited line number against one
+   file's length; one stated floor against one ecosystem's manifest. Clause 3
+   is not enough on its own: "does the compose file publish a different port
+   than this document states" names its location and is still meaningless,
+   because a development compose file publishes 76 ports and the documentation
+   mentions 18 others, and no two of them are discussing the same subject.
+
+   This is why `inconsistent-artifact` takes user-supplied patterns. That reads
+   like a usability compromise and is not one: **only the author knows which
+   two strings in their repository name the same fact.** A rule either gets the
+   pairing from configuration, or the pairing is structural and unique. It
+   cannot guess which of 76 ports a sentence meant.
+
+**Clause 3 is the cheap predictor of clause 2**, which is the expensive one.
+Absence over an unbounded space has innocent explanations, and each is a false
+positive: the name is built by concatenation, read through a prefix scan,
+re-exported, mounted under a router prefix, or owned by somebody else
+entirely. **A documented token this project does not implement is usually a
+token belonging to something else** - `CARGO_HOME`, `git --amend`,
+`docker --pull`.
+
+The clause is empirical rather than tidy. All thirteen rules satisfy it. Six
+candidates have been measured and rejected, and four of them - environment
+variables, code symbols, HTTP routes, CLI flags - pass clause 1 cleanly and
+fail only once a corpus has been cloned and read, at 0% to 22% precision. All
+four violate clause 3, and noticing that costs nothing.
 
 Candidates that would pass: release-tag claims, branch existence, deletion
 claims, ordering claims. Candidates that would fail: suite-count consistency and

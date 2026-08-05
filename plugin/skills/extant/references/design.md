@@ -56,10 +56,40 @@ Rule(
 ```
 
 **The admission test:** a rule belongs only if it can be answered yes/no by git
-or the filesystem, AND produces zero false positives on the real corpus. A test
-enforces the first half - every rule must state its question - so a rule that
-inspects numbers or dates cannot be added quietly. The second half is on you:
-measure before you write the pattern.
+or the filesystem, AND produces zero false positives on the real corpus, AND
+names the place the answer lives. A test enforces the first clause - every rule
+must state its question - so a rule that inspects numbers or dates cannot be
+added quietly. The second is on you: measure before you write the pattern. The
+third is free, and predicts the second.
+
+**Read the `falsifiable` line of any rule above and notice what it points at.**
+`git cat-file -e <sha>`. *That* ref. *The cited* file. *The configured* files.
+*This* document's headings. Every one names a bounded location and asks
+something with a definite answer there.
+
+Now compare a candidate that fails: "does this documented environment variable
+appear anywhere outside the documentation". No location, just a search of
+everything, with a report if nothing turns up. Absence over an unbounded space
+has innocent explanations - built by concatenation, read through a prefix scan,
+re-exported, mounted under a router prefix, or owned by a dependency - and each
+one is a false positive. **A documented token this project does not implement
+is usually a token belonging to something else.**
+
+Six candidates have been measured and rejected. Four of them - environment
+variables, code symbols, HTTP routes, CLI flags - clear the first clause
+cleanly and die on a corpus at 0% to 22% precision. All four violate the third,
+which could have been checked in a minute without cloning anything.
+
+**And the third clause is not sufficient.** Two further candidates were chosen
+because it endorsed them, and both failed. "Does the compose file publish a
+different port than this document states" names its location perfectly, and
+means nothing: a development compose file publishes 76 ports while the
+documentation mentions 18 others, none of them the same subject. So there is a
+fourth requirement - **the two sides must name the same SINGLE fact** - and it
+is the one that explains why `inconsistent-artifact` asks the user for
+patterns. Only the author knows which two strings in their repository refer to
+one thing. That is not overhead around the rule; it is the rule's essential
+input, and it is precisely what a port comparison cannot obtain on its own.
 
 Candidates that would pass: release-tag claims (does the tag exist and is it on
 trunk?), branch existence (a branch named in prose but absent - currently a real
