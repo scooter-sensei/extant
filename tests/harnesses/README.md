@@ -772,3 +772,27 @@ This file said "Three tools" for two commits after the fourth and fifth were
 added, and nothing noticed - the count is prose, and no rule here inspects
 numbers. That is the documented limit of the validator working exactly as
 designed, on its own repository, which is as good a demonstration of it as any.
+
+## The harness needs the same scepticism as the code
+
+A measurement campaign across four corpora produced a defect in its own
+apparatus every single time, and not one was visible in the output:
+
+- A form counter swept `toml|yaml|json` into a form meant for CODE, so
+  `pyproject.toml:some_key` was counted as a symbol citation. It inflated the
+  exact number a rule would have been designed around. Caught only because the
+  same quantity had been measured twice by different means.
+- A route harvest searched with `git grep`, which reads the whole tree
+  including the document the claim came from. Every documented endpoint matched
+  itself, so 347 examined and 0 findings was guaranteed rather than earned.
+- A flag harvest counted `--dashboard--` and `--header--`, which are markdown
+  table separators, and `--prettier-ignore-start`, which is an HTML comment.
+- A corpus check run mid-clone reported five repositories as holding zero
+  documents, including one that holds 149. The clone was incomplete; the
+  repositories were not empty.
+
+Two habits are worth more than any of the individual fixes. **Measure a
+quantity twice by different means whenever it is going to justify building
+something** - agreement is cheap and disagreement is where the defect is. And
+**print what was examined, not just what was found**, which is the same rule
+the harnesses already impose on the code.

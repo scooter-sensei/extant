@@ -823,6 +823,30 @@ only the small ones changes cost and never a verdict, so it is not a loophole.
 It is also why that shortcut has no mutation in `mutate.py`: a mutation nothing
 can kill survives every campaign and reads as a gap the tests do not have.
 
+## A correct rule can be low-yield, and that is the world rather than the keying
+
+`dead-line-pointer` draws a denominator from very few repositories, and the
+first instinct is that its keying is too narrow. Measured across **73
+repositories** - 39 libraries, 21 deployable applications, 17 agent-tooling
+projects with roughly 21,000 markdown files - **`obra/superpowers` is the only
+project that cites line numbers of its own tracked files at any rate.**
+`crewAI` alone holds 20,375 documents and does not cite one.
+
+The obvious explanation was a sampling problem: this rule targets agent-written
+plan documents, so a corpus of them should exercise it. That corpus was built,
+verified to contain the population before any rule ran, and produced **no new
+findings**. The hypothesis was wrong and the thin denominator is the base rate.
+
+Where the convention does exist the rule earns its place: **3 of superpowers'
+17 resolvable citations are stale, an 18% fault rate.** So the shape to expect
+from a rule like this is narrow reach and a high hit rate inside that reach,
+and widening it would trade the property it reliably has - zero false positives
+across all 73 - for coverage the measurement says is not there.
+
+Before concluding a rule is too narrow, count how often anyone writes the form
+it reads. That is cheaper than any widening and it is what the denominator line
+exists to make visible.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

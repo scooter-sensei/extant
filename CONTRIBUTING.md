@@ -85,6 +85,13 @@ image tags, README versions - at 0% to 22% precision. Every one passes clause 1
 cleanly and fails only once a corpus has been cloned and read. Four violate
 clause 3 and two more violate clause 4, and noticing either costs nothing.
 
+**Cheaper than all four clauses: count the form first.** Before arguing about
+keying, count how often documentation writes the shape at all. `path:symbol`
+was declared the viable form for code-symbol rot on reasoning alone; counting
+found **5 occurrences across 39 repositories, every one a placeholder** like
+`file1.py:line`, and **0 across 21 applications**. Ten minutes of counting
+replaces a day of design, and it is the step every rejected candidate skipped.
+
 Candidates that would pass: release-tag claims, branch existence, deletion
 claims, ordering claims. Candidates that would fail: suite-count consistency and
 date validity (numbers, the forbidden class), issue links (needs the network),
@@ -109,6 +116,16 @@ print identically, so a broken check is indistinguishable from a clean result.
 State what was examined. This is not a style preference; the project it came
 from hit this exact failure six times, and reading the code caught none of them,
 because the defect is an absence.
+
+**A third thing prints that same zero: a check whose INPUT guarantees the
+answer.** An endpoint measurement once reported 347 examined and 0 findings
+across four repositories and eight years of history, and was void - the search
+included the document the claim came from, so every documented endpoint matched
+itself and no finding was possible. It printed a denominator and passed a
+positive control (a fabricated route, which appears in no document) and still
+could not have said anything else. **When a check searches for a string taken
+from a document, exclude that document**, and watch it report absence before
+believing any silence it produces.
 
 **Watch a check fail before you trust it.** Mutate the thing it guards and
 confirm it goes red. A test that has never failed pins nothing. If a mutation
