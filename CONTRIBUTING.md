@@ -78,11 +78,12 @@ entirely. **A documented token this project does not implement is usually a
 token belonging to something else** - `CARGO_HOME`, `git --amend`,
 `docker --pull`.
 
-The clause is empirical rather than tidy. All thirteen rules satisfy it. Six
-candidates have been measured and rejected, and four of them - environment
-variables, code symbols, HTTP routes, CLI flags - pass clause 1 cleanly and
-fail only once a corpus has been cloned and read, at 0% to 22% precision. All
-four violate clause 3, and noticing that costs nothing.
+The clause is empirical rather than tidy. All thirteen rules satisfy it.
+**Eight** candidates have been measured against two corpora and rejected -
+environment variables twice, code symbols, HTTP endpoints, CLI flags, ports,
+image tags, README versions - at 0% to 22% precision. Every one passes clause 1
+cleanly and fails only once a corpus has been cloned and read. Four violate
+clause 3 and two more violate clause 4, and noticing either costs nothing.
 
 Candidates that would pass: release-tag claims, branch existence, deletion
 claims, ordering claims. Candidates that would fail: suite-count consistency and

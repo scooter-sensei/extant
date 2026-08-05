@@ -224,6 +224,29 @@ files in the repository state DIFFERENT values for the same thing, which has a
 definite answer that needs only the filesystem. Every rule must be falsifiable
 against git or the filesystem, or it does not belong.
 
+**Falsifiable is necessary and not sufficient.** Two further clauses refuse
+candidates that pass it, and both cost a minute to check against a proposal:
+
+- **Name the PLACE the answer lives.** Every rule here points at one bounded
+  location - this ref, this file, this manifest, this document. "Search the
+  repository and report if the token is not found" is not a location: absence
+  over an open space has innocent explanations, and each is a false positive.
+  A documented token this project does not implement is usually a token
+  belonging to something ELSE - `CARGO_HOME`, `git --amend`, `docker --pull`.
+- **The two sides must name the same SINGLE fact.** "Does the compose file
+  publish a different port than this document states" names its location
+  perfectly and still means nothing, because a development compose file
+  publishes 76 ports and the documentation mentions 18 others.
+
+That second clause is why `inconsistent-artifact` asks the user for patterns.
+It is not overhead around the rule; only the author knows which two strings in
+their repository name one fact.
+
+**Eight candidates have been measured against two corpora and refused** -
+environment variables twice, code symbols, HTTP endpoints, CLI flags, ports,
+image tags, README versions - at 0% to 22% precision. Six were refusable by
+these clauses without cloning anything. `references/design.md` has the numbers.
+
 ## Read before changing anything
 
 - `references/design.md` - why each rule is scoped as it is, with the incident

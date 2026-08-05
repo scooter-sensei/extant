@@ -52,15 +52,35 @@ feature is the expensive kind, because nothing ever reports it.
 
 ## The admission test for a new rule
 
-A rule belongs only if both hold:
+A rule belongs only if all four hold:
 
 1. It can be answered yes or no by git or the filesystem. No network, no
    judgement.
 2. It produces zero false positives on a real corpus. Measure first.
+3. It names the PLACE the answer lives - this ref, this file, this manifest,
+   this document. "Search the repository and report if the token is not found"
+   is not a location.
+4. The two sides name the same SINGLE fact. One cited line number against one
+   file's length; one stated floor against one ecosystem's manifest.
 
 Numbers and dates are the forbidden class: "the suite was 2238" was true when
 written and has nothing to check it against. A validator that cries wolf stops
 being read, which costs more than having no validator.
+
+**Clauses 3 and 4 are the cheap ones, and they exist because clause 2 is
+expensive.** Eight candidates have been measured against two corpora and
+refused - environment variables twice, code symbols, HTTP endpoints, CLI flags,
+ports, image tags, README versions - at 0% to 22% precision. Six were refusable
+in a minute by clauses 3 and 4, without cloning anything.
+
+Clause 3 fails when absence is the question: a documented token this project
+does not implement is usually a token belonging to something ELSE, like
+`CARGO_HOME`, `git --amend` or `docker --pull`, and the literal is missing by
+design. Clause 4 fails when neither side is one value: "does the compose file
+publish a different port than this document states" names its location and
+still means nothing, because a development compose file publishes 76 ports.
+That clause is also why `inconsistent-artifact` asks the user for patterns -
+only the author knows which two strings name one fact.
 
 ## House style
 
