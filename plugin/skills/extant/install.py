@@ -292,8 +292,15 @@ PRESETS: dict[str, dict[str, object]] = {
             },
         },
     },
+    # Expects ONE chart at the repository root. Measured 2026-08-05 against four
+    # published chart repositories - `prometheus-community/helm-charts`,
+    # `grafana/helm-charts`, `argoproj/argo-helm`, `bitnami/charts` - and none
+    # has `Chart.yaml` at the root; every one nests it as
+    # `charts/<name>/Chart.yaml`. A chart COLLECTION is the common shape for a
+    # published repo, and this preset does not fit it: extant installs at the
+    # root and reads paths from there.
     "k8s": {
-        "summary": "Helm charts and manifests: chart docs and chart version",
+        "summary": "Helm: chart docs and version, for a single chart at the root",
         "primary_doc": "README.md",
         "extra_docs": ["CONTRIBUTING.md", "UPGRADING.md", "RUNBOOK.md"],
         "disable": ["phase_task", "phase_bare", "plans_dir"],
@@ -349,8 +356,12 @@ PRESETS: dict[str, dict[str, object]] = {
     # preset touches it. `dead-md-link` is the rule that carries these projects,
     # and it needed no change: 257 links examined across the two, one reported,
     # and that one is a genuine bug in a shipped README.
+    # Expects the Unity project AT the repository root. Measured 2026-08-05:
+    # `Cysharp/UniTask` keeps it at `src/UniTask/ProjectSettings/`, and
+    # `keijiro/Rcam2` at `RcamController/ProjectSettings/`. A Unity project
+    # living one directory down is common, and this pairing is skipped there.
     "unity": {
-        "summary": "a Unity project: docs tree, and the editor version badge",
+        "summary": "a Unity project at the repo root: docs, and the editor version",
         "primary_doc": "README.md",
         "extra_docs": ["CONTRIBUTING.md", "CHANGELOG.md",
                        "Documentation/ART_NOTES.md"],
@@ -398,8 +409,15 @@ PRESETS: dict[str, dict[str, object]] = {
     # `EngineAssociation`, and that field holds a GUID rather than a version on
     # any studio using a custom engine build - so the obvious consistency check
     # would false-positive on exactly the teams most likely to want this.
+    # The iOS path is CAPACITOR's layout. Measured 2026-08-05 against a Flutter
+    # app (`KRTirtho/spotube`): it carries `ios/Runner.xcodeproj`, not
+    # `ios/App.xcodeproj`, and its Android version is `flutterVersionCode` read
+    # from `local.properties` rather than a literal `versionName`. React Native
+    # differs again. The installer skips a pairing whose files are absent, so
+    # such a project loses this check silently - hence the summary names the
+    # layout rather than promising "mobile" in general.
     "mobile": {
-        "summary": "iOS and Android: store docs, and one marketing version",
+        "summary": "iOS and Android, Capacitor layout: store docs, one marketing version",
         "primary_doc": "README.md",
         "extra_docs": ["CONTRIBUTING.md", "CHANGELOG.md", "RELEASE_NOTES.md",
                        "PRIVACY.md"],
@@ -489,27 +507,75 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
         # "the pattern matches nothing" finding. Both files existed, so the
         # file check passed it through. Present-but-unmatched is the same
         # failure as absent, and deserves the same treatment.
-        usable = {
-            check: sources for check, sources in consistency.items()   # type: ignore[union-attr]
-            if all((repo / f).is_file() for f in sources)
-            and all(_pattern_matches(repo / f, pattern)
-                    for f, pattern in sources.items())
-        }
-        skipped = sorted(set(consistency) - set(usable))                # type: ignore[arg-type]
+        # Each source is LOCATED before it is read, because a preset names a
+        # root path and the project may keep the file deeper. The emitted
+        # config carries the resolved path, never the preset's guess.
+        tracked = _tracked_paths(repo)
+        usable: dict[str, dict[str, str]] = {}
+        skipped_why: dict[str, str] = {}
+        for check, sources in consistency.items():                      # type: ignore[union-attr]
+            mapped: dict[str, str] = {}
+            problems: list[str] = []
+            moved: list[str] = []
+            for declared, pattern in sources.items():
+                actual, why = _resolve_source(repo, declared, tracked)
+                if actual is None:
+                    problems.append(why)
+                    continue
+                if not _pattern_matches(repo / actual, pattern):
+                    problems.append(f"nothing matched in {actual}")
+                    continue
+                if actual != declared:
+                    moved.append(f"{declared} -> {actual}")
+                mapped[actual] = pattern
+            if problems:
+                skipped_why[check] = ", ".join(problems)
+            else:
+                usable[check] = mapped
+                for m in moved:
+                    notes.append(f"  consistency.{check} located {m}")
         if usable:
             out.append(Observation("consistency", usable, DERIVED,
                                    f"preset '{name}', files and patterns verified"))
             notes.append(f"  consistency -> {', '.join(usable)}")
-        for check in skipped:
-            sources = consistency[check]                                # type: ignore[index]
-            missing = [f for f in sources if not (repo / f).is_file()]
-            blind = [f for f, pattern in sources.items()
-                     if (repo / f).is_file() and not _pattern_matches(repo / f, pattern)]
-            why = ", ".join(
-                ([f"{', '.join(missing)} not here"] if missing else [])
-                + ([f"nothing matched in {', '.join(blind)}"] if blind else []))
-            notes.append(f"  consistency.{check} skipped: {why}")
+        for check in sorted(skipped_why):
+            notes.append(f"  consistency.{check} skipped: {skipped_why[check]}")
     return out, notes
+
+
+def _resolve_source(repo: Path, relative: str, tracked: list[str]) -> tuple[str | None, str]:
+    """Where this preset's file actually IS, or why it cannot be used.
+
+    Presets name paths from the repository root, and real projects routinely
+    keep the thing one directory down. Measured 2026-08-05: not one published
+    Helm repository has `Chart.yaml` at the root - `prometheus-community`,
+    `grafana`, `argoproj` and `bitnami` all nest it as `charts/<name>/` - and
+    neither sampled Unity project keeps `ProjectSettings/` there either
+    (`src/UniTask/`, `RcamController/`). Every one of those lost its check to a
+    path assumption rather than to anything about the project.
+
+    A UNIQUE match deeper in the tree is used. Several matches are REFUSED
+    rather than guessed: a chart collection carries fifty `Chart.yaml` files,
+    and "the chart version" is then not one fact. That is the same reason
+    `inconsistent-artifact` asks the user for its pairing in the first place,
+    and guessing here would break the property the whole rule rests on.
+    """
+    if (repo / relative).is_file():
+        return relative, ""
+    suffix = "/" + relative.replace("\\", "/")
+    hits = sorted(p for p in tracked if p.endswith(suffix))
+    if len(hits) == 1:
+        return hits[0], f"found at {hits[0]}"
+    if len(hits) > 1:
+        return None, f"{len(hits)} candidates for {relative}, ambiguous"
+    return None, f"{relative} not here"
+
+
+def _tracked_paths(repo: Path) -> list[str]:
+    """Every tracked path, read once. Git rather than a filesystem walk, so a
+    vendored copy under an ignored directory cannot be resolved to."""
+    return [ln.strip() for ln in detect._git(repo, "ls-files").splitlines()
+            if ln.strip()]
 
 
 def _pattern_matches(path: Path, pattern: str) -> bool:

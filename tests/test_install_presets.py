@@ -343,6 +343,65 @@ def test_a_preset_skips_a_consistency_check_whose_files_are_absent(tmp_path) -> 
     assert "skipped" in result.stdout, "the skip must be reported, not silent"
 
 
+def test_a_preset_locates_a_file_the_project_keeps_deeper(tmp_path) -> None:
+    """A preset names root paths; real projects nest the thing one level down.
+
+    Measured 2026-08-05: not one published Helm repository keeps `Chart.yaml`
+    at the root, and neither sampled Unity project keeps `ProjectSettings/`
+    there - `Cysharp/UniTask` uses `src/UniTask/`, `keijiro/Rcam2` uses
+    `RcamController/`. Every one lost its consistency check to a path
+    assumption rather than to anything about the project.
+    """
+    repo = make_repo(tmp_path, **{
+        "README.md": CLEAN_README
+        + "\n![Unity](https://img.shields.io/badge/Unity%20Version:-2022.3.1f1-black)\n",
+        "src/UniTask/ProjectSettings/ProjectVersion.txt":
+            "m_EditorVersion: 2022.3.1f1\n",
+    })
+
+    result = run_installer(repo, "--preset", "unity")
+
+    assert result.returncode == 0, result.stdout
+    checks = config_of(repo).get("consistency", {})
+    assert "unity_version" in checks, (
+        "the file exists one directory down and was not found:\n" + result.stdout
+    )
+    assert any("src/UniTask/ProjectSettings/ProjectVersion.txt" in source
+               for source in checks["unity_version"]), (
+        f"the RESOLVED path must be written, not the preset's guess: {checks}"
+    )
+    assert "located" in result.stdout, "a moved path must be reported, not silent"
+
+
+def test_an_ambiguous_location_is_refused_rather_than_guessed(tmp_path) -> None:
+    """The control, and the reason this resolves by UNIQUENESS.
+
+    A chart collection carries one `Chart.yaml` per chart, so "the chart
+    version" is not one fact and no pairing can be formed. Guessing a
+    candidate would compare two files chosen at random, breaking the property
+    `inconsistent-artifact` exists to check. A resolver that found something
+    here would satisfy the test above and be worse than none.
+    """
+    repo = make_repo(tmp_path, **{
+        "README.md": CLEAN_README,
+        "charts/alpha/Chart.yaml": "name: alpha\nversion: 1.2.3\n",
+        "charts/beta/Chart.yaml": "name: beta\nversion: 4.5.6\n",
+        "CHANGELOG.md": "# Changelog\n\n## 1.2.3\n\n- first\n",
+    })
+
+    result = run_installer(repo, "--preset", "k8s")
+
+    assert result.returncode == 0, result.stdout
+    checks = config_of(repo).get("consistency", {})
+    assert "chart_version" not in checks, (
+        f"two charts cannot be one fact; a pairing was written anyway: {checks}"
+    )
+    assert "ambiguous" in result.stdout, (
+        "the refusal must say WHY, or it reads as the file being absent:\n"
+        + result.stdout
+    )
+
+
 def test_a_preset_actually_switches_off_what_it_disables(tmp_path) -> None:
     """Also found by mutation: nothing asserted the `disable` list did anything.
 
