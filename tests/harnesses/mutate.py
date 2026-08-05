@@ -536,12 +536,20 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # therefore unkillable by construction and survived every campaign,
         # reading as a permanent test gap - the same two-mechanisms-masking
         # shape that hid dead code in the tag-prefix logic.
+        # Retargeted a SECOND time, when the dict comprehension became an
+        # explicit loop so each source could be LOCATED before being read. The
+        # guard is now the `if problems:` branch, and neutralising it emits
+        # every check regardless of whether its files were found or matched.
+        # Same lesson as the pair in the scoping section, which has now rotted
+        # three times: a mutation names a line, and refactoring moves the line
+        # without moving the mutation. `--check-only` is the only thing that
+        # notices, which is why it runs in CI rather than in the campaign.
         ("preset emits a consistency check whose files are absent",
          detect.parent / "install.py",
-         "            if all((repo / f).is_file() for f in sources)\n"
-         "            and all(_pattern_matches(repo / f, pattern)\n"
-         "                    for f, pattern in sources.items())",
-         "            if True"),
+         "            if problems:\n"
+         "                skipped_why[check] = \", \".join(problems)",
+         "            if False:\n"
+         "                skipped_why[check] = \", \".join(problems)"),
         ("preset stops switching off the features it disables",
          detect.parent / "install.py",
          '    for key in preset.get("disable", []):          # type: ignore[union-attr]',

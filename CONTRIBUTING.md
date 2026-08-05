@@ -120,6 +120,18 @@ matrix over project shapes unlike this one, an adversarial smoke test, a
 performance run, and a load test aimed at the known weak points rather than the
 comfortable ones. They are slow and run by hand. See `tests/harnesses/README.md`.
 
+**Run this before committing any change to `payload/` or `install.py`:**
+
+    python tests/harnesses/mutate.py --check-only
+
+It is sub-second, because it runs no tests - it only asks whether every
+mutation still matches the code it names. A mutation names a LINE, and moving
+that line while refactoring silently disarms it: the suite stays green, because
+a mutation that matches nothing probes nothing and reports the same silence as
+one with nothing to say. This has now happened three times to the same pair of
+scoping mutations and once to the preset guard, every time caught by CI after
+the push rather than before it.
+
 They are worth running before a release, because between them they found every
 defect fixed in 0.3.0 and the unit suite found none of them. This sentence said
 "two more" for as long as it took the last two to be written, which is the drift
