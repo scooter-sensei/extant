@@ -254,7 +254,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.19.0
+    rev: v0.20.0
     hooks:
       - id: extant
 ```

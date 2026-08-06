@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.20.0 (2026-08-06)
 
 **Machine-format severity now matches the exit code.** Every finding was
 published at `level: error` in SARIF and `::error` in GitHub annotations,

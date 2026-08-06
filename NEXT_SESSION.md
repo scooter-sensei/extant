@@ -6,11 +6,66 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 20 - The machine formats stop contradicting the exit code (shipped, 2026-08-06)
+
+**Status.** Suite is 547 tests, all passing. Thirteen rules, eighteen presets.
+This work is version 0.20.0. Twenty-nine tags from `v0.5.0`, each carrying a
+GitHub release.
+
+**What shipped.**
+
+- **Severity now matches the exit code in both machine formats.** SARIF
+  published every finding at `level: error` and GitHub annotations at
+  `::error`, including from `--sweep` and `--deleted-since`, which exit 0 by
+  design. The README promises a sweep cannot fail your build, the exit code
+  honoured it, and the machine formats contradicted both. A gating finding is
+  still `error`; a survey finding is `note` / `::notice`, and every result
+  carries `properties.gates` so a policy can key on that rather than severity.
+- **SARIF was the only output with no denominator.** It now carries
+  `properties.examined` plus notifications repeating it and naming any rule
+  that examined nothing. Zero results with a full denominator is a clean
+  repository; zero results with zeros everywhere is a run that checked
+  nothing, and those printed identically before.
+- **Alerts show the claim.** `region.snippet` carries the cited line and the
+  columns point at the token, so a code-scanning UI underlines the cited SHA
+  itself rather than highlighting a line number. Plus `help.markdown`, `helpUri`,
+  tags, `precision`, `defaultConfiguration`, `ruleIndex`, `columnKind` and
+  `automationDetails.id`.
+- **A preset finds its files where the project keeps them.** Not one published
+  Helm repository has `Chart.yaml` at the root and neither sampled Unity
+  project has `ProjectSettings/` there, so those presets lost their check to a
+  path assumption. Resolution is by unique suffix and REFUSES ambiguity: a
+  chart collection carries one `Chart.yaml` per chart, and "the chart version"
+  is then not one fact.
+
+**What was learned.**
+
+- **When a misrepresentation is found in one output, its siblings are where to
+  look next.** Four of the five gaps a self-audit found were the same mistake:
+  SARIF was fixed and `format_github` and `--deleted-since` were not.
+- **The obvious fix is sometimes the bug.** Passing `repo` to
+  `--deleted-since` for snippets would have quoted the CURRENT file against
+  line numbers that index the document as it was at the compared ref.
+- **A declared property the numbers do not follow is worse than none.** The
+  document said `columnKind: utf16CodeUnits` while the code indexed by Python
+  code point; 47 corpus files carry 156 non-BMP characters.
+- **Uncapped output is an upload hazard.** The longest single markdown line in
+  the corpus is 123,427 characters and GitHub rejects a SARIF over 10 MB.
+  Snippets are capped at 400.
+- **Absent from the failure list is not the same as passed.** A run still in
+  progress appears in neither filter, so confirming CI means checking both.
+
+**Verification.** 547 tests. Mutation anchors 141 of 141, checked BEFORE each
+commit - the habit added this week, which caught two stale anchors that CI
+would otherwise have found after the push. Three SARIF mutations and three
+preset-resolver mutations, all killed.
+
 ## Phase 19 - Eight candidates refused, and the two clauses that predict it (shipped, 2026-08-05)
 
-**Status.** Suite is 536 tests, all passing. Thirteen rules, eighteen presets,
-twelve of which supply a consistency pairing. Still version 0.19.0: no code
-changed. Twenty-eight tags from `v0.5.0`, each carrying a GitHub release.
+**Status.** Suite was 536 tests at the time, all passing. Thirteen rules,
+eighteen presets, twelve of which supply a consistency pairing. No code changed
+in that work, so it remained version 0.19.0 against twenty-eight tags from
+`v0.5.0`, each carrying a GitHub release.
 
 **What shipped.** Two new clauses in the admission test, in `CONTRIBUTING.md`
 and `references/design.md`:
