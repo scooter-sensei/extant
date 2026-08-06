@@ -53,6 +53,38 @@ properly, `properties.tags` and `precision` for filtering,
 `automationDetails.id` - `extant/sweep` and `extant/verify` - so uploading both
 no longer has one silently replace the other.
 
+**A preset now finds its files where the project actually keeps them.** Presets
+name paths from the repository root, and real projects routinely keep the thing
+one directory down. Measured 2026-08-05: not one sampled published Helm
+repository has `Chart.yaml` at the root, prometheus-community, grafana, argoproj
+and bitnami all nesting it under `charts/<name>/`, and neither sampled Unity
+project keeps `ProjectSettings/` there either. Every one of them lost its
+consistency check to a path assumption rather than to anything about the
+project. The installer now locates each source before reading it, and the
+emitted config carries the resolved path rather than the preset's guess.
+
+Ambiguity is refused rather than guessed. A chart collection carries one
+`Chart.yaml` per chart, so "the chart version" is not one fact and no pairing
+can be formed; `argoproj/argo-helm` now reports 6 ambiguous candidates instead
+of claiming the file is absent. The diagnosis improves even where the outcome
+does not: `Cysharp/UniTask` still skips, but now because its README carries no
+Unity badge, where before it named a missing file that was present. Three
+preset summaries state the layout they assume - `mobile` is Capacitor's, `k8s`
+expects a single chart at the root, `unity` expects the project at the root -
+because a user who picks one and silently loses its check has no way to find
+out why.
+
+**Publishing refuses a commit the suite has not passed.** `publish.yml` and
+`tests.yml` are independent triggers, so a red suite never stopped an upload.
+0.19.0 was tagged ninety seconds after a push whose run was already failing,
+and published; the artifact was fine, the mechanism was luck, and PyPI does not
+allow replacing a released version. The build job now asks the API whether
+`tests.yml` succeeded for this commit before it builds anything, matched by
+commit rather than by ref, since `tests.yml` never runs on a tag and there is
+no run attached to the tag itself. A commit with no run at all fails rather
+than passes, only `success` counts as green, and a network error or missing
+configuration blocks rather than allows.
+
 ## 0.19.0 (2026-08-04)
 
 **A sweep now reports what each rule examined, not just what it found.** It
