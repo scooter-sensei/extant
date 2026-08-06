@@ -2,11 +2,23 @@
 
 ## Unreleased
 
-**SARIF severity now matches the exit code.** Every finding was published at
-`level: error`, including the ones a sweep explicitly cannot fail a build on.
-The README promises "a sweep cannot fail your build", the exit code honours it,
-and the machine format contradicted both - so a team uploading survey results
-to code scanning saw a wall of errors for advisory findings.
+**Machine-format severity now matches the exit code.** Every finding was
+published at `level: error` in SARIF and `::error` in GitHub annotations,
+including the ones a sweep explicitly cannot fail a build on. The README
+promises "a sweep cannot fail your build", the exit code honours it, and both
+machine formats contradicted it - so a survey put red marks on a pull request
+and a wall of errors in code scanning for advisory findings.
+
+`--deleted-since` was the same story and worse: it "never gates: returns 0" by
+its own docstring, and published every result as an error. It now reports
+`note` and `::notice`, carries the document count it always printed in text,
+and identifies itself as `extant/deleted-since` rather than borrowing
+`extant/verify` and replacing a verify upload.
+
+It deliberately does NOT carry snippets. Those findings come from the document
+as it was at the compared ref, so a line number indexes the old text; reading
+the current file would quote whatever now occupies that line and attribute it
+to a claim that is no longer there.
 
 **Read this before upgrading if you filter on severity.** A finding in a
 configured document still arrives as `error`. A `--sweep` finding in an
@@ -24,7 +36,16 @@ everywhere is a run that checked nothing, and those printed identically before.
 **Alerts show the claim rather than a line number.** Results carry the cited
 line as `region.snippet`, and `startColumn`/`endColumn` point at the token the
 claim is about, so a code-scanning UI underlines `abc1234` instead of
-highlighting nothing.
+highlighting nothing. Columns count UTF-16 code units, which is what the
+document's `columnKind` declares: an emoji is one Python character and two
+code units, and 47 markdown files in the 39-repository corpus carry 156 such
+characters, so indexing by code point was wrong by one per emoji rather than
+theoretically wrong.
+
+Snippets are capped at 400 characters. The longest single markdown line in
+that corpus is 123,427 characters, GitHub rejects a SARIF upload over 10 MB,
+and one cited base64 image would have carried the whole line into the
+document.
 
 Also added: `help.markdown` and `helpUri` on every rule so alert pages render
 properly, `properties.tags` and `precision` for filtering,

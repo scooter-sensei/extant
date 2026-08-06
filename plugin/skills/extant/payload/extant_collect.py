@@ -4239,14 +4239,27 @@ def _gh_escape(value: str, *, prop: bool = False) -> str:
 
 
 def format_github(located: list[Located]) -> list[str]:
-    """GitHub Actions annotations, which surface inline on the pull request."""
-    return [
-        f"::error file={_gh_escape(item.path, prop=True)},"
-        f"line={item.finding.line},"
-        f"title={_gh_escape(item.finding.kind, prop=True)}"
-        f"::{_gh_escape(item.finding.detail)}"
-        for item in located
-    ]
+    """GitHub Actions annotations, which surface inline on the pull request.
+
+    The severity mirrors the exit code, exactly as SARIF's does. A survey
+    finding is a `notice`: `--sweep` and `--deleted-since` both exit 0 by
+    design, and annotating them as errors put red marks on a pull request for
+    claims the tool had already decided could not fail it.
+
+    This was fixed in SARIF first and missed here for one commit, which is the
+    cheaper half of the same lesson: when a misrepresentation is found in one
+    output, the sibling formats are where to look next.
+    """
+    lines = []
+    for item in located:
+        level = "error" if item.gating else "notice"
+        lines.append(
+            f"::{level} file={_gh_escape(item.path, prop=True)},"
+            f"line={item.finding.line},"
+            f"title={_gh_escape(item.finding.kind, prop=True)}"
+            f"::{_gh_escape(item.finding.detail)}"
+        )
+    return lines
 
 
 def format_sarif(located: list[Located], repo: Path | None = None, *,
@@ -4314,10 +4327,23 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
             # Computed against the FULL line, because SARIF columns are offsets
             # into the artifact rather than into the snippet.
             subject = item.finding.subject
-            start = snippet.index(subject) + 1 if subject and subject in snippet else 0
-            if 0 < start <= _SARIF_SNIPPET_LIMIT - len(subject or ""):
+            if subject and subject in snippet:
+                at = snippet.index(subject)
+                # UTF-16 CODE UNITS, because `columnKind` above says so. Python
+                # indexes by code point, and the two differ for anything
+                # outside the BMP: one emoji before the token shifts every
+                # column after it by one. Measured on the corpus, 47 markdown
+                # files carry 156 non-BMP characters, so this is a real
+                # off-by-N rather than a theoretical one - and declaring a
+                # column kind the numbers do not follow is worse than
+                # declaring none.
+                start = _utf16_len(snippet[:at]) + 1
+                width = _utf16_len(subject)
+            else:
+                start = width = 0
+            if 0 < start <= _SARIF_SNIPPET_LIMIT - width:
                 region["startColumn"] = start
-                region["endColumn"] = start + len(subject or "")
+                region["endColumn"] = start + width
             if len(snippet) > _SARIF_SNIPPET_LIMIT:
                 snippet = snippet[:_SARIF_SNIPPET_LIMIT] + " ..."
             region["snippet"] = {"text": snippet}
@@ -4387,6 +4413,17 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
 # SARIF upload over 10 MB. One base64 image or minified block on a cited line
 # would have been enough.
 _SARIF_SNIPPET_LIMIT = 400
+
+
+def _utf16_len(text: str) -> int:
+    """Length in UTF-16 code units, which is what SARIF columns count.
+
+    A character outside the Basic Multilingual Plane - an emoji, most of the
+    rarer CJK - is one Python character and TWO UTF-16 code units. Anything
+    that indexes with `len()` and then declares `columnKind` as
+    `utf16CodeUnits` is quietly wrong past the first such character.
+    """
+    return len(text) + sum(1 for ch in text if ord(ch) > 0xFFFF)
 
 
 def _sarif_snippet(repo: Path | None, item: Located) -> str | None:
@@ -4771,7 +4808,11 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
                 continue
             if finding.subject in haystack:
                 continue                    # still written down somewhere
-            found.append(Located(relative, finding, primary=False))
+            # `gating=False`: the docstring below says this mode never gates
+            # and returns 0. Every other format honoured that and the machine
+            # ones did not, publishing a report as an error.
+            found.append(Located(relative, finding, primary=False,
+                                 gating=False))
     return found, examined, skipped, undecodable
 
 
@@ -4797,7 +4838,16 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
         # fails its upload rather than reading "no results" - which is how a
         # clean run would look like a broken one. `--sweep` and `--validate`
         # both emit an empty document here; this used to emit nothing at all.
-        for line in render_findings(gone, fmt)[0]:
+        #
+        # `repo` is deliberately NOT passed, which is the one place a snippet
+        # would be actively wrong rather than merely missing. These findings
+        # come from `_document_at(repo, ref, ...)`, so every line number
+        # indexes the document AS IT WAS. Reading the current file at that
+        # line shows whatever now occupies it - a quotation attributed to a
+        # claim that is no longer there.
+        for line in render_findings(
+                gone, fmt, examined={"documents": examined},
+                run_kind="deleted-since")[0]:
             print(line)
 
     # The denominator. This mode always exits 0, so the count is the only thing

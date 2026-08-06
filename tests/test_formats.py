@@ -267,6 +267,61 @@ def test_a_very_long_line_cannot_bloat_the_upload(tmp_path) -> None:
         "physicalLocation"]["region"]["startColumn"] == 13
 
 
+def test_an_annotation_that_cannot_fail_the_build_is_not_an_error() -> None:
+    """The same misrepresentation SARIF had, in the format most people use.
+
+    `--sweep` and `--deleted-since` both exit 0 by design, and annotating their
+    findings as errors put red marks on a pull request for claims the tool had
+    already decided could not fail it. Fixed in SARIF first and missed here for
+    one commit.
+    """
+    from extant_collect import format_github
+
+    survey = format_github([located("a.md", 1, "dead-sha", "x", gating=False)])[0]
+    gate = format_github([located("a.md", 1, "dead-sha", "x", gating=True)])[0]
+
+    assert survey.startswith("::notice file=a.md,"), survey
+    # The control, and the reason this is not simply a downgrade: a gating
+    # finding must still arrive as an error or CI stops reporting failures.
+    assert gate.startswith("::error file=a.md,"), gate
+
+
+def test_columns_are_utf16_code_units_as_the_document_declares() -> None:
+    """`columnKind: utf16CodeUnits` is a promise the numbers have to keep.
+
+    An emoji is one Python character and two UTF-16 code units, so indexing
+    with `len()` is off by one per non-BMP character before the token. The
+    corpus carries 156 of them across 47 markdown files, so this is a real
+    off-by-N rather than a theoretical one.
+    """
+    from extant_collect import _utf16_len
+
+    assert _utf16_len("abc") == 3
+    assert _utf16_len("a" + chr(0x1F600) + "b") == 4, "the emoji counts twice"
+    # A BMP character stays one unit - the fix must not inflate ordinary text.
+    # Written as escapes because this repository is ASCII-only, including its
+    # tests, and the guard that enforces it caught this line.
+    assert _utf16_len("caf\u00e9") == 4
+    assert _utf16_len("\u4e2d\u6587") == 2
+
+
+def test_a_snippet_with_an_emoji_points_at_the_right_column(tmp_path) -> None:
+    """End to end, because `_utf16_len` being right does not prove it is used."""
+    from extant_collect import format_sarif
+
+    (tmp_path / "a.md").write_text(
+        "Hi " + chr(0x1F600) + " see `abc1234` now\n", encoding="utf-8")
+
+    doc = json.loads(format_sarif(
+        [located("a.md", 1, "dead-sha", "gone", subject="abc1234")], tmp_path))
+    region = doc["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
+
+    # "Hi " is 3, the emoji is 2 units, " see `" is 6 -> the token starts at
+    # code unit 11, so column 12. Counting code points would say 11.
+    assert region["startColumn"] == 12, region
+    assert region["endColumn"] == 19, region
+
+
 def test_a_sweep_and_a_verify_upload_do_not_replace_each_other() -> None:
     """Code scanning keys runs by `automationDetails.id`. Without one, the
     second upload of the day silently supersedes the first."""
