@@ -80,6 +80,13 @@ carries only the patch so it can be piped to `git apply`.
 for Actions annotations, or `--format=sarif`. SARIF puts nothing but JSON on
 stdout; every human diagnostic moves to stderr.
 
+SARIF severity mirrors the exit code rather than shouting: a finding that
+gates is `error`, a survey finding from `--sweep` is `note`, and every result
+carries `properties.gates`. The run also carries `properties.examined`, the
+same denominator the text output prints, because a machine consumer seeing
+zero results otherwise cannot tell a clean repository from one where nothing
+ran.
+
 **Adopting on an old repository.** `--write-baseline` records every current
 finding once; `--baseline` then checks only NEW claims. Use it when the first
 run reports a wall of findings on documentation nobody has time to fix today,

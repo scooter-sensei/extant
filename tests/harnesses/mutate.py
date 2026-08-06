@@ -320,9 +320,20 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("sarif drops partialFingerprints", collect,
          '            "partialFingerprints": {',
          '            "_dropped": {'),
+        # Retargeted when the region gained a snippet and columns, which moved
+        # its construction out of the literal and above the result dict.
         ("sarif region loses startLine", collect,
-         '                    "region": {"startLine": max(1, item.finding.line)},',
-         '                    "region": {},'),
+         '        region: dict[str, object] = {"startLine": max(1, item.finding.line)}',
+         '        region: dict[str, object] = {}'),
+        # The severity mapping is the reason `Located.gating` exists. Publishing
+        # every finding as an error contradicted a sweep's own exit code.
+        ("sarif calls every finding an error again", collect,
+         '            "level": "error" if item.gating else "note",',
+         '            "level": "error",'),
+        # The denominator, which no machine consumer could see before.
+        ("sarif stops reporting what was examined", collect,
+         '    if examined is not None:',
+         '    if False:'),
 
         # --- shas ----------------------------------------------------------
         # "secret scan misses openai keys" lived here until 0.14.0 removed the

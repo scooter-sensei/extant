@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+**SARIF severity now matches the exit code.** Every finding was published at
+`level: error`, including the ones a sweep explicitly cannot fail a build on.
+The README promises "a sweep cannot fail your build", the exit code honours it,
+and the machine format contradicted both - so a team uploading survey results
+to code scanning saw a wall of errors for advisory findings.
+
+**Read this before upgrading if you filter on severity.** A finding in a
+configured document still arrives as `error`. A `--sweep` finding in an
+unreviewed file now arrives as `note`, and repository-wide findings likewise.
+Anyone alerting on `error` will see fewer alerts, which is the point; anyone
+counting all results is unaffected. Every result also carries
+`properties.gates`, so a policy can key on that rather than on severity.
+
+**SARIF was the only output with no denominator.** It now carries
+`properties.examined` with the per-rule count, and the invocation repeats it as
+a notification plus a warning naming any rule that examined nothing. Zero
+results with a full denominator is a clean repository; zero results with zeros
+everywhere is a run that checked nothing, and those printed identically before.
+
+**Alerts show the claim rather than a line number.** Results carry the cited
+line as `region.snippet`, and `startColumn`/`endColumn` point at the token the
+claim is about, so a code-scanning UI underlines `abc1234` instead of
+highlighting nothing.
+
+Also added: `help.markdown` and `helpUri` on every rule so alert pages render
+properly, `properties.tags` and `precision` for filtering,
+`defaultConfiguration.level`, `ruleIndex`, `columnKind`, and
+`automationDetails.id` - `extant/sweep` and `extant/verify` - so uploading both
+no longer has one silently replace the other.
+
 ## 0.19.0 (2026-08-04)
 
 **A sweep now reports what each rule examined, not just what it found.** It

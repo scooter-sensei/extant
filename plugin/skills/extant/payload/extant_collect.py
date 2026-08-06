@@ -642,6 +642,17 @@ class Located:
     path: str          # repo-relative, forward slashes, for machine consumers
     finding: Finding
     primary: bool      # the document asked for, as opposed to archive/extra
+    # Whether this finding DECIDES the exit code. Not derivable from `primary`:
+    # in `--verify` an archive finding gates while not being primary, and in a
+    # sweep an unreviewed one is primary-adjacent and does not gate.
+    #
+    # It exists for SARIF, which published every finding at `level: error`
+    # while a sweep exited 0 - so a survey the README promises "cannot fail
+    # your build" arrived in code scanning as a wall of errors. The exit code
+    # was right and the machine format contradicted it.
+    #
+    # Defaults True so every caller that gates on everything is unchanged.
+    gating: bool = True
 
 
 def _looks_like_sha(token: str) -> bool:
@@ -4238,13 +4249,19 @@ def format_github(located: list[Located]) -> list[str]:
     ]
 
 
-def format_sarif(located: list[Located]) -> str:
+def format_sarif(located: list[Located], repo: Path | None = None, *,
+                 examined: dict[str, int] | None = None,
+                 run_kind: str = "verify") -> str:
     """SARIF 2.1.0, the format code-scanning tools interchange.
 
     The rule descriptors are generated from the registry, so a rule's
     `falsifiable` question becomes its published description. That is the same
     field the admission test already requires, which means a rule cannot reach
     this output without having stated the exact question it asks.
+
+    `repo` and `examined` are optional so the function stays callable with a
+    bare list, which is how the tests exercise it. Their absence costs
+    presentation and the denominator, never correctness.
     """
     kinds = {rule.kind: rule for rule in RULES}
     seen: list[str] = []
@@ -4258,41 +4275,139 @@ def format_sarif(located: list[Located]) -> str:
         question = rule.falsifiable if rule else "not a registry rule"
         descriptors.append({
             "id": kind,
+            "name": "".join(part.title() for part in kind.split("-")),
             "shortDescription": {"text": kind.replace("-", " ")},
             "fullDescription": {"text": f"Checks: {question}"},
-            "help": {"text": f"This finding is falsifiable: {question}"},
+            "help": {
+                "text": f"This finding is falsifiable: {question}",
+                # GitHub renders the markdown on the alert page and falls back
+                # to `text` elsewhere, so both are supplied rather than one.
+                "markdown": (
+                    f"**{kind}**\n\n"
+                    f"This finding is falsifiable, and the question it asks is:\n\n"
+                    f"> {question}\n\n"
+                    "No rule here judges whether a value is *correct* - only "
+                    "whether something a document names still exists or still "
+                    f"holds. See [the rule table]({_TOOL_URI}#what-it-covers)."
+                ),
+            },
+            "helpUri": f"{_TOOL_URI}#what-it-covers",
+            # Findings that reach `--verify` decide its exit code, so error is
+            # the right DEFAULT. A survey result overrides it per result below.
+            "defaultConfiguration": {"level": "error"},
+            "properties": {
+                "tags": ["documentation", rule.scope if rule else "unknown"],
+                # Honest rather than flattering: the admission test requires
+                # zero false positives on a real corpus before a rule ships.
+                "precision": "very-high",
+                "problem.severity": "error",
+            },
         })
 
     results = []
     for item in located:
+        region: dict[str, object] = {"startLine": max(1, item.finding.line)}
+        snippet = _sarif_snippet(repo, item)
+        if snippet is not None:
+            # The subject is the bare token the claim is about, so pointing at
+            # it turns "somewhere on line 12" into the claim itself underlined.
+            # Computed against the FULL line, because SARIF columns are offsets
+            # into the artifact rather than into the snippet.
+            subject = item.finding.subject
+            start = snippet.index(subject) + 1 if subject and subject in snippet else 0
+            if 0 < start <= _SARIF_SNIPPET_LIMIT - len(subject or ""):
+                region["startColumn"] = start
+                region["endColumn"] = start + len(subject or "")
+            if len(snippet) > _SARIF_SNIPPET_LIMIT:
+                snippet = snippet[:_SARIF_SNIPPET_LIMIT] + " ..."
+            region["snippet"] = {"text": snippet}
         results.append({
             "ruleId": item.finding.kind,
-            "level": "error",
+            "ruleIndex": seen.index(item.finding.kind),
+            # A survey finding is reported and never gates. Publishing it as an
+            # error contradicted the exit code and the README both.
+            "level": "error" if item.gating else "note",
             "message": {"text": item.finding.detail},
             "partialFingerprints": {
                 "statusClaim/v1": _fingerprint(
                     item.path, item.finding.kind, item.finding.detail),
             },
+            "properties": {"gates": item.gating},
             "locations": [{
                 "physicalLocation": {
                     "artifactLocation": {"uri": item.path},
-                    "region": {"startLine": max(1, item.finding.line)},
+                    "region": region,
                 },
             }],
         })
 
+    run: dict[str, object] = {
+        "tool": {"driver": {
+            "name": "extant",
+            "informationUri": _TOOL_URI,
+            "rules": descriptors,
+        }},
+        # Lets a sweep upload and a verify upload sit side by side in code
+        # scanning instead of one silently replacing the other.
+        "automationDetails": {"id": f"extant/{run_kind}"},
+        "columnKind": "utf16CodeUnits",
+        "results": results,
+    }
+    if examined is not None:
+        # THE DENOMINATOR. Every other output states what was examined, and
+        # this one did not: a consumer seeing zero results could not tell a
+        # clean repository from a run that checked nothing. SARIF carries it as
+        # a notification rather than a result, because it is not a finding.
+        summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
+        blind = [kind for kind, n in examined.items() if n == 0]
+        run["invocations"] = [{
+            "executionSuccessful": True,
+            "toolExecutionNotifications": [
+                {"level": "note",
+                 "message": {"text": f"examined: {summary}"}},
+                *([{"level": "warning",
+                    "message": {"text":
+                                "examined nothing, so these rules report "
+                                "nothing either: " + ", ".join(blind)}}]
+                  if blind else []),
+            ],
+        }]
+        run["properties"] = {"examined": examined}
+
     return json.dumps({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
-        "runs": [{
-            "tool": {"driver": {
-                "name": "extant",
-                "informationUri": _TOOL_URI,
-                "rules": descriptors,
-            }},
-            "results": results,
-        }],
+        "runs": [run],
     }, indent=2)
+
+
+# A snippet exists to give an alert context, and no reader needs more than a
+# line's worth. Uncapped it is an upload hazard: the longest single markdown
+# line in the 39-repository corpus is 123,427 characters, and GitHub rejects a
+# SARIF upload over 10 MB. One base64 image or minified block on a cited line
+# would have been enough.
+_SARIF_SNIPPET_LIMIT = 400
+
+
+def _sarif_snippet(repo: Path | None, item: Located) -> str | None:
+    """The cited line, so an alert shows the claim rather than a line number.
+
+    Optional because `format_sarif` is called in tests and by callers that
+    have no repository in hand. A missing snippet costs presentation; a WRONG
+    one would misreport where a finding is, so anything unreadable returns
+    None rather than a guess.
+    """
+    if repo is None or item.finding.line < 1:
+        return None
+    try:
+        with open(repo / item.path, encoding="utf-8", errors="replace",
+                  newline="") as fh:
+            for number, line in enumerate(fh, start=1):
+                if number == item.finding.line:
+                    return line.rstrip("\r\n")
+    except OSError:
+        return None
+    return None
 
 
 def format_text(located: list[Located]) -> list[str]:
@@ -4399,8 +4514,13 @@ def run_sweep(repo: Path, fmt: str) -> int:
                 findings = validate(repo, text,
                                     has_entries=(relative == primary),
                                     doc=relative)
+                # `_gates` is the section's own flag: vetted documents decide
+                # the exit code, unreviewed ones are surveyed and reported.
+                # Carrying it here is what lets SARIF publish a survey finding
+                # as a note rather than an error.
                 results[label].extend(
-                    Located(relative, f, primary=(relative == primary))
+                    Located(relative, f, primary=(relative == primary),
+                            gating=_gates)
                     for f in findings)
 
                 # The denominator, per rule, summed over the survey. Counted
@@ -4433,8 +4553,12 @@ def run_sweep(repo: Path, fmt: str) -> int:
         for rule in RULES:
             if rule.scope != "repository":
                 continue
+            # Repository findings are surveyed and never gate - the section
+            # heading says "not gated" and the exit code honours it, so the
+            # machine format must say the same thing.
             results["repository"].extend(
-                Located(rule.subject_file or ".", finding, primary=False)
+                Located(rule.subject_file or ".", finding, primary=False,
+                        gating=False)
                 for finding in rule.check(repo, ""))  # type: ignore[operator]
             examined[rule.kind] = repository_examined[rule.kind]
     finally:
@@ -4471,7 +4595,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     else:
         for line in render_findings(
                 results["vetted"] + results["unvetted"]
-                + results["repository"], fmt)[0]:
+                + results["repository"], fmt, repo,
+                examined=examined, run_kind="sweep")[0]:
             print(line)
 
     # The denominator, per section. "0 findings" and "0 files looked at" print
@@ -4743,15 +4868,21 @@ def partition_documents(repo: Path, paths: list[str]) -> tuple[list[str], list[s
     return vetted, [p for p in paths if p not in normalised]
 
 
-def render_findings(located: list[Located], fmt: str) -> tuple[list[str], bool]:
+def render_findings(located: list[Located], fmt: str, repo: Path | None = None,
+                    *, examined: dict[str, int] | None = None,
+                    run_kind: str = "verify") -> tuple[list[str], bool]:
     """Render for `fmt`. Returns the lines and whether they belong on stdout.
 
     SARIF has to be the ONLY thing on stdout or it is not parseable JSON, so
     the caller sends every human diagnostic to stderr in that mode. Text and
     annotation output are line-oriented and mix freely.
+
+    `repo`, `examined` and `run_kind` reach SARIF only. Text and annotation
+    output already carry the denominator on their own summary lines.
     """
     if fmt == "sarif":
-        return [format_sarif(located)], True
+        return [format_sarif(located, repo, examined=examined,
+                             run_kind=run_kind)], True
     if fmt == "github":
         return format_github(located), True
     return format_text(located), True
@@ -5356,7 +5487,11 @@ def main(argv: list[str] | None = None) -> int:
         # been read, because SARIF is a single JSON value and annotations are
         # easier to read grouped than interleaved with progress lines.
         if args.format != "text":
-            for line in render_findings(located, args.format)[0]:
+            # `examined` is the primary document's denominator, the same figure
+            # the `checked ...` diagnostic prints. A machine consumer of the
+            # SARIF could not see it at all before.
+            for line in render_findings(located, args.format, repo,
+                                        examined=examined)[0]:
                 print(line)
 
         if args.write_baseline:

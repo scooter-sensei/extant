@@ -541,6 +541,29 @@ That upload needs `permissions: security-events: write`. This repository uses
 the annotation route instead, so treat the SARIF upload as a starting point
 rather than something proven here.
 
+**Severity says whether the finding can fail your build.** A finding in a
+document you configured arrives as `error`, because it decides the exit code. A
+finding from `--sweep` in a file you have not reviewed arrives as `note`, because
+a sweep exits 0 and cannot gate. Each result also carries `properties.gates`, so
+a policy can filter on it without parsing severities. Before 0.20.0 everything
+was published as `error`, which contradicted the exit code the same command
+returned.
+
+**The alert shows the claim, not a line number.** Each result carries the cited
+line as a snippet, and the column range points at the token itself - the SHA,
+the tag, the path - so the alert underlines `abc1234` rather than pointing
+vaguely at line 12.
+
+**The run states what it examined.** `properties.examined` carries the per-rule
+count, and the invocation's notifications repeat it in prose along with a
+warning naming any rule that examined nothing. Zero results with a full
+denominator means the documentation is clean; zero results with zeros
+everywhere means nothing was checked, and those two must never look alike.
+
+A sweep upload and a verify upload use different `automationDetails.id` values
+(`extant/sweep`, `extant/verify`), so uploading both does not silently replace
+one with the other.
+
 ### Files that contradict each other
 
 The tool never asks whether a number is *correct*. It will ask whether two files
