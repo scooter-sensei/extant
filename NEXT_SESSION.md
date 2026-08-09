@@ -6,6 +6,66 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 22 - The limit 0.21.0 could only name is now configurable (shipped, 2026-08-09)
+
+**Status.** Suite is 605 tests, all passing. Thirteen rules, eighteen presets,
+and one new setting. This work is version 0.22.0, tagged at `42cac40`.
+Thirty-one tags from `v0.5.0`, each carrying a GitHub release.
+
+**What shipped.** `exclude_paths`, for documents that are input to a test
+rather than a promise to a reader.
+
+The case that decides why this is configuration and not a rule: a renderer's
+fixture links to `../assets/does-not-exist.jpg` ON PURPOSE, to exercise the
+error path. Nothing git or the filesystem can answer separates that from a
+real broken link. Phase 21 measured 18 such findings and shipped naming them
+as a limit with no way to act on it.
+
+- **Empty by default.** A skip-list that ships with entries is one nobody
+  audits, and this project already shipped a lint whose skip-list excluded
+  every file it was meant to scan and passed on an empty scan.
+- **The sweep prints what it removed, per pattern, and names any pattern that
+  matched nothing.** A skip-list fails silently in both directions.
+- **Patterns are gitignore-shaped, not fnmatch.** `*` stops at a separator,
+  `**` spans them, a bare name matches a segment at any depth.
+- **Excluding a configured document is refused** with a non-zero exit rather
+  than resolved.
+
+**What was learned.**
+
+- **The reporting half earned itself immediately.** hugo needs `testdata` and
+  its two fixture patterns match nothing; astro needs the fixture patterns and
+  `testdata` matches nothing. Neither would have found that out. A skip-list
+  entry that matches nothing reads exactly like a working exclusion and
+  survives every run until somebody counts.
+- **Assert the thing that matters, not the aggregate containing it.** The test
+  for attribution checked that excluded plus kept equalled the total. Dropping
+  the `break` leaves that sum correct and moves attribution to the LAST
+  matching pattern, rewriting the per-pattern report the feature exists to
+  print. The mutation survived it.
+- **A guard can be unobservable from any document.** The unusable-pattern
+  guard changes no verdict on any path, because an empty pattern compiles to a
+  regex matching only the empty string. Pinned as a contract on the function,
+  which is the rule Phase 21 wrote down and this is its first real use.
+- **The index lists a version before pip can install it.** `pypi.org/pypi`
+  reported 0.22.0 while `pip install extant==0.22.0` still failed. Two
+  different facts, and the release watcher only checked the first.
+- **"Latest" is not always pre-selected on a GitHub release form.** It was for
+  0.21.0 and was not for 0.22.0. Read the control rather than assuming the
+  previous run's layout.
+
+**Verification.** 605 tests. Mutation anchors 154 of 154, with the nine new
+ones run rather than only checked; two survived the first run and both were
+gaps in the tests here rather than the code. CI green at `42cac40` before the
+tag existed, 13 jobs across ten OS and Python combinations. `--verify` and
+`--selftest` both exit 0.
+
+The published wheel was installed from the index into a clean environment and
+RUN: it excluded `testdata`, kept reporting the finding in `README.md`,
+printed the per-pattern count, and named `vendor/**` as matching nothing.
+Measured on the two repositories that motivated the feature, hugo went from 10
+findings to 4 and astro from 31 to 19.
+
 ## Phase 21 - The rules did not generalise, and forty unseen repositories said how (shipped, 2026-08-09)
 
 **Status.** Suite is 589 tests, all passing. Thirteen rules, eighteen presets,
