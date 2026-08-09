@@ -585,6 +585,29 @@ def test_the_trimmed_spelling_still_works(git_repo) -> None:
     assert _anchors(repo, text) == []
 
 
+def test_the_untrimmed_slug_contributes_only_what_trimming_loses() -> None:
+    """Pinned on the function directly, because no behavioural test can see it.
+
+    Offering a spelling nobody uses only ever SUPPRESSES, so a version of this
+    that also returned the trimmed form produces no finding to catch it. What
+    it does instead is stand in for `_slug`: the mutation that stops `_slug`
+    stripping punctuation SURVIVED while this returned both, because
+    `build.target` still offered `buildtarget` from here.
+
+    A check that another check silently covers is a check nobody is running,
+    and the only way to hold this one is to state the contract.
+    """
+    import extant_collect as hc
+    # Nothing for trimming to lose, so it contributes nothing and cannot
+    # substitute for `_slug`.
+    assert hc._slug_keeping_edges("build.target") == ""
+    assert hc._slug_keeping_edges("Plain heading") == ""
+    # An emoji is dropped and the space after it still becomes a dash, which
+    # trimming would remove. That spelling is this function's whole purpose.
+    assert hc._slug_keeping_edges("\N{BRICK} Component structure") == (
+        "-component-structure")
+
+
 def test_an_anchor_matching_no_spelling_still_fires(git_repo) -> None:
     """Two extra spellings are still not all of them."""
     repo, commit = git_repo

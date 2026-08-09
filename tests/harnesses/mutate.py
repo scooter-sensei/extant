@@ -229,9 +229,29 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("anchors compared case-sensitively", collect,
          "            fragment = fragment.lower()",
          "            fragment = fragment"),
+        # Retargeted when `_slug_keeping_edges` was added for emoji headings:
+        # it strips punctuation the same way, so the old one-line anchor
+        # matched twice and probed neither reliably. The return line
+        # disambiguates - only `_slug` trims the edges.
         ("slug keeps punctuation", collect,
-         '    text = re.sub(r"[^\\w\\s-]", "", _heading_text(title))',
-         "    text = _heading_text(title)"),
+         '    text = re.sub(r"[^\\w\\s-]", "", _heading_text(title))\n'
+         '    return re.sub(r"\\s", "-", text).strip("-")',
+         "    text = _heading_text(title)\n"
+         '    return re.sub(r"\\s", "-", text).strip("-")'),
+        # A heading opening with an emoji anchors with a leading dash on
+        # GitHub, because the emoji is dropped and the space after it still
+        # becomes one. Trimming both spellings reported 58 working links as
+        # dead across the held-out corpus.
+        ("the untrimmed slug spelling is lost", collect,
+         '    return untrimmed if untrimmed != untrimmed.strip("-") else ""',
+         '    return ""'),
+        # The other half of the same function, and the reason it is written
+        # this way. Returning the trimmed spelling as well duplicates `_slug`
+        # and masks it - "slug keeps punctuation" SURVIVED while it did.
+        ("the untrimmed slug also returns the trimmed one, masking _slug",
+         collect,
+         '    return untrimmed if untrimmed != untrimmed.strip("-") else ""',
+         "    return untrimmed"),
         ("cross-file anchors no longer checked", collect,
          "            offered = _target_anchors(resolved)",
          "            offered = None"),
@@ -733,19 +753,28 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # expensive. Blind, withastro/starlight reported 235 of its own working
         # links as dead. Universally on, every genuinely dead link in a plain
         # repository stops being reported.
+        # Retargeted when detection stopped answering yes-or-no and began
+        # recording WHICH top-level directories a generator governs. A
+        # monorepo builds a site from `docs/` and still keeps ordinary
+        # READMEs in `packages/`; suppressing routes across both silenced six
+        # real defects.
         ("site detection goes blind, so routes are dead files again", collect,
-         "        found = any((d / name).is_file()\n"
-         "                    for d in directories for name in _SITE_CONFIGS)",
-         "        found = False"),
+         "            declared = any((directory / name).is_file()\n"
+         "                           for name in _SITE_CONFIGS)",
+         "            declared = False"),
         ("every repository is treated as a generated site", collect,
-         "        found = any((d / name).is_file()\n"
-         "                    for d in directories for name in _SITE_CONFIGS)",
-         "        found = True"),
+         "            declared = any((directory / name).is_file()\n"
+         "                           for name in _SITE_CONFIGS)",
+         "            declared = True"),
         # The root-only search is a shipped bug, not a hypothetical. jekyll/jekyll
         # keeps its own site under `docs/` with `docs/_config.yml`, and a search
         # that looked only at the root reported 138 of its routes as dead.
+        # Retargeted twice now, both times because the tuple gained a name a
+        # held-out repository declared its site in: `docs-website` from
+        # haystack, `documentation` from svelte, `fern` from Skyvern.
         ("generator config is looked for at the root only", collect,
-         '_SITE_DIRS = ("", "docs", "site", "www", "website")',
+         '_SITE_DIRS = ("", "docs", "site", "www", "website", "docs-website",\n'
+         '              "documentation", "fern")',
          '_SITE_DIRS = ("",)'),
         # Retargeted when the tuple gained docsify and went multi-line. The old
         # anchor named a single-line form that no longer exists, and
@@ -757,11 +786,20 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The marker search walks _SITE_DIRS now, because docsify keeps its
         # index.html under docs/. Root-only was the shipped bug for jekyll,
         # whose _config.yml sits there too.
-        ("markers inside a file are looked for at the root only", collect,
-         "            for directory in directories:\n"
-         "                path = directory / name",
-         "            for directory in (repo,):\n"
-         "                path = directory / name"),
+        # Relabelled, not just retargeted. The marker search used to be its
+        # own loop over the directory list, so "root only" was separable from
+        # the config search; both now share one walk, and the thing this can
+        # still probe alone is whether markers are consulted at all.
+        ("markers inside a file stop being consulted", collect,
+         "                for name, marker in _SITE_MARKERS_IN_FILE:",
+         "                for name, marker in ():"),
+        # A generator declared nowhere but in its own filename convention.
+        # svelte's pages are built by svelte.dev, so no config exists in the
+        # repository at all and 64 of its own `/docs/svelte` links were
+        # judged as files.
+        ("a numbered documentation tree stops declaring a site", collect,
+         "        scopes |= _numbered_docs_scopes(repo)",
+         "        scopes |= set()"),
         # aider keeps a Jekyll site at `aider/website/_config.yml`: a package
         # directory, and the site inside it. Searching only `website/` found
         # nothing, so the repository was judged plain and 29 of its own asset
@@ -781,9 +819,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '            dirs.extend(repo.glob(f"**/{name}"))'),
         # Mintlify serves .mdx by route from one declaration. humanlayer
         # reported 5 of its own `/core/require-approval` links dead without it.
+        # Anchored on the entry alone rather than on it being LAST in the
+        # tuple, which is what went stale when `fern.config.json` was added
+        # after it.
         ("mint.json stops counting as a generator", collect,
-         '    "mint.json",\n)',
-         '    "mint.never-matches.json",\n)'),
+         '    "mint.json",\n',
+         '    "mint.never-matches.json",\n'),
+        ("fern.config.json stops counting as a generator", collect,
+         '    "fern.config.json",\n',
+         '    "fern.never-matches.json",\n'),
         # A `.html` target is a rendered page. Measured at 407 links across 20
         # repositories in two corpora, with ZERO resolving to a checked-in
         # file. Re-gating it on generator detection is what made rails report

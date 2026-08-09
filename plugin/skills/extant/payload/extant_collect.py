@@ -2049,7 +2049,16 @@ def _slug_keeping_edges(title: str) -> str:
     neither spelling is still dead.
     """
     text = re.sub(r"[^\w\s-]", "", _heading_text(title))
-    return re.sub(r"\s", "-", text)
+    untrimmed = re.sub(r"\s", "-", text)
+    # Contributes ONLY the spelling trimming would lose, and nothing when
+    # there is no edge to keep.
+    #
+    # Returning the trimmed form too would duplicate `_slug` and mask it. It
+    # did: the mutation that stops `_slug` stripping punctuation SURVIVED
+    # once this function existed, because `## build.target` still offered
+    # `buildtarget` from here after `_slug` stopped offering it. A check that
+    # another check silently covers is a check nobody is running.
+    return untrimmed if untrimmed != untrimmed.strip("-") else ""
 
 
 def _slug_punctuation_to_dash(title: str) -> str:
