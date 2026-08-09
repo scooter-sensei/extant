@@ -61,11 +61,23 @@ def neutral_config(tmp_path: Path):
 
     saved_config = hc.CONFIG
     saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
+    # Per-document state, cleared for the same reason the config is
+    # neutralised: it is a module global, and a test that leaves it set makes
+    # the NEXT test's answer depend on which one ran first.
+    #
+    # It stayed invisible while nothing read `_DOC_PATH` outside the call that
+    # sets it. The moment link suppression became scoped to the document's
+    # position in the tree, three tests began failing in the full suite and
+    # passing alone - which is what an order dependency looks like, and why
+    # this belongs here rather than in the tests that noticed it.
+    saved_doc, saved_base = hc._DOC_PATH, hc._LINK_BASE
+    hc._DOC_PATH, hc._LINK_BASE = None, None
     hc.reload_config(neutral)
     try:
         yield
     finally:
         hc.CONFIG = saved_config
+        hc._DOC_PATH, hc._LINK_BASE = saved_doc, saved_base
         for name, value in saved.items():
             setattr(hc, name, value)
 

@@ -669,8 +669,25 @@ def _looks_like_sha(token: str) -> bool:
     large number in a document is the noise that gets a validator ignored.
     """
     return (bool(_SHA_SHAPE.match(token))
+            and not _is_digest_length(token)
             and any(ch.isdigit() for ch in token)
             and any(ch.isalpha() for ch in token))
+
+
+def _is_digest_length(token: str) -> bool:
+    """Exactly 32 hex characters, which is a digest and not a commit.
+
+    MD5 and a UUID with its dashes removed are both 32. Git abbreviations run
+    7 to 12 in practice and a full object name is 40, so nothing legitimate
+    sits at exactly 32 - and anything that did would RESOLVE, which produces
+    no finding either way. Only unresolvable tokens are reported, and an
+    unresolvable 32-character hex run is an API key, a content hash or an id.
+
+    Measured on the held-out corpus: 45 findings, every one a documented
+    example value. lobe-chat writes `Example: c55168be3874490ef0565d9779ecd5a6`
+    beside an API key setting.
+    """
+    return len(token) == 32
 
 
 def _looks_like_bare_sha(token: str) -> bool:
@@ -685,7 +702,9 @@ def _looks_like_bare_sha(token: str) -> bool:
     already does for `_looks_like_sha`. Measured against ~2600 lines of the
     real status documents with zero false positives.
     """
-    return any(ch.isdigit() for ch in token) and any(ch.isalpha() for ch in token)
+    return (not _is_digest_length(token)
+            and any(ch.isdigit() for ch in token)
+            and any(ch.isalpha() for ch in token))
 
 
 # Hex inside a URL belongs to somebody else's repository.
@@ -712,8 +731,47 @@ _URL = re.compile(r"(?:https?://|ftp://|git@)\S+", re.I)
 # one, every one in that repository. Matched whole and skipped whole, because
 # skipping the groups individually would also silence a genuine SHA that
 # happened to sit beside a hyphen.
+# The left edge is a negative lookbehind for HEX, not a word boundary.
+#
+# `\b` fails between an underscore and a hex digit, because both are word
+# characters, so a UUID embedded in an identifier was not recognised as one:
+# `conversation_f43eb21b-84cb-49e7-90fb-56595df594e6` slipped past and its
+# trailing 12-character field was read as a short SHA. Four findings in one
+# agent's debug log. A real abbreviated SHA is not preceded by another hex
+# character, so this costs nothing it used to catch.
 _UUID = re.compile(
-    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
+    r"(?<![0-9a-fA-F])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}"
+    r"-[0-9a-f]{12}\b", re.I)
+# A hex run inside a FILENAME is part of the filename.
+#
+# Documentation platforms mint asset names by prefixing a content hash:
+# `<ClickableImage src="/img/83f686b-Pipeline_Illustrations_1_1.png" />`. The
+# hash is seven valid hex characters with a word boundary on each side, so it
+# read as an abbreviated commit that does not resolve. Measured on the
+# held-out corpus: 144 findings, all of them in one documentation site, none
+# of them a commit.
+#
+# Matches the whole path-like run so the span covers any hex inside it, which
+# is why this is a skip SPAN rather than a token test.
+# The lookbehind and the length bound are both load-bearing, not tidiness.
+# Written first as `[\w./~-]*\.(ext)`, this took 322 SECONDS on one
+# 120,000-character line: the unbounded run restarts at every position, and a
+# long path or a base64 data URI is quadratic. The longest markdown line in
+# the earlier corpus was 123,427 characters, so that was a hang waiting for a
+# document rather than a theoretical concern. Anchoring to the START of a
+# path-like run and bounding its length brings the same line under 20 ms.
+_ASSET_PATH = re.compile(
+    r"(?<![\w./~-])[\w./~-]{0,200}\.(?:png|jpe?g|gif|svg|webp|avif|ico|bmp|"
+    r"pdf|mp4|webm|mov|woff2?|ttf|eot|css|js|mjs|map|zip|tar|gz|whl)\b", re.I)
+# A ref pinned to a repository that is not this one.
+#
+# `uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd` pins a
+# workflow to a commit in `actions/checkout`. The `owner/repo@` prefix names
+# whose commit it is, and it is not this repository's, so this repository
+# cannot answer for it - the same reasoning `_URL` already applies to a
+# cross-repo permalink. 14 findings on the held-out corpus, every one an
+# action pinned by SHA, which is the practice security guidance asks for.
+_PINNED_REF = re.compile(r"(?<![\w./-])[\w.-]+/[\w.-]+@[0-9a-f]{7,40}\b", re.I)
 
 
 def _spans_overlap(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
@@ -721,11 +779,39 @@ def _spans_overlap(span: tuple[int, int], others: list[tuple[int, int]]) -> bool
     return any(s < end and start < e for s, e in others)
 
 
+# A backticked SHA that is the VISIBLE TEXT of a link to somebody's commit.
+#
+# The changesets tool writes release notes this way, and a monorepo that
+# absorbed another project keeps citing the original:
+#
+#     - [#159](https://github.com/withastro/adapters/pull/159)
+#       [`adb8bf2a4caeead9a1a255740c7abe8666a6f852`](https://github.com/withastro/adapters/commit/adb8bf2a...)
+#
+# The URL states whose commit it is. `_URL` already drops a bare hex run
+# inside a link target for exactly this reason - "hex inside a URL belongs to
+# somebody else's repository" - but the backticked path never had the
+# equivalent, so the same SHA was checked against the wrong repository purely
+# because it was also written as link text. 192 findings on the held-out
+# corpus, 162 of them in one changelog tree.
+#
+# Deliberately does NOT compare owners. Neither does the `_URL` rule it
+# mirrors, and it cannot: a document does not reliably state which repository
+# it is in. A link to this repository's own commit is unaffected in practice,
+# because a SHA that resolves produces no finding to suppress.
+_LINKED_SHA = re.compile(
+    r"\[\s*`([0-9a-fA-F]{6,40})`\s*\]\(\s*[^)\s]*?"
+    r"/(?:commit|commits|blob|tree|pull|compare)/[^)\s]*\)", re.I)
+
+
 def find_sha_candidates(text: str) -> list[tuple[int, str]]:
     """(line number, token) for every backticked SHA-shaped token."""
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
-        for token in _BACKTICKED.findall(line):
+        qualified = [m.span(1) for m in _LINKED_SHA.finditer(line)]
+        for match in _BACKTICKED.finditer(line):
+            if _spans_overlap(match.span(1), qualified):
+                continue
+            token = match.group(1)
             if _looks_like_sha(token):
                 out.append((number, token))
     return out
@@ -769,6 +855,8 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
         skip_spans = [m.span() for m in _BACKTICKED.finditer(line)]
         skip_spans += [m.span() for m in _URL.finditer(line)]
         skip_spans += [m.span() for m in _UUID.finditer(line)]
+        skip_spans += [m.span() for m in _ASSET_PATH.finditer(line)]
+        skip_spans += [m.span() for m in _PINNED_REF.finditer(line)]
         for match in _BARE_SHA_TOKEN.finditer(line):
             if _spans_overlap(match.span(), skip_spans):
                 continue
@@ -821,6 +909,31 @@ def _resolve_shas(repo: Path, tokens: list[str]) -> set[str]:
     }
 
 
+# A changesets release note. The id is minted by the tool, not by git.
+#
+#     - 8b82179: Fix auto imports and code actions not working
+#
+# It is hex-shaped, seven characters, and resolves to nothing because it never
+# named a commit. 50 findings on the held-out corpus, all in one project's
+# generated changelogs.
+#
+# The line shape ALONE is not enough - `- abc1234: fixed the parser` is how a
+# person writes a real commit reference - so this is gated on the repository
+# actually using the tool, which is a directory that either exists or does not.
+_CHANGESET_ENTRY = re.compile(r"^\s*[-*]\s+[0-9a-f]{6,40}:\s")
+
+
+def _uses_changesets(repo: Path) -> bool:
+    """Does this repository mint release notes with changesets?"""
+    key = str(repo)
+    if key not in _CHANGESETS:
+        _CHANGESETS[key] = (repo / ".changeset").is_dir()
+    return _CHANGESETS[key]
+
+
+_CHANGESETS: dict[str, bool] = {}
+
+
 def validate_references(repo: Path, text: str) -> list[Finding]:
     """Every referenced SHA must still resolve; a dead reference is useless."""
     # Claims inside code are examples, not promises. See _prose.
@@ -839,14 +952,20 @@ def validate_references(repo: Path, text: str) -> list[Finding]:
     # I-1(b): a bare token that RESOLVES is merely unstyled, not broken -
     # flagging it would be noise, so only a bare token that fails to resolve
     # is worth a finding.
+    lines = text.splitlines()
+    changesets = _uses_changesets(repo)
     for number, token in bare:
-        if token not in alive:
-            findings.append(Finding(
-                number, "bare-dead-sha",
-                f"`{token}` is un-backticked and does not resolve; "
-                "backtick real SHAs so they are checked",
-                subject=token,
-            ))
+        if token in alive:
+            continue
+        line = lines[number - 1] if 0 < number <= len(lines) else ""
+        if changesets and _CHANGESET_ENTRY.match(line):
+            continue
+        findings.append(Finding(
+            number, "bare-dead-sha",
+            f"`{token}` is un-backticked and does not resolve; "
+            "backtick real SHAs so they are checked",
+            subject=token,
+        ))
     return findings
 
 
@@ -1312,6 +1431,20 @@ def _claimed_ref(raw: str) -> tuple[str, bool]:
 
 
 _ABSOLUTE = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/])")
+# A backticked path that is the VISIBLE TEXT of a markdown link.
+#
+#     read [`PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md)
+#
+# The text names the file; the URL says where it is. This rule read the text
+# as a pointer, resolved it against the repository root, and reported a link
+# that works. Same shape as `_LINKED_SHA` one rule over, and settled the same
+# way: the link BESIDE it is the authority, so if that resolves there is
+# nothing to report.
+#
+# Measured on the held-out corpus: 4 findings have this shape and the URL
+# resolves in 3. The fourth is Roo-Code citing an `ADDING-EVALS.md` that is
+# absent both ways, and it is still reported.
+_LINKED_PATH = re.compile(r"\[\s*`([^`]+)`\s*\]\(\s*([^)\s]+)")
 
 
 def validate_path_pointers(repo: Path, text: str) -> list[Finding]:
@@ -1330,9 +1463,35 @@ def validate_path_pointers(repo: Path, text: str) -> list[Finding]:
     # Claims inside code are examples, not promises. See _prose.
     text = _prose(text)
     findings: list[Finding] = []
+    # Resolved from the repository root AND from the directory holding the
+    # document, because both are how people write these.
+    #
+    # The rule used to try the root alone. A nested `SKILL.md` saying "see
+    # `references/cli.md`" was reported dead while the file sat in the very
+    # next directory entry, because `references/cli.md` does not exist at the
+    # root. 61 findings on the held-out corpus, every one of them a pointer a
+    # reader can follow, and `validate_md_links` two rules down had resolved
+    # relative to the document all along - the inconsistency was the bug.
+    #
+    # Strictly narrowing: a pointer resolving either way is a working
+    # pointer, so nothing that was a real defect stops being one.
+    base = _LINK_BASE or repo
     for number, line in enumerate(text.splitlines(), start=1):
+        linked = {text_part.strip(): url
+                  for text_part, url in _LINKED_PATH.findall(line)}
         for raw in _PATH_POINTER.findall(line):
+            url = linked.get(raw)
+            if url is not None and not _EXTERNAL.match(url):
+                target = _percent_decoded(url.split("#")[0])
+                if (_resolve_reference(repo, base, target)[0]
+                        or _resolve_reference(repo, repo, target.lstrip("/"))[0]):
+                    continue
             exists, actual_case = _resolve_reference(repo, repo, raw)
+            if not exists and base != repo:
+                beside, beside_case = _resolve_reference(repo, base, raw)
+                if beside:
+                    continue
+                actual_case = actual_case or beside_case
             if not exists:
                 if actual_case:
                     detail = (f"points at `{raw}`, but the file on disk is "
@@ -1697,18 +1856,126 @@ def _unique_basename(repo: Path, target: str) -> bool:
         return False
     key = str(repo)
     if key not in _BASENAMES:
-        counts: dict[str, int] = {}
+        counts: dict[str, dict[str, int]] = {}
         try:
             for path in tracked_markdown(repo):
                 leaf = path.rsplit("/", 1)[-1].lower()
-                counts[leaf] = counts.get(leaf, 0) + 1
+                tree = _translation_tree(repo, path)
+                counts.setdefault(tree, {})
+                counts[tree][leaf] = counts[tree].get(leaf, 0) + 1
         except (OSError, subprocess.CalledProcessError):
             counts = {}
         _BASENAMES[key] = counts
-    return _BASENAMES[key].get(name, 0) == 1
+    # Counted WITHIN the citing document's translation tree, not across the
+    # whole repository.
+    #
+    # A bare-name match is a claim that the generator resolves this name from
+    # anywhere, and it does - within one site. fastapi builds a separate site
+    # per language and keeps `newsletter.md` only in English, so counting
+    # repository-wide made every translated page's link to it "resolve"
+    # against a file in a different language's site. That silenced 68 real
+    # defects across ten languages the moment fastapi was detected at all.
+    #
+    # A repository with no translation trees has one bucket and behaves
+    # exactly as before, which is what keeps ExDoc's flat namespace working.
+    here = _translation_tree(repo, _current_document() or "")
+    return _BASENAMES[key].get(here, {}).get(name, 0) == 1
 
 
-_BASENAMES: dict[str, dict[str, int]] = {}
+_BASENAMES: dict[str, dict[str, dict[str, int]]] = {}
+
+# A directory named for a language: `en`, `de`, `pt`, `zh-hant`, `pt_BR`.
+_LANGUAGE_DIR = re.compile(r"^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$")
+
+
+def _translation_tree(repo: Path, path: str) -> str:
+    """Which parallel language tree this path belongs to, or "" for none.
+
+    Recognised by SIBLINGS, not by the name alone. `docs/es/` is Spanish
+    because `docs/de/`, `docs/fr/` and eleven more sit beside it; a lone
+    `docs/id/` would be an "id" directory and is left alone. Three or more
+    language-shaped siblings is the threshold, which no repository reaches by
+    accident.
+    """
+    parts = path.replace("\\", "/").split("/")
+    for index, part in enumerate(parts[:-1]):
+        if not _LANGUAGE_DIR.match(part):
+            continue
+        parent = "/".join(parts[:index])
+        key = (str(repo), parent)
+        if key not in _LANGUAGE_SIBLINGS:
+            directory = repo / parent if parent else repo
+            try:
+                siblings = sum(1 for child in directory.iterdir()
+                               if child.is_dir()
+                               and _LANGUAGE_DIR.match(child.name))
+            except OSError:
+                siblings = 0
+            _LANGUAGE_SIBLINGS[key] = siblings
+        if _LANGUAGE_SIBLINGS[key] >= 3:
+            return "/".join(parts[:index + 1])
+    return ""
+
+
+_LANGUAGE_SIBLINGS: dict[tuple[str, str], int] = {}
+
+
+# `07-misc`, `04-custom-elements.md`, `1.2-intro.md`: an ordering prefix a
+# docs generator strips when it builds the route.
+_ORDER_PREFIX = re.compile(r"^\d+(?:\.\d+)*[-_.]")
+
+
+def _route_name(segment: str) -> str:
+    """A path segment with its ordering prefix and `.md` suffix removed."""
+    stem = re.sub(r"\.(?:md|markdown|mdx)$", "", segment, flags=re.I)
+    return _ORDER_PREFIX.sub("", stem).lower()
+
+
+def _numbered_document(repo: Path, target: str) -> bool:
+    """Does exactly one tracked document answer to this route once prefixes go?
+
+    Compares the WHOLE path segment by segment, not just the basename, so
+    `guides/setup` and `reference/setup` stay distinguishable. A bare
+    `custom-elements` matches `documentation/docs/07-misc/04-custom-elements.md`
+    on its last segment; a two-segment target must match the last two.
+
+    Exactly one match, never "at least one", for the reason
+    `_unique_basename` gives: guessing between candidates trades a false
+    positive for a silently wrong answer.
+    """
+    wanted = [_route_name(part) for part in target.strip("/").split("/") if part]
+    if not wanted or not wanted[-1]:
+        return False
+    key = str(repo)
+    if key not in _ROUTES:
+        routes: dict[str, int] = {}
+        try:
+            for path in tracked_markdown(repo):
+                segments = path.split("/")
+                # ONLY documents that actually carry an ordering prefix are
+                # indexed. Without that condition this becomes
+                # `_unique_basename` with the generator gate removed, and
+                # would silence a link to `foo` anywhere `foo.md` happens to
+                # exist in an unrelated directory. The prefix is the evidence
+                # that something strips it, so no prefix, no claim.
+                if not any(_ORDER_PREFIX.match(s) for s in segments):
+                    continue
+                parts = [_route_name(s) for s in segments]
+                # Index every trailing run, so a target of any depth is one
+                # dictionary hit rather than a scan.
+                for depth in range(1, min(len(parts), _ROUTE_DEPTH) + 1):
+                    suffix = "/".join(parts[-depth:])
+                    routes[suffix] = routes.get(suffix, 0) + 1
+        except (OSError, subprocess.CalledProcessError):
+            routes = {}
+        _ROUTES[key] = routes
+    return _ROUTES[key].get("/".join(wanted[-_ROUTE_DEPTH:]), 0) == 1
+
+
+_ROUTE_DEPTH = 4
+
+
+_ROUTES: dict[str, dict[str, int]] = {}
 
 
 def _percent_decoded(target: str) -> str:
@@ -1766,6 +2033,25 @@ def _slug(title: str) -> str:
     return re.sub(r"\s", "-", text).strip("-")
 
 
+def _slug_keeping_edges(title: str) -> str:
+    """The same slug with a leading or trailing dash LEFT ON.
+
+    GitHub does not trim the edges, and a heading that opens with an emoji
+    therefore anchors with a dash in front: `## <emoji> Component structure`
+    is reachable as `#-component-structure`, because the emoji is dropped and
+    the space after it still becomes a dash. AutoGPT's contributing guide
+    links to its own sections that way and every link works.
+
+    Stripping produced `component-structure`, which matched nothing the
+    document offered, so 58 working links on the held-out corpus were reported
+    dead. Added as an extra spelling rather than by changing `_slug`, because
+    both are real: renderers that DO trim exist, and a fragment matching
+    neither spelling is still dead.
+    """
+    text = re.sub(r"[^\w\s-]", "", _heading_text(title))
+    return re.sub(r"\s", "-", text)
+
+
 def _slug_punctuation_to_dash(title: str) -> str:
     """The other common convention: punctuation becomes a separator.
 
@@ -1815,11 +2101,54 @@ def _definition_terms(text: str) -> list[str]:
     return terms
 
 
+_SETEXT_RULE = re.compile(r"^(?:=+|-{2,})\s*$")
+
+
+def _setext_headings(text: str) -> list[str]:
+    """Headings written by underlining rather than with `#`.
+
+        Limitations
+        -----------
+
+    CommonMark calls these setext headings and every renderer gives them an
+    id, but only ATX headings were parsed here. A document written entirely in
+    this style therefore offered NO anchors at all, so every link into it read
+    as dead - the failure is total rather than partial, which is what makes it
+    worth handling. Found on a vendored README carrying 13 such headings and
+    not one `#`.
+
+    YAML frontmatter is skipped first. Its closing `---` follows a non-blank
+    line, which would otherwise promote `title: something` to a heading and
+    invent an anchor the document does not have.
+    """
+    lines = text.splitlines()
+    start = 0
+    if lines and lines[0].strip() == "---":
+        for index in range(1, len(lines)):
+            if lines[index].strip() in ("---", "..."):
+                start = index + 1
+                break
+    found: list[str] = []
+    for index in range(start, len(lines) - 1):
+        title = lines[index].strip()
+        if not title or not _SETEXT_RULE.match(lines[index + 1].strip()):
+            continue
+        # Shapes that are already something else and can be followed by a
+        # rule of dashes without being a heading.
+        if title.startswith(("#", ">", "-", "*", "+", "|", "=", ":")):
+            continue
+        if lines[index].startswith((" ", "\t")):
+            continue
+        found.append(title)
+    return found
+
+
 def _anchors(text: str) -> set[str]:
     """Every fragment this document offers, from headings and explicit anchors."""
     headings = [m.group(1) for line in text.splitlines()
                 if (m := _HEADING.match(line) or _NESTED_HEADING.match(line))]
     headings += _definition_terms(text)
+    headings += _setext_headings(text)
     # Every spelling a renderer might produce: two slug conventions, each over
     # the heading as written and with angle-bracket markup removed. Offering a
     # spelling that no renderer uses costs nothing - a fragment matching none
@@ -1828,6 +2157,7 @@ def _anchors(text: str) -> set[str]:
     variants = [v for h in headings for v in (h, _without_tags(h))]
     found = {_slug(v) for v in variants}
     found |= {_slug_punctuation_to_dash(v) for v in variants}
+    found |= {_slug_keeping_edges(v) for v in variants}
     found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}
     found |= {a.lower() for a in _ATTR_ANCHOR.findall(text)}
     found |= {a.lower() for a in _MYST_TARGET.findall(text)}
@@ -1913,6 +2243,24 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
                         _resolve_reference(repo, repo, bare + ".md")[0]
                         or _resolve_reference(repo, repo, bare + "/index.md")[0]):
                     continue
+                # Deliberately NOT skipped unconditionally here.
+                #
+                # A held-out corpus produced 6,360 findings of this shape and
+                # not one was a real defect, which argued for a blanket skip.
+                # Two existing tests refuse it in as many words -
+                # "detection must stay a property of the repository", "so the
+                # fix above cannot become a blanket skip" - and they are
+                # right: in a repository that builds no site, a root-relative
+                # link to a missing file is dead and worth saying so.
+                #
+                # The cause was never the shape, it was DETECTION failing to
+                # reach three layouts: haystack declares Docusaurus in
+                # `docs-website/`, llama_index declares MkDocs in
+                # `docs/api_reference/`, and svelte numbers its documents for
+                # a site built from another repository. `_SITE_DIRS`,
+                # `_site_dirs` and `_numbered_docs_tree` were widened to see
+                # all three, which removes the findings without removing the
+                # rule.
             exists, actual_case = _resolve_reference(repo, base, target)
             if exists:
                 continue
@@ -1933,8 +2281,21 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             # The other two shapes still need the gate. In a plain repository
             # an extensionless target can be a real file - LICENSE, Makefile -
             # so silencing those everywhere would stop the rule working.
-            if _is_generated_site(repo) and (
-                    target.startswith("/") or not Path(target).suffix):
+            # The two shapes are gated DIFFERENTLY, because they fail
+            # differently.
+            #
+            # A leading slash is never a path in this repository, wherever
+            # the document sits: GitHub resolves it against github.com and a
+            # generator resolves it against the site root. So once the
+            # repository is known to build a site at all, this is a route.
+            if target.startswith("/") and _is_generated_site(repo):
+                continue
+            # An extensionless target CAN be a real file - LICENSE, Makefile,
+            # a directory - so this one asks whether THIS document is a page
+            # rather than whether the repository builds a site somewhere. A
+            # monorepo builds one from `docs/` and still keeps ordinary
+            # READMEs in `packages/`, whose relative links are files.
+            if not Path(target).suffix and _in_site_tree(repo):
                 continue
             # A generator that flattens its guides into one namespace resolves
             # a sibling by bare name from any depth. Phoenix links to
@@ -1943,7 +2304,21 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
             # path does not. Accepted only when the basename is UNIQUE in the
             # repository, so this stays a filesystem fact rather than a guess
             # about which of several candidates was meant.
-            if _is_generated_site(repo) and _unique_basename(repo, target):
+            if _in_site_tree(repo) and _unique_basename(repo, target):
+                continue
+            # A docs tree that ORDERS its pages by filename prefix strips that
+            # prefix from the route. svelte keeps
+            # `documentation/docs/07-misc/04-custom-elements.md` and links to
+            # it as `custom-elements` from a sibling page; the file is right
+            # there and the link works on svelte.dev.
+            #
+            # Not gated on generator detection, because the prefix IS the
+            # evidence - a repository that numbers its documents this way has
+            # something consuming the order. Kept to a UNIQUE match for the
+            # same reason `_unique_basename` is: two files answering to one
+            # route say nothing about which was meant. 139 findings on the
+            # held-out corpus, all of them working links.
+            if _numbered_document(repo, target):
                 continue
             if actual_case:
                 detail = (f"links to `{target}`, but the file on disk is "
@@ -2234,6 +2609,13 @@ _SITE_CONFIGS = (
     # newer `docs.json` spelling is too generic a filename to treat as a
     # signature, and no repository measured here carries one.
     "mint.json",
+    # Fern serves `.mdx` by route from `fern/docs.yml`, and its pages link to
+    # each other with site-absolute routes throughout. Skyvern keeps
+    # `fern/fern.config.json` beside it and raised 52 findings, every one a
+    # `/api-reference/...` route that works on the published documentation.
+    # `fern.config.json` is the signature rather than `docs.yml`, which is too
+    # generic a filename to treat as one.
+    "fern.config.json",
 )
 
 
@@ -2265,7 +2647,12 @@ _SITE_MARKERS_IN_FILE = (
 # that is mostly something else: jekyll/jekyll keeps its own documentation site
 # under `docs/` with `docs/_config.yml`, so a root-only search missed it and
 # reported 138 of its site routes as dead files.
-_SITE_DIRS = ("", "docs", "site", "www", "website")
+# `docs-website` and `documentation` added from a held-out corpus: haystack
+# keeps `docs-website/docusaurus.config.js` and svelte keeps its pages under
+# `documentation/`. Between them those two directories held 5,120 findings
+# that a detected generator would already have silenced.
+_SITE_DIRS = ("", "docs", "site", "www", "website", "docs-website",
+              "documentation", "fern")
 
 
 # Generators whose cross-reference namespace is the PROJECT, not the page.
@@ -2386,33 +2773,162 @@ def _site_dirs(repo: Path) -> list[Path]:
     for name in _SITE_DIRS:
         if name:
             dirs.extend(repo.glob(f"*/{name}"))
+            # And one level INSIDE a site directory, which is the mirror of
+            # the case above and was missing. llama_index declares MkDocs at
+            # `docs/api_reference/mkdocs.yml`; the search reached `*/docs`
+            # but never `docs/*`, so 1,227 route links were judged as files.
+            # Still bounded to one level, and still to the same names, so
+            # `a/b/c/website/` stays out of reach.
+            dirs.extend(d for d in (repo / name).glob("*") if d.is_dir())
     return dirs
 
 
 def _is_generated_site(repo: Path) -> bool:
     """Does this repository compile its markdown into a website?"""
+    return bool(_site_scopes(repo))
+
+
+def _site_scopes(repo: Path) -> set[str]:
+    """Top-level directories a generator governs, or {""} for the whole repo.
+
+    Recorded rather than reduced to a yes/no, because a monorepo is not one
+    site. astro declares Astro under `examples/*` and llama_index declares
+    MkDocs under `docs/`; treating either as "this repository is a site"
+    stopped the route suppressions at the repository boundary and silenced
+    six real defects in `packages/astro/src/core/render/README.md` and
+    `llama-index-integrations/.../README.md`, which no site builds.
+
+    Top-level and not the exact directory, because a config often sits one
+    level inside the tree it governs: llama_index declares MkDocs at
+    `docs/api_reference/mkdocs.yml` while the pages it serves live under
+    `docs/src/content/docs/`. Scoping to `docs/` covers both.
+    """
     key = str(repo)
     if key not in _SITE:
-        directories = _site_dirs(repo)
-        found = any((d / name).is_file()
-                    for d in directories for name in _SITE_CONFIGS)
-        for name, marker in _SITE_MARKERS_IN_FILE:
-            if found:
-                break
-            for directory in directories:
-                path = directory / name
-                try:
-                    if path.is_file() and marker in path.read_text(
-                            encoding="utf-8", errors="replace"):
-                        found = True
-                        break
-                except OSError:
-                    continue
-        _SITE[key] = found
+        scopes: set[str] = set()
+        for directory in _site_dirs(repo):
+            declared = any((directory / name).is_file()
+                           for name in _SITE_CONFIGS)
+            if not declared:
+                for name, marker in _SITE_MARKERS_IN_FILE:
+                    path = directory / name
+                    try:
+                        if path.is_file() and marker in path.read_text(
+                                encoding="utf-8", errors="replace"):
+                            declared = True
+                            break
+                    except OSError:
+                        continue
+            if declared:
+                top = _top_level(repo, directory)
+                if top is not None:
+                    scopes.add(top)
+        scopes |= _numbered_docs_scopes(repo)
+        _SITE[key] = scopes
     return _SITE[key]
 
 
-_SITE: dict[str, bool] = {}
+def _top_level(repo: Path, directory: Path) -> str | None:
+    """The first path segment of `directory` under `repo`; "" for the root.
+
+    None when the two cannot be related, which the caller drops rather than
+    treating as the root. Returning "" on failure would mean "a generator
+    governs this whole repository", the most permissive answer available, so
+    a junction or a permission error would silently switch every route
+    suppression on. `_site_dirs` builds these paths from `repo` itself, so
+    the plain comparison succeeds; `resolve()` is the fallback, not the
+    first move, because on Windows it can rewrite one side of a pair.
+    """
+    for candidate, base in ((directory, repo),
+                            (directory.resolve(), repo.resolve())):
+        try:
+            relative = candidate.relative_to(base)
+        except (ValueError, OSError):
+            continue
+        parts = relative.as_posix().split("/")
+        return parts[0] if parts and parts[0] not in (".", "") else ""
+    return None
+
+
+def _in_site_tree(repo: Path) -> bool:
+    """Is the document being validated inside a tree some generator builds?
+
+    A repository with a site somewhere is not a repository whose every
+    markdown file is a page. When the caller has not said which document is
+    being read, this answers True, which keeps every existing caller and the
+    whole-repository question behaving as before.
+    """
+    scopes = _site_scopes(repo)
+    if not scopes or "" in scopes:
+        return bool(scopes)
+    document = _current_document()
+    if document is None:
+        return True
+    return document.split("/")[0] in scopes
+
+
+_SITE: dict[str, set[str]] = {}
+
+
+def _numbered_docs_scopes(repo: Path) -> set[str]:
+    """Top-level directories holding a numbered documentation tree."""
+    return {top for top, count in _numbered_docs_tree(repo).items() if count >= 3}
+
+
+def _numbered_docs_tree(repo: Path) -> dict[str, int]:
+    """A directory whose documents are NUMBERED for presentation order.
+
+        documentation/docs/07-misc/01-best-practices.md
+        documentation/docs/07-misc/02-testing.md
+        documentation/docs/07-misc/04-custom-elements.md
+
+    Nothing reads a prefix like that except a generator building an ordered
+    site, and the pages then link to each other by the stripped name. This is
+    the signal for a project whose site is built from ANOTHER repository, so
+    no config exists here to find: svelte's pages live here and svelte.dev
+    builds them, which left 64 of its own `/docs/svelte` links judged as
+    files.
+
+    Three in one directory, not one. A single `01-intro.md` beside ordinary
+    filenames is somebody numbering one document; a directory of them is a
+    convention with a consumer.
+    """
+    key = str(repo)
+    if key not in _NUMBERED:
+        per_dir: dict[str, int] = {}
+        try:
+            for path in tracked_markdown(repo):
+                head, _, leaf = path.rpartition("/")
+                if not _ORDER_PREFIX.match(leaf):
+                    continue
+                # Bounded to the conventional documentation directories, for
+                # the reason `_site_dirs` bounds its own search: something
+                # found deep inside a package is likelier to be a fixture
+                # than this project's site.
+                #
+                # Unbounded, this declared all of `packages/` a documentation
+                # site on the strength of three numbered `.mdx` files in
+                # `packages/astro/test/fixtures/content/src/content/blog/`,
+                # and route suppression then hid three real defects in
+                # `packages/astro/src/core/render/README.md`.
+                top = head.split("/")[0] if head else ""
+                if top and top not in _SITE_DIRS:
+                    continue
+                per_dir[head] = per_dir.get(head, 0) + 1
+        except (OSError, subprocess.CalledProcessError):
+            per_dir = {}
+        # Reported per TOP-LEVEL directory, keeping the largest run found
+        # under each, so the threshold is still "three in one directory" but
+        # the answer says which part of the repository it governs.
+        tops: dict[str, int] = {}
+        for directory, count in per_dir.items():
+            top = directory.split("/")[0] if "/" in directory else directory
+            tops[top] = max(tops.get(top, 0), count)
+        _NUMBERED[key] = tops
+    return _NUMBERED[key]
+
+
+_NUMBERED: dict[str, dict[str, int]] = {}
 
 
 def _looks_like_a_path(repo: Path, token: str) -> bool:
