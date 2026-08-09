@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.22.0 (2026-08-09)
+
+**`exclude_paths`, for documents that are input to a test rather than a
+promise to a reader.**
+
+```toml
+exclude_paths = ["testdata", "**/test/fixtures/**"]
+```
+
+The case that settles why this is configuration and not a rule: a renderer's
+fixture links to `../assets/does-not-exist.jpg` **on purpose**, to exercise the
+error path. Nothing git or the filesystem can answer separates that from a
+real broken link. A held-out corpus put 18 findings in such trees, and 0.21.0
+shipped naming them as a known limit with no way to act on it.
+
+Which directories hold fixtures is your project's convention rather than a
+fact about repositories in general, so hard-coding a list of names would be
+the "derive the pattern from what the wording should be" mistake the admission
+test exists to prevent.
+
+**Empty by default.** A skip-list that ships with entries is a skip-list
+nobody audits, and this project has already shipped a lint whose skip-list
+excluded every file it was meant to scan and passed on an empty scan.
+
+**The sweep prints what it removed, per pattern, and names any pattern that
+matched nothing.** A skip-list fails silently in both directions, and both
+halves cost one line each to report:
+
+```
+swept 1013 markdown file(s): 0 configured (0 finding(s)), 1013 unreviewed (4 finding(s))
+  excluded 3 of 1016 tracked file(s) via 3 exclude_paths pattern(s)
+        0 **/e2e/fixtures/**
+        0 **/test/fixtures/**
+        3 testdata
+  matched nothing, so they exclude nothing and may be stale: **/e2e/fixtures/**, **/test/fixtures/**
+```
+
+That second half earned itself immediately. Measured on two repositories:
+hugo needs `testdata` and its two fixture patterns match nothing; astro needs
+the fixture patterns and `testdata` matches nothing. Each is told which of its
+own entries are dead rather than carrying them forever.
+
+**Patterns are gitignore-shaped, not `fnmatch`.** `*` stops at a separator,
+`**` spans them, and a bare name matches a segment at any depth so `testdata`
+finds it wherever it lives. Under `fnmatch` a `*` crosses `/` silently, so
+`docs/*.md` would take the whole tree and the only evidence would be a smaller
+number.
+
+**Excluding a document that `primary_doc` or `extra_docs` also names is
+refused** with a non-zero exit rather than resolved. One setting says gate on
+this file and the other says never read it; the dangerous direction is quietly
+dropping a document somebody asked to gate on.
+
+Measured effect on the two repositories that motivated it: hugo 10 findings to
+4, astro 31 to 19.
+
 ## 0.21.0 (2026-08-09)
 
 **Fourteen ways a rule reported a working claim, found by running against

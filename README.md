@@ -254,7 +254,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.21.0
+    rev: v0.22.0
     hooks:
       - id: extant
 ```
@@ -633,6 +633,40 @@ extra_docs = ["CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md"]
 
 They get every rule that does not depend on dated entries, which is most of
 them.
+
+### Documents that are input to a test
+
+Some markdown is not a promise to a reader. A renderer's test fixtures link to
+files that are missing **on purpose**, to exercise the error path. Nothing git
+or the filesystem can answer separates that from a real broken link, so it is
+not a rule and never will be:
+
+```toml
+exclude_paths = ["testdata", "**/test/fixtures/**"]
+```
+
+Empty by default, because a skip-list that ships with entries is one nobody
+audits. Patterns are gitignore-shaped: `*` stops at a separator, `**` spans
+them, and a bare name matches a segment at any depth, so `testdata` finds it
+wherever it lives.
+
+**The sweep prints what it removed, per pattern, and names any pattern that
+matched nothing.** That second half is not decoration. A skip-list fails
+silently in both directions, and the same two patterns are right for one
+project and dead in another:
+
+```console
+  excluded 3 of 1016 tracked file(s) via 3 exclude_paths pattern(s)
+        0 **/e2e/fixtures/**
+        0 **/test/fixtures/**
+        3 testdata
+  matched nothing, so they exclude nothing and may be stale: **/e2e/fixtures/**, **/test/fixtures/**
+```
+
+Excluding a document that `primary_doc` or `extra_docs` also names is refused
+rather than resolved. One setting says gate on this file and the other says
+never read it, and quietly dropping a document you asked to gate on is the
+direction that costs you something.
 
 ### Adopting on a project that already has years of prose
 

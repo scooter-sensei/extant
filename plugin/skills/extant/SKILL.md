@@ -1,7 +1,7 @@
 ---
 name: extant
 description: "Use when documentation cites things git can settle and may have gone stale - a commit SHA, a merge claim like 'merged to main at abc1234', a branch name, a release tag, or a file path. Especially for the plan, spec, design and status documents written during agent sessions, which are dense with commit references and are read back as fact by the next session. Installs a validator that machine-checks every falsifiable claim against git and the filesystem, git hooks that re-check after each commit and merge, and a --sweep mode that surveys every tracked markdown file with no configuration. Also use when asked to port, install, or configure this validator in another repo."
-version: 0.21.0
+version: 0.22.0
 license: MIT
 user-invocable: true
 argument-hint: "[install|verify|port] [path to repo]"
@@ -94,6 +94,17 @@ which is the normal state of a long-lived project. The suppressed count is
 printed on every run, nothing is ever recorded implicitly, and `--baseline-check`
 reports entries whose finding no longer occurs so an amnesty cannot outlive it.
 Never write a baseline on a user's behalf to make a run pass.
+
+**Documents that are input to a test.** `exclude_paths` keeps the sweep out of
+fixture trees, where markdown links to missing files ON PURPOSE to exercise a
+renderer's error path. Empty by default; patterns are gitignore-shaped, so
+`testdata` matches that segment at any depth. The sweep prints what each
+pattern removed and names any that matched nothing, because a skip-list fails
+silently in both directions. Excluding a document that `primary_doc` or
+`extra_docs` names is refused rather than resolved.
+
+Never add an exclusion on a user's behalf to make a run quieter. It is the one
+setting that can make a repository look clean by not looking at it.
 
 ## Installing into a repo
 

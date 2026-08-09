@@ -188,6 +188,23 @@ one still surviving. Retargeting an anchor without running it is not a repair:
 That is one suite run per mutation, not half an hour, and it is the difference
 between an anchor that points at code and one that probes it.
 
+**Assert the thing that matters, not the aggregate that contains it.** A test
+for the exclusion report checked that the excluded count plus the kept count
+equalled the total. Dropping the `break` that stops at the first matching
+pattern leaves that sum correct and moves attribution to the LAST match,
+silently rewriting the per-pattern report the feature exists to print. The
+mutation survived. Sums are the easiest thing to assert and the least likely
+to pin what you care about.
+
+**Every measurement failure recorded here has been in the apparatus, not the
+code.** Rotted anchors, an anchor pinned to a tuple position, a guard covered
+by its neighbour, a fixture that satisfied its assertion regardless, a
+release watcher naming the previous version, a test checking a sum. In each
+case the code under test was correct and the thing measuring it was not, and
+in each case the output was indistinguishable from success. That is the
+argument for the campaign existing at all: nothing else in this repository can
+see a check that has quietly stopped meaning anything.
+
 **A guard that another guard silently covers is a guard nobody is running.**
 The survivor above was `slug keeps punctuation`, and the code was fine. A slug
 variant added the same week stripped punctuation identically, so breaking the
