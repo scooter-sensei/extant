@@ -50,10 +50,16 @@ session was told to read end to end.
 no configuration, reads every `.md`, `.markdown`, `.mdx` and `.rst` file git
 tracks, and separates documents
 the config names from documents it does not. Only the first kind decides the
-exit code: measured on this repository, checking every markdown file produced 18
-findings and every one was false, because the documents that DOCUMENT the rules
-are full of example claims like `abc1234`. So the unreviewed half is surveyed
-and reported, never gated on. Promoting a file into `extra_docs` is what turns a
+exit code: measured on this repository 2026-08-09, checking every markdown
+file produced 29 findings in the unreviewed half and every one was false,
+because the documents that DOCUMENT the rules are full of example claims like
+`abc1234`. So the unreviewed half is surveyed and reported, never gated on.
+
+That number carries a date because it drifts and nothing here can catch it.
+It read 18 for several releases while the documentation grew; numbers and
+dates are the forbidden class for a rule, which is exactly why a measurement
+written into prose needs the date that makes its staleness visible to a
+reader. Promoting a file into `extra_docs` is what turns a
 survey into a gate, and is the intended adoption path.
 
 `--deleted-since REF` reports claims that were present at REF, are still
