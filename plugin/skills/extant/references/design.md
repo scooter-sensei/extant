@@ -56,11 +56,18 @@ Rule(
 ```
 
 **The admission test:** a rule belongs only if it can be answered yes/no by git
-or the filesystem, AND produces zero false positives on the real corpus, AND
-names the place the answer lives. A test enforces the first clause - every rule
-must state its question - so a rule that inspects numbers or dates cannot be
-added quietly. The second is on you: measure before you write the pattern. The
-third is free, and predicts the second.
+or the filesystem, AND produces zero false positives on a corpus it was NOT
+designed on, AND names the place the answer lives. A test enforces the first
+clause - every rule must state its question - so a rule that inspects numbers
+or dates cannot be added quietly. The second is on you: measure before you
+write the pattern. The third is free, and predicts the second.
+
+"Not designed on" is load-bearing and was added after it was paid for. Every
+rule here had been tuned against 92 repositories until they were quiet. Run
+against 40 none of them had seen, the same rules produced 7,658 findings of
+which 582 were real, and fourteen distinct false-positive shapes were living
+in the gap between "quiet on the corpus that shaped it" and "correct". None of
+them was visible by reading the code. Keep a corpus back.
 
 **Read the `falsifiable` line of any rule above and notice what it points at.**
 `git cat-file -e <sha>`. *That* ref. *The cited* file. *The configured* files.
@@ -498,16 +505,60 @@ and an extensionless target is whatever the generator decides. None of those is
 a file, so none is judged when a generator is declared.
 
 Detection is by configuration file, in the repository root or under `docs`,
-`site`, `www` or `website`. The subdirectory search is not speculative:
-jekyll/jekyll keeps its own site under `docs/` with `docs/_config.yml`, and a
-root-only search reported 138 of its routes as dead. One generator is declared
-INSIDE another file rather than in one of its own - Elixir names ExDoc as a
-dependency in `mix.exs` - so existence alone is not enough there and the
-content decides.
+`site`, `www`, `website`, `docs-website`, `documentation` or `fern`, and one
+level either side of those: `*/docs` reaches a site inside a package, and
+`docs/*` reaches one inside a documentation directory. Neither is speculative.
+jekyll/jekyll keeps its own site under `docs/` with `docs/_config.yml` and a
+root-only search reported 138 of its routes as dead; haystack declares
+Docusaurus in `docs-website/`, and llama_index declares MkDocs at
+`docs/api_reference/mkdocs.yml` while serving pages from
+`docs/src/content/docs/` - 1,227 findings, because the search reached `*/docs`
+and never `docs/*`. One generator is declared INSIDE another file rather than
+in one of its own - Elixir names ExDoc as a dependency in `mix.exs` - so
+existence alone is not enough there and the content decides.
+
+**A tree that numbers its documents declares a site by that alone.** Nothing
+reads an ordering prefix except something building an ordered site, and the
+pages then link to each other by the stripped name. This is the signal for a
+project whose site is built from ANOTHER repository, where no config exists
+here to find: svelte keeps
+`documentation/docs/07-misc/04-custom-elements.md`, links to it as
+`custom-elements`, and svelte.dev builds it. Bounded to the same directories
+as the config search and to three in one directory, both for the same reason:
+unbounded, three numbered fixtures under
+`packages/astro/test/fixtures/content/` declared all of `packages/` a
+documentation site.
+
+**Detection records WHICH top-level directories a generator governs, not a
+yes or no for the repository.** A monorepo builds a site from `docs/` and
+still keeps ordinary READMEs in `packages/`, whose relative links really are
+files. Answering repository-wide silenced six real defects, among them
+`packages/astro/src/core/render/README.md` linking to `../endpoint/`, a
+directory that does not exist.
+
+The two shapes are then gated differently, because they fail differently. **A
+leading slash is never a path in this repository** wherever the document sits -
+GitHub resolves it against github.com and a generator against the site root -
+so it needs only that the repository builds a site at all. **An extensionless
+target can be a real file** (`LICENSE`, a directory), so that one asks whether
+THIS document is a page.
 
 Both directions cost something, which is why both are pinned by tests. Blind,
 withastro/starlight reported 235 of its own working links as dead. Universally
-on, every genuinely dead link in a plain repository stops being reported.
+on, every genuinely dead link in a plain repository stops being reported. A
+blanket skip for root-absolute links was tried once, on the strength of 6,360
+findings across 40 repositories of which none was real, and two tests refuse it
+in as many words. They are right: the shape was never the problem, detection
+was.
+
+**A bare filename resolves within one translation tree.** Where a generator
+flattens its namespace, a sibling is reachable by bare name from any depth,
+which is why a unique basename is accepted at all. It is counted per language
+tree rather than per repository: fastapi builds a separate site per language
+and keeps `newsletter.md` only in English, so a repository-wide count made
+every translated page's broken link to it resolve against the English file and
+hid 68 real defects. A tree is recognised by three or more language-shaped
+siblings, so a lone `docs/id/` remains an "id" directory.
 
 **The cross-reference namespace is a property of the generator, not a global
 choice.** MyST, Sphinx and Antora resolve `#label` against every document at

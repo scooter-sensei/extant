@@ -128,6 +128,30 @@ any change to the code it targets, and repair what it reports.
 seconds, running no tests. It is cheap enough for CI, which is where that rot
 should be caught rather than at the next half-hour campaign.
 
+**It answers "does this anchor match", never "is this anchor caught", and the
+difference has bitten.** A refactor of generator detection left six anchors
+matching nothing at once - five naming a function body that had been replaced,
+one pinned to `mint.json` being the LAST entry of a tuple that gained an entry
+after it. All six were retargeted, all mutations matched, and running them for
+real then found one still SURVIVING. Retarget with `--only` immediately after,
+or the repair is unverified.
+
+**The survivor was a guard another guard had silently covered.** `slug keeps
+punctuation` stopped being killed the week a second slug variant was added
+that stripped punctuation identically: breaking the original changed no output,
+because the newer function still produced the spelling it no longer did. The
+code was correct throughout and the suite was green throughout. Nothing except
+a campaign can see a check that has quietly stopped meaning anything, which is
+the argument for running one when two functions start overlapping.
+
+**Some properties no behavioural test can reach, and they need a contract
+test.** The masking above got its own mutation, and that one survived too:
+over-producing anchor spellings only ever SUPPRESSES, so it creates no finding
+for a test to catch. It is pinned as an assertion on the function's return
+value instead. When a mutation survives and you cannot construct a document
+that would notice, that is the signal to test the contract rather than the
+behaviour.
+
 `--only SUBSTRING[,SUBSTRING...]` runs one group. A campaign is half an hour,
 which is long enough that nobody runs it after touching a single rule, so the
 group belonging to whatever just changed can be re-verified on its own. It

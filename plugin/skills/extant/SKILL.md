@@ -264,9 +264,9 @@ these clauses without cloning anything. `references/design.md` has the numbers.
 
 ## The one rule that generalises beyond this tool
 
-**Derive validation patterns by measuring the real corpus, never from what the
-wording "should" be.** Applied three times here, each time producing a different
-answer than reasoning would have:
+**Derive validation patterns by measuring a corpus you did not design on,
+never from what the wording "should" be.** Applied four times here, each time
+producing a different answer than reasoning would have:
 
 - A path rule keyed on *shape* would have emitted 23 findings on the source
   repo, every one false - historical layout, deferred work, files explicitly
@@ -275,5 +275,16 @@ answer than reasoning would have:
   project writing "shipped in v2.1 (abc1234)" matches nothing.
 - Live-claim scoping had to be narrowed to the newest entry, because older
   entries legitimately record their own past statuses.
+- Every rule here was then tuned against 92 repositories until they were
+  quiet. Run against 40 it had never seen, the same set produced 7,658
+  findings of which 582 were real, in fourteen distinct false-positive shapes.
+  **A corpus you tuned against measures the tuning.** Keep one back.
 
 Check what a reference is **for**, not what it looks like.
+
+The same arithmetic governs a SUPPRESSION, and more sharply, because one that
+fires wrongly deletes a real finding where a false positive at least appears
+in the output. Two were refused here after counting: "a path beside a creation
+verb is a runtime output" is right about 1 of the 6 findings it matches, and
+"hex in a backslash path is not a SHA" matches 4 of which 2 are shell line
+continuations.

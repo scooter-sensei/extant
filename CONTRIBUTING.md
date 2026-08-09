@@ -49,10 +49,20 @@ Rule(
 1. It can be answered yes or no by git or the filesystem. A test enforces that
    every rule states its `falsifiable` question, so a rule that inspects numbers
    or dates cannot be added quietly.
-2. It produces **zero** false positives on a real corpus. This half is on you.
-   Measure before you write the pattern. `plugin/skills/extant/references/design.md` records the time
-   this was skipped: a rule keyed on what a path looked like would have emitted
-   23 findings on its first run, every one of them wrong.
+2. It produces **zero** false positives on a corpus it was **not designed on**.
+   This half is on you. Measure before you write the pattern.
+   `plugin/skills/extant/references/design.md` records the time this was
+   skipped: a rule keyed on what a path looked like would have emitted 23
+   findings on its first run, every one of them wrong.
+
+   The words "not designed on" were added after they were paid for. Every rule
+   here had been tuned against 92 repositories until that set was quiet, which
+   measures the fitting and not the rule. Run against 40 repositories none of
+   them had seen, the same rules reported 7,658 findings of which 582 were
+   real. Fourteen distinct false-positive shapes were sitting in the gap
+   between "quiet on the corpus that shaped it" and "correct", and no amount
+   of re-reading the code would have shown any of them. **Keep a corpus back,
+   and do not look at it while designing.**
 3. It names the PLACE the answer lives. Every rule here points at one bounded
    location - this ref, this file, this manifest, this document - and asks
    something with a definite answer there. "Search the repository and report if
@@ -79,11 +89,22 @@ token belonging to something else** - `CARGO_HOME`, `git --amend`,
 `docker --pull`.
 
 The clause is empirical rather than tidy. All thirteen rules satisfy it.
-**Eight** candidates have been measured against two corpora and rejected -
-environment variables twice, code symbols, HTTP endpoints, CLI flags, ports,
-image tags, README versions - at 0% to 22% precision. Every one passes clause 1
-cleanly and fails only once a corpus has been cloned and read. Four violate
-clause 3 and two more violate clause 4, and noticing either costs nothing.
+**Ten** candidates have been measured and rejected - environment variables
+twice, code symbols, HTTP endpoints, CLI flags, ports, image tags, README
+versions, a runtime-output rule and a backslash-path rule - at 0% to 22%
+precision. Every one passes clause 1 cleanly and fails only once a corpus has
+been cloned and read. Four violate clause 3 and two more violate clause 4, and
+noticing either costs nothing.
+
+The last two are worth naming because they were SUPPRESSIONS rather than
+rules, and the same arithmetic applies. "A path named beside a creation verb
+is a file the document creates, not one it points at" matches 6 findings and
+is right about 1: ``ensure_content_embedding` on write - see
+`library/embeddings.py`` is an ordinary pointer whose "write" is coincidental.
+"Hex inside a backslash-delimited path is not a SHA" matches 4, of which 2 are
+shell line continuations. A suppression that fires wrongly deletes a real
+finding silently, which is strictly worse than a false positive somebody can
+see.
 
 **Cheaper than all four clauses: count the form first.** Before arguing about
 keying, count how often documentation writes the shape at all. `path:symbol`
@@ -147,8 +168,34 @@ mutation still matches the code it names. A mutation names a LINE, and moving
 that line while refactoring silently disarms it: the suite stays green, because
 a mutation that matches nothing probes nothing and reports the same silence as
 one with nothing to say. This has now happened three times to the same pair of
-scoping mutations and once to the preset guard, every time caught by CI after
-the push rather than before it.
+scoping mutations, once to the preset guard, and once to six anchors at a
+stroke when detection was refactored - every time caught by CI after the push
+rather than before it, because every time somebody skipped the line above.
+
+**Two shapes recur, and both are avoidable when adding an anchor.** One names
+a function body that a refactor replaces wholesale. The other anchors on
+POSITION rather than on the thing: `mint.json` was pinned as the LAST entry of
+a tuple, which held until `fern.config.json` was added after it. That is the
+second time the same tuple broke the same way. Anchor on the entry, not on
+what follows it.
+
+**`--check-only` says an anchor matches. It never says it is caught.** After
+the six above were retargeted and all 145 matched, running them for real found
+one still surviving. Retargeting an anchor without running it is not a repair:
+
+    python tests/harnesses/mutate.py --only "the label you just moved"
+
+That is one suite run per mutation, not half an hour, and it is the difference
+between an anchor that points at code and one that probes it.
+
+**A guard that another guard silently covers is a guard nobody is running.**
+The survivor above was `slug keeps punctuation`, and the code was fine. A slug
+variant added the same week stripped punctuation identically, so breaking the
+original changed no output - `## build.target` still offered `buildtarget`,
+just from the newer function. Nothing but a mutation campaign can see that: the
+suite is green, the behaviour is correct, and one of the two checks has quietly
+stopped meaning anything. When you add a function that overlaps an existing
+one, run the existing one's mutation.
 
 They are worth running before a release, because between them they found every
 defect fixed in 0.3.0 and the unit suite found none of them. This sentence said

@@ -6,6 +6,89 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 21 - The rules did not generalise, and forty unseen repositories said how (shipped, 2026-08-09)
+
+**Status.** Suite is 589 tests, all passing. Thirteen rules, eighteen presets,
+unchanged - every fix narrows a rule that already existed. Merged to `main` at
+`6f68e1f` and not released: 0.20.0 remains the published version against
+twenty-nine tags from `v0.5.0`.
+
+**Why this was done.** Every rule here was designed against 92 repositories
+and tuned until that set was quiet, so re-running there measured the fitting
+rather than the rules. Those clones are deleted. A disjoint corpus of 40
+replaced them, checked mechanically: 0 of the 40 appear among the 88 distinct
+repositories that shaped the rules, and the check was proved able to fail by
+planting two of them into the list.
+
+**What it found.** 7,658 findings, of which 582 were real. The rest fell into
+ten mechanical shapes the design corpus did not contain, and measuring what
+the fixes left behind produced four more. Same corpus, one build apart:
+
+| | before | after |
+|---|---|---|
+| findings on 40 repositories | 7,578 | 632 |
+| hand-audited precision | 11 of 24 | 14 of 18 |
+| adjudicated real defects still reported | - | 541 of 573 |
+
+**What shipped.**
+
+- **Generator detection reaches three layouts it did not.** haystack declares
+  Docusaurus in `docs-website/`, llama_index declares MkDocs in
+  `docs/api_reference/` (the search knew `*/docs` but never `docs/*`), and
+  svelte numbers its documents for a site built from another repository.
+  Between them, 6,360 route-shaped links were judged as files.
+- **Detection records WHICH directories a generator governs.** A monorepo
+  builds a site from `docs/` and still keeps ordinary READMEs in `packages/`.
+  Suppressing routes across both silenced six real defects.
+- **Bare names resolve within one translation tree.** fastapi builds a site
+  per language and keeps `newsletter.md` only in English, so every translated
+  page's broken link to it resolved against the English file.
+- **Five narrowings in the SHA family.** A SHA that is link text for another
+  repository's commit URL, a hash prefix inside an asset filename, a changeset
+  id, a 32-character digest, and an Actions pin naming another repository.
+- **Anchors read Setext headings and keep the dash an emoji leaves.** A
+  document written entirely in the underlined style offered no anchors at all.
+- **A prose path resolves beside its own document**, as `dead-md-link` always
+  did; the inconsistency between the two rules was the bug.
+
+**What was learned.**
+
+- **A held-out corpus is the only thing that can tell a working rule from a
+  well-fitted one.** Three of the fixes were wrong in ways only 40 unseen
+  repositories revealed, including one that silenced 68 real defects.
+- **Measurement refuses as much as it approves.** Two candidate rules were
+  killed by counting first: a creation-verb rule for runtime outputs is right
+  1 time in 3, and a backslash-path rule matched mostly shell line
+  continuations. Both were shape heuristics, which the path rule already
+  learned once.
+- **A residue recorded as an unavoidable trade is worth re-deriving.** Three
+  astro findings were documented as the cost of keeping llama_index quiet. The
+  real cause was an unbounded heuristic matching three files in a test
+  fixture, and there was no trade.
+- **`--check-only` says an anchor matches, never that it is caught.** Six
+  anchors were retargeted after CI failed; running them for real then showed
+  one still surviving.
+- **A guard that another guard covers is a guard nobody is running.** A new
+  slug variant stripped punctuation identically to the old one, so breaking
+  the old one changed no output and a working check went quiet. Only the
+  mutation campaign could see it.
+- **An unbounded regex is a hang waiting for a document.** One pattern took
+  321,822 ms on a 120,000-character line; the longest line in the earlier
+  corpus was 123,427.
+
+**Verification.** 589 tests. Mutation anchors 145 of 145. The nine touched
+here were run rather than only checked, and the two slug mutations were run
+again after the masking fix. CI green at `6f68e1f`, all 13 jobs across ten OS
+and Python combinations. `--verify` and `--selftest` both exit 0.
+
+**Known residue, so the next measurement does not rediscover it.** Four false
+positives survived a hand audit of 18: test fixture data (one target
+deliberately names a missing file), a crypto algorithm name that is valid hex,
+hashes elided with an ellipsis, and a template naming a file it writes at
+runtime. Which directories hold fixtures is a project's convention rather than
+a filesystem fact, so it belongs in configuration; `.extant.toml` has no
+general path exclusion today, and that is the clearest next piece of work.
+
 ## Phase 20 - The machine formats stop contradicting the exit code (shipped, 2026-08-06)
 
 **Status.** Suite is 547 tests, all passing. Thirteen rules, eighteen presets.

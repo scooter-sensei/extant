@@ -41,6 +41,13 @@ edit landed, then read the outcome.
 before writing a rule for it. A rule keyed on what a path looked like produced
 23 findings on its first real run, every one wrong.
 
+**This applies to suppressions too, and more sharply.** Two were refused after
+counting: "a path beside a creation verb is a runtime output" is right about 1
+of the 6 findings it matches, and "hex in a backslash path is not a SHA"
+matches 4 of which 2 are shell line continuations. A suppression that fires
+wrongly deletes a real finding silently, where a false positive at least
+appears in the output for somebody to argue with.
+
 The failure is not always noise. Three designs here were overturned by
 measuring a real corpus first, and each would have shipped something that did
 NOTHING: widening `path_pointer` for game projects (that rule examines zero
@@ -56,7 +63,12 @@ A rule belongs only if all four hold:
 
 1. It can be answered yes or no by git or the filesystem. No network, no
    judgement.
-2. It produces zero false positives on a real corpus. Measure first.
+2. It produces zero false positives on a corpus it was NOT designed on.
+   Measure first, and keep a corpus back. Every rule here was tuned against 92
+   repositories until they were quiet; run against 40 it had never seen, the
+   set reported 7,658 findings of which 582 were real. Fourteen false-positive
+   shapes lived in the gap between "quiet on the corpus that shaped it" and
+   "correct", and reading the code showed none of them.
 3. It names the PLACE the answer lives - this ref, this file, this manifest,
    this document. "Search the repository and report if the token is not found"
    is not a location.

@@ -1,5 +1,79 @@
 # Changelog
 
+## Unreleased
+
+**Fourteen ways a rule reported a working claim, found by running against
+forty repositories none of them was designed on.** Every rule here was tuned
+against 92 repositories until that set was quiet, which measures the fitting
+rather than the rules. A disjoint corpus of 40 replaced it - 0 of the 40
+appear among the 88 distinct repositories that shaped the rules, checked
+mechanically rather than by reading two lists.
+
+It reported 7,658 findings and 582 were real. On the same corpus, one build
+apart, that is now 632 findings, with hand-audited precision moving from 11 of
+24 to 14 of 18 and 541 of 573 adjudicated real defects still reported.
+
+Nothing here is a new rule. Every change narrows one that already existed, so
+a repository that was quiet stays quiet.
+
+**Documentation trees are recognised where projects actually keep them.**
+Generator detection now finds a config in `docs-website/` (haystack's
+Docusaurus), one level INSIDE a documentation directory (llama_index declares
+MkDocs at `docs/api_reference/` while serving `docs/src/content/docs/`), and
+`fern/fern.config.json`. A tree that numbers its documents for ordering
+declares a site by that alone, which is the case for a project whose pages are
+built by another repository. Between them these accounted for 6,499 findings,
+every one a working route reported as a missing file.
+
+**Detection now records which directories a generator governs, rather than
+answering yes or no.** A monorepo builds a site from `docs/` and still keeps
+ordinary READMEs in `packages/`, whose relative links really are files.
+Suppressing routes across the whole repository hid six real defects, including
+a README linking to a directory that does not exist.
+
+**A bare filename resolves within one translation tree.** fastapi builds a
+separate site per language and keeps `newsletter.md` only in English. Counting
+that name across the whole repository made every translated page's broken link
+to it resolve against the English file, hiding 68 real defects across ten
+languages. Trees are recognised by three or more language-shaped siblings, so
+a lone `docs/id/` stays an "id" directory.
+
+**Five narrowings in the SHA rules.** A backticked SHA that is the link text
+of another repository's commit URL is that repository's claim, not this one's
+- the bare-token path already dropped hex inside a link target for the same
+reason. A hash prefixing an asset filename (`/img/83f686b-chart.png`) is part
+of the filename. A changeset id on a `- <id>: text` line is minted by a tool,
+gated on `.changeset/` existing. Exactly 32 hex characters is a digest, not a
+commit. `owner/repo@<sha>` names whose commit it is, which is what pinning an
+action by SHA looks like.
+
+**Anchors read underlined headings and keep the dash an emoji leaves.** A
+document written entirely in Setext style offered no anchors at all, so every
+link into it read as dead. A heading opening with an emoji anchors as
+`#-component-structure` on GitHub, because the emoji is dropped and the space
+after it still becomes a dash.
+
+**A prose path pointer resolves beside its own document**, as markdown links
+always have. A nested `SKILL.md` saying "see `references/cli.md`" was reported
+dead while the file sat in the next directory entry. A backticked path that is
+the link TEXT of a resolving link defers to that link.
+
+**One pattern was a hang rather than a false positive.** The asset-filename
+match took 321,822 ms on a single 120,000-character line before it was
+anchored and bounded; the longest markdown line in the earlier corpus was
+123,427 characters. It is now under 5 ms.
+
+**Two candidate rules were refused on the evidence**, and both looked
+reasonable first. A path named beside a creation verb is a runtime output in 1
+of the 6 findings that match it. Hex inside a backslash-delimited path matches
+4, of which 2 are shell line continuations.
+
+Known false positives that remain, named so they are not rediscovered as new:
+test fixture data, a crypto algorithm name that is valid hex, hashes elided
+with an ellipsis, and a template naming a file it writes at runtime. Which
+directories hold fixtures is a project's own convention rather than something
+git can settle, so it belongs in configuration rather than in a rule.
+
 ## 0.20.0 (2026-08-06)
 
 **Machine-format severity now matches the exit code.** Every finding was
