@@ -166,19 +166,40 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The tag list is per-CALL. A plain dict that is never reset becomes
         # permanent rather than merely slow, which is the failure `_OWN_REMOTE`
         # already had once: the answer stays whatever the first call saw.
-        ("the tag list outlives the call that built it", collect,
-         "        _TAGS = {}\n"
-         "        _TAG_PREFIXES = {}\n"
-         "        _INTEGRATION = {}",
-         "        _TAGS = _TAGS\n"
-         "        _TAG_PREFIXES = {}\n"
-         "        _INTEGRATION = {}"),
+        # REMOVED: "the tag list outlives the call that built it".
+        #
+        # It survived the full campaign of 2026-08-09, and tracing it showed
+        # the mutation is INERT rather than the suite being blind. `validate`
+        # saves the cache, clears it, and restores it on exit. Between two
+        # calls the restore already returns it to empty, so deleting the clear
+        # changes nothing - and mutating the restore instead is equally inert,
+        # because the clear then covers it. The property is guaranteed twice
+        # and no single-line mutation can observe it.
+        #
+        # A mutation that cannot change behaviour reports a gap that does not
+        # exist, every run, forever. That is the same thing as a NOT APPLIED
+        # result and is treated the same way: repaired, not recorded.
+        # `tests/test_cache_lifetime.py` pins the behaviour itself instead - a
+        # tag created between two calls is seen by the second.
         # A cost contract: reverting it gives identical findings and a tool
         # that got slower between releases. 200 release claims took 11.6
         # seconds without it and 1.2 with it.
-        ("integration refs are rescanned once per claim", collect,
-         "    if key in _INTEGRATION:\n        return _INTEGRATION[key]",
-         "    if False:\n        return _INTEGRATION[key]"),
+        # REMOVED: "integration refs are rescanned once per claim".
+        #
+        # Also survived that campaign, and also for want of anything to
+        # observe. It memoises over an ALREADY-cached ref table, so what it
+        # saves is a handful of dict operations. Three closing attempts
+        # failed: counting `_ref_table` calls (cached underneath, built once
+        # either way), counting `_resolve_ref` calls (the merge-claim rule
+        # resolves the named ref per claim for its own legitimate reasons, so
+        # a four-claim document resolves the trunk four times with or without
+        # this cache - that assertion failed on UNMUTATED code), and asserting
+        # the cache is populated (it is written either way; only the read is
+        # skipped).
+        #
+        # The saved work is indistinguishable from work other call sites do
+        # anyway. Kept in the code because it costs nothing; dropped from the
+        # campaign because a permanent false gap costs attention.
         # An integration ref that does not resolve cannot settle anything, and
         # returning it anyway made every caller answer "no" to a question it
         # never asked. symfony has no main and no master.
