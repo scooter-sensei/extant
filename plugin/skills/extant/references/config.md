@@ -156,6 +156,62 @@ Each was measured against one project's real prose. See `porting.md`.
 | `todo_markers` | `TODO`/`FIXME`/`XXX`. |
 | `code_suffixes` | Extensions scanned for TODOs. Excludes docs deliberately - a spec discussing TODO is not a TODO. |
 | `todo_exclude_files` / `todo_exclude_dirs` | Paths exempt from the TODO scan, so the tool does not report its own source. |
+| `exclude_paths` | Documents `--sweep` should not read at all. Empty by default. See below - this is the one setting that can make a repository look clean by not looking at it. |
+
+### `exclude_paths`
+
+For documents that are INPUT TO A TEST rather than a promise to a reader.
+
+```toml
+exclude_paths = ["testdata", "**/test/fixtures/**"]
+```
+
+The case that cannot be solved any other way: a fixture whose markdown links
+to `../assets/does-not-exist.jpg` **on purpose**, to exercise a renderer's
+error handling. That is indistinguishable from a real broken link by anything
+git or the filesystem can answer, so it is not a rule and never will be.
+Measured on a held-out corpus, 18 findings sat in such trees.
+
+Which directories hold fixtures is your convention, not a fact about
+repositories in general, which is why this is configuration. Hard-coding a
+list of names would be the "derive the pattern from what the wording should
+be" mistake the admission test exists to prevent.
+
+**Patterns are gitignore-shaped, not `fnmatch`.**
+
+| pattern | matches |
+|---|---|
+| `testdata` | a path SEGMENT anywhere, and everything under it |
+| `docs/*.md` | markdown directly in `docs`, not in `docs/sub` |
+| `docs/*` | entries in `docs`, and everything under a matched directory |
+| `**/fixtures/**` | any `fixtures` directory at any depth |
+| `docs/guide.md` | that one file, rooted at the repository |
+
+`*` stops at a separator and `**` spans them. `fnmatch`'s `*` crosses `/`
+silently, so `docs/*.md` there would take the whole tree and the only evidence
+would be a smaller number.
+
+**The sweep prints what it removed, per pattern, and names any pattern that
+matched nothing.** A skip-list fails silently in both directions - by
+excluding more than intended, and by containing dead entries that read like
+working exclusions forever. This project has already shipped a lint whose
+skip-list excluded every file it was meant to scan and passed on an empty
+scan, so the counts are not optional:
+
+```
+swept 1013 markdown file(s): 0 configured (0 finding(s)), 1013 unreviewed (4 finding(s))
+  excluded 3 of 1016 tracked file(s) via 3 exclude_paths pattern(s)
+        0 **/e2e/fixtures/**
+        0 **/test/fixtures/**
+        3 testdata
+  matched nothing, so they exclude nothing and may be stale: **/e2e/fixtures/**, **/test/fixtures/**
+```
+
+Excluding a document that `primary_doc` or `extra_docs` also names is refused
+with a `CONFLICT` and a non-zero exit, rather than resolved. One setting says
+gate on this file and the other says never read it; picking either silently
+overrides something you wrote, and the dangerous direction is quietly dropping
+a document you asked to gate on.
 
 Markdown links and heading anchors are checked too, and have no setting. Link
 syntax is fixed by the format rather than by any project's habits, so there is

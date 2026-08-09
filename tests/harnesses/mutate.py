@@ -747,6 +747,41 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "              file=sys.stderr)",
          "        pass"),
 
+        # --- exclude_paths ---------------------------------------------------
+        # The one setting that can make a repository look clean by not looking
+        # at it, so its guards get more mutations than its size suggests. A
+        # skip-list fails silently in BOTH directions and this project has
+        # already shipped one whose defaults excluded every file it was meant
+        # to scan.
+        ("a star crosses a separator, so docs/* takes the whole tree", collect,
+         '            out.append("[^/]*")',
+         '            out.append(".*")'),
+        ("a bare pattern anchors at the root instead of any segment", collect,
+         '        source = rf"^(?:.*/)?{core}(?:/.*)?$"',
+         '        source = rf"^{core}(?:/.*)?$"'),
+        ("a bare pattern matches half a segment", collect,
+         '        source = rf"^(?:.*/)?{core}(?:/.*)?$"',
+         '        source = rf".*{core}.*"'),
+        ("an unusable pattern compiles to one that matches everything",
+         collect,
+         '    if not pattern or pattern.startswith("#"):\n        return None',
+         '    if False:\n        return None'),
+        ("a path is counted against every pattern it matches", collect,
+         "                hit = pattern\n                break",
+         "                hit = pattern"),
+        ("the per-pattern counts stop being reported", collect,
+         "        for pattern, count in sorted(excluded_counts.items()):",
+         "        for pattern, count in []:"),
+        ("a pattern that matched nothing is no longer named", collect,
+         "        idle = sorted(p for p, n in excluded_counts.items() if not n)",
+         "        idle = []"),
+        ("excluding a configured document stops being refused", collect,
+         "        conflicting = sorted((configured & present) - kept - {\"\"})",
+         "        conflicting = []"),
+        ("the conflict check keys on configured-but-missing again", collect,
+         "        conflicting = sorted((configured & present) - kept - {\"\"})",
+         "        conflicting = sorted(configured - kept - {\"\"})"),
+
         # --- generated sites and anchor namespaces ---------------------------
         # Detection decides whether a route-shaped link is a dead file or a page
         # a generator will build, and being wrong in either direction is

@@ -5019,6 +5019,37 @@ def run_sweep(repo: Path, fmt: str) -> int:
               file=sys.stderr)
         return 0
 
+    tracked_total = len(paths)
+    excluded_counts: dict[str, int] = {}
+    if CONFIG.exclude_paths:
+        present = {p.replace("\\", "/") for p in paths}
+        paths, excluded_counts = excluded_documents(paths, CONFIG.exclude_paths)
+        # A CONFIGURED document that an exclusion REMOVED is a contradiction,
+        # not a preference: one setting says gate on this file and another
+        # says never read it. Reported rather than resolved, because either
+        # answer silently overrides something the author wrote.
+        #
+        # Keyed on what was actually removed, never on "configured but
+        # missing". `primary_doc` defaults to a filename most repositories do
+        # not have, so comparing against the configured set alone reported a
+        # conflict for a document no exclusion had touched - a different
+        # condition, which `--verify` already names as "no such document".
+        configured = {CONFIG.primary_doc.replace("\\", "/"),
+                      *(d.replace("\\", "/") for d in CONFIG.extra_docs)}
+        kept = {p.replace("\\", "/") for p in paths}
+        conflicting = sorted((configured & present) - kept - {""})
+        for document in conflicting:
+            print(f"CONFLICT: `{document}` is configured to be checked and "
+                  f"also matches exclude_paths; excluding it would silently "
+                  f"stop gating on a document you asked to gate on",
+                  file=sys.stderr)
+        if conflicting:
+            return 1
+    if not paths:
+        print(f"swept 0 markdown files: exclude_paths removed all "
+              f"{tracked_total} that git tracks", file=sys.stderr)
+        return 0
+
     vetted, unvetted = partition_documents(repo, paths)
     primary = CONFIG.primary_doc.replace("\\", "/")
     sections: list[tuple[str, list[str], bool]] = [
@@ -5168,6 +5199,21 @@ def run_sweep(repo: Path, fmt: str) -> int:
           f"{len(vetted)} configured ({len(results['vetted'])} finding(s)), "
           f"{len(unvetted)} unreviewed ({len(results['unvetted'])} finding(s))",
           file=out)
+    # The skip-list's own denominator. A configured exclusion is the one
+    # setting here that can make a repository look clean by not looking, so
+    # what it removed is printed beside what was read - and a pattern that
+    # matched NOTHING is named, because dead configuration reads exactly like
+    # a working exclusion and survives every run until somebody counts.
+    if excluded_counts:
+        removed = sum(excluded_counts.values())
+        print(f"  excluded {removed} of {tracked_total} tracked file(s) via "
+              f"{len(excluded_counts)} exclude_paths pattern(s)", file=out)
+        for pattern, count in sorted(excluded_counts.items()):
+            print(f"    {count:5} {pattern}", file=out)
+        idle = sorted(p for p, n in excluded_counts.items() if not n)
+        if idle:
+            print(f"  matched nothing, so they exclude nothing and may be "
+                  f"stale: {', '.join(idle)}", file=out)
     # Counted separately, never folded into the document totals: these are
     # findings about the repository, and adding them to a per-file count would
     # report more findings than there are documents to hold them. A rule that
@@ -5415,6 +5461,89 @@ def tracked_markdown(repo: Path) -> list[str]:
     out = _git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
     return sorted(p for p in out.split("\0")
                   if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))
+
+
+def _exclusion_regex(pattern: str) -> re.Pattern[str] | None:
+    """Compile one gitignore-shaped path pattern, or None if it is unusable.
+
+    `*` stops at a separator, `**` spans them, `?` matches one non-separator
+    character. A pattern with NO separator matches a path segment anywhere, so
+    `testdata` covers `hugolib/testdata/x.md` and nobody has to discover that
+    `**/testdata/**` was required.
+
+    Deliberately not `fnmatch`, whose `*` crosses `/` silently. A user writing
+    `docs/*` to mean "the documents directly in docs" would have excluded the
+    whole tree beneath it, and the only evidence would be a smaller number.
+    """
+    pattern = pattern.strip().replace("\\", "/")
+    if not pattern or pattern.startswith("#"):
+        return None
+    anchored = "/" in pattern.rstrip("/")
+    body = pattern.strip("/")
+    out: list[str] = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if body.startswith("**", index):
+            # `**/` spans whole segments including none at all; a trailing
+            # `**` swallows the rest of the path.
+            if body.startswith("**/", index):
+                out.append("(?:[^/]+/)*")
+                index += 3
+            else:
+                out.append(".*")
+                index += 2
+            continue
+        if char == "*":
+            out.append("[^/]*")
+        elif char == "?":
+            out.append("[^/]")
+        else:
+            out.append(re.escape(char))
+        index += 1
+    core = "".join(out)
+    if anchored:
+        # Rooted at the repository. A directory pattern also covers what is
+        # underneath it, which is what a reader means by excluding a folder.
+        source = rf"^{core}(?:/.*)?$"
+    else:
+        # A bare name is a segment anywhere, and everything beneath it.
+        source = rf"^(?:.*/)?{core}(?:/.*)?$"
+    try:
+        return re.compile(source)
+    except re.error:
+        return None
+
+
+def excluded_documents(paths: list[str],
+                       patterns: tuple[str, ...]) -> tuple[list[str], dict[str, int]]:
+    """(kept, {pattern: how many it matched}) for a configured skip-list.
+
+    Returns the per-pattern count rather than a bare list, because a skip-list
+    is the single most dangerous thing in a checker of this kind and the ways
+    it goes wrong are both silent. One excludes more than intended - this
+    project shipped a lint whose skip-list excluded every file it was meant to
+    scan and passed on an empty scan. The other is a pattern that matches
+    NOTHING, which is dead configuration that reads as a working exclusion
+    forever.
+
+    The caller prints both. A count nobody sees is the same as no count.
+    """
+    matched: dict[str, int] = {pattern: 0 for pattern in patterns}
+    compiled = [(pattern, _exclusion_regex(pattern)) for pattern in patterns]
+    kept: list[str] = []
+    for path in paths:
+        normalised = path.replace("\\", "/")
+        hit = None
+        for pattern, regex in compiled:
+            if regex is not None and regex.match(normalised):
+                hit = pattern
+                break
+        if hit is None:
+            kept.append(path)
+        else:
+            matched[hit] += 1
+    return kept, matched
 
 
 def partition_documents(repo: Path, paths: list[str]) -> tuple[list[str], list[str]]:

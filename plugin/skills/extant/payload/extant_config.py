@@ -216,6 +216,29 @@ DEFAULTS: dict[str, object] = {
         "plugin/skills/extant/payload/extant_collect.py",
     ],
     "todo_exclude_dirs": ["tests/"],
+    # Documents the SWEEP should not read at all. Empty by default, and
+    # deliberately so: a skip-list that ships with entries is a skip-list
+    # nobody audits, and this project has already shipped one whose defaults
+    # excluded every file it was meant to scan.
+    #
+    # This exists because some documents are INPUT TO A TEST rather than a
+    # promise to a reader, and no rule can tell the difference. Measured on a
+    # held-out corpus: 18 findings sat in `testdata/` and `test/fixtures/`
+    # trees, and one target was `../assets/does-not-exist.jpg` - a fixture
+    # DELIBERATELY naming a missing file to exercise error handling. Nothing
+    # git or the filesystem can answer distinguishes that from a real defect.
+    #
+    # Which directories hold fixtures is a project's own convention, which is
+    # why this is configuration and not a rule. Hard-coding a list of names
+    # would be the "derive the pattern from what the wording should be"
+    # mistake the admission test exists to prevent.
+    #
+    # Patterns are gitignore-shaped rather than fnmatch: `*` stops at a path
+    # separator and `**` spans them, because a `*` that silently crosses `/`
+    # is the surprise this tool spends its time removing. A pattern with no
+    # separator matches a path SEGMENT anywhere, so `testdata` covers
+    # `hugolib/testdata/x.md` without anybody writing three asterisks.
+    "exclude_paths": [],
     # Windows lays a virtualenv out as Scripts/python.exe and POSIX as
     # bin/python, so a single literal is wrong on one of them. Chosen from
     # the running platform rather than hard-coded: a fresh install on Linux
@@ -267,6 +290,7 @@ class StatusConfig:
     code_suffixes: tuple[str, ...]
     todo_exclude_files: tuple[str, ...]
     todo_exclude_dirs: tuple[str, ...]
+    exclude_paths: tuple[str, ...]
     extra_docs: tuple[str, ...]
     release_tag: re.Pattern[str]
     # {check_name: ((path, compiled_pattern), ...)}
@@ -537,6 +561,7 @@ def load_config(repo: Path) -> StatusConfig:
         code_suffixes=tuple(values["code_suffixes"]),          # type: ignore[arg-type]
         todo_exclude_files=tuple(values["todo_exclude_files"]),  # type: ignore[arg-type]
         todo_exclude_dirs=tuple(values["todo_exclude_dirs"]),    # type: ignore[arg-type]
+        exclude_paths=tuple(values["exclude_paths"]),            # type: ignore[arg-type]
         extra_docs=tuple(values["extra_docs"]),                  # type: ignore[arg-type]
         release_tag=re.compile(str(values["release_tag"]), re.IGNORECASE),
         consistency=_compile_consistency(values["consistency"], path),
