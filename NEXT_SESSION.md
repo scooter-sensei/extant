@@ -9,9 +9,9 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 21 - The rules did not generalise, and forty unseen repositories said how (shipped, 2026-08-09)
 
 **Status.** Suite is 589 tests, all passing. Thirteen rules, eighteen presets,
-unchanged - every fix narrows a rule that already existed. Merged to `main` at
-`6f68e1f` and not released: 0.20.0 remains the published version against
-twenty-nine tags from `v0.5.0`.
+unchanged - every fix narrows a rule that already existed. This work is
+version 0.21.0, tagged at `9cd0f74`. Thirty tags from `v0.5.0`, each carrying
+a GitHub release.
 
 **Why this was done.** Every rule here was designed against 92 repositories
 and tuned until that set was quiet, so re-running there measured the fitting
@@ -75,11 +75,24 @@ the fixes left behind produced four more. Same corpus, one build apart:
 - **An unbounded regex is a hang waiting for a document.** One pattern took
   321,822 ms on a 120,000-character line; the longest line in the earlier
   corpus was 123,427.
+- **A release watcher with last release's version hard-coded reports success
+  in under a second.** The script watching for 0.21.0 still named 0.20.0. It
+  found the previous tag's workflow run, found the previous version already on
+  the index, and exited 0. Every number it printed was true and none of them
+  was about this release. The version is an argument now, and the script
+  refuses to run without one.
 
 **Verification.** 589 tests. Mutation anchors 145 of 145. The nine touched
 here were run rather than only checked, and the two slug mutations were run
-again after the masking fix. CI green at `6f68e1f`, all 13 jobs across ten OS
-and Python combinations. `--verify` and `--selftest` both exit 0.
+again after the masking fix. CI green at `6f68e1f` and again at `9cd0f74`
+before the tag existed, all 13 jobs across ten OS and Python combinations.
+`--verify` and `--selftest` both exit 0.
+
+The published wheel was installed from the index into a clean environment and
+RUN, rather than confirmed to exist: haystack 5,056 findings to 2, llama_index
+1,248 to 18, svelte 211 to 1. The control matters more than any of those - a
+plain repository still reports a dead root-absolute link, which is what
+distinguishes a narrowing from a rule that stopped working.
 
 **Known residue, so the next measurement does not rediscover it.** Four false
 positives survived a hand audit of 18: test fixture data (one target
