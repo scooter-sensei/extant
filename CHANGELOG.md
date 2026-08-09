@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.21.0 (2026-08-09)
 
 **Fourteen ways a rule reported a working claim, found by running against
 forty repositories none of them was designed on.** Every rule here was tuned
@@ -73,6 +73,15 @@ test fixture data, a crypto algorithm name that is valid hex, hashes elided
 with an ellipsis, and a template naming a file it writes at runtime. Which
 directories hold fixtures is a project's own convention rather than something
 git can settle, so it belongs in configuration rather than in a rule.
+
+**One change in this release alters no output, and is listed because a reader
+diffing the tag will find it.** The slug variant added for emoji headings
+stripped punctuation exactly as the original did, which silently disarmed the
+mutation that probes the original: breaking it changed nothing, because the
+new function still produced the spelling it no longer did. It now contributes
+only the spelling trimming would lose. Anchor sets are unchanged either way -
+when trimmed and untrimmed agree the duplicate added nothing, and when they
+differ both are still offered - so no repository sees a different result.
 
 ## 0.20.0 (2026-08-06)
 
