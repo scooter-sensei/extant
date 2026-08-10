@@ -8,9 +8,11 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 22 - The limit 0.21.0 could only name is now configurable (shipped, 2026-08-09)
 
-**Status.** Suite is 605 tests, all passing. Thirteen rules, eighteen presets,
+**Status.** Suite is 606 tests, all passing. Thirteen rules, eighteen presets,
 and one new setting. This work is version 0.22.0, tagged at `42cac40`.
-Thirty-one tags from `v0.5.0`, each carrying a GitHub release.
+Thirty-one tags from `v0.5.0`, each carrying a GitHub release. Two commits
+landed after the tag and are unreleased: a drifted number the gap audit found,
+and the campaign's own repair.
 
 **What shipped.** `exclude_paths`, for documents that are input to a test
 rather than a promise to a reader.
@@ -53,18 +55,61 @@ as a limit with no way to act on it.
 - **"Latest" is not always pre-selected on a GitHub release form.** It was for
   0.21.0 and was not for 0.22.0. Read the control rather than assuming the
   previous run's layout.
+- **A surviving mutation is a claim to investigate, not a verdict to act on.**
+  Both survivors here were labelled TEST GAPS by the harness and neither was
+  one. The harness cannot tell "no test noticed" from "nothing happened", so
+  the tracing is the work and the label is only where it starts.
+- **Every measurement failure this stretch produced was in the APPARATUS, not
+  the code.** Eight of them: rotted anchors, an anchor pinned to a tuple
+  position, a guard covered by its neighbour, fixtures that satisfied their
+  assertions regardless, a release watcher naming the previous version, a
+  verifier that fetched the objects it was asking about, tests asserting a sum
+  where attribution was the point, and two mutations that could not change
+  behaviour. Each printed exactly what success prints. The code under test was
+  correct every time, which is the argument for auditing the instruments as
+  hard as the subject.
+- **Run the campaign in the background, never the foreground.** A ten-minute
+  tool limit killed a targeted run mid-flight and left a mutation in the copy,
+  which made the NEXT run report a bogus "matched 0x". The copy is what kept
+  that away from the working tree, and it is the reason the rule says copy.
 
-**Verification.** 605 tests. Mutation anchors 154 of 154, with the nine new
-ones run rather than only checked; two survived the first run and both were
-gaps in the tests here rather than the code. CI green at `42cac40` before the
-tag existed, 13 jobs across ten OS and Python combinations. `--verify` and
-`--selftest` both exit 0.
+**Verification.** 606 tests. CI green at `42cac40` before the tag existed, 13
+jobs across ten OS and Python combinations. `--verify` and `--selftest` both
+exit 0.
 
 The published wheel was installed from the index into a clean environment and
 RUN: it excluded `testdata`, kept reporting the finding in `README.md`,
 printed the per-pattern count, and named `vendor/**` as matching nothing.
 Measured on the two repositories that motivated the feature, hugo went from 10
 findings to 4 and astro from 31 to 19.
+
+**The full mutation campaign was run: 154 mutations, 152 killed, 2 survived,
+0 not applied.** It takes two hours and CI runs only `--check-only`, so
+before this the nine new mutations had been run and the other 145 were known
+to MATCH without being known to be CAUGHT.
+
+Both survivors were inert mutations rather than gaps in the suite, and
+establishing that took longer than accepting the label would have. `_TAGS`
+outliving its call is guaranteed twice - `validate` clears the cache AND
+restores it - so removing either alone changes nothing observable.
+`_INTEGRATION` memoises over an already-cached ref table, and three attempts
+to observe it failed differently, the third by FAILING ON UNMUTATED CODE,
+which is the only reason a test that passed while pinning nothing did not
+ship. Both are removed with the tracing recorded where they sat; the campaign
+is 152, all matching and all killable.
+
+`tests/test_cache_lifetime.py` keeps the one property worth keeping: a tag
+created between two `validate` calls is seen by the second, which is what the
+comment beside `_TAGS` describes and nothing tested.
+
+**A gap audit found three things no check here can see.** A shipped claim in
+`SKILL.md` that a full sweep of this repository produces 18 findings, when it
+produces 29 - true when written, false as the documentation grew, and numbers
+are the forbidden class for a rule by design. It now carries the date it was
+measured. A design note in the measurement repository that still called
+`exclude_paths` "the clearest next piece of work" hours after it shipped. And
+SARIF stdout purity, which I added prints beside without testing that path; it
+holds, but it was confirmed afterwards rather than at the time.
 
 ## Phase 21 - The rules did not generalise, and forty unseen repositories said how (shipped, 2026-08-09)
 
