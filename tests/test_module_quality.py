@@ -123,12 +123,63 @@ def test_the_explanation_survived_the_move() -> None:
         f"explanation fell from 2784 to {total}. Something was dropped in a "
         f"move; find it rather than lowering this floor.")
 
-# test_every_module_declares_its_surface, test_no_module_reaches_past_another_
-# modules_surface and test_rules_are_leaves deliberately do NOT live here.
-# Removed per the coordinator's plan fix: the first two pass while examining
-# zero non-__init__ modules (there is nothing to check until Task 2 creates
-# git.py and friends), and the third asserts 13 rule modules that only exist
-# from Task 9 onward. A gate that passes while examining nothing is the
-# defect this whole file exists to prevent, so writing them here would have
-# been the same mistake this project keeps finding in itself. Task 2 Step 5b
-# adds the first two; Task 9 Step 6d adds the third.
+
+def test_every_module_declares_its_surface() -> None:
+    """__all__ is the module's answer to 'what may siblings touch'.
+
+    Without it the answer is 'everything, by convention', which is how 65
+    private names came to be referenced across boundaries that did not exist
+    yet.
+    """
+    assert len(_modules()) >= 2, (
+        "fewer than two modules found - this gate passes vacuously on a "
+        "package that is only __init__.py, which is why it lands in Task 2 "
+        "rather than Task 1")
+    missing = []
+    for path in _modules():
+        if path.name == "__init__.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        names = [t.id for node in tree.body
+                 if isinstance(node, ast.Assign)
+                 for t in node.targets if isinstance(t, ast.Name)]
+        if "__all__" not in names:
+            missing.append(path.name)
+    print(f"checked {len(_modules())} modules for __all__")
+    assert not missing, f"no __all__ in: {missing}"
+
+
+def test_no_module_reaches_past_another_modules_surface() -> None:
+    """Importing a sibling's underscore name is reaching through the wall.
+
+    If a name is needed elsewhere it is public and belongs in __all__; if it is
+    not, nobody outside should be naming it.
+    """
+    assert len(_modules()) >= 2, (
+        "fewer than two modules found - this gate passes vacuously on a "
+        "package that is only __init__.py, which is why it lands in Task 2 "
+        "rather than Task 1")
+    violations = []
+    for path in _modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if not (node.module or "").startswith("extant"):
+                continue
+            for alias in node.names:
+                if alias.name.startswith("_"):
+                    violations.append(
+                        f"{path.name}:{node.lineno} imports {node.module}.{alias.name}")
+    print(f"checked {len(_modules())} modules for cross-boundary private imports")
+    assert not violations, violations
+
+# test_rules_are_leaves deliberately does NOT live here. Removed per the
+# coordinator's plan fix: it asserts 13 rule modules that only exist from
+# Task 9 onward, and a gate that passes (or fails outright) while examining a
+# population that does not exist yet is the defect this whole file exists to
+# prevent. test_every_module_declares_its_surface and
+# test_no_module_reaches_past_another_modules_surface were deferred for the
+# same reason with a smaller population - there was nothing to check until
+# Task 2 created git.py - and Step 5b added them here once that population
+# existed. Task 9 Step 6d adds test_rules_are_leaves the same way.

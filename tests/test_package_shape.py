@@ -74,3 +74,21 @@ def test_installer_copies_the_whole_package(tmp_path) -> None:
         f"copied {len(landed)} of {len(shipped)} shipped files; "
         f"missing {sorted(shipped - landed)}")
     assert actions, "copy_payload reported nothing it did"
+
+
+def test_git_helpers_differ_in_their_failure_behaviour() -> None:
+    """`_git` raises where `_git_soft` swallows. Collapsing them turns error
+    paths into success paths, which is silent by construction.
+    """
+    sys.path.insert(0, str(PAYLOAD))
+    from extant import git as g
+
+    missing = Path(__file__).resolve().parent / "__no_such_repo__"
+    assert g._git_soft(missing, "rev-parse", "HEAD") == "", (
+        "_git_soft must return empty on failure, not raise")
+    try:
+        g._git(missing, "rev-parse", "HEAD")
+    except Exception:
+        pass
+    else:
+        raise AssertionError("_git must raise on failure, not return empty")
