@@ -135,17 +135,21 @@ def test_every_module_declares_its_surface() -> None:
         "fewer than two modules found - this gate passes vacuously on a "
         "package that is only __init__.py, which is why it lands in Task 2 "
         "rather than Task 1")
+    # __init__.py is exempt (its own docstring says it deliberately holds a
+    # version and nothing else), so the population actually inspected is
+    # everything else - computed once here so the printed denominator matches
+    # the loop below instead of counting __init__.py as checked when the
+    # loop always skips it.
+    checked = [p for p in _modules() if p.name != "__init__.py"]
     missing = []
-    for path in _modules():
-        if path.name == "__init__.py":
-            continue
+    for path in checked:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         names = [t.id for node in tree.body
                  if isinstance(node, ast.Assign)
                  for t in node.targets if isinstance(t, ast.Name)]
         if "__all__" not in names:
             missing.append(path.name)
-    print(f"checked {len(_modules())} modules for __all__")
+    print(f"checked {len(checked)} modules for __all__")
     assert not missing, f"no __all__ in: {missing}"
 
 

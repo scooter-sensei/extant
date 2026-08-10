@@ -76,19 +76,44 @@ def test_installer_copies_the_whole_package(tmp_path) -> None:
     assert actions, "copy_payload reported nothing it did"
 
 
-def test_git_helpers_differ_in_their_failure_behaviour() -> None:
+def test_git_helpers_differ_in_their_failure_behaviour(git_repo) -> None:
     """`_git` raises where `_git_soft` swallows. Collapsing them turns error
     paths into success paths, which is silent by construction.
+
+    The case that actually distinguishes the two is `check=True`: a git
+    command that RUNS and exits non-zero. A freshly `git init`-ed repo with
+    no commits has no HEAD, so `git rev-parse HEAD` exits 128 (see
+    `_git_soft`'s own docstring) without anything being wrong. If `check=True`
+    were ever dropped from `_git`, `subprocess.run` would return that
+    non-zero result instead of raising, and this is the sub-case that would
+    notice - a missing directory (below) raises via OSError before git even
+    runs, so it cannot tell `check=True` apart from its absence.
     """
     sys.path.insert(0, str(PAYLOAD))
     from extant import git as g
 
+    repo, _ = git_repo
+    assert g._git_soft(repo, "rev-parse", "HEAD") == "", (
+        "_git_soft must return empty when git runs and exits non-zero")
+    try:
+        g._git(repo, "rev-parse", "HEAD")
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise AssertionError(
+            "_git must raise when git runs and exits non-zero (that is "
+            "what check=True is for), not return empty")
+
+    # A different failure mode: the command never runs at all. Kept because
+    # _git_soft's contract is to swallow OSError too, not only a
+    # CalledProcessError from a non-zero exit - losing that would let
+    # _git_soft crash on a repo path that does not exist.
     missing = Path(__file__).resolve().parent / "__no_such_repo__"
     assert g._git_soft(missing, "rev-parse", "HEAD") == "", (
         "_git_soft must return empty on failure, not raise")
     try:
         g._git(missing, "rev-parse", "HEAD")
-    except Exception:
+    except OSError:
         pass
     else:
         raise AssertionError("_git must raise on failure, not return empty")
