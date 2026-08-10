@@ -191,11 +191,39 @@ def test_every_shipped_file_is_ascii_including_prose() -> None:
     extensionless hooks are already three such files. Everything tracked is
     read, and a binary would have to be declared here deliberately.
     """
+    import subprocess
+
+    # Enumerated from git, not from a filesystem walk. This test is named for
+    # SHIPPED files, and a file that only exists on disk - untracked scratch,
+    # a downloaded fixture, an editor swap file - is by definition not
+    # shipped. `rglob` could not tell the difference, so an untracked file
+    # sitting in the working tree with an em dash in it failed a test about
+    # what ships. `-z` NUL-separates the output instead of newline-separating
+    # it, because this repository has tracked paths with non-ASCII
+    # characters, and a plain newline split has bitten this project before
+    # (see the "BYTES and NUL separators" comment in extant_collect.py, where
+    # `text=True` translated "\n" to "\r\n" on Windows and silently corrupted
+    # every path but the last). Read as raw bytes for the same reason.
+    proc = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=PACKAGE_ROOT,
+        capture_output=True, check=False,
+    )
+    # Fail loudly rather than silently falling back to zero tracked files: a
+    # check that degrades to "found nothing" on error is indistinguishable
+    # from a clean sweep, which is the exact failure mode this project exists
+    # to prevent.
+    assert proc.returncode == 0, (
+        f"git ls-files -z failed (exit {proc.returncode}), cannot enumerate "
+        f"shipped files:\n{proc.stderr.decode('utf-8', errors='replace')}"
+    )
+    tracked = [p for p in proc.stdout.decode("utf-8").split("\0") if p]
+
     skipped: list[str] = []
     offenders: list[str] = []
     scanned = 0
 
-    for path in sorted(PACKAGE_ROOT.rglob("*")):
+    for rel in sorted(tracked):
+        path = PACKAGE_ROOT / rel
         parts = path.relative_to(PACKAGE_ROOT).parts
         if not path.is_file():
             continue
@@ -217,8 +245,9 @@ def test_every_shipped_file_is_ascii_including_prose() -> None:
             continue
         scanned += 1
 
-    # Denominators. A rglob that matched nothing, or an exclusion that grew to
-    # cover the repository, would otherwise pass in exactly the same silence.
+    # Denominators. A git enumeration that returned nothing, or an exclusion
+    # that grew to cover the repository, would otherwise pass in exactly the
+    # same silence.
     assert scanned > 20, f"only {scanned} files scanned; the sweep is not reaching them"
     assert not skipped, f"binary files present and unexamined: {skipped}"
     assert not offenders, (
