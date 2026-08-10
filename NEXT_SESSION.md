@@ -10,9 +10,10 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 **Status.** Suite is 606 tests, all passing. Thirteen rules, eighteen presets,
 and one new setting. This work is version 0.22.0, tagged at `42cac40`.
-Thirty-one tags from `v0.5.0`, each carrying a GitHub release. Two commits
-landed after the tag and are unreleased: a drifted number the gap audit found,
-and the campaign's own repair.
+Thirty-one tags from `v0.5.0`, each carrying a GitHub release. Two changes to
+shipped content sit above the tag and are unreleased: a drifted number the gap
+audit found (`e44a511`), and the campaign's own repair (`cbfc6bd`). Everything
+else above the tag is this file.
 
 **What shipped.** `exclude_paths`, for documents that are input to a test
 rather than a promise to a reader.
