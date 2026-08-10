@@ -66,3 +66,5 @@ release_claims_name_our_tags = true
 "plugin/skills/extant/SKILL.md" = '^version:\s*(\S+)'
 "pyproject.toml" = '^version = "([^"]+)"'
 "CHANGELOG.md" = '^## (\d+\.\d+\.\d+)'
+"plugin/skills/extant/payload/extant/__init__.py" = '^__version__ = "([^"]+)"'
+"plugin/skills/extant/payload/extant_collect.py" = '^_SHIM_VERSION = "([^"]+)"'

@@ -82,6 +82,11 @@ def install_collector(repo: Path) -> Path:
     tools.mkdir(exist_ok=True)
     for name in ("extant_collect.py", "extant_config.py"):
         shutil.copyfile(PAYLOAD / name, tools / name)
+    # The shim's version handshake (Task 1) imports `extant` at module load,
+    # so a bare shim copy with no package beside it now crashes with
+    # ModuleNotFoundError instead of running. Copy the package too.
+    shutil.copytree(PAYLOAD / "extant", tools / "extant",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     return tools / "extant_collect.py"
 
 

@@ -23,6 +23,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+# A shim older or newer than the package beside it is a half-finished upgrade.
+# It has to fail here, loudly, because the alternative is running whichever
+# version happened to survive and reporting nothing unusual.
+#
+# FIRST, before any other package import. See the note above: an import error
+# from a stale package would otherwise mask this with a worse message.
+_SHIM_VERSION = "0.22.0"
+try:
+    from extant import __version__ as _PACKAGE_VERSION
+except ImportError:                                  # pragma: no cover
+    from tools.extant import __version__ as _PACKAGE_VERSION
+if _PACKAGE_VERSION != _SHIM_VERSION:
+    raise SystemExit(
+        f"extant: version mismatch - tools/extant_collect.py is {_SHIM_VERSION} "
+        f"and tools/extant/ is {_PACKAGE_VERSION}. Re-run the installer with "
+        f"--force to replace both.")
+
 # This file is used two ways: imported as `tools.extant_collect` (tests, where
 # the repo root is on sys.path) and run directly as a script (the hooks and the
 # /extant command, where only tools/ is). The first import fails in the second

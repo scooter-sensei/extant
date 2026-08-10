@@ -383,6 +383,11 @@ def test_verify_reaches_the_rule_for_an_extra_document(git_repo) -> None:
     tools.mkdir(exist_ok=True)
     for name in ("extant_collect.py", "extant_config.py"):
         shutil.copyfile(PAYLOAD / name, tools / name)
+    # The shim's version handshake (Task 1) imports `extant` at module load,
+    # so a bare shim copy with no package beside it now crashes with
+    # ModuleNotFoundError instead of running. Copy the package too.
+    shutil.copytree(PAYLOAD / "extant", tools / "extant",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     result = subprocess.run(
         [sys.executable, str(tools / "extant_collect.py"),
          "--verify", "--repo", str(repo)],
@@ -414,6 +419,11 @@ def test_verify_reaches_the_rule_for_the_primary_document(git_repo) -> None:
     tools.mkdir(exist_ok=True)
     for name in ("extant_collect.py", "extant_config.py"):
         shutil.copyfile(PAYLOAD / name, tools / name)
+    # The shim's version handshake (Task 1) imports `extant` at module load,
+    # so a bare shim copy with no package beside it now crashes with
+    # ModuleNotFoundError instead of running. Copy the package too.
+    shutil.copytree(PAYLOAD / "extant", tools / "extant",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     result = subprocess.run(
         [sys.executable, str(tools / "extant_collect.py"),
          "--verify", "--repo", str(repo)],

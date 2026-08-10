@@ -418,6 +418,11 @@ def test_output_survives_a_console_that_cannot_encode_it(tmp_path) -> None:
     (repo / "tools").mkdir(parents=True)
     for name in ("extant_collect.py", "extant_config.py"):
         shutil.copyfile(PAYLOAD / name, repo / "tools" / name)
+    # The shim's version handshake (Task 1) imports `extant` at module load,
+    # so a bare shim copy with no package beside it now crashes with
+    # ModuleNotFoundError instead of running. Copy the package too.
+    shutil.copytree(PAYLOAD / "extant", repo / "tools" / "extant",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     # Escaped, not literal: every shipped file here is ASCII so that output
     # cannot break a cp437 console, which is the same failure this test is
     # about, one layer up.

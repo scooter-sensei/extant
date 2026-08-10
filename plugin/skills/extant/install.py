@@ -38,6 +38,15 @@ PAYLOAD = [
     # The slash command is RENDERED, not copied - see render_command.
 ]
 
+# The package, copied as a tree. Separate from PAYLOAD because the entries
+# above are files and these are directories, and collapsing the two would mean
+# either globbing the file list or special-casing inside the loop.
+PAYLOAD_TREES = [("payload/extant", "tools/extant")]
+
+# Files a previous version shipped that this one does not. Left in place they
+# stay importable from tools/, which is on sys.path when the shim runs.
+ORPHANS = []
+
 COMMAND_TEMPLATE = "payload/commands/extant.md.template"
 COMMAND_DEST = ".claude/commands/extant.md"
 
@@ -657,6 +666,34 @@ def copy_payload(repo: Path, *, dry_run: bool, force: bool) -> list[str]:
         if not dry_run:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dst)
+
+    for src_rel, dst_rel in PAYLOAD_TREES:
+        src_root = SKILL_ROOT / src_rel
+        if not src_root.is_dir():
+            actions.append(f"MISSING from skill payload: {src_rel}/")
+            continue
+        members = sorted(p for p in src_root.rglob("*.py")
+                         if "__pycache__" not in p.parts)
+        actions.append(f"{src_rel}/: {len(members)} file(s) to place")
+        for src in members:
+            dst = repo / dst_rel / src.relative_to(src_root)
+            if dst.is_file() and not force:
+                same = dst.read_bytes() == src.read_bytes()
+                rel = dst.relative_to(repo).as_posix()
+                actions.append(
+                    f"{rel}: already present and identical, skipped" if same
+                    else f"{rel}: EXISTS AND DIFFERS - left alone, use --force to overwrite")
+                continue
+            actions.append(f"{'would copy' if dry_run else 'copied'} "
+                           f"{dst.relative_to(repo).as_posix()}")
+            if not dry_run:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
+
+    for orphan in ORPHANS:
+        if (repo / orphan).is_file():
+            actions.append(f"{orphan}: ORPHAN from an older layout - "
+                           f"delete it, it is still importable from tools/")
     return actions
 
 

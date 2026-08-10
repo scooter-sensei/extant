@@ -360,8 +360,32 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
     import extant_collect as hc
 
-    source = (SKILL_ROOT / "payload" / "extant_collect.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    sources = [SKILL_ROOT / "payload" / "extant_collect.py"]
+    sources += sorted((SKILL_ROOT / "payload" / "extant").rglob("*.py"))
+    assert len(sources) > 1, (
+        "only the shim was found; after the split this test would scan a "
+        "20-line file and pass while covering none of the real modules")
+    print(f"checked {len(sources)} module(s) for stray CONFIG readers")
+
+    # NOTE: this loop deliberately parses into `module_tree`, not `tree`. `tree`
+    # is reused below (unchanged) to mean specifically the SHIM's AST, for the
+    # "_apply_config is called at import" and "reload_config calls it" checks -
+    # a loop variable named `tree` here would silently rebind it to whichever
+    # package module sorts last and break those checks against the wrong file.
+    strays = []
+    for source_path in sources:
+        module_tree = ast.parse(source_path.read_text(encoding="utf-8"))
+        for node in module_tree.body:
+            if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)):
+                continue
+            name = node.targets[0].id
+            if name == "_CONFIG_DERIVED":
+                continue
+            if any(isinstance(s, ast.Name) and s.id == "CONFIG"
+                   for s in ast.walk(node.value)):
+                strays.append(f"{source_path.name}:{name} (line {node.lineno})")
+    tree = ast.parse(sources[0].read_text(encoding="utf-8"))  # the shim; used below
 
     assert hc._CONFIG_DERIVED, "the derived table is empty; this proves nothing"
     assert all(callable(v) for v in hc._CONFIG_DERIVED.values()), (
@@ -369,18 +393,9 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
         "same way as a copied one and cannot become the forgotten special case"
     )
 
-    # No module-level assignment may read CONFIG except the table itself.
-    strays = []
-    for node in tree.body:
-        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)):
-            continue
-        name = node.targets[0].id
-        if name == "_CONFIG_DERIVED":
-            continue
-        if any(isinstance(s, ast.Name) and s.id == "CONFIG"
-               for s in ast.walk(node.value)):
-            strays.append(f"{name} (line {node.lineno})")
+    # No module-level assignment, in the shim OR anywhere in the package, may
+    # read CONFIG except the table itself. `strays` was built above by walking
+    # every source in `sources`, not just the shim.
     assert not strays, (
         "these globals read CONFIG outside _CONFIG_DERIVED, so reload_config "
         "cannot refresh them and they will keep their import-time value: "

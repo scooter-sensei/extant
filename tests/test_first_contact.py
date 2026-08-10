@@ -99,6 +99,11 @@ def test_a_configured_consistency_timeout_reaches_the_global(tmp_path) -> None:
     _write(repo / ".extant.toml", "consistency_timeout_seconds = 5.0\n")
     for name in ("extant_collect.py", "extant_config.py"):
         shutil.copyfile(PAYLOAD / name, repo / "tools" / name)
+    # The shim's version handshake (Task 1) imports `extant` at module load,
+    # so a bare shim copy with no package beside it now crashes with
+    # ModuleNotFoundError instead of running. Copy the package too.
+    shutil.copytree(PAYLOAD / "extant", repo / "tools" / "extant",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     done = subprocess.run(
         [sys.executable, "-c",
          "import sys; sys.path.insert(0, 'tools');"
