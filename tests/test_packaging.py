@@ -193,17 +193,20 @@ def test_every_shipped_file_is_ascii_including_prose() -> None:
     """
     import subprocess
 
-    # Enumerated from git, not from a filesystem walk. This test is named for
-    # SHIPPED files, and a file that only exists on disk - untracked scratch,
-    # a downloaded fixture, an editor swap file - is by definition not
-    # shipped. `rglob` could not tell the difference, so an untracked file
-    # sitting in the working tree with an em dash in it failed a test about
-    # what ships. `-z` NUL-separates the output instead of newline-separating
-    # it, because this repository has tracked paths with non-ASCII
-    # characters, and a plain newline split has bitten this project before
-    # (see the "BYTES and NUL separators" comment in extant_collect.py, where
-    # `text=True` translated "\n" to "\r\n" on Windows and silently corrupted
-    # every path but the last). Read as raw bytes for the same reason.
+    # Tracked files, enumerated from git rather than a filesystem walk: this
+    # test is named for SHIPPED files, and a file that only exists on disk -
+    # untracked scratch, a downloaded fixture, an editor swap file - is not
+    # itself shipped just by sitting in the working tree. `rglob` could not
+    # tell the difference, so an untracked file with an em dash in it once
+    # failed a test about what ships. `-z` NUL-separates the output instead
+    # of newline-separating it: without it, plain `git ls-files` OCTAL-QUOTES
+    # any path containing a space or a non-ASCII character, which would
+    # silently corrupt the filename rather than merely mis-split it, if one
+    # is ever added. NUL-separation also sidesteps a second, unrelated
+    # failure mode that has already bitten this project: `text=True`
+    # translates "\n" to "\r\n" on Windows, corrupting every path but the
+    # last (see the "BYTES and NUL separators" comment in extant_collect.py).
+    # Read as raw bytes for the same reason.
     proc = subprocess.run(
         ["git", "ls-files", "-z"], cwd=PACKAGE_ROOT,
         capture_output=True, check=False,
@@ -216,13 +219,34 @@ def test_every_shipped_file_is_ascii_including_prose() -> None:
         f"git ls-files -z failed (exit {proc.returncode}), cannot enumerate "
         f"shipped files:\n{proc.stderr.decode('utf-8', errors='replace')}"
     )
-    tracked = [p for p in proc.stdout.decode("utf-8").split("\0") if p]
+    tracked = {p for p in proc.stdout.decode("utf-8").split("\0") if p}
+
+    # Tracked is not the whole story: `install.py`'s `copy_payload` ships this
+    # skill's payload by copying from DISK, not from git. Its PAYLOAD_TREES
+    # loop runs `src_root.rglob("*.py")` over `payload/extant` and copies
+    # whatever it finds with `shutil.copyfile`, so an untracked file sitting
+    # under `plugin/skills/extant/payload/` would be invisible to
+    # `git ls-files` above and would still ship into an adopter's `tools/`.
+    # It is scanned too, unioned with `tracked` below rather than replacing
+    # it - almost every payload file is both tracked and on disk, and using
+    # sets de-duplicates that overlap.
+    payload_root = SKILL_ROOT / "payload"
+    on_disk: set[str] = set()
+    for candidate in payload_root.rglob("*"):
+        if not candidate.is_file():
+            continue
+        rel_parts = candidate.relative_to(PACKAGE_ROOT).parts
+        if {"__pycache__", ".pytest_cache"} & set(rel_parts):
+            continue
+        if any(part.endswith(".egg-info") for part in rel_parts):
+            continue
+        on_disk.add(candidate.relative_to(PACKAGE_ROOT).as_posix())
 
     skipped: list[str] = []
     offenders: list[str] = []
     scanned = 0
 
-    for rel in sorted(tracked):
+    for rel in sorted(tracked | on_disk):
         path = PACKAGE_ROOT / rel
         parts = path.relative_to(PACKAGE_ROOT).parts
         if not path.is_file():
