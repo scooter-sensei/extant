@@ -117,3 +117,25 @@ def test_git_helpers_differ_in_their_failure_behaviour(git_repo) -> None:
         pass
     else:
         raise AssertionError("_git must raise on failure, not return empty")
+
+
+def test_finding_fields_are_frozen_and_ordered() -> None:
+    """The field ORDER is load-bearing: findings are constructed positionally
+    throughout, and `subject` must stay last and optional because the baseline
+    fingerprint keys on (path, kind, detail) and must not shift.
+    """
+    import dataclasses
+    sys.path.insert(0, str(PAYLOAD))
+    from extant.finding import Finding, Located
+
+    names = [f.name for f in dataclasses.fields(Finding)]
+    assert names == ["line", "kind", "detail", "subject"], names
+    assert dataclasses.fields(Finding)[-1].default is None
+    assert [f.name for f in dataclasses.fields(Located)] == [
+        "path", "finding", "primary", "gating"]
+    try:
+        Finding(1, "k", "d").line = 2
+    except dataclasses.FrozenInstanceError:
+        pass
+    else:
+        raise AssertionError("Finding is no longer frozen")
