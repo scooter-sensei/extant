@@ -116,7 +116,17 @@ def test_the_explanation_survived_the_move() -> None:
     # 1371 docstring lines. The code moves wholesale, so the total across the
     # shim and the package should hold. The 5 per cent allowance is for
     # genuinely duplicated headers, not for pruning.
-    floor = int(2784 * 0.95)
+    #
+    # The second term is NOT slack. Task 5 moved `extant_config.py` into the
+    # package as `extant/config.py`, and the population this walks is the
+    # package plus the shim - so a file carrying 274 lines of explanation
+    # (measured at c0a3e90, its last commit outside the package) joined the
+    # count without a single line being written. Left at 2784 the floor would
+    # have gained 274 lines of margin overnight, which is a guard quietly
+    # losing its grip rather than a codebase quietly improving. Raising it by
+    # exactly what arrived keeps the sensitivity the number was chosen for,
+    # and newly holds config.py's own explanation to the same standard.
+    floor = int((2784 + 274) * 0.95)
     print(f"checked {len(files)} files: {comments} comment lines, "
           f"{docs} docstring lines, {total} total against a floor of {floor}")
     assert total >= floor, (

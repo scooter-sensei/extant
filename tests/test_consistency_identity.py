@@ -1,6 +1,6 @@
 """A consistency block reaching one file by two routes compares nothing.
 
-The guard in `extant_config.py` is a STRING comparison at config-load time. It
+The guard in `extant/config.py` is a STRING comparison at config-load time. It
 normalises `docs/x.md` and `docs/./x.md` to one key and rejects the block. It
 cannot normalise a symlink, a hardlink, or a case variant on a case-insensitive
 filesystem, because it never touches the filesystem - so such a block passes

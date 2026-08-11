@@ -865,7 +865,7 @@ def test_a_one_file_check_is_rejected_at_load(tmp_path) -> None:
     Accepting it would produce a rule that passes forever while appearing to
     compare something, which is this project's defining failure mode.
     """
-    from extant_config import load_config
+    from extant.config import load_config
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text(
         "[extant.consistency.version]\n\"only.json\" = '\"v\": \"(.+)\"'\n",
@@ -881,7 +881,7 @@ def test_a_one_file_check_is_rejected_at_load(tmp_path) -> None:
 
 def test_a_pattern_without_a_capture_group_is_rejected(tmp_path) -> None:
     """No capture group means no value to compare."""
-    from extant_config import load_config
+    from extant.config import load_config
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text(
         "[extant.consistency.version]\n"
@@ -1078,7 +1078,7 @@ def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
     check compares nothing while appearing configured. Found by an adversarial
     probe rather than by reasoning about the format.
     """
-    from extant_config import load_config
+    from extant.config import load_config
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text(
         "[extant.consistency.version]\n"
@@ -1095,7 +1095,7 @@ def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
 def test_two_genuinely_different_files_still_load(tmp_path) -> None:
     """The guard must not reject a legitimate pair whose paths merely look
     similar."""
-    from extant_config import load_config
+    from extant.config import load_config
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text(
         "[extant.consistency.version]\n"
@@ -1137,7 +1137,7 @@ def test_config_is_found_by_searching_upward(tmp_path) -> None:
     anywhere else it does not, and looking only beside the script found nothing
     while reporting a healthy run against defaults - which is how this project
     discovered it could not configure its own tool."""
-    from extant_config import load_config
+    from extant.config import load_config
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text('primary_doc = "FOUND.md"\n', encoding="utf-8")
     nested = tmp_path / "plugin" / "skills" / "payload"
@@ -1150,7 +1150,7 @@ def test_config_search_stops_at_the_repository_root(tmp_path) -> None:
     """A project nested inside another checkout must not inherit the outer
     project's settings. Wrong settings that look deliberate are a worse failure
     than the missing-config one this search was added to fix."""
-    from extant_config import load_config
+    from extant.config import load_config
     (tmp_path / ".extant.toml").write_text('primary_doc = "OUTER.md"\n', encoding="utf-8")
     inner = tmp_path / "inner"
     inner.mkdir()

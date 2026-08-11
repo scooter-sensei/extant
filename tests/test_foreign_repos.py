@@ -14,12 +14,13 @@ Each test names the repository that exposed the class.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from conftest import _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -415,14 +416,7 @@ def test_output_survives_a_console_that_cannot_encode_it(tmp_path) -> None:
     ENVIRONMENT copes, not the tool. Every mode crashed without it.
     """
     repo = tmp_path / "repo"
-    (repo / "tools").mkdir(parents=True)
-    for name in ("extant_collect.py", "extant_config.py"):
-        shutil.copyfile(PAYLOAD / name, repo / "tools" / name)
-    # The shim's version handshake (Task 1) imports `extant` at module load,
-    # so a bare shim copy with no package beside it now crashes with
-    # ModuleNotFoundError instead of running. Copy the package too.
-    shutil.copytree(PAYLOAD / "extant", repo / "tools" / "extant",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    _install_into(repo)
     # Escaped, not literal: every shipped file here is ASCII so that output
     # cannot break a cp437 console, which is the same failure this test is
     # about, one layer up.

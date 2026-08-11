@@ -6,6 +6,7 @@ so a failure points at the file you would actually edit.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
+PAYLOAD = SKILL_ROOT / "payload"
 # payload/ holds what is installed into a target repo; SKILL_ROOT holds the
 # installer and the detection module, which stay here. Both are importable so
 # that install-time code is testable, not only the copied part. It was the
@@ -27,6 +29,30 @@ def _run(repo: Path, *args: str) -> str:
     return subprocess.run(
         ["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8", check=True
     ).stdout
+
+
+def _install_into(repo: Path) -> Path:
+    """Reproduce the installed layout: the shim, plus the package beside it.
+
+    A `copyfile` loop silently produced a `tools/` directory with a shim and no
+    package, which fails at import with a message about `extant` rather than
+    about the fixture. That went from one call site to eight the moment the
+    shim's version handshake made the package mandatory, so it lives here once
+    instead of being pasted into each of the seven files that need it.
+
+    The loop it replaces also named `extant_config.py` explicitly. That file is
+    now `extant/config.py` and arrives with the package, which is exactly the
+    kind of per-file list this helper exists to stop anyone maintaining.
+
+    `__pycache__` is not copied: a fixture repository should hold what the
+    installer would put there, not this checkout's bytecode.
+    """
+    tools = Path(repo) / "tools"
+    tools.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(PAYLOAD / "extant_collect.py", tools / "extant_collect.py")
+    shutil.copytree(PAYLOAD / "extant", tools / "extant", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    return tools
 
 
 @pytest.fixture(autouse=True)
@@ -61,6 +87,13 @@ def neutral_config(tmp_path: Path):
 
     saved_config = hc.CONFIG
     saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
+    # `_ACTIVE` is the built Config the package's functions are handed, and it
+    # is the same information as the globals above in a second shape. Restoring
+    # one without the other would leave this module describing two different
+    # projects at once, which is the exact divergence Config was introduced to
+    # end - so it is saved and restored alongside them rather than left to the
+    # next test's reload to fix.
+    saved_active = hc._ACTIVE
     # Per-document state, cleared for the same reason the config is
     # neutralised: it is a module global, and a test that leaves it set makes
     # the NEXT test's answer depend on which one ran first.
@@ -77,6 +110,7 @@ def neutral_config(tmp_path: Path):
         yield
     finally:
         hc.CONFIG = saved_config
+        hc._ACTIVE = saved_active
         hc._DOC_PATH, hc._LINK_BASE = saved_doc, saved_base
         for name, value in saved.items():
             setattr(hc, name, value)

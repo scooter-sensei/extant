@@ -362,7 +362,7 @@ assumption and it is wrong:
 
 | File | Needs |
 |:---|:---|
-| `tools/extant_collect.py`, `tools/extant_config.py` | Python 3.9+ and git |
+| `tools/extant_collect.py`, `tools/extant/` | Python 3.9+ and git |
 | `tools/hooks/*` | a POSIX `sh` |
 | `.extant.toml` | nothing |
 | `.agents/skills/extant/SKILL.md` | nothing. Agent Skills is an open standard, and this is its cross-tool path: read by Codex, Gemini CLI, Copilot, Cursor and Kimi as well as Claude |

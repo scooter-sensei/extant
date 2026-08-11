@@ -14,12 +14,13 @@ that cries wolf on first contact.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from conftest import _install_into
 
 COLLECTOR = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
              / "extant" / "payload" / "extant_collect.py")
@@ -53,15 +54,7 @@ def install_collector(repo: Path) -> Path:
     `.extant.toml` and says so. Any test about the target's own configuration
     has to use the installed shape or it silently tests the wrong settings.
     """
-    tools = repo / "tools"
-    tools.mkdir(exist_ok=True)
-    for name in ("extant_collect.py", "extant_config.py"):
-        shutil.copyfile(COLLECTOR.parent / name, tools / name)
-    # The shim's version handshake (Task 1) imports `extant` at module load,
-    # so a bare shim copy with no package beside it now crashes with
-    # ModuleNotFoundError instead of running. Copy the package too.
-    shutil.copytree(COLLECTOR.parent / "extant", tools / "extant",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    tools = _install_into(repo)
     return tools / "extant_collect.py"
 
 

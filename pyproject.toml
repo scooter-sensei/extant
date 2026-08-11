@@ -55,5 +55,5 @@ extant = "extant_collect:cli"
 
 [tool.setuptools]
 package-dir = {"" = "plugin/skills/extant/payload"}
-py-modules = ["extant_collect", "extant_config"]
+py-modules = ["extant_collect"]
 packages = ["extant"]

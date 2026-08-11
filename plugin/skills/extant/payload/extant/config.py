@@ -5,10 +5,11 @@ names, entry-header shapes, and the patterns each rule matches. The defaults
 reproduce Cerene's behaviour exactly, so a repo with no `.extant.toml` sees no
 change.
 
-    from tools.extant_config import load_config
+    from tools.extant.config import Config, load_config
     cfg = load_config(repo)
     cfg.primary_doc          # "NEXT_SESSION.md"
     cfg.live_phrases         # compiled pattern
+    Config.build(cfg)        # everything DERIVED from those settings
 
 WHY THIS FILE EXISTS, AND THE WARNING THAT COMES WITH IT
 --------------------------------------------------------
@@ -61,6 +62,13 @@ except ModuleNotFoundError:                              # Python < 3.11
         import tomli as tomllib                          # type: ignore[no-redef]
     except ModuleNotFoundError:
         tomllib = None                                   # type: ignore[assignment]
+
+# `tomllib` is deliberately absent: it is an implementation detail of this
+# module's fallback, not something a sibling should reach for. One test does
+# read it, to prove the fallback degrades to None rather than raising at
+# import, which is inspection rather than use.
+__all__ = ["CONFIG_NAME", "Config", "DEFAULTS", "DISABLEABLE", "StatusConfig",
+           "load_config"]
 
 _NO_PARSER = (
     "reading {path} needs a TOML parser.\n\n"
@@ -307,6 +315,123 @@ class StatusConfig:
     todo_markers: re.Pattern[str]
     source: str = "defaults"
     warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+# Derived from `entry_prefix`, and the reason `Config` holds a build METHOD
+# rather than a list of field names to copy. This value is COMPUTED, so an
+# earlier refresh list - which only knew about copies - never mentioned it, and
+# it kept its import-time value forever. That matters on the one path a reload
+# exists for: installed as a package by the pre-commit framework, where
+# configuration is re-read for the target repository. A project whose
+# `entry_prefix` is not the default got the right prefix everywhere and the
+# wrong section splitter.
+#
+# It lived in `extant_collect.py` until the config layer moved here. There it
+# had to be a named helper rather than a plain expression twice over: the
+# global it derives from was defined further down that file, so naming it
+# earlier was a NameError at import, and a reload had to be able to rebuild it.
+# `Config.build` is now its only caller.
+def _section_header(prefix: str) -> re.Pattern[str]:
+    return re.compile("^" + re.escape(prefix.split()[0]) + " ", re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class Config:
+    """Everything derived from a StatusConfig, built in one place.
+
+    Frozen, because the values are derived: changing one without rebuilding the
+    rest is the divergence this replaces. Rebuild by calling `build` again.
+
+    What this replaces, and why: nineteen scattered module-level assignments
+    plus a SECOND list naming which of them to refresh on reload. The same
+    information written twice is an invitation to divergence, and it was
+    accepted - `section_header` is COMPUTED from `entry_prefix` rather than
+    copied, the second list held only copies, and it went stale on every
+    reload. Installed as a package by the pre-commit framework, which is the
+    one path a reload exists for, a project with a non-default heading level
+    got the right prefix everywhere and a splitter looking for the wrong one.
+
+    `build` derives a computed value in the same breath as it copies a plain
+    one, so neither can be the special case that gets forgotten.
+
+    Note what is NOT here: `suite_command`, `venv_python`, `plans_dir` and the
+    three `suite_*` patterns. Nothing was ever derived from those - they are
+    read straight off the StatusConfig at the point of use - so putting them
+    here would mean two names for one value, which is the shape this class
+    exists to remove.
+    """
+
+    primary_doc: str
+    archive_doc: str
+    retain_entries: int
+    trunk: str
+    # None means unbounded, which is the default. Carried through the same
+    # build as everything else rather than kept beside its rule, because a
+    # value living in two places is how `--sweep` shipped broken in 0.13.0.
+    consistency_timeout: float | None
+    archive_header: str
+    base_header: re.Pattern[str]
+    phase_prefix: str
+    pointer_prefix: str
+    phase_task: re.Pattern[str] | None
+    phase_bare: re.Pattern[str] | None
+    todo_marker: re.Pattern[str]
+    live_phrases: re.Pattern[str]
+    branch_token: re.Pattern[str]
+    # Keyed on OPERATIVE markers, never on path shape. Measured against the
+    # real corpus: of 88 path-shaped tokens, 23 do not exist and every one of
+    # those 23 is legitimate - a completed phase describing its own layout,
+    # deferred work never built, a file explicitly described as deleted. A
+    # shape-keyed rule would emit 23 findings, all false. What is falsifiable
+    # is a path offered as a POINTER: "the plan is at X", "read X", "see X".
+    path_pointer: re.Pattern[str]
+    # Requires the SHA to FOLLOW the phrase, so a SHA belonging to a
+    # neighbouring clause is not misread. It no longer requires the target to
+    # be `main`: the claim names its own ref and is checked against that.
+    merge_claim: re.Pattern[str]
+    release_tag: re.Pattern[str]
+    # Whether a release claim in these documents is about THIS repository's
+    # tags. Off by default; see the setting for the 19-of-26 measurement.
+    release_claims_are_ours: bool
+    # COMPUTED, not copied. These three are why this is a build method.
+    section_header: re.Pattern[str]
+    # A frozenset rather than a set: this class is frozen, and a mutable
+    # container inside it would be a hole in that. Membership is the only thing
+    # asked of it either way.
+    todo_excluded_files: frozenset[str]
+    todo_excluded_dir_prefix: tuple[str, ...]
+
+    @classmethod
+    def build(cls, status: StatusConfig) -> Config:
+        """Derive every value, in one pass, from one StatusConfig.
+
+        The single place anything is derived. A caller wanting fresh values
+        after a reload calls this again rather than updating fields, which is
+        why the result is frozen.
+        """
+        return cls(
+            primary_doc=status.primary_doc,
+            archive_doc=status.archive_doc,
+            retain_entries=status.retain_entries,
+            trunk=status.trunk,
+            consistency_timeout=status.consistency_timeout_seconds,
+            archive_header=status.archive_header,
+            base_header=status.base_header,
+            phase_prefix=status.entry_prefix,
+            pointer_prefix=status.pointer_prefix,
+            phase_task=status.phase_task,
+            phase_bare=status.phase_bare,
+            todo_marker=status.todo_markers,
+            live_phrases=status.live_phrases,
+            branch_token=status.branch_token,
+            path_pointer=status.path_pointer,
+            merge_claim=status.merge_claim,
+            release_tag=status.release_tag,
+            release_claims_are_ours=status.release_claims_name_our_tags,
+            section_header=_section_header(status.entry_prefix),
+            todo_excluded_files=frozenset(status.todo_exclude_files),
+            todo_excluded_dir_prefix=tuple(status.todo_exclude_dirs),
+        )
 
 
 _UNKNOWN_HINT = (

@@ -31,7 +31,6 @@ SKILL_ROOT = Path(__file__).resolve().parent
 
 PAYLOAD = [
     ("payload/extant_collect.py", "tools/extant_collect.py"),
-    ("payload/extant_config.py", "tools/extant_config.py"),
     ("payload/hooks/extant-verify", "tools/hooks/extant-verify"),
     ("payload/hooks/main-tree-guard", "tools/hooks/main-tree-guard"),
     ("payload/hooks/install", "tools/hooks/install"),
@@ -45,7 +44,14 @@ PAYLOAD_TREES = [("payload/extant", "tools/extant")]
 
 # Files a previous version shipped that this one does not. Left in place they
 # stay importable from tools/, which is on sys.path when the shim runs.
-ORPHANS = []
+#
+# `tools/extant_config.py` became `tools/extant/config.py`. An upgrade over an
+# older install leaves the old file sitting there, importable, holding whatever
+# DEFAULTS shipped with the version that put it there - so a reader comparing
+# two config modules would find two different answers and no indication which
+# one the tool uses. It is reported rather than deleted: this installer does
+# not remove files from a repository it does not own.
+ORPHANS = ["tools/extant_config.py"]
 
 COMMAND_TEMPLATE = "payload/commands/extant.md.template"
 COMMAND_DEST = ".claude/commands/extant.md"

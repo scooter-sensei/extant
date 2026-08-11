@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _install_into
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 COLLECTOR = PAYLOAD / "extant_collect.py"
@@ -77,16 +79,7 @@ def install_collector(repo: Path) -> Path:
     recognised, would silently measure this project's settings instead of the
     defaults it means to exercise.
     """
-    import shutil
-    tools = repo / "tools"
-    tools.mkdir(exist_ok=True)
-    for name in ("extant_collect.py", "extant_config.py"):
-        shutil.copyfile(PAYLOAD / name, tools / name)
-    # The shim's version handshake (Task 1) imports `extant` at module load,
-    # so a bare shim copy with no package beside it now crashes with
-    # ModuleNotFoundError instead of running. Copy the package too.
-    shutil.copytree(PAYLOAD / "extant", tools / "extant",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    tools = _install_into(repo)
     return tools / "extant_collect.py"
 
 

@@ -38,7 +38,7 @@ session was told to read end to end.
 | File | Role |
 |---|---|
 | `tools/extant_collect.py` | Collector + validator. Modes: `--sweep`, `--validate`, `--verify`, `--deleted-since`, `--search`, `--collect`, `--archive`, `--selftest`. Counted from the parser, never written out here: this line said "Six modes" while listing six and omitting `--search`. |
-| `tools/extant_config.py` | All project-specific values; reads `.extant.toml` |
+| `tools/extant/` | The package the shim delegates to. `config.py` holds all project-specific values and reads `.extant.toml`; the rest is the collector split into modules. Installed as a directory, so a new module needs no entry here. |
 | `tools/hooks/extant-verify` | Re-checks the document after every commit and merge |
 | `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
 | `tools/hooks/install` | Installs the git hooks |

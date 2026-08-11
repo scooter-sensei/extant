@@ -42,12 +42,19 @@ if _PACKAGE_VERSION != _SHIM_VERSION:
 
 # This file is used two ways: imported as `tools.extant_collect` (tests, where
 # the repo root is on sys.path) and run directly as a script (the hooks and the
-# /extant command, where only tools/ is). The first import fails in the second
-# case, so fall back to the sibling module.
+# /extant command, where only tools/ is). The second form is the one that needs
+# a fallback, so it comes second.
+#
+# The BARE name is tried first, and the order is load-bearing rather than
+# stylistic. `extant/collect.py` imports `extant.config` directly, with no
+# fallback; if this line preferred `tools.extant.config` the same file would be
+# imported twice under two module names, and the shim's `Config` would then be
+# a different class from the one the package builds and passes around. Two
+# copies of a config layer is precisely the failure this refactor removes.
 try:
-    from tools.extant_config import load_config
-except ModuleNotFoundError:  # pragma: no cover - exercised by the CLI tests
-    from extant_config import load_config
+    from extant.config import Config, load_config
+except ImportError:  # pragma: no cover - exercised by the CLI tests
+    from tools.extant.config import Config, load_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -57,7 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # below stay module-level constants because the whole module and its tests refer
 # to them directly; only their SOURCE moved.
 #
-# Porting warning, stated at length in tools/extant_config.py: three of these
+# Porting warning, stated at length in tools/extant/config.py: three of these
 # patterns were derived by MEASURING this repo's documents. Copy them to another
 # project without re-measuring and the validator matches nothing while appearing
 # healthy. Run `--init` against the target repo instead of guessing.
@@ -79,28 +86,27 @@ except ValueError as _config_error:
 from extant.git import _git, _git_soft        # noqa: F401  (re-exported)
 
 
-from extant.collect import (          # noqa: F401  (re-exported)
+# The MODULE, because the ten functions that take configuration are wrapped
+# further down and a wrapper must look the name up on the module object at call
+# time. Binding the functions here instead would freeze whichever object
+# existed at import, which is the same rebinding trap this file's config
+# comments describe one layer up.
+from extant import collect as _collect
+
+from extant.collect import (          # noqa: F401  (re-exported as they are:
     _CHECKED, _PYTEST_DURATION, _PYTEST_FAILED, _PYTEST_PASSED, _UNCHECKED,
-    _VENV_LAYOUTS, _python_candidates, changed_files, collect, commits_since,
-    find_boundary, find_python, parse_phase, parse_pytest_summary, read_plan,
-    run_suite, scan_todos,
+    _VENV_LAYOUTS, changed_files,     # these take no configuration)
 )
 
 
-# Derived from CONFIG rather than from _PHASE_PREFIX, which is defined below
-# this line - referring to it here is a NameError at import.
-#
-# Built through a helper so that `reload_config` can rebuild it. Everything
-# else derived from CONFIG goes through the _CONFIG_DERIVED table and is
-# refreshed by name; this one is COMPUTED rather than copied, so it was missed,
-# and kept its import-time value forever. That matters on the one path
-# `reload_config` exists for: installed as a package by the pre-commit
-# framework, where configuration is re-read for the target repository. A
-# project whose `entry_prefix` is not the default got the right prefix
-# everywhere and the wrong section splitter.
-def _section_header(prefix: str) -> re.Pattern[str]:
-    return re.compile("^" + re.escape(prefix.split()[0]) + " ", re.MULTILINE)
-
+# The live Config, and the values the package's functions are handed. Assigned
+# by `_apply_config` and nowhere else: a module-level `_ACTIVE =
+# Config.build(CONFIG)` here would read CONFIG outside the single writer, which
+# is both the bug this shape prevents and a test failure - the AST check in
+# test_packaging.py::test_configuration_is_applied_in_exactly_one_place flags
+# any module-level assignment whose value reads CONFIG, `_CONFIG_DERIVED`
+# excepted. Declared None and filled in below.
+_ACTIVE: Config | None = None
 
 # EVERY module global derived from configuration, and the only place any of
 # them is set. Import and `reload_config` both call `_apply_config`, so the two
@@ -115,55 +121,119 @@ def _section_header(prefix: str) -> re.Pattern[str]:
 # reload_config exists for - a project with a non-default heading level got
 # the right prefix everywhere and a splitter looking for the wrong one.
 #
-# Builders rather than field names, so a computed value is expressed the same
-# way as a copied one and neither can be the special case that gets forgotten.
-_CONFIG_DERIVED: dict[str, Callable[[StatusConfig], object]] = {
+# The DERIVING moved to `Config.build`, which is now the one place a computed
+# value is expressed at all; the reasons each of these takes the shape it does
+# moved with it, to the fields in extant/config.py. What is left here is the
+# mapping from this module's historical global names to those fields, and
+# nothing else. Every entry reads the SAME built Config, so a global and
+# `_ACTIVE` cannot describe different configurations.
+_CONFIG_DERIVED: dict[str, Callable[[Config], object]] = {
     "PRIMARY_DOC": lambda c: c.primary_doc,
     "ARCHIVE_DOC": lambda c: c.archive_doc,
     "RETAIN_ENTRIES": lambda c: c.retain_entries,
     "TRUNK": lambda c: c.trunk,
-    # None means unbounded, which is the default. Routed through this table
-    # rather than assigned beside it, because a value kept in two places is how
-    # `--sweep` shipped broken in 0.13.0.
-    "_CONSISTENCY_TIMEOUT": lambda c: c.consistency_timeout_seconds,
+    "_CONSISTENCY_TIMEOUT": lambda c: c.consistency_timeout,
     "_ARCHIVE_HEADER": lambda c: c.archive_header,
     "_BASE_HEADER": lambda c: c.base_header,
-    "_PHASE_PREFIX": lambda c: c.entry_prefix,
+    "_PHASE_PREFIX": lambda c: c.phase_prefix,
     "_POINTER_PREFIX": lambda c: c.pointer_prefix,
     "_PHASE_TASK": lambda c: c.phase_task,
     "_PHASE_BARE": lambda c: c.phase_bare,
-    "_TODO_MARKER": lambda c: c.todo_markers,
+    "_TODO_MARKER": lambda c: c.todo_marker,
     "_LIVE_PHRASES": lambda c: c.live_phrases,
     "_BRANCH_TOKEN": lambda c: c.branch_token,
-    # Keyed on OPERATIVE markers, never on path shape. Measured against the
-    # real corpus: of 88 path-shaped tokens, 23 do not exist and every one of
-    # those 23 is legitimate - a completed phase describing its own layout,
-    # deferred work never built, a file explicitly described as deleted. A
-    # shape-keyed rule would emit 23 findings, all false. What is falsifiable
-    # is a path offered as a POINTER: "the plan is at X", "read X", "see X".
     "_PATH_POINTER": lambda c: c.path_pointer,
-    # Requires the SHA to FOLLOW the phrase, so a SHA belonging to a
-    # neighbouring clause is not misread. It no longer requires the target to
-    # be `main`: the claim names its own ref and is checked against that.
     "_MERGE_CLAIM": lambda c: c.merge_claim,
     "_RELEASE_TAG": lambda c: c.release_tag,
-    # Whether a release claim in these documents is about THIS repository's
-    # tags. Off by default; see the setting for the 19-of-26 measurement.
-    "_RELEASE_CLAIMS_ARE_OURS": lambda c: c.release_claims_name_our_tags,
-    # COMPUTED, not copied. These three are why this table holds builders.
-    "_SECTION_HEADER": lambda c: _section_header(c.entry_prefix),
-    "_TODO_SCAN_EXCLUDED_FILES": lambda c: set(c.todo_exclude_files),
-    "_TODO_SCAN_EXCLUDED_DIR_PREFIX": lambda c: tuple(c.todo_exclude_dirs),
+    "_RELEASE_CLAIMS_ARE_OURS": lambda c: c.release_claims_are_ours,
+    "_SECTION_HEADER": lambda c: c.section_header,
+    "_TODO_SCAN_EXCLUDED_FILES": lambda c: c.todo_excluded_files,
+    "_TODO_SCAN_EXCLUDED_DIR_PREFIX": lambda c: c.todo_excluded_dir_prefix,
 }
 
 
 def _apply_config() -> None:
     """Set every configuration-derived global from the current CONFIG."""
+    global _ACTIVE
+    _ACTIVE = Config.build(CONFIG)
+    # From `_ACTIVE`, not from a per-name rebuild: one build feeds both, so
+    # there is no arrangement in which a global and `_ACTIVE` disagree.
     for name, build in _CONFIG_DERIVED.items():
-        globals()[name] = build(CONFIG)
+        globals()[name] = build(_ACTIVE)
 
 
 _apply_config()
+
+
+# The package's collect functions take their configuration as an argument. These
+# wrappers supply this module's, and exist because `tools/extant_collect.py` is
+# the installed entry point: its call surface is what the suite and any adopter
+# script already use, so changing arity here would be an API break in the one
+# file whose job is compatibility.
+#
+# Each reads `_ACTIVE` or `CONFIG` at CALL time rather than closing over a value
+# at definition time, so a `reload_config` between import and call is picked up.
+# That is the same rebinding trap extant/collect.py's own comments describe.
+#
+# `_ACTIVE` where a value was DERIVED, `CONFIG` where it never was: nothing was
+# ever derived from `suite_command`, `venv_python`, `plans_dir` or the three
+# `suite_*` patterns, so they are read straight off the settings object. Adding
+# them to Config would mean two names for one value.
+#
+# TRAP for a test written after this: patching a derived global on this module
+# (`hc._PHASE_TASK`, `hc.TRUNK`, `hc.PRIMARY_DOC`, ...) no longer reaches these
+# functions, because they read the built Config instead. Nothing does that
+# today - `_BRANCH_TOKEN` and `_CONSISTENCY_TIMEOUT` are the only two patched
+# anywhere in the suite, and both are read by rules that still live in this
+# file. A test needing a different value must call `reload_config`.
+def parse_phase(subject: str) -> str | None:
+    """Grouping key from a commit subject. See extant.collect.parse_phase."""
+    return _collect.parse_phase(subject, _ACTIVE)
+
+
+def find_boundary(repo: Path) -> str:
+    """SHA of the last commit touching the status doc, else ''."""
+    return _collect.find_boundary(repo, _ACTIVE)
+
+
+def commits_since(repo: Path, boundary: str) -> list[dict[str, str]]:
+    """Commits after `boundary` (exclusive), oldest first, phase-labelled."""
+    return _collect.commits_since(repo, boundary, _ACTIVE)
+
+
+def parse_pytest_summary(output: str) -> dict[str, object]:
+    """Parse a suite summary using the configured patterns."""
+    return _collect.parse_pytest_summary(output, CONFIG)
+
+
+def scan_todos(repo: Path, boundary: str) -> list[dict[str, object]]:
+    """TODO/FIXME/XXX markers in files changed since `boundary`."""
+    return _collect.scan_todos(repo, boundary, _ACTIVE)
+
+
+def _python_candidates(repo: Path) -> list[Path]:
+    """Every interpreter location worth trying, most specific first."""
+    return _collect._python_candidates(repo, CONFIG)
+
+
+def find_python(repo: Path) -> Path | None:
+    """The project's interpreter, or None."""
+    return _collect.find_python(repo, CONFIG)
+
+
+def run_suite(repo: Path, suite_json: str | None) -> dict[str, object]:
+    """Suite result, either supplied or produced by a real run."""
+    return _collect.run_suite(repo, suite_json, CONFIG)
+
+
+def read_plan(repo: Path) -> dict[str, object]:
+    """Completed vs remaining steps in the newest phase plan."""
+    return _collect.read_plan(repo, CONFIG)
+
+
+def collect(repo: Path, suite_json: str | None = None) -> dict[str, object]:
+    """Assemble the full fact bundle. No prose, ever."""
+    return _collect.collect(repo, suite_json, _ACTIVE, CONFIG)
 
 
 def split_entries(text: str) -> tuple[str, list[tuple[str, str]], str]:

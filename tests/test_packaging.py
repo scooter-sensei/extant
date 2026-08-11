@@ -158,7 +158,7 @@ def test_this_repositorys_own_config_is_kept_out_of_tests() -> None:
     looks exactly like one that is working.
     """
     import extant_collect as hc
-    from extant_config import load_config
+    from extant.config import load_config
 
     own = load_config(PACKAGE_ROOT)
 
@@ -500,7 +500,11 @@ def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> Non
 
     before = hc._SECTION_HEADER.pattern
     saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
-    saved_config, saved_header = hc.CONFIG, hc._SECTION_HEADER
+    # `_ACTIVE` holds the same values in a second shape. Restoring the globals
+    # and leaving it behind would put this module in a state neither the test
+    # nor the fixture ever asked for.
+    saved_config, saved_header, saved_active = (
+        hc.CONFIG, hc._SECTION_HEADER, hc._ACTIVE)
     try:
         hc.reload_config(tmp_path)
 
@@ -515,6 +519,7 @@ def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> Non
         assert not hc._SECTION_HEADER.search("## Phase 3 - checkout\n")
     finally:
         hc.CONFIG, hc._SECTION_HEADER = saved_config, saved_header
+        hc._ACTIVE = saved_active
         for name, value in saved.items():
             setattr(hc, name, value)
 
@@ -533,6 +538,8 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
     # `neutral_config` fixture for every test that ran afterwards.
     saved_config = hc.CONFIG
     saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
+    # Same reason as above: the built Config is state this test changes too.
+    saved_active = hc._ACTIVE
     before = hc.PRIMARY_DOC
 
     (tmp_path / ".git").mkdir()
@@ -547,6 +554,7 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
         )
     finally:
         hc.CONFIG = saved_config
+        hc._ACTIVE = saved_active
         for name, value in saved.items():
             setattr(hc, name, value)
     assert hc.PRIMARY_DOC == before
@@ -573,7 +581,7 @@ def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
         "StrEnum": "3.11 (enum.StrEnum)",
         "ExceptionGroup": "3.11",
         "UTC": "3.11 (datetime.UTC)",
-        "tomllib": "3.11 - import it inside a try/except, as extant_config does",
+        "tomllib": "3.11 - import it inside a try/except, as extant/config.py does",
     }
 
     # Looked up rather than named. `ast.Match` does not exist before 3.10 and
@@ -724,27 +732,43 @@ def _module_state(payload_dir, repo, reload_to=None):
 
     target = repr(str(reload_to)) if reload_to else "None"
     script = textwrap.dedent(f"""
-        import json, re, sys
+        import dataclasses, json, re, sys
         sys.path.insert(0, {str(payload_dir)!r})
         import extant_collect as ec
         reload_to = {target}
         if reload_to:
             import pathlib
             ec.reload_config(pathlib.Path(reload_to))
+
+        def canon(value):
+            # The same intent as a flat set/pattern check, applied at EVERY
+            # depth. A set nested inside a dataclass never reaches a top-level
+            # branch, so it falls through to repr() - and a frozenset reprs in
+            # hash order, which differs between any two processes because
+            # string hashing is randomised per process.
+            #
+            # Measured 2026-08-11, when `_ACTIVE` (a Config) became a module
+            # global: its two-element `todo_excluded_files` made this test fail
+            # in five runs out of eight with nothing stale at all. Every other
+            # field was identical in both processes.
+            if isinstance(value, re.Pattern):
+                return "re:" + value.pattern
+            if isinstance(value, (set, frozenset)):
+                return sorted(str(canon(v)) for v in value)
+            if isinstance(value, (list, tuple)):
+                return [str(canon(v)) for v in value]
+            if dataclasses.is_dataclass(value) and not isinstance(value, type):
+                return [f.name + "=" + str(canon(getattr(value, f.name)))
+                        for f in dataclasses.fields(value)]
+            return repr(value)
+
         out = {{}}
         for name, value in vars(ec).items():
             if name.startswith("__") or callable(value):
                 continue
             if isinstance(value, type(sys)) or isinstance(value, type):
                 continue
-            if isinstance(value, re.Pattern):
-                out[name] = "re:" + value.pattern
-            elif isinstance(value, (set, frozenset)):
-                out[name] = sorted(str(v) for v in value)
-            elif isinstance(value, (list, tuple)):
-                out[name] = [str(v) for v in value]
-            else:
-                out[name] = repr(value)
+            out[name] = canon(value)
         # Object reprs carry a memory address, which differs between any two
         # processes and would make every container of functions look stale.
         # The NAMES still compare, which is the part that can go wrong.

@@ -37,6 +37,17 @@ from pathlib import Path
 # what resolves this properly; until then, a test targeting this module must
 # patch extant.git._git / extant.git._git_soft directly, not hc._git.
 from extant import git
+# Configuration arrives as an ARGUMENT to every function here that needs it,
+# and these are the two types it comes in. `Config` carries what is DERIVED
+# from a project's settings; `StatusConfig` is the settings themselves, needed
+# by the four functions below that read a value nothing was ever derived from
+# (`suite_command`, `venv_python`, `plans_dir`, the three `suite_*` patterns).
+#
+# A module-level import is safe here where it was not for the shim's CONFIG:
+# these are classes, fixed for the life of the process, not a name that
+# `reload_config` rebinds. extant/config.py imports nothing from this package,
+# so there is no cycle either.
+from extant.config import Config, StatusConfig
 
 __all__ = [
     "_CHECKED", "_PYTEST_DURATION", "_PYTEST_FAILED", "_PYTEST_PASSED",
@@ -46,7 +57,7 @@ __all__ = [
 ]
 
 
-def parse_phase(subject: str) -> str | None:
+def parse_phase(subject: str, config: Config) -> str | None:
     """Grouping key from a commit subject, 'unknown', or None if disabled.
 
     Prefers the explicit `(9.6 Task 5)` suffix this project uses; falls back to
@@ -57,41 +68,28 @@ def parse_phase(subject: str) -> str | None:
     "unknown" there would be a Cerene habit imposed on a repo that never had
     one, and the installer leaves these unset when it detects no convention.
     """
-    # Task 5 scaffolding: _PHASE_TASK and _PHASE_BARE are config-derived
-    # globals that stay on extant_collect until Task 5 moves config plumbing
-    # into the package. Imported here, inside the function, because at module
-    # level this is a circular import: extant_collect imports extant.collect
-    # at load time, before _apply_config() has set these. The whole module is
-    # imported (not the names) because "extant_collect" string-prefix-matches
-    # "extant" in both test_module_quality.py gates (import-cycle detection
-    # and the private-import ban), which misreads `from extant_collect import
-    # _PHASE_TASK` as a same-package import of an underscore name.
-    import extant_collect
-    if extant_collect._PHASE_TASK is None and extant_collect._PHASE_BARE is None:
+    if config.phase_task is None and config.phase_bare is None:
         return None
-    if extant_collect._PHASE_TASK is not None:
-        match = extant_collect._PHASE_TASK.search(subject)
+    if config.phase_task is not None:
+        match = config.phase_task.search(subject)
         if match:
             return match.group(1)
-    if extant_collect._PHASE_BARE is not None:
-        match = extant_collect._PHASE_BARE.search(subject)
+    if config.phase_bare is not None:
+        match = config.phase_bare.search(subject)
         if match:
             return match.group(1)
     return "unknown"
 
 
-def find_boundary(repo: Path) -> str:
+def find_boundary(repo: Path, config: Config) -> str:
     """SHA of the most recent commit touching the status doc, else ''.
 
     Derived from the repo rather than stored, so there is no marker file or tag
     that can drift out of sync with reality.
     """
-    # Task 5 scaffolding (see parse_phase for why this is a whole-module
-    # import done inside the function).
-    import extant_collect
     try:
         return git._git(repo, "log", "-1", "--format=%H", "--",
-                         extant_collect.PRIMARY_DOC).strip()
+                         config.primary_doc).strip()
     except subprocess.CalledProcessError:
         # A repository with no commits at all: `git log` exits 128 rather than
         # returning nothing, so this is not the same as "the document has never
@@ -101,7 +99,7 @@ def find_boundary(repo: Path) -> str:
         return ""
 
 
-def commits_since(repo: Path, boundary: str) -> list[dict[str, str]]:
+def commits_since(repo: Path, boundary: str, config: Config) -> list[dict[str, str]]:
     """Commits after `boundary` (exclusive), oldest first, phase-labelled."""
     rev_range = f"{boundary}..HEAD" if boundary else "HEAD"
     try:
@@ -113,7 +111,8 @@ def commits_since(repo: Path, boundary: str) -> list[dict[str, str]]:
         if not line.strip():
             continue
         sha, _, subject = line.partition("\x00")
-        commits.append({"sha": sha, "subject": subject, "phase": parse_phase(subject)})
+        commits.append({"sha": sha, "subject": subject,
+                        "phase": parse_phase(subject, config)})
     return commits
 
 
@@ -125,31 +124,24 @@ _PYTEST_FAILED = re.compile(r"(\d+) failed")
 _PYTEST_DURATION = re.compile(r"\bin ([\d.]+)s")
 
 
-def parse_pytest_summary(output: str) -> dict[str, object]:
+def parse_pytest_summary(output: str, status: StatusConfig) -> dict[str, object]:
     """Parse a suite summary using the configured patterns.
 
     Named for pytest because that is this project's runner, but the patterns are
     configurable: jest, vitest, cargo test and dotnet test all print counts that
     a regex can pick up. Pure, so the measured path stays testable without
     paying for a full run.
+
+    Takes the settings rather than a Config: nothing is derived from the three
+    `suite_*` patterns, so a derived copy of them would be a second name for
+    one value. Taken as an ARGUMENT rather than read off a module, because
+    `reload_config` REBINDS the caller's settings object rather than mutating
+    it - a reference captured at import would keep describing whichever project
+    the module was first imported in.
     """
-    # Task 5 scaffolding: CONFIG stays on extant_collect until Task 5 moves
-    # config plumbing into the package. Imported here, inside the function,
-    # but NOT for the circular-import reason parse_phase gives: CONFIG is
-    # assigned near the top of the shim, before the shim's `from
-    # extant.collect import (...)` re-export line, so a module-level `from
-    # extant_collect import CONFIG` would not cycle. The actual reason is
-    # reload_config(): it does `global CONFIG; CONFIG = load_config(repo)`,
-    # which REBINDS the name rather than mutating the object it points to. A
-    # name copied into this module at import time would keep pointing at the
-    # pre-reload CONFIG forever, silently describing some other project after
-    # a reload; going through extant_collect.CONFIG on every call always
-    # reads the current object. Same class of bug as the shim's own
-    # _SECTION_HEADER comment (extant_collect.py's _CONFIG_DERIVED table).
-    import extant_collect
-    passed = extant_collect.CONFIG.suite_passed.search(output)
-    failed = extant_collect.CONFIG.suite_failed.search(output)
-    duration = extant_collect.CONFIG.suite_duration.search(output)
+    passed = status.suite_passed.search(output)
+    failed = status.suite_failed.search(output)
+    duration = status.suite_duration.search(output)
     return {
         "passed": int(passed.group(1)) if passed else 0,
         "failed": int(failed.group(1)) if failed else 0,
@@ -166,17 +158,14 @@ def changed_files(repo: Path, boundary: str) -> list[str]:
     return [line for line in out.splitlines() if line.strip()]
 
 
-def scan_todos(repo: Path, boundary: str) -> list[dict[str, object]]:
+def scan_todos(repo: Path, boundary: str, config: Config) -> list[dict[str, object]]:
     """TODO/FIXME/XXX markers in files changed since `boundary`."""
-    # Task 5 scaffolding: _TODO_MARKER, _TODO_SCAN_EXCLUDED_FILES and
-    # _TODO_SCAN_EXCLUDED_DIR_PREFIX are config-derived globals that stay on
-    # extant_collect until Task 5 (see parse_phase for why this is a
-    # whole-module import done inside the function).
-    import extant_collect
+    markers = config.todo_marker
+    excluded_files = config.todo_excluded_files
+    excluded_dirs = config.todo_excluded_dir_prefix
     found: list[dict[str, object]] = []
     for rel in changed_files(repo, boundary):
-        if (rel in extant_collect._TODO_SCAN_EXCLUDED_FILES
-                or rel.startswith(extant_collect._TODO_SCAN_EXCLUDED_DIR_PREFIX)):
+        if rel in excluded_files or rel.startswith(excluded_dirs):
             continue
         path = repo / rel
         # GA-5: code files only. Including .md makes the tool report its own
@@ -190,7 +179,7 @@ def scan_todos(repo: Path, boundary: str) -> list[dict[str, object]]:
         except (OSError, UnicodeDecodeError):
             continue
         for number, text in enumerate(lines, start=1):
-            if extant_collect._TODO_MARKER.search(text):
+            if markers.search(text):
                 found.append({"file": rel, "line": number, "text": text.strip()})
     return found
 
@@ -209,29 +198,26 @@ _VENV_LAYOUTS = (
 )
 
 
-def _python_candidates(repo: Path) -> list[Path]:
+def _python_candidates(repo: Path, status: StatusConfig) -> list[Path]:
     """Every interpreter location worth trying, most specific first."""
-    # Task 5 scaffolding (see parse_pytest_summary for why this is a
-    # whole-module import done inside the function - CONFIG's reload-rebind
-    # reason, not parse_phase's circular-import one).
-    import extant_collect
     candidates: list[Path] = []
-    if extant_collect.CONFIG.venv_python:
-        candidates.append(repo / extant_collect.CONFIG.venv_python)
+    if status.venv_python:
+        candidates.append(repo / status.venv_python)
     for directory, name in _VENV_LAYOUTS:
         candidates.append(repo / ".venv" / directory / name)
     return candidates
 
 
-def find_python(repo: Path) -> Path | None:
+def find_python(repo: Path, status: StatusConfig) -> Path | None:
     """The project's interpreter, or None. Honours the configured path first."""
-    for candidate in _python_candidates(repo):
+    for candidate in _python_candidates(repo, status):
         if candidate.is_file():
             return candidate.resolve()
     return None
 
 
-def run_suite(repo: Path, suite_json: str | None) -> dict[str, object]:
+def run_suite(repo: Path, suite_json: str | None,
+              status: StatusConfig) -> dict[str, object]:
     """Suite result, either supplied or produced by a real run.
 
     Exactly one source is used and the bundle records which, so a reader can
@@ -246,23 +232,19 @@ def run_suite(repo: Path, suite_json: str | None) -> dict[str, object]:
     that inherit pytest's cwd, and running from a worktree produces roughly
     20 spurious failures. --suite-json is the only correct path there.
     """
-    # Task 5 scaffolding (see parse_pytest_summary for why this is a
-    # whole-module import done inside the function - CONFIG's reload-rebind
-    # reason, not parse_phase's circular-import one).
-    import extant_collect
     if suite_json:
         with open(suite_json, encoding="utf-8") as fh:
             data = json.load(fh)
         data["source"] = "supplied"
         return data
-    command = list(extant_collect.CONFIG.suite_command)
+    command = list(status.suite_command)
     # Only resolve an interpreter if the configured command actually wants one.
     # A JS, Rust or .NET project runs ["npm", "test"] or ["cargo", "test"] and
     # should not be blocked by the absence of a Python virtualenv.
     if any("{python}" in part for part in command):
-        python = find_python(repo)
+        python = find_python(repo, status)
         if python is None:
-            tried = "\n  ".join(str(p) for p in _python_candidates(repo))
+            tried = "\n  ".join(str(p) for p in _python_candidates(repo, status))
             raise RuntimeError(
                 "no project interpreter found, and suite_command needs one "
                 f"({' '.join(command)}). Tried:\n  " + tried + "\n"
@@ -285,7 +267,7 @@ def run_suite(repo: Path, suite_json: str | None) -> dict[str, object]:
             f"suite_command not runnable: {' '.join(command)} ({exc}). "
             "Check the command exists on PATH, or pass --suite-json."
         ) from exc
-    result = parse_pytest_summary(proc.stdout)
+    result = parse_pytest_summary(proc.stdout, status)
     result["source"] = "measured"
     result["exit_code"] = proc.returncode
     return result
@@ -295,7 +277,7 @@ _CHECKED = "- [x]"
 _UNCHECKED = "- [ ]"
 
 
-def read_plan(repo: Path) -> dict[str, object]:
+def read_plan(repo: Path, status: StatusConfig) -> dict[str, object]:
     """Completed vs remaining steps in the newest phase plan.
 
     Plans are date-prefixed (YYYY-MM-DD), so lexical sort is chronological.
@@ -308,16 +290,12 @@ def read_plan(repo: Path) -> dict[str, object]:
     reader (or a fresh session) to infer that distinction: it is True only
     when at least one `- [x]` was actually found in the plan.
     """
-    # Task 5 scaffolding (see parse_pytest_summary for why this is a
-    # whole-module import done inside the function - CONFIG's reload-rebind
-    # reason, not parse_phase's circular-import one).
-    import extant_collect
     empty = {"path": "", "completed": [], "remaining": [], "checkbox_tracking": False}
     # An empty plans_dir switches the feature off, rather than reporting an
     # empty plan for a project that has no such convention at all.
-    if not extant_collect.CONFIG.plans_dir:
+    if not status.plans_dir:
         return {"path": "", "completed": [], "remaining": [], "enabled": False}
-    plans_dir = repo / extant_collect.CONFIG.plans_dir
+    plans_dir = repo / status.plans_dir
     if not plans_dir.is_dir():
         return dict(empty)
     plans = sorted(plans_dir.glob("*.md"))
@@ -341,12 +319,15 @@ def read_plan(repo: Path) -> dict[str, object]:
     }
 
 
-def collect(repo: Path, suite_json: str | None = None) -> dict[str, object]:
-    """Assemble the full fact bundle. No prose, ever."""
-    # Task 5 scaffolding (see parse_phase for why this is a whole-module
-    # import done inside the function).
-    import extant_collect
-    boundary = find_boundary(repo)
+def collect(repo: Path, suite_json: str | None, config: Config,
+            status: StatusConfig) -> dict[str, object]:
+    """Assemble the full fact bundle. No prose, ever.
+
+    Takes both halves of the configuration because it calls functions on both
+    sides of the split: `config` for what a project's settings imply, `status`
+    for the three settings nothing implies anything about.
+    """
+    boundary = find_boundary(repo, config)
     try:
         branch = git._git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
     except subprocess.CalledProcessError:
@@ -359,16 +340,16 @@ def collect(repo: Path, suite_json: str | None = None) -> dict[str, object]:
         except subprocess.CalledProcessError:
             branch = "unknown"
     merged = set(git._git_soft(repo, "branch", "--merged",
-                                extant_collect.TRUNK).replace("*", "").split())
+                                config.trunk).replace("*", "").split())
     all_branches = set(git._git_soft(repo, "branch", "--format=%(refname:short)").split())
-    commits = commits_since(repo, boundary)
+    commits = commits_since(repo, boundary, config)
     return {
         "boundary_sha": boundary,
         "commits": commits,
         "nothing_to_hand_off": not commits,
-        "suite": run_suite(repo, suite_json),
-        "todos": scan_todos(repo, boundary),
-        "plan": read_plan(repo),
+        "suite": run_suite(repo, suite_json, status),
+        "todos": scan_todos(repo, boundary, config),
+        "plan": read_plan(repo, status),
         "git": {
             "branch": branch,
             "unmerged_branches": sorted(all_branches - merged),

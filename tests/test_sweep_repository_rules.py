@@ -19,12 +19,13 @@ tying "once" to a document that usually does not exist.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from conftest import _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -136,15 +137,7 @@ def test_an_inconsistent_artifact_is_reported_by_a_sweep(git_repo) -> None:
            '"a.toml" = \'version = "([0-9.]+)"\'\n'
            '"b.toml" = \'version = "([0-9.]+)"\'\n',
            "chore: consistency block")
-    tools = repo / "tools"
-    tools.mkdir(exist_ok=True)
-    for name in ("extant_collect.py", "extant_config.py"):
-        shutil.copyfile(PAYLOAD / name, tools / name)
-    # The shim's version handshake (Task 1) imports `extant` at module load,
-    # so a bare shim copy with no package beside it now crashes with
-    # ModuleNotFoundError instead of running. Copy the package too.
-    shutil.copytree(PAYLOAD / "extant", tools / "extant",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    tools = _install_into(repo)
     output = sweep(repo, collector=tools / "extant_collect.py")
     assert "settings came from defaults" not in output, (
         f"the target's config was not read, so this proves nothing:\n{output}")

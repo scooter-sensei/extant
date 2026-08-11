@@ -18,6 +18,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from conftest import _install_into
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -177,17 +179,8 @@ def _sweep(repo):
     exactly that and asserted against extant's own settings without noticing -
     the tool's own diagnostic is what caught it.
     """
-    import shutil
     import subprocess
-    tools = Path(repo) / "tools"
-    tools.mkdir(exist_ok=True)
-    for name in ("extant_collect.py", "extant_config.py"):
-        shutil.copyfile(PAYLOAD / name, tools / name)
-    # The shim's version handshake (Task 1) imports `extant` at module load,
-    # so a bare shim copy with no package beside it now crashes with
-    # ModuleNotFoundError instead of running. Copy the package too.
-    shutil.copytree(PAYLOAD / "extant", tools / "extant",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    tools = _install_into(repo)
     done = subprocess.run(
         [sys.executable, str(tools / "extant_collect.py"), "--sweep"],
         cwd=str(repo), capture_output=True, text=True,

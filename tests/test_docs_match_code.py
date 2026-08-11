@@ -211,7 +211,7 @@ def test_every_setting_is_documented_where_users_look() -> None:
     `references/config.md` is where a user looks. Every default belongs there.
     """
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    from extant_config import DEFAULTS
+    from extant.config import DEFAULTS
 
     documented = (SKILL_ROOT / "references" / "config.md").read_text(
         encoding="utf-8")

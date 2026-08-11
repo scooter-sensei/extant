@@ -125,12 +125,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The rule's largest measured blind spot: requiring the commit in
         # backticks hid 32 real merge claims in one repository, written as
         # `PR #499 merged into main at 6ff1f4ac`, across 7,489 files.
-        ("a merge claim must backtick its commit again", collect.parent / "extant_config.py",
+        ("a merge claim must backtick its commit again", collect.parent / "extant/config.py",
          r'r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`?([0-9a-f]{7,40})`?(?![0-9a-f])"',
          r'r"(`[^`\n]+`|[\w.\-/]+)\s+at\s+`([0-9a-f]{7,40})`"'),
         # The boundary the closing backtick used to provide. Without it a
         # 46-character hex run matches its first 40.
-        ("a longer hex run is truncated into a commit", collect.parent / "extant_config.py",
+        ("a longer hex run is truncated into a commit", collect.parent / "extant/config.py",
          r"`?([0-9a-f]{7,40})`?(?![0-9a-f])",
          r"`?([0-9a-f]{7,40})`?"),
         # "No such tag exists" is not a question git can settle - a version in
@@ -387,7 +387,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    return bool(_SHA_SHAPE.match(token))"),
 
         # --- config errors -----------------------------------------------------
-        ("every TOML error blamed on regex quoting again", collect.parent / "extant_config.py",
+        ("every TOML error blamed on regex quoting again", collect.parent / "extant/config.py",
          "    hint = next((h for needle, h in _HINTS if needle in text), _GENERIC_HINT)",
          "    hint = _ESCAPE_HINT"),
 
@@ -514,21 +514,21 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    (base / 'SIDE_EFFECT.txt').write_text('written', encoding='utf-8')"),
 
         # --- config discovery -----------------------------------------------------
-        ("config is no longer searched for upward", detect.parent / "payload/extant_config.py",
+        ("config is no longer searched for upward", detect.parent / "payload/extant/config.py",
          "    for directory in (current, *current.parents):",
          "    for directory in (current,):"),
-        ("config search runs past the repository root", detect.parent / "payload/extant_config.py",
+        ("config search runs past the repository root", detect.parent / "payload/extant/config.py",
          '        if (directory / ".git").exists():\n            return None',
          '        if False:\n            return None'),
         # The 3.9/3.10 fallback. Both mutations are invisible on a modern
         # interpreter, which is the whole difficulty: the tests block the module
         # at import in a subprocess, so they fail here and would not otherwise.
         ("no parser is a hard import error again, not a fallback",
-         detect.parent / "payload/extant_config.py",
+         detect.parent / "payload/extant/config.py",
          "        tomllib = None                                   # type: ignore[assignment]",
          "        raise"),
         ("a config file with no parser fails without saying how to fix it",
-         detect.parent / "payload/extant_config.py",
+         detect.parent / "payload/extant/config.py",
          "    if tomllib is None:\n        raise ValueError(_NO_PARSER.format(path=path))",
          "    if False:\n        raise ValueError(_NO_PARSER.format(path=path))"),
 

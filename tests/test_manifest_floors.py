@@ -14,6 +14,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from conftest import _install_into
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -371,7 +373,6 @@ def test_verify_reaches_the_rule_for_an_extra_document(git_repo) -> None:
     read at all; a first attempt put it at the repository root and the config
     was silently ignored, which made a broken run look like a clean one.
     """
-    import shutil
     import subprocess
     repo, commit = git_repo
     commit("pyproject.toml", PYPROJECT, "chore: manifest")
@@ -379,15 +380,7 @@ def test_verify_reaches_the_rule_for_an_extra_document(git_repo) -> None:
            "docs: readme")
     commit("NEXT_SESSION.md", "# Status\n\nnothing here\n", "docs: status")
     commit(".extant.toml", 'extra_docs = ["README.md"]\n', "chore: config")
-    tools = repo / "tools"
-    tools.mkdir(exist_ok=True)
-    for name in ("extant_collect.py", "extant_config.py"):
-        shutil.copyfile(PAYLOAD / name, tools / name)
-    # The shim's version handshake (Task 1) imports `extant` at module load,
-    # so a bare shim copy with no package beside it now crashes with
-    # ModuleNotFoundError instead of running. Copy the package too.
-    shutil.copytree(PAYLOAD / "extant", tools / "extant",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    tools = _install_into(repo)
     result = subprocess.run(
         [sys.executable, str(tools / "extant_collect.py"),
          "--verify", "--repo", str(repo)],
@@ -408,22 +401,13 @@ def test_verify_reaches_the_rule_for_the_primary_document(git_repo) -> None:
     call sites in --verify, and a mutation proved the test above watches only
     the first: blanking the primary one survived every other test in this file.
     """
-    import shutil
     import subprocess
     repo, commit = git_repo
     commit("pyproject.toml", PYPROJECT, "chore: manifest")
     commit("README.md", "# d\n\nRequirements:\n\n- Python 3.8 or higher\n",
            "docs: readme")
     commit(".extant.toml", 'primary_doc = "README.md"\n', "chore: config")
-    tools = repo / "tools"
-    tools.mkdir(exist_ok=True)
-    for name in ("extant_collect.py", "extant_config.py"):
-        shutil.copyfile(PAYLOAD / name, tools / name)
-    # The shim's version handshake (Task 1) imports `extant` at module load,
-    # so a bare shim copy with no package beside it now crashes with
-    # ModuleNotFoundError instead of running. Copy the package too.
-    shutil.copytree(PAYLOAD / "extant", tools / "extant",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    tools = _install_into(repo)
     result = subprocess.run(
         [sys.executable, str(tools / "extant_collect.py"),
          "--verify", "--repo", str(repo)],
