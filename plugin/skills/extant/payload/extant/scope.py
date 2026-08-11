@@ -88,6 +88,20 @@ class RunScope:
     # Another document's headings, read at most once per call and held no longer
     # than the repository state they were read from.
     target_anchors: dict[Any, Any] = field(default_factory=dict)
+    # Whether a SHA-shaped token resolves to a commit here, keyed
+    # (repo, token). Two rules ask - `dead-sha` about the tokens it found and
+    # `false-merge-claim` about the commit each claim names - and before this
+    # they asked in two separate `cat-file --batch-check` subprocesses, one per
+    # rule, with the sets overlapping. Measured on this repository's own
+    # document: 29 tokens in one batch, 2 in the other, 1 token in both.
+    #
+    # Per TOKEN rather than per batch, so the second rule pays nothing for what
+    # the first already learned, and so a sweep does not re-resolve the same
+    # commit once per document that cites it. The lifetime is the run's, like
+    # every field here: a commit created between two validate() calls has to be
+    # visible to the second, which is the failure `own_remote` below already
+    # had once in the opposite direction.
+    shas: dict[Any, Any] = field(default_factory=dict)
     # The origin. Left uncached at first, then cached with no lifetime at all on
     # the reasoning that a remote cannot change while a process runs - true of
     # the CLI, false of a library caller and of the tests, and the failure it
@@ -205,9 +219,13 @@ class Context:
     run: RunScope
     doc: DocScope
     repo: Path
-    # The Git interface Task 7 introduces; see the note in git.py, which says
-    # the same thing from the other side. Until then the shim's rules call the
-    # module-level `_git` and `_git_soft`, which the tests wrap by name, and a
-    # field holding anything else here would be a false surface rather than a
-    # forward-looking one.
+    # The Git interface from git.py, which says the same thing from the other
+    # side. validate() fills this with whatever the shim currently has
+    # installed, and the shim's rules read that installed name directly,
+    # because a rule taking `(repo, text)` has no argument this could arrive
+    # through. Task 9 gives them the Context and this becomes the only route.
+    #
+    # Still defaulting to None, and deliberately: a Context built without one
+    # must fail where git is used rather than quietly spawn a real process
+    # against a caller's checkout.
     git: Any = None

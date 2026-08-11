@@ -161,9 +161,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # A cost contract: one ref scan answers what `tag -l`, a second
         # `for-each-ref` and per-ref `rev-parse` each asked. 8 spawns per
         # validate became 6, and 261 ms became 214.
+        # The REPLACEMENT was retargeted onto the `_GIT` seam in Task 7, and
+        # --check-only could not have caught it: that only verifies anchors.
+        # Left naming `_git_soft`, this mutation still died - but of a
+        # NameError, because the shim stopped importing that name. A mutation
+        # killed by a crash proves the suite notices crashes, not that anything
+        # pins the property in its label.
         ("the tag list goes back to its own subprocess", collect,
          "    return set(_ref_table(repo)[1])",
-         '    return set(_git_soft(repo, "tag", "-l").split())'),
+         '    return set(_GIT.soft(repo, "tag", "-l").split())'),
         ("an annotated tag stops being peeled to its commit", collect,
          "            commit = peeled or obj",
          "            commit = obj"),
@@ -285,11 +291,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("rename chains no longer followed", collect,
          "    while current in mapping:",
          "    if current in mapping:"),
+        # Retargeted when git calls moved behind the `_GIT` seam in Task 7. The
+        # command is the same command; the name it is reached through is not.
         ("rename map narrowed by a pathspec again (a shipped bug)", collect,
-         '        out = _git(repo, "log", "--diff-filter=R", "--name-status",\n'
-         '                   "--format=", "-n", "200")',
-         '        out = _git(repo, "log", "--diff-filter=R", "--name-status",\n'
-         '                   "--format=", "-n", "200", "--", "nonexistent-path")'),
+         '        out = _GIT.run(repo, "log", "--diff-filter=R", "--name-status",\n'
+         '                       "--format=", "-n", "200")',
+         '        out = _GIT.run(repo, "log", "--diff-filter=R", "--name-status",\n'
+         '                       "--format=", "-n", "200", "--", "nonexistent-path")'),
         ("claim rules stop ignoring fenced code", collect,
          "def _prose(text: str) -> str:",
          "def _prose(text: str) -> str:\n    return text"),
@@ -735,9 +743,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # index empty while HEAD's tree is full, so the sweep reports a clean
         # repository having examined nothing. Measured on a helm clone: 0 files
         # swept against 96 in the tree, exit 0, no diagnostic.
+        # Retargeted onto the `_GIT` seam; see the note at the rename map above.
         ("the sweep reads the index instead of the committed tree", collect,
-         '    out = _git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")',
-         '    out = _git(repo, "ls-files", "-z")'),
+         '    out = _GIT.run(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")',
+         '    out = _GIT.run(repo, "ls-files", "-z")'),
         ("the sweep forgets every format except .md", collect,
          '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))',
          '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md",))'),
@@ -963,9 +972,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    key = str(repo)\n"
          "    if key not in _SCOPE.own_remote:\n"
          "        _SCOPE.own_remote[key] = _normalise_remote(\n"
-         '            _git_soft(repo, "remote", "get-url", "origin"))\n'
+         '            _GIT.soft(repo, "remote", "get-url", "origin"))\n'
          "    return _SCOPE.own_remote[key]",
-         '    return _normalise_remote(_git_soft(repo, "remote", "get-url", "origin"))'),
+         '    return _normalise_remote(_GIT.soft(repo, "remote", "get-url", "origin"))'),
         # `None` means "no origin", which is an ANSWER. Probed by truthiness it
         # is a miss forever, so the cache silently stops working on exactly the
         # repositories that have no remote.

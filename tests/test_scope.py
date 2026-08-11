@@ -35,13 +35,37 @@ sys.path.insert(0, str(PAYLOAD))
 #       discarded exactly when it is needed. See the comment beside it.
 #    1  was deleted: _TAGS has been dead since 6c5c29c rewired _tags() through
 #       _ref_table, and only the save-and-restore choreography still named it.
-CACHE_FIELDS = 22
+#
+# Plus ONE field that migrated from nothing, listed separately so the 26 above
+# still adds up:
+#
+#    1  `shas`, new in Task 7. SHA resolution was not cached at all, so two
+#       rules asking about overlapping tokens spawned a `cat-file
+#       --batch-check` each. It is counted as a cache field below because it is
+#       one, and it starts empty like the rest.
+CACHE_FIELDS = 23
 
 # Not a cache. `stable` says whether a caller has taken ownership of this
 # scope's lifetime for many documents, which is the old `_STABLE_SCOPE` boolean
 # moved onto the object it describes. Excluded from the count above so the
 # denominator keeps counting what it says it counts.
 NOT_A_CACHE = {"stable"}
+
+# Git invocations in the shim that do NOT go through the seam, because they
+# need something `run(repo, *args)` cannot express. Named individually so this
+# is a list somebody maintains rather than a number that drifts:
+#
+#   3  `cat-file` batches, which feed object names to git on STDIN
+#   1  `ls-tree -r -z HEAD`, whose NUL-separated output pairs with the next one
+#   1  `check-attr -z --stdin filter`, also stdin-fed
+#   1  `git show`, which must return BYTES: `_git` passes text=True, which
+#      makes subprocess decode inside a reader thread, so invalid UTF-8 raises
+#      somewhere a caller cannot catch it
+#
+# The seam deliberately did not grow a method for these in Task 7. What it has
+# to do is stay visible, because CountingGit cannot see them and neither will
+# `--profile`; see test_the_rules_reach_git_only_through_the_seam.
+DIRECT_SUBPROCESS_SITES = 6
 
 
 def test_a_nested_run_scope_does_not_disturb_the_outer_one() -> None:
@@ -167,6 +191,65 @@ def test_context_carries_one_run_and_one_document() -> None:
     assert ctx.run is run and ctx.doc is doc
     assert ctx.repo == Path("/repo")
     assert ctx.git is None, (
-        "Context.git holds the Git interface Task 7 introduces; until then the "
-        "shim's rules call the module-level _git and _git_soft, and a field "
-        "pretending otherwise would be a false surface")
+        "a Context built without a Git must carry None rather than quietly "
+        "defaulting to a real one, or a caller that forgot to supply the seam "
+        "spawns processes against its checkout instead of failing")
+
+
+def test_context_carries_the_git_it_was_given() -> None:
+    """The seam is a value on the Context, not a name a rule reaches for.
+
+    Trivial today, because the shim's rules still read the installed module
+    name rather than this field. It is asserted anyway: Task 9 makes this the
+    only route, and a Context that dropped what it was handed would then send
+    every rule to whatever the module happened to be holding.
+    """
+    from extant.git import CountingGit, SubprocessGit
+    from extant.scope import Context, DocScope, RunScope
+
+    fake = CountingGit(SubprocessGit())
+    ctx = Context(config=None, run=RunScope(), doc=DocScope(),
+                  repo=Path("/repo"), git=fake)
+    assert ctx.git is fake
+
+
+def test_the_rules_reach_git_only_through_the_seam() -> None:
+    """Nothing in the shim still calls the raw helpers by name.
+
+    That is what makes the seam substitutable: a call site naming `_git`
+    directly is one a swapped implementation cannot see, and a budget or a
+    profile reading the seam would report a number quietly missing it.
+
+    NOT a claim that the seam is the only route to git, and the second number
+    printed below is why. Six invocations in the shim run git through
+    subprocess directly because they need something `run(repo, *args)` cannot
+    express - stdin for the three `cat-file` batches, a `-z` listing paired
+    with `check-attr --stdin`, and bytes rather than decoded text for `git
+    show`. Those are counted here rather than glossed, so the gap is a number
+    somebody chose and can watch, and so a seventh cannot appear unnoticed.
+    tests/test_spawn_budget.py counts at the subprocess boundary for the same
+    reason: it is the only place that sees both populations.
+    """
+    import re
+
+    source = (PAYLOAD / "extant_collect.py").read_text(encoding="utf-8")
+    direct = re.findall(r"(?<![.\w])_git_soft\(|(?<![.\w])_git\(", source)
+    routed = re.findall(r"(?<![.\w])_GIT\.(?:run|soft)\(", source)
+    outside = re.findall(r'subprocess\.run\(\s*\n?\s*\[\s*"git"', source)
+    print(f"checked extant_collect.py: {len(routed)} call(s) through the seam, "
+          f"{len(direct)} still naming a raw helper, {len(outside)} running "
+          f"git through subprocess directly")
+    # The denominator. A file where nothing reached git at all would satisfy
+    # the assertion below while proving nothing, and that is the exact shape of
+    # broken check this project keeps finding.
+    assert len(routed) >= 12, (
+        f"only {len(routed)} seam call site(s) in the shim; this test passes "
+        f"vacuously below that, because it can only prove an ABSENCE")
+    assert not direct, (
+        f"{len(direct)} call site(s) still bypass the seam; a swapped Git "
+        f"cannot see those calls and a budget reading it would miss them")
+    assert len(outside) <= DIRECT_SUBPROCESS_SITES, (
+        f"{len(outside)} git invocations now bypass the seam entirely, up from "
+        f"{DIRECT_SUBPROCESS_SITES}. Each is invisible to CountingGit and to "
+        f"--profile. If the new one genuinely cannot fit run(repo, *args), "
+        f"raise the number here and say which one it is")

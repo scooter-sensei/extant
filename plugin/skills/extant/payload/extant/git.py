@@ -9,15 +9,76 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-# Transitional, and deliberately naming underscore names. `_git` and
-# `_git_soft` ARE this module's surface today: the shim re-exports them by
-# name, and six test sites wrap them to count calls. Task 7 introduces the
-# `Git` interface with `run` and `soft`, and this becomes ["Git", "SubprocessGit"].
-#
-# Declaring ["run", "soft"] here instead would name two things that do not
-# exist for five more tasks, which is a false surface rather than a forward
-# -looking one.
-__all__ = ["_git", "_git_soft"]
+# The surface Task 2 said this would become. `_git` and `_git_soft` were
+# declared here transitionally, because the shim re-exported them by name and
+# five test sites wrapped them to count calls; both are back to being private
+# implementation, called by SubprocessGit and named nowhere outside this file.
+__all__ = ["Git", "SubprocessGit", "CountingGit"]
+
+
+class Git:
+    """The subcommands the validator asks for, behind one replaceable object.
+
+    Both behaviours are modelled deliberately. `run` raises where `soft`
+    returns empty, and an implementation that collapses them turns every error
+    path into a success path, which is silent by construction. The two
+    docstrings below say which is which; the reasoning for the distinction is
+    on `_git_soft`, which is where it was written when the distinction was
+    made.
+    """
+
+    def run(self, repo: Path, *args: str) -> str:
+        """Run git in `repo` and return stdout. Raises when git fails."""
+        raise NotImplementedError
+
+    def soft(self, repo: Path, *args: str) -> str:
+        """Run git in `repo`, returning "" rather than raising when it fails."""
+        raise NotImplementedError
+
+
+class SubprocessGit(Git):
+    """The real one: a `git` process per call."""
+
+    def run(self, repo: Path, *args: str) -> str:
+        return _git(repo, *args)
+
+    def soft(self, repo: Path, *args: str) -> str:
+        return _git_soft(repo, *args)
+
+
+class CountingGit(Git):
+    """A Git that records every command, for budgets and profiles.
+
+    Delegating rather than subclassing SubprocessGit so that a fake can be
+    counted the same way.
+
+    ONE entry per call, including a soft one, and that is the difference from
+    the wrapper-counting it replaces. `_git_soft` delegates to `_git`, so a
+    test that wrapped both names by hand saw two entries for one soft call -
+    and the spawn figure this seam was built to defend was measured that way,
+    wrongly, the first time. Here the delegation happens inside SubprocessGit,
+    BELOW the interface, so it cannot be seen twice.
+
+    Not a spawn count, and must not be read as one. Six git invocations in the
+    shim do not fit `run(repo, *args)` - three `cat-file` batches fed on stdin,
+    a `-z` listing paired with `check-attr --stdin`, and a `git show` that must
+    return bytes - so they call subprocess directly and are invisible here.
+    tests/test_spawn_budget.py counts at the subprocess boundary for exactly
+    that reason, and tests/test_scope.py prints both populations so the gap is
+    a number somebody chose rather than one nobody noticed.
+    """
+
+    def __init__(self, inner: Git) -> None:
+        self.inner = inner
+        self.calls: list[tuple[str, ...]] = []
+
+    def run(self, repo: Path, *args: str) -> str:
+        self.calls.append(args)
+        return self.inner.run(repo, *args)
+
+    def soft(self, repo: Path, *args: str) -> str:
+        self.calls.append(args)
+        return self.inner.soft(repo, *args)
 
 
 def _git_soft(repo: Path, *args: str) -> str:

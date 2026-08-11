@@ -36,14 +36,16 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
-    calls: list[tuple[str, ...]] = []
-    real = hc._git_soft
-
-    def counted(target, *args):
-        calls.append(args)
-        return real(target, *args)
-
-    monkeypatch.setattr(hc, "_git_soft", counted)
+    # Through the seam, not by wrapping the module function. Two things follow
+    # from that and both matter here. The rules now reach git only through
+    # `_GIT`, so wrapping `_git_soft` by name would intercept nothing and this
+    # test would pass while counting an empty list. And CountingGit records one
+    # entry per CALL, where the old wrapping saw two for every soft call
+    # because `_git_soft` delegates to `_git` - so the numbers below are the
+    # questions asked rather than the frames entered.
+    counter = hc.CountingGit(hc.SubprocessGit())
+    monkeypatch.setattr(hc, "_GIT", counter)
+    calls = counter.calls
     # A fresh ambient scope, rather than clearing the one cache this test
     # knows the name of. `_own_remote` is called DIRECTLY here, so what it
     # memoises into is whatever scope the module is holding.
@@ -77,14 +79,9 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
-    calls: list[tuple[str, ...]] = []
-    real = hc._git_soft
-
-    def counted(target, *args):
-        calls.append(args)
-        return real(target, *args)
-
-    monkeypatch.setattr(hc, "_git_soft", counted)
+    counter = hc.CountingGit(hc.SubprocessGit())
+    monkeypatch.setattr(hc, "_GIT", counter)
+    calls = counter.calls
     hc._SCOPE = hc.RunScope()
     try:
         assert hc._own_remote(repo) is None, "the fixture has no origin"
@@ -137,7 +134,63 @@ def test_the_remote_is_re_read_between_validate_calls(git_repo) -> None:
     )
 
 
-def test_a_sweep_still_shares_the_remote_across_documents(git_repo) -> None:
+def test_a_resolved_sha_is_re_read_between_validate_calls(
+        git_repo, tmp_path) -> None:
+    """The same lifetime rule, applied to the cache Task 7 added.
+
+    Whether a SHA resolves is memoised so that two rules asking about
+    overlapping tokens cost ONE `cat-file --batch-check` instead of two. That
+    is a per-run answer and not a permanent one: an object can arrive between
+    two validations, and a cache with no lifetime would keep reporting a live
+    reference as dead - a finding against a document that is correct, which is
+    the direction of error that gets a validator switched off.
+
+    Dead-then-alive on purpose, and with THE SAME token both times. The other
+    direction would pass against a cache that is never written at all, and two
+    different tokens would pass against one that is never dropped, because the
+    second was never asked about. Only one shape can tell the two apart.
+
+    The object arrives by fetching it from a donor repository rather than by
+    committing here, because an abbreviated SHA cannot be written into the
+    document before the commit that produces it exists.
+    """
+    import subprocess
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("README.md", "# R\n", "chore: init")
+
+    donor = tmp_path / "donor"
+    donor.mkdir()
+    for args in (("init", "-b", "main"),
+                 ("config", "user.email", "test@example.com"),
+                 ("config", "user.name", "Test")):
+        subprocess.run(["git", *args], cwd=donor, check=True,
+                       capture_output=True)
+    (donor / "a.py").write_text("a = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "a.py"], cwd=donor, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "commit", "-m", "feat: a"], cwd=donor, check=True,
+                   capture_output=True)
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=donor, check=True,
+                         capture_output=True, text=True).stdout.strip()[:9]
+
+    doc = f"Landed at `{sha}`.\n"
+    before = [f.kind for f in hc.validate(repo, doc, has_entries=False)]
+    assert "dead-sha" in before, (
+        "the setup is wrong: the donor's commit is not here yet, so this "
+        "reference should be reported dead: " + str(before))
+
+    subprocess.run(["git", "fetch", str(donor), "main"], cwd=repo, check=True,
+                   capture_output=True)
+
+    after = [f.kind for f in hc.validate(repo, doc, has_entries=False)]
+    assert "dead-sha" not in after, (
+        "the same token was still reported dead after the object arrived, so "
+        "the SHA cache outlived the run it belongs to: " + str(after))
+
+
+def test_a_sweep_still_shares_the_remote_across_documents(
+        git_repo, monkeypatch) -> None:
     """The reset above must not undo the reason the cache exists.
 
     Per-call is correct outside a sweep and would be ruinous inside one: the
@@ -151,15 +204,15 @@ def test_a_sweep_still_shares_the_remote_across_documents(git_repo) -> None:
     commit("docs/a.md", "# A\n", "chore: a")
     commit("docs/b.md", "# B\n", "chore: b")
 
-    calls: list[tuple[str, ...]] = []
-    real = hc._git_soft
-    hc._git_soft = lambda target, *args: (calls.append(args), real(target, *args))[1]
-    try:
-        hc.run_sweep(repo, "text")
-    finally:
-        hc._git_soft = real
+    # `monkeypatch` rather than the bare assign-and-restore this used to do:
+    # the old form leaked the wrapper onto the module whenever `run_sweep`
+    # raised before its `finally`, and the seam makes the swap a one-liner
+    # anyway.
+    counter = hc.CountingGit(hc.SubprocessGit())
+    monkeypatch.setattr(hc, "_GIT", counter)
+    hc.run_sweep(repo, "text")
 
-    remote_calls = [c for c in calls if c[:1] == ("remote",)]
+    remote_calls = [c for c in counter.calls if c[:1] == ("remote",)]
     assert len(remote_calls) <= 1, (
         f"a 3-document sweep asked for the origin {len(remote_calls)} times; "
         "the stable scope is meant to make that once"
@@ -362,20 +415,14 @@ def test_integration_refs_are_asked_for_once_not_once_per_claim(
         subprocess.run(["git", "tag", f"v1.{n}.0"], cwd=repo, check=True,
                        capture_output=True)
 
-    calls: list[tuple[str, ...]] = []
-    real = hc._git
-
-    def counted(target, *args):
-        calls.append(args)
-        return real(target, *args)
-
-    monkeypatch.setattr(hc, "_git", counted)
+    counter = hc.CountingGit(hc.SubprocessGit())
+    monkeypatch.setattr(hc, "_GIT", counter)
     text = ("# R\n\n"
             + "".join(f"- shipped in v1.{n % 3}.0 that week.\n"
                       for n in range(40)))
     hc.validate(repo, text, has_entries=False)
 
-    scans = [c for c in calls if c[:1] == ("for-each-ref",)]
+    scans = [c for c in counter.calls if c[:1] == ("for-each-ref",)]
     assert len(scans) <= 1, (
         f"40 release claims spawned {len(scans)} `for-each-ref` processes; the "
         "branch list cannot change while one validation runs"

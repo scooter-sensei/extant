@@ -77,46 +77,96 @@ def test_installer_copies_the_whole_package(tmp_path) -> None:
 
 
 def test_git_helpers_differ_in_their_failure_behaviour(git_repo) -> None:
-    """`_git` raises where `_git_soft` swallows. Collapsing them turns error
-    paths into success paths, which is silent by construction.
+    """`run` raises where `soft` swallows. Collapsing them turns error paths
+    into success paths, which is silent by construction.
 
     The case that actually distinguishes the two is `check=True`: a git
     command that RUNS and exits non-zero. A freshly `git init`-ed repo with
     no commits has no HEAD, so `git rev-parse HEAD` exits 128 (see
     `_git_soft`'s own docstring) without anything being wrong. If `check=True`
-    were ever dropped from `_git`, `subprocess.run` would return that
-    non-zero result instead of raising, and this is the sub-case that would
-    notice - a missing directory (below) raises via OSError before git even
-    runs, so it cannot tell `check=True` apart from its absence.
+    were ever dropped, `subprocess.run` would return that non-zero result
+    instead of raising, and this is the sub-case that would notice - a missing
+    directory (below) raises via OSError before git even runs, so it cannot
+    tell `check=True` apart from its absence.
+
+    Through `SubprocessGit` rather than the two underscore helpers it delegates
+    to, since Task 7 made those private again. The contract is the same one and
+    is asserted at the level that now carries it - which is strictly more than
+    before, because a SubprocessGit that wired `run` to the swallowing helper
+    would pass the old form of this test and fail this one.
     """
     sys.path.insert(0, str(PAYLOAD))
-    from extant import git as g
+    from extant.git import SubprocessGit
 
+    git = SubprocessGit()
     repo, _ = git_repo
-    assert g._git_soft(repo, "rev-parse", "HEAD") == "", (
-        "_git_soft must return empty when git runs and exits non-zero")
+    assert git.soft(repo, "rev-parse", "HEAD") == "", (
+        "soft must return empty when git runs and exits non-zero")
     try:
-        g._git(repo, "rev-parse", "HEAD")
+        git.run(repo, "rev-parse", "HEAD")
     except subprocess.CalledProcessError:
         pass
     else:
         raise AssertionError(
-            "_git must raise when git runs and exits non-zero (that is "
+            "run must raise when git runs and exits non-zero (that is "
             "what check=True is for), not return empty")
 
     # A different failure mode: the command never runs at all. Kept because
-    # _git_soft's contract is to swallow OSError too, not only a
+    # soft's contract is to swallow OSError too, not only a
     # CalledProcessError from a non-zero exit - losing that would let
-    # _git_soft crash on a repo path that does not exist.
+    # soft crash on a repo path that does not exist.
     missing = Path(__file__).resolve().parent / "__no_such_repo__"
-    assert g._git_soft(missing, "rev-parse", "HEAD") == "", (
-        "_git_soft must return empty on failure, not raise")
+    assert git.soft(missing, "rev-parse", "HEAD") == "", (
+        "soft must return empty on failure, not raise")
     try:
-        g._git(missing, "rev-parse", "HEAD")
+        git.run(missing, "rev-parse", "HEAD")
     except OSError:
         pass
     else:
-        raise AssertionError("_git must raise on failure, not return empty")
+        raise AssertionError("run must raise on failure, not return empty")
+
+
+def test_the_base_git_refuses_to_answer_rather_than_guessing(git_repo) -> None:
+    """`Git` itself is not a working implementation, and must not become one.
+
+    A base class that returned "" from both methods would satisfy every caller
+    and silence every rule that asks git a question, which is the exact failure
+    mode this project exists to catch: a check that examines nothing prints the
+    same thing as a check that found nothing.
+    """
+    sys.path.insert(0, str(PAYLOAD))
+    from extant.git import Git
+
+    repo, _ = git_repo
+    for method in ("run", "soft"):
+        try:
+            getattr(Git(), method)(repo, "rev-parse", "HEAD")
+        except NotImplementedError:
+            continue
+        raise AssertionError(
+            f"Git.{method} answered instead of refusing; an unimplemented seam "
+            f"that returns a value makes every rule silently pass")
+
+
+def test_counting_git_records_one_entry_per_call(git_repo) -> None:
+    """One entry per call, including a soft one.
+
+    The wrapper-counting this replaces saw TWO for every soft call, because
+    `_git_soft` delegates to `_git` and both names were patched. That is not a
+    tidiness point: the spawn figure this refactor was measured against was
+    inflated exactly that way on the first attempt, and a budget built on it
+    would have been set 40 per cent too high.
+    """
+    sys.path.insert(0, str(PAYLOAD))
+    from extant.git import CountingGit, SubprocessGit
+
+    repo, _ = git_repo
+    counter = CountingGit(SubprocessGit())
+    counter.soft(repo, "rev-parse", "HEAD")     # fails: no commits yet
+    counter.soft(repo, "status", "--porcelain")
+    assert counter.calls == [("rev-parse", "HEAD"), ("status", "--porcelain")], (
+        f"a soft call must be recorded once, and a failing one still recorded: "
+        f"{counter.calls}")
 
 
 def test_finding_fields_are_frozen_and_ordered() -> None:

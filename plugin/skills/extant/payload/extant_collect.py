@@ -19,9 +19,10 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 # A shim older or newer than the package beside it is a half-finished upgrade.
 # It has to fail here, loudly, because the alternative is running whichever
@@ -90,7 +91,9 @@ except ValueError as _config_error:
     raise
 
 
-from extant.git import _git, _git_soft        # noqa: F401  (re-exported)
+from extant.git import CountingGit, Git, SubprocessGit   # noqa: F401
+#                      ^ re-exported: the tests that pin a memoisation contract
+#                        install one of these in place of `_GIT` below.
 
 
 # The MODULE, because the ten functions that take configuration are wrapped
@@ -131,6 +134,18 @@ from extant.scope import Context, DocScope, RunScope
 # uncached outside a call - see the field's own comment.
 _SCOPE = RunScope()
 _DOC = DocScope()
+
+# The third installed name, beside the two scopes and there for the same
+# reason: a rule taking `(repo, text)` has no argument through which a Git
+# could be handed to it. `Context.git` carries this same object, and Task 9
+# makes that the route once the rules take a Context.
+#
+# Swapping ONE name is what lets a test see what the rules ask git without
+# wrapping module functions by hand, and that is not a tidiness point. The
+# hand-wrapping it replaces counted a soft call twice, because `_git_soft`
+# delegates to `_git`; the same mistake put the spawn figure this budget
+# defends 40 percent too high the first time it was measured.
+_GIT: Git = SubprocessGit()
 
 
 def _set_document(**changes: object) -> None:
@@ -671,7 +686,7 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
 
 def _sha_exists(repo: Path, sha: str) -> bool:
     try:
-        _git(repo, "cat-file", "-e", f"{sha}^{{commit}}")
+        _GIT.run(repo, "cat-file", "-e", f"{sha}^{{commit}}")
         return True
     except subprocess.CalledProcessError:
         return False
@@ -691,10 +706,35 @@ def _resolve_shas(repo: Path, tokens: list[str]) -> set[str]:
     status document plus its archive carries ~60 references. Batching takes
     `--verify` from about 2.6 s to under half a second, which is what makes it
     cheap enough to run from a git hook on every commit.
+
+    Answered from the run scope wherever it can be, because ONE call per rule
+    is not the same as one call per document. Two rules ask - see
+    `_document_sha_tokens` - and each was spawning its own batch even for
+    tokens the other had already resolved. Whether a commit exists is a fact
+    about the repository, identical whoever asks, so the answer is kept per
+    TOKEN and the batch below carries only what has not been asked yet. The
+    lifetime is stated on `RunScope.shas`.
     """
     unique = sorted(set(tokens))
     if not unique:
         return set()
+    known = _SCOPE.shas
+    repo_key = str(repo)
+    unasked = [token for token in unique if (repo_key, token) not in known]
+    if unasked:
+        alive = _batch_shas(repo, unasked)
+        # Every token asked about is recorded, including the ones that did not
+        # resolve. A dict written only on success is a cache that misses
+        # forever on precisely the tokens this rule reports, which is the
+        # `_OWN_REMOTE` mistake in a second place: `None` and "not resolved"
+        # are ANSWERS, not misses.
+        for token in unasked:
+            known[(repo_key, token)] = token in alive
+    return {token for token in unique if known[(repo_key, token)]}
+
+
+def _batch_shas(repo: Path, unique: list[str]) -> set[str]:
+    """The batch itself. Separate only so the memo above stays readable."""
     payload = "".join(f"{token}^{{commit}}\n" for token in unique)
     proc = subprocess.run(
         ["git", "cat-file", "--batch-check"],
@@ -710,6 +750,65 @@ def _resolve_shas(repo: Path, tokens: list[str]) -> set[str]:
         # it through as though the object had resolved.
         if len(line.split()) == 3 and not line.rstrip().endswith("missing")
     }
+
+
+def _document_sha_tokens(prose: str) -> list[str]:
+    """Every SHA-shaped token in this document that a rule will ask git about.
+
+    The UNION, gathered once so a document costs ONE `cat-file --batch-check`
+    rather than one per rule that reads SHAs. Two rules read them:
+    `validate_references`, for its backticked and bare candidates, and
+    `validate_merge_claims`, for the commit each claim names.
+
+    GATHERING THE TOKENS IS NOT GATHERING THE CANDIDATES, and that distinction
+    is the whole safety argument. Each rule still finds its own candidates and
+    decides its own findings from them; what is shared is only the question put
+    to git, which is per token and gives the same answer whoever asks. A larger
+    batch cannot change any token's answer, so nothing here can move a finding.
+
+    Measured on this repository's own document before it existed: 29 tokens in
+    one batch and 2 in another, overlapping in 1. A per-token memo alone would
+    therefore have left two subprocesses, because the odd token out is real
+    rather than an artefact - `PR #499 merged into main at 6ff1f4ac` backticks
+    the whole phrase, so the commit inside it is neither a backticked TOKEN nor
+    a bare one, and only the claim rule ever sees it.
+
+    Takes PROSE, because both callers blank code blocks before reading and
+    passing raw text here would resolve tokens from fences that no rule reads.
+    """
+    tokens = [token for _number, token in find_sha_candidates(prose)]
+    tokens += [token for _number, token in find_bare_sha_candidates(prose)]
+    tokens += [sha for _number, _ref, sha in _merge_claims(prose)]
+    return tokens
+
+
+def _document_shas(repo: Path, prose: str) -> set[str]:
+    """Which of this document's SHA-shaped tokens resolve to commits."""
+    return _resolve_shas(repo, _document_sha_tokens(prose))
+
+
+def _merge_claims(prose: str) -> list[tuple[int, str, str]]:
+    """(line, ref, sha) for every merge claim, ref as written.
+
+    Split out of `validate_merge_claims` so `_document_sha_tokens` can see the
+    commits a claim names without reimplementing how a claim is found. One
+    reader of `_MERGE_CLAIM`, so a project that customises the pattern cannot
+    end up with the batch and the rule disagreeing about what a claim is.
+
+    A two-group pattern means (ref, sha). A one-group pattern is the older
+    contract and still means (sha), checked against trunk exactly as before.
+    """
+    named = _MERGE_CLAIM.groups >= 2
+    claims: list[tuple[int, str, str]] = []
+    for number, line in enumerate(prose.splitlines(), start=1):
+        for match in _MERGE_CLAIM.finditer(line):
+            if named:
+                # The pattern keeps any backticks so the rule can tell a
+                # deliberate ref from a word of prose. See _claimed_ref.
+                claims.append((number, match.group(1), match.group(2)))
+            else:
+                claims.append((number, TRUNK, match.group(1)))
+    return claims
 
 
 # A changesets release note. The id is minted by the tool, not by git.
@@ -741,7 +840,11 @@ def validate_references(repo: Path, text: str) -> list[Finding]:
     findings: list[Finding] = []
     backticked = find_sha_candidates(text)
     bare = find_bare_sha_candidates(text)
-    alive = _resolve_shas(repo, [t for _, t in backticked] + [t for _, t in bare])
+    # The document's tokens rather than only this rule's two lists, so the
+    # whole document costs one batch. Only `backticked` and `bare` decide
+    # anything below; see `_document_sha_tokens` for why a wider batch cannot
+    # move a finding.
+    alive = _document_shas(repo, text)
     for number, token in backticked:
         if token not in alive:
             findings.append(
@@ -867,7 +970,7 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
 
 def _branch_exists(repo: Path, branch: str) -> bool:
     try:
-        _git(repo, "rev-parse", "--verify", branch)
+        _GIT.run(repo, "rev-parse", "--verify", branch)
         return True
     except subprocess.CalledProcessError:
         return False
@@ -901,7 +1004,7 @@ def _ancestor_index(repo: Path, ref: str) -> dict[str, list[str]] | None:
     if key in _SCOPE.ancestors:
         return _SCOPE.ancestors[key]
     try:
-        out = _git(repo, "rev-list", ref)
+        out = _GIT.run(repo, "rev-list", ref)
     except (subprocess.CalledProcessError, OSError):
         _SCOPE.ancestors[key] = None
         return None
@@ -917,7 +1020,7 @@ def _reachable_from(repo: Path, rev: str, ref: str) -> bool:
     index = _ancestor_index(repo, ref)
     if index is None:
         try:
-            _git(repo, "merge-base", "--is-ancestor", rev, ref)
+            _GIT.run(repo, "merge-base", "--is-ancestor", rev, ref)
             return True
         except (subprocess.CalledProcessError, OSError):
             return False
@@ -961,8 +1064,8 @@ def _resolve_ref(repo: Path, ref: str) -> str | None:
         # Not a plain branch or tag name: a raw SHA, a remote-tracking ref,
         # `HEAD`, `main~3`. Those still need git, and still cost a spawn.
         try:
-            resolved = _git(repo, "rev-parse", "--verify", "--quiet",
-                            f"{ref}^{{commit}}").strip() or None
+            resolved = _GIT.run(repo, "rev-parse", "--verify", "--quiet",
+                                f"{ref}^{{commit}}").strip() or None
         except (subprocess.CalledProcessError, OSError):
             resolved = None
     _SCOPE.refs[key] = resolved
@@ -985,9 +1088,9 @@ def _ref_table(repo: Path) -> tuple[dict[str, str], dict[str, str]]:
         heads: dict[str, str] = {}
         tags: dict[str, str] = {}
         try:
-            out = _git(repo, "for-each-ref",
-                       "--format=%(refname)\t%(objectname)\t%(*objectname)",
-                       "refs/heads", "refs/tags")
+            out = _GIT.run(repo, "for-each-ref",
+                           "--format=%(refname)\t%(objectname)\t%(*objectname)",
+                           "refs/heads", "refs/tags")
         except (subprocess.CalledProcessError, OSError):
             out = ""
         for line in out.splitlines():
@@ -1116,16 +1219,7 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
     """
     # Claims inside code are examples, not promises. See _prose.
     text = _prose(text)
-    named = _MERGE_CLAIM.groups >= 2
-    claims: list[tuple[int, str, str]] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for match in _MERGE_CLAIM.finditer(line):
-            if named:
-                # The pattern keeps any backticks so the rule can tell a
-                # deliberate ref from a word of prose. See _claimed_ref.
-                claims.append((number, match.group(1), match.group(2)))
-            else:
-                claims.append((number, TRUNK, match.group(1)))
+    claims = _merge_claims(text)
     if not claims:
         return []
 
@@ -1141,7 +1235,13 @@ def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
     # this call rather than memoised across the process: git state can change
     # between validations, and a cache that outlives the run would answer from
     # a repository that no longer exists in that shape.
-    resolved = _resolve_shas(repo, [sha for _n, _r, sha in claims])
+    #
+    # The DOCUMENT's tokens, not this rule's, and only for the git question -
+    # the claims above are still this rule's own and decide every finding
+    # below. A wider batch cannot move any token's answer, and asking for the
+    # document's union is what makes the whole document cost one batch instead
+    # of one per rule. See `_document_sha_tokens`.
+    resolved = _document_shas(repo, text)
     merged: dict[tuple[str, str], bool] = {}
     findings: list[Finding] = []
     for number, raw_ref, sha in claims:
@@ -1364,8 +1464,8 @@ def _rename_map(repo: Path) -> dict[str, str]:
         return _SCOPE.renames[key]
     mapping: dict[str, str] = {}
     try:
-        out = _git(repo, "log", "--diff-filter=R", "--name-status",
-                   "--format=", "-n", "200")
+        out = _GIT.run(repo, "log", "--diff-filter=R", "--name-status",
+                       "--format=", "-n", "200")
     except (subprocess.CalledProcessError, OSError):
         out = ""
     for line in out.splitlines():
@@ -2215,8 +2315,8 @@ def _named_in_merge_history(repo: Path, branch: str) -> bool:
     a typo or an invented name and worth reporting.
     """
     try:
-        out = _git(repo, "log", "--merges", "--fixed-strings", "--grep", branch,
-                   "--format=%H", "-n", "1")
+        out = _GIT.run(repo, "log", "--merges", "--fixed-strings", "--grep", branch,
+                       "--format=%H", "-n", "1")
     except (subprocess.CalledProcessError, OSError):
         return True  # cannot tell: stay silent rather than accuse
     return bool(out.strip())
@@ -2859,7 +2959,7 @@ def _own_remote(repo: Path) -> str | None:
     key = str(repo)
     if key not in _SCOPE.own_remote:
         _SCOPE.own_remote[key] = _normalise_remote(
-            _git_soft(repo, "remote", "get-url", "origin"))
+            _GIT.soft(repo, "remote", "get-url", "origin"))
     return _SCOPE.own_remote[key]
 
 
@@ -2924,7 +3024,7 @@ def validate_pinned_refs(repo: Path, text: str) -> list[Finding]:
     findings: list[Finding] = []
     for number, ref in _pinned_refs(repo, text):
         try:
-            _git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+            _GIT.run(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
         except (subprocess.CalledProcessError, OSError):
             findings.append(Finding(
                 number, "dead-pinned-ref",
@@ -3780,7 +3880,7 @@ def _probe_merge(repo: Path, text: str) -> str | None:
     """
     excluded = _integration_refs(repo)
     try:
-        out = _git(repo, "rev-list", "--all", "--not", *excluded, "-n", "1")
+        out = _GIT.run(repo, "rev-list", "--all", "--not", *excluded, "-n", "1")
     except (subprocess.CalledProcessError, OSError):
         return None
     other = out.strip().splitlines()
@@ -4213,6 +4313,55 @@ def _rule_applies(rule: Rule, in_archive: bool, has_entries: bool) -> bool:
     return True
 
 
+@contextmanager
+def run_scope() -> Iterator[RunScope]:
+    """Hold ONE RunScope across several calls that read one static checkout.
+
+    `validate()` opens a scope per call and drops it on the way out, which is
+    right for a caller that validates one document and stops. It is wrong for
+    the two-call shape every mode actually uses: `validate()` answers WHAT IS
+    WRONG and `count_examined()` answers OUT OF HOW MANY, over the same
+    document and the same checkout, and the second call was re-asking git what
+    the first had already learned. Measured on this repository's own document,
+    `--verify` spawned `git remote get-url origin` twice, once per half, out of
+    seven git processes for one file.
+
+    NOT opened by `validate()` itself, and that is the point rather than an
+    omission. A scope validate() installed and left behind would outlive the
+    call that owns it, which is precisely the lifetime bug these objects exist
+    to make unrepresentable - and it has already been paid for once, when a
+    remote memo with no lifetime made `dead-pinned-ref` examine nothing and
+    report clean. The caller that knows two calls belong to one run says so.
+
+    `stable=True`, because that is the flag `validate()` reads to decide
+    whether the scope is its own or somebody else's. It carries the promise
+    documented on the field: the checkout does not change and nothing inside
+    writes to it. `--verify` therefore wraps each document's two halves
+    separately rather than the whole run, because it rewrites documents between
+    them when `--sha-map` is given.
+    """
+    global _SCOPE, _POINTER_SITES
+    previous_scope = _SCOPE
+    _SCOPE = RunScope(stable=True)
+    _SCOPE.dircache = {}
+    _POINTER_SITES = None
+    try:
+        yield _SCOPE
+    finally:
+        # Handed back on the failing path too. A crash inside that left the
+        # process holding a scope with no owner would make every later
+        # validate() answer from a checkout that has moved on, and the happy
+        # path restores it either way - which is what makes this the half that
+        # is easy to write without and never notice.
+        _SCOPE = previous_scope
+        # Dropped rather than restored, with the scope it was derived from. It
+        # is deliberately NOT cleared per document inside the scope - counting
+        # one file's lines once for a whole survey is the point, and
+        # `scope.linecount` rides along - but holding it past the scope would
+        # answer from a checkout that may have moved on.
+        _POINTER_SITES = None
+
+
 def validate(repo: Path, text: str, *, in_archive: bool = False,
              has_entries: bool = True, base: Path | None = None,
              doc: str | None = None) -> list[Finding]:
@@ -4266,7 +4415,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     # Built here and read immediately below. Task 9 hands this to every rule
     # instead, at which point the two installs it feeds go away with the last
     # module-level scope name.
-    context = Context(config=_ACTIVE, run=scope, doc=document, repo=repo)
+    context = Context(config=_ACTIVE, run=scope, doc=document, repo=repo, git=_GIT)
     _SCOPE, _DOC = context.run, context.doc
     # Everything below applies to a scope THIS call opened. When the two are the
     # same object a caller has declared the repository static for the duration
@@ -4718,114 +4867,98 @@ def run_sweep(repo: Path, fmt: str) -> int:
                                          "repository": []}
     unreadable: list[str] = []
 
-    # One scope for the whole survey. Every document here is read from the same
-    # checkout and nothing below writes to it, so the answers `validate()`
-    # otherwise rebuilds per document - directory listings, ancestry indexes,
-    # resolved refs, other documents' headings - are the same answers every
-    # time. Restored in `finally` so a library caller that sweeps and then
-    # validates something else gets the per-call behaviour back.
-    global _SCOPE, _POINTER_SITES
-    previous_scope = _SCOPE
-    # `stable=True` on the scope itself rather than a separate boolean beside
-    # it. The old pair could disagree - a caller could clear the caches and
-    # leave the flag set, or the reverse - and "is this scope owned by someone
-    # else" is a fact about the scope, not about the module.
-    _SCOPE = RunScope(stable=True)
-    _SCOPE.dircache = {}
-    _POINTER_SITES = None
+    # One scope for the whole survey, from the one place that opens one.
+    # Every document here is read from the same checkout and nothing below
+    # writes to it, so the answers `validate()` otherwise rebuilds per document
+    # - directory listings, ancestry indexes, resolved refs, other documents'
+    # headings - are the same answers every time.
+    #
     # The DOCUMENT is per-file rather than per-scope, and it is saved here
     # because the loop below replaces it. Restoring it only after the loop left
     # it holding the last swept document whenever a rule raised, so the next
     # validation in the process resolved relative links against a directory it
     # never chose. Cheap to get right, invisible when wrong.
     previous_document = _DOC
-    try:
-        # Seeded here, inside the stable scope, for two reasons at once: it
-        # fixes the printing ORDER to the one `--verify` uses, so the two modes
-        # can be read side by side, and its repository-scoped entries are the
-        # counts those rules get - they are the repository's candidates, not
-        # any document's, so they are read once rather than per file.
-        repository_examined = count_examined(repo, "")
-        examined: dict[str, int] = {kind: 0 for kind in repository_examined}
-        for label, group, _gates in sections:
-            for relative in group:
-                path = repo / relative
-                try:
-                    with open(path, encoding="utf-8", newline="") as fh:
-                        text = fh.read()
-                except (OSError, UnicodeDecodeError) as exc:
-                    # Counted and named, never skipped quietly. A file that
-                    # could not be read is not a file with no findings, and
-                    # printing the same thing for both is the conflation this
-                    # tool is about.
-                    unreadable.append(f"{relative} ({exc.__class__.__name__})")
+    with run_scope():
+        try:
+            # Seeded here, inside the stable scope, for two reasons at once: it
+            # fixes the printing ORDER to the one `--verify` uses, so the two modes
+            # can be read side by side, and its repository-scoped entries are the
+            # counts those rules get - they are the repository's candidates, not
+            # any document's, so they are read once rather than per file.
+            repository_examined = count_examined(repo, "")
+            examined: dict[str, int] = {kind: 0 for kind in repository_examined}
+            for label, group, _gates in sections:
+                for relative in group:
+                    path = repo / relative
+                    try:
+                        with open(path, encoding="utf-8", newline="") as fh:
+                            text = fh.read()
+                    except (OSError, UnicodeDecodeError) as exc:
+                        # Counted and named, never skipped quietly. A file that
+                        # could not be read is not a file with no findings, and
+                        # printing the same thing for both is the conflation this
+                        # tool is about.
+                        unreadable.append(f"{relative} ({exc.__class__.__name__})")
+                        continue
+                    _set_document(link_base=path.parent,
+                                  doc_format=_format_for(relative))
+                    findings = validate(repo, text,
+                                        has_entries=(relative == primary),
+                                        doc=relative)
+                    # `_gates` is the section's own flag: vetted documents decide
+                    # the exit code, unreviewed ones are surveyed and reported.
+                    # Carrying it here is what lets SARIF publish a survey finding
+                    # as a note rather than an error.
+                    results[label].extend(
+                        Located(relative, f, primary=(relative == primary),
+                                gating=_gates)
+                        for f in findings)
+
+                    # The denominator, per rule, summed over the survey. Counted
+                    # only for rules that actually READ this document: a sweep
+                    # skips entry-scoped rules outside the primary file and
+                    # markdown-only rules for `.rst`, and `count_examined` knows
+                    # nothing about either. Summing it whole would report link
+                    # candidates in a document where no link rule ran.
+                    counted = count_examined(repo, text)
+                    for rule in RULES:
+                        if rule.scope == "repository":
+                            continue        # counted once, below
+                        if _rule_applies(rule, False, relative == primary):
+                            examined[rule.kind] += counted[rule.kind]
+
+            # Repository-scoped rules answer a question about the REPOSITORY,
+            # so they run ONCE here rather than inside the loop above.
+            #
+            # `validate` runs them only on the primary pass, which in a sweep
+            # means the file named by `primary_doc` - and a swept repository
+            # usually has no such file, because a sweep needs no configuration
+            # at all. So both were silent in every sweep of nearly every
+            # repository, and silently: a rule examining nothing and a rule
+            # finding nothing print the same zero. It read as 0 / 0 across
+            # three corpora and was taken for an absence of faults.
+            #
+            # The guard was right that one repository-wide disagreement must
+            # not be repeated per document, and wrong about what "once" was
+            # tied to. Running them here keeps the once and drops the document.
+            for rule in RULES:
+                if rule.scope != "repository":
                     continue
-                _set_document(link_base=path.parent,
-                              doc_format=_format_for(relative))
-                findings = validate(repo, text,
-                                    has_entries=(relative == primary),
-                                    doc=relative)
-                # `_gates` is the section's own flag: vetted documents decide
-                # the exit code, unreviewed ones are surveyed and reported.
-                # Carrying it here is what lets SARIF publish a survey finding
-                # as a note rather than an error.
-                results[label].extend(
-                    Located(relative, f, primary=(relative == primary),
-                            gating=_gates)
-                    for f in findings)
-
-                # The denominator, per rule, summed over the survey. Counted
-                # only for rules that actually READ this document: a sweep
-                # skips entry-scoped rules outside the primary file and
-                # markdown-only rules for `.rst`, and `count_examined` knows
-                # nothing about either. Summing it whole would report link
-                # candidates in a document where no link rule ran.
-                counted = count_examined(repo, text)
-                for rule in RULES:
-                    if rule.scope == "repository":
-                        continue        # counted once, below
-                    if _rule_applies(rule, False, relative == primary):
-                        examined[rule.kind] += counted[rule.kind]
-
-        # Repository-scoped rules answer a question about the REPOSITORY,
-        # so they run ONCE here rather than inside the loop above.
-        #
-        # `validate` runs them only on the primary pass, which in a sweep
-        # means the file named by `primary_doc` - and a swept repository
-        # usually has no such file, because a sweep needs no configuration
-        # at all. So both were silent in every sweep of nearly every
-        # repository, and silently: a rule examining nothing and a rule
-        # finding nothing print the same zero. It read as 0 / 0 across
-        # three corpora and was taken for an absence of faults.
-        #
-        # The guard was right that one repository-wide disagreement must
-        # not be repeated per document, and wrong about what "once" was
-        # tied to. Running them here keeps the once and drops the document.
-        for rule in RULES:
-            if rule.scope != "repository":
-                continue
-            # Repository findings are surveyed and never gate - the section
-            # heading says "not gated" and the exit code honours it, so the
-            # machine format must say the same thing.
-            results["repository"].extend(
-                Located(rule.subject_file or ".", finding, primary=False,
-                        gating=False)
-                for finding in rule.check(repo, ""))  # type: ignore[operator]
-            examined[rule.kind] = repository_examined[rule.kind]
-    finally:
-        # Handed back, and handed back on the failing path too. A crash
-        # mid-sweep that left the process holding a scope with no owner would
-        # make every later validate() answer from a checkout that has moved on,
-        # and the happy path restores it either way - which is what makes this
-        # the half that is easy to write without and never notice.
-        _SCOPE = previous_scope
-        # Dropped with the scope it was derived from. It is deliberately NOT
-        # cleared per document during the sweep - counting one file's lines
-        # once for the whole survey is the point, and `scope.linecount` rides
-        # along - but holding either past the sweep would answer from a
-        # checkout that may have moved on.
-        _POINTER_SITES = None
-        _DOC = previous_document
+                # Repository findings are surveyed and never gate - the section
+                # heading says "not gated" and the exit code honours it, so the
+                # machine format must say the same thing.
+                results["repository"].extend(
+                    Located(rule.subject_file or ".", finding, primary=False,
+                            gating=False)
+                    for finding in rule.check(repo, ""))  # type: ignore[operator]
+                examined[rule.kind] = repository_examined[rule.kind]
+        finally:
+            # The DOCUMENT only. The run scope hands itself back, on the
+            # failing path too; this is the half that is per-file, and
+            # restoring it only after the loop left the last swept document
+            # installed whenever a rule raised.
+            _DOC = previous_document
 
     # Diagnostics follow the convention the other modes use: stdout unless
     # SARIF, where stdout must carry nothing but one JSON value. Writing the
@@ -4949,7 +5082,7 @@ def _changed_between(repo: Path, ref: str, candidates: list[str]) -> list[str]:
     wrong is a legitimate answer as long as the denominator says so.
     """
     try:
-        out = _git(repo, "diff", "--name-only", ref, "HEAD")
+        out = _GIT.run(repo, "diff", "--name-only", ref, "HEAD")
     except (subprocess.CalledProcessError, OSError):
         return []
     changed = {line.strip().replace("\\", "/") for line in out.splitlines()
@@ -5114,7 +5247,7 @@ def tracked_markdown(repo: Path) -> list[str]:
     checked. Files listed here but absent from the working tree are counted and
     named as unreadable by the caller rather than passed over.
     """
-    out = _git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
+    out = _GIT.run(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
     return sorted(p for p in out.split("\0")
                   if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))
 
@@ -5749,14 +5882,27 @@ def main(argv: list[str] | None = None) -> int:
         # beside 0 findings - the exact conflation the denominator exists to
         # prevent. Found by running the gate, not by any test.
         _set_document(doc_path=_rel(repo, target))
-        findings = validate(repo, text)
-        exit_code = 1 if record(_rel(repo, target), findings, primary=True) else 0
+        # ONE run scope across both halves of examining this document. The two
+        # calls below ask the same repository the same questions - the origin
+        # remote, most visibly - and without a scope spanning them the second
+        # re-asked everything the first had already learned. Measured on this
+        # repository's own document: 7 git processes for one --verify, of which
+        # `remote get-url origin` was two.
+        #
+        # Only this pair, not the whole mode. The archive and the extra
+        # documents get their own below, because `--sha-map` REWRITES documents
+        # between them, and a stable scope promises the checkout does not
+        # change while it is held.
+        with run_scope():
+            findings = validate(repo, text)
+            exit_code = 1 if record(_rel(repo, target), findings, primary=True) else 0
 
-        # The denominator. Without it a clean run and a run that checked nothing
-        # print identically - the failure that recurred five times in one day.
-        # A rule reporting 0 examined is either genuinely absent from this
-        # document or broken, and the reader has to be able to tell.
-        examined = count_examined(repo, text)
+            # The denominator. Without it a clean run and a run that checked
+            # nothing print identically - the failure that recurred five times
+            # in one day. A rule reporting 0 examined is either genuinely
+            # absent from this document or broken, and the reader has to be
+            # able to tell.
+            examined = count_examined(repo, text)
         summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
         blind = [kind for kind, n in examined.items() if n == 0]
         diag(f"checked {Path(args.validate).name}: {summary}")
@@ -5806,9 +5952,13 @@ def main(argv: list[str] | None = None) -> int:
             with open(extra, encoding="utf-8", newline="") as fh:
                 extra_text = fh.read()
             _set_document(link_base=extra.parent, doc_path=relative)
-            extra_findings = validate(repo, extra_text, has_entries=False)
-            new_extra = record(relative, extra_findings, primary=False)
-            examined_extra = count_examined(repo, extra_text)
+            # One scope per document, for the reason given at the primary
+            # document above: findings and denominator are two halves of one
+            # examination and must not re-ask git the same questions.
+            with run_scope():
+                extra_findings = validate(repo, extra_text, has_entries=False)
+                new_extra = record(relative, extra_findings, primary=False)
+                examined_extra = count_examined(repo, extra_text)
             # Repository-scoped rules do not run for an extra document, so
             # reporting their candidate count here claims coverage that was
             # not provided. A denominator that overstates is worse than none:

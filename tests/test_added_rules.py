@@ -638,24 +638,30 @@ def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypat
     repo, commit = git_repo
     sha = commit("a.py", "a = 1\n", "feat: a").strip()[:9]
 
-    calls: list[tuple[str, ...]] = []
-    real_git = hc._git
-
-    def counting_git(r, *args):
-        calls.append(args)
-        return real_git(r, *args)
-
-    monkeypatch.setattr(hc, "_git", counting_git)
+    # The seam, not a wrapper on the module function. Since Task 7 the rules
+    # reach git only through `_GIT`, so patching `_git` by name would count an
+    # empty list and this test would pass while measuring nothing.
+    counter = hc.CountingGit(hc.SubprocessGit())
+    monkeypatch.setattr(hc, "_GIT", counter)
+    calls = counter.calls
     # Twenty mentions of the same commit, which is how documents really read.
     text = "".join(f"Line {n}: merged to `main` at `{sha}`.\n" for n in range(20))
 
     findings = hc.validate_merge_claims(repo, text)
 
     assert findings == [], f"the setup is wrong, {sha} is on trunk: {findings}"
+    # Existence is a `cat-file --batch-check` that runs through subprocess
+    # directly rather than through the seam, so it is not in `calls` and this
+    # bound counts the ancestry side alone. That is what the rule's own
+    # regression was: two subprocesses per claim, of which the ancestry half
+    # is the one still routed here.
     assert len(calls) <= 3, (
         f"{len(calls)} git calls for 20 mentions of one commit; existence should "
         f"batch and ancestry should be asked once per distinct commit: {calls}"
     )
+    assert calls, (
+        "no git calls were recorded at all, so this bound proves nothing; the "
+        "seam is not where this rule reaches git")
 
 
 def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:

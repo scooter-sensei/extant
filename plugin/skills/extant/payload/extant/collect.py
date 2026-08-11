@@ -14,29 +14,26 @@ import sys
 from pathlib import Path
 
 
-# Not `from extant.git import _git, _git_soft`: test_module_quality.py's
-# test_no_module_reaches_past_another_modules_surface bans any sibling module
-# importing another sibling's underscore name, and both names ARE underscore
-# names (git.py's own __all__ comment explains why). Importing the module
-# instead and qualifying every call site as git._git(...) is a same-behaviour,
-# gate-clean substitute; the alternative was weakening the gate, which was
-# ruled out.
+# The seam, one module-level instance, rather than the underscore names this
+# file used to qualify. Two things go away with them.
 #
-# Trap for the next tests written against this module: because call sites here
-# say git._git(...) / git._git_soft(...) (a module attribute lookup at call
-# time), `monkeypatch.setattr(hc, "_git", ...)` / `setattr(hc, "_git_soft",
-# ...)` on the extant_collect SHIM no longer reaches anything in this file.
-# That patches the name on the shim module object; this module reads the name
-# off the `extant.git` module object, a different object entirely. A test that
-# patches hc._git expecting to intercept collect(), find_boundary(),
-# commits_since() or changed_files() - the four functions here that call
-# git._git/_git_soft - will silently exercise the real function and pass
-# while testing nothing. Nothing breaks today because the five existing
-# hc._git/_git_soft patch sites (test_added_rules.py, test_caching.py) all
-# exercise shim-side code that has not moved here. Task 7's ctx.git seam is
-# what resolves this properly; until then, a test targeting this module must
-# patch extant.git._git / extant.git._git_soft directly, not hc._git.
-from extant import git
+# The first is a boundary violation the gate could not see. Reaching for a
+# private helper as a module ATTRIBUTE slipped past
+# test_no_module_reaches_past_another_modules_surface, which reads imports and
+# so only catches the `from extant.git import` spelling. Both helpers are
+# private again now that git.py declares Git/SubprocessGit/CountingGit, and
+# nothing here names either.
+#
+# The second is a trap this comment used to describe rather than fix. Call
+# sites qualifying the helper off the git MODULE meant a test patching the same
+# name on the SHIM intercepted nothing here - a different module object - so a
+# test written against collect(), find_boundary(), commits_since() or
+# changed_files() would exercise the real function and pass while testing
+# nothing. Swap `_GIT` and every one of the four is covered, by the same
+# CountingGit the shim's tests use.
+from extant.git import CountingGit, Git, SubprocessGit    # noqa: F401
+#                      ^ re-exported so a test can install one here.
+
 # Configuration arrives as an ARGUMENT to every function here that needs it,
 # and these are the two types it comes in. `Config` carries what is DERIVED
 # from a project's settings; `StatusConfig` is the settings themselves, needed
@@ -48,6 +45,10 @@ from extant import git
 # `reload_config` rebinds. extant/config.py imports nothing from this package,
 # so there is no cycle either.
 from extant.config import Config, StatusConfig
+
+# Installed, not imported at each call site, so a test can replace it. See the
+# note above the git import for the trap that was there before it could be.
+_GIT: Git = SubprocessGit()
 
 __all__ = [
     "_CHECKED", "_PYTEST_DURATION", "_PYTEST_FAILED", "_PYTEST_PASSED",
@@ -88,7 +89,7 @@ def find_boundary(repo: Path, config: Config) -> str:
     that can drift out of sync with reality.
     """
     try:
-        return git._git(repo, "log", "-1", "--format=%H", "--",
+        return _GIT.run(repo, "log", "-1", "--format=%H", "--",
                          config.primary_doc).strip()
     except subprocess.CalledProcessError:
         # A repository with no commits at all: `git log` exits 128 rather than
@@ -103,7 +104,7 @@ def commits_since(repo: Path, boundary: str, config: Config) -> list[dict[str, s
     """Commits after `boundary` (exclusive), oldest first, phase-labelled."""
     rev_range = f"{boundary}..HEAD" if boundary else "HEAD"
     try:
-        out = git._git(repo, "log", "--reverse", "--format=%H%x00%s", rev_range)
+        out = _GIT.run(repo, "log", "--reverse", "--format=%H%x00%s", rev_range)
     except subprocess.CalledProcessError:
         return []  # unborn branch: no commits to report
     commits: list[dict[str, str]] = []
@@ -152,9 +153,9 @@ def parse_pytest_summary(output: str, status: StatusConfig) -> dict[str, object]
 def changed_files(repo: Path, boundary: str) -> list[str]:
     """Repo-relative paths changed since `boundary`."""
     if not boundary:
-        out = git._git(repo, "ls-files")
+        out = _GIT.run(repo, "ls-files")
     else:
-        out = git._git(repo, "diff", "--name-only", f"{boundary}..HEAD")
+        out = _GIT.run(repo, "diff", "--name-only", f"{boundary}..HEAD")
     return [line for line in out.splitlines() if line.strip()]
 
 
@@ -329,19 +330,19 @@ def collect(repo: Path, suite_json: str | None, config: Config,
     """
     boundary = find_boundary(repo, config)
     try:
-        branch = git._git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        branch = _GIT.run(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
     except subprocess.CalledProcessError:
         # An unborn branch has no resolvable HEAD. `git symbolic-ref` still
         # knows the name the first commit WILL be on, which is more useful than
         # "unknown" and is what `git status` reports in the same situation.
         try:
-            branch = git._git(repo, "symbolic-ref", "--short",
+            branch = _GIT.run(repo, "symbolic-ref", "--short",
                               "HEAD").strip() or "unknown"
         except subprocess.CalledProcessError:
             branch = "unknown"
-    merged = set(git._git_soft(repo, "branch", "--merged",
-                                config.trunk).replace("*", "").split())
-    all_branches = set(git._git_soft(repo, "branch", "--format=%(refname:short)").split())
+    merged = set(_GIT.soft(repo, "branch", "--merged",
+                           config.trunk).replace("*", "").split())
+    all_branches = set(_GIT.soft(repo, "branch", "--format=%(refname:short)").split())
     commits = commits_since(repo, boundary, config)
     return {
         "boundary_sha": boundary,
