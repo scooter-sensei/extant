@@ -21,6 +21,21 @@ from pathlib import Path
 # instead and qualifying every call site as git._git(...) is a same-behaviour,
 # gate-clean substitute; the alternative was weakening the gate, which was
 # ruled out.
+#
+# Trap for the next tests written against this module: because call sites here
+# say git._git(...) / git._git_soft(...) (a module attribute lookup at call
+# time), `monkeypatch.setattr(hc, "_git", ...)` / `setattr(hc, "_git_soft",
+# ...)` on the extant_collect SHIM no longer reaches anything in this file.
+# That patches the name on the shim module object; this module reads the name
+# off the `extant.git` module object, a different object entirely. A test that
+# patches hc._git expecting to intercept collect(), find_boundary(),
+# commits_since() or changed_files() - the four functions here that call
+# git._git/_git_soft - will silently exercise the real function and pass
+# while testing nothing. Nothing breaks today because the five existing
+# hc._git/_git_soft patch sites (test_added_rules.py, test_caching.py) all
+# exercise shim-side code that has not moved here. Task 7's ctx.git seam is
+# what resolves this properly; until then, a test targeting this module must
+# patch extant.git._git / extant.git._git_soft directly, not hc._git.
 from extant import git
 
 __all__ = [
@@ -118,8 +133,19 @@ def parse_pytest_summary(output: str) -> dict[str, object]:
     a regex can pick up. Pure, so the measured path stays testable without
     paying for a full run.
     """
-    # Task 5 scaffolding (see parse_phase for why this is a whole-module
-    # import done inside the function).
+    # Task 5 scaffolding: CONFIG stays on extant_collect until Task 5 moves
+    # config plumbing into the package. Imported here, inside the function,
+    # but NOT for the circular-import reason parse_phase gives: CONFIG is
+    # assigned near the top of the shim, before the shim's `from
+    # extant.collect import (...)` re-export line, so a module-level `from
+    # extant_collect import CONFIG` would not cycle. The actual reason is
+    # reload_config(): it does `global CONFIG; CONFIG = load_config(repo)`,
+    # which REBINDS the name rather than mutating the object it points to. A
+    # name copied into this module at import time would keep pointing at the
+    # pre-reload CONFIG forever, silently describing some other project after
+    # a reload; going through extant_collect.CONFIG on every call always
+    # reads the current object. Same class of bug as the shim's own
+    # _SECTION_HEADER comment (extant_collect.py's _CONFIG_DERIVED table).
     import extant_collect
     passed = extant_collect.CONFIG.suite_passed.search(output)
     failed = extant_collect.CONFIG.suite_failed.search(output)
@@ -185,8 +211,9 @@ _VENV_LAYOUTS = (
 
 def _python_candidates(repo: Path) -> list[Path]:
     """Every interpreter location worth trying, most specific first."""
-    # Task 5 scaffolding (see parse_phase for why this is a whole-module
-    # import done inside the function).
+    # Task 5 scaffolding (see parse_pytest_summary for why this is a
+    # whole-module import done inside the function - CONFIG's reload-rebind
+    # reason, not parse_phase's circular-import one).
     import extant_collect
     candidates: list[Path] = []
     if extant_collect.CONFIG.venv_python:
@@ -219,8 +246,9 @@ def run_suite(repo: Path, suite_json: str | None) -> dict[str, object]:
     that inherit pytest's cwd, and running from a worktree produces roughly
     20 spurious failures. --suite-json is the only correct path there.
     """
-    # Task 5 scaffolding (see parse_phase for why this is a whole-module
-    # import done inside the function).
+    # Task 5 scaffolding (see parse_pytest_summary for why this is a
+    # whole-module import done inside the function - CONFIG's reload-rebind
+    # reason, not parse_phase's circular-import one).
     import extant_collect
     if suite_json:
         with open(suite_json, encoding="utf-8") as fh:
@@ -280,8 +308,9 @@ def read_plan(repo: Path) -> dict[str, object]:
     reader (or a fresh session) to infer that distinction: it is True only
     when at least one `- [x]` was actually found in the plan.
     """
-    # Task 5 scaffolding (see parse_phase for why this is a whole-module
-    # import done inside the function).
+    # Task 5 scaffolding (see parse_pytest_summary for why this is a
+    # whole-module import done inside the function - CONFIG's reload-rebind
+    # reason, not parse_phase's circular-import one).
     import extant_collect
     empty = {"path": "", "completed": [], "remaining": [], "checkbox_tracking": False}
     # An empty plans_dir switches the feature off, rather than reporting an

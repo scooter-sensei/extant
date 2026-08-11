@@ -169,7 +169,16 @@ def test_no_module_reaches_past_another_modules_surface() -> None:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom):
                 continue
-            if not (node.module or "").startswith("extant"):
+            module = node.module or ""
+            # Exact package name or a dotted submodule only - NOT a bare
+            # startswith("extant") prefix check. That looser form also matches
+            # "extant_collect", the shim module OUTSIDE this package
+            # (plugin/skills/extant/payload/extant_collect.py, not
+            # .../extant/*.py), so `from extant_collect import _PHASE_TASK`
+            # would misread an ordinary shim reference as one sibling module
+            # reaching past another's surface. This gate polices siblings
+            # inside this package; extant_collect is not one.
+            if not (module == "extant" or module.startswith("extant.")):
                 continue
             for alias in node.names:
                 if alias.name.startswith("_"):
