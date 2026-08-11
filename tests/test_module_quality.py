@@ -130,8 +130,8 @@ def test_the_explanation_survived_the_move() -> None:
     print(f"checked {len(files)} files: {comments} comment lines, "
           f"{docs} docstring lines, {total} total against a floor of {floor}")
     assert total >= floor, (
-        f"explanation fell from 2784 to {total}. Something was dropped in a "
-        f"move; find it rather than lowering this floor.")
+        f"explanation fell to {total}, below the floor of {floor}. Something "
+        f"was dropped in a move; find it rather than lowering this floor.")
 
 
 def test_every_module_declares_its_surface() -> None:

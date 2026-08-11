@@ -429,14 +429,31 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
     for source_path in sources:
         module_tree = ast.parse(source_path.read_text(encoding="utf-8"))
         for node in module_tree.body:
-            if not (isinstance(node, ast.Assign) and len(node.targets) == 1
-                    and isinstance(node.targets[0], ast.Name)):
+            # Assign (`X = ...`) and AnnAssign (`X: T = ...`) both bind a
+            # module global, and an annotated one is exactly as stale-prone
+            # as a bare one - `ast.Assign` alone let `_ACTIVE: Config =
+            # Config.build(CONFIG)` slip through with zero strays reported.
+            # The shim itself uses the annotated form for two globals
+            # (`_ACTIVE: Config | None = None`, and `_CONSISTENCY_TIMEOUT:
+            # float | None` with no value at all), so this walk must
+            # recognise the shape rather than assume nobody writes it.
+            # AnnAssign.value is None for an annotation with no value,
+            # which ast.walk() cannot take - skipped rather than crashed on.
+            if isinstance(node, ast.Assign):
+                if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+                    continue
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign):
+                if not isinstance(node.target, ast.Name) or node.value is None:
+                    continue
+                target, value = node.target, node.value
+            else:
                 continue
-            name = node.targets[0].id
+            name = target.id
             if name == "_CONFIG_DERIVED":
                 continue
             if any(isinstance(s, ast.Name) and s.id == "CONFIG"
-                   for s in ast.walk(node.value)):
+                   for s in ast.walk(value)):
                 strays.append(f"{source_path.name}:{name} (line {node.lineno})")
     tree = ast.parse(sources[0].read_text(encoding="utf-8"))  # the shim; used below
 

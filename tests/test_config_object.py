@@ -106,3 +106,31 @@ def test_the_shim_derives_one_global_per_config_field() -> None:
     assert not stale, (
         f"compared {len(fields)} fields; _ACTIVE disagrees with a fresh build "
         f"from the current CONFIG in: {stale}")
+
+    # WIRING, not just count. Both checks above pass even if an entry reads
+    # the WRONG field - `"TRUNK": lambda c: c.primary_doc` still leaves the
+    # table at 21 entries, and never touches _ACTIVE, since neither check
+    # above ever calls a _CONFIG_DERIVED lambda.
+    #
+    # Give every field a value no other field shares - its own name - and
+    # call each lambda against that Config directly. Built directly rather
+    # than through `Config.build`, which maps one fixed StatusConfig and has
+    # no way to make 21 fields simultaneously distinct in one call; `Config`
+    # itself is a plain `@dataclass(frozen=True)` with no `__post_init__`, so
+    # a field typed for a compiled pattern or a bool accepts its own name as
+    # a plain string with no validation to fail.
+    #
+    # A correctly wired table then reads back exactly the 21 field names,
+    # each once. A mis-wired entry breaks that bijection from either side:
+    # its target field's name is produced twice (once by the entry that
+    # rightly reads it, once by the mis-wired one) and its own field's name
+    # is not produced at all - caught whether the mistake points at another
+    # field or is simply missing. Neither the count nor the full-object
+    # comparison above can see this, because both are blind to which
+    # specific field each entry's lambda actually reads.
+    sentinel = Config(**{f.name: f.name for f in fields})
+    produced = sorted(build(sentinel) for build in hc._CONFIG_DERIVED.values())
+    expected = sorted(f.name for f in fields)
+    assert produced == expected, (
+        f"_CONFIG_DERIVED entries do not all read the field their name "
+        f"claims - got {produced}, expected {expected}")

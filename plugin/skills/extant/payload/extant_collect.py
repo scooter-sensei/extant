@@ -53,7 +53,14 @@ if _PACKAGE_VERSION != _SHIM_VERSION:
 # copies of a config layer is precisely the failure this refactor removes.
 try:
     from extant.config import Config, load_config
-except ImportError:  # pragma: no cover - exercised by the CLI tests
+except ModuleNotFoundError:  # pragma: no cover - exercised by the CLI tests
+    # ModuleNotFoundError only, not the broader ImportError. extant/config.py
+    # can EXIST and still fail this import - a syntax error, a bad import
+    # inside it - and ImportError catches that case too, silently falling
+    # back to tools.extant.config instead of raising. That fallback is the
+    # two-config-modules confusion this import order exists to prevent
+    # (see the comment above), arriving by a different door: not two
+    # packages both present, but one broken and masked by the other.
     from tools.extant.config import Config, load_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -182,10 +189,22 @@ _apply_config()
 #
 # TRAP for a test written after this: patching a derived global on this module
 # (`hc._PHASE_TASK`, `hc.TRUNK`, `hc.PRIMARY_DOC`, ...) no longer reaches these
-# functions, because they read the built Config instead. Nothing does that
-# today - `_BRANCH_TOKEN` and `_CONSISTENCY_TIMEOUT` are the only two patched
-# anywhere in the suite, and both are read by rules that still live in this
-# file. A test needing a different value must call `reload_config`.
+# functions, because they read the built Config instead. Measured at 3df1245 by
+# grepping tests/ (43 files) for both `monkeypatch.setattr(<alias>, "NAME"` and
+# bare `<alias>.NAME =` assignment (aliases the suite imports this module
+# under: hc, ec, h, extant_collect), against all 21 names in `_CONFIG_DERIVED`:
+# 7 of the 21 are patched, at 28 sites in 8 files - TRUNK (4, all in
+# test_multi_trunk.py), _BRANCH_TOKEN (4: test_added_rules.py x3 plus
+# test_multi_trunk.py:238), _CONSISTENCY_TIMEOUT (3, test_consistency_timeout.py),
+# _MERGE_CLAIM (1, test_multi_trunk.py:270), _RELEASE_TAG (4,
+# test_release_conventions.py), _RELEASE_CLAIMS_ARE_OURS (11, across
+# test_added_rules.py, test_caching.py, test_cache_lifetime.py,
+# test_finding_subject.py and test_release_conventions.py), and
+# _SECTION_HEADER (1, test_packaging.py:521). Nothing breaks today because
+# every one of those 7 is read by a rule that still lives in this file -
+# re-grep before trusting this count, because it stops being true as rules
+# move to the package. A test needing a different value must call
+# `reload_config`.
 def parse_phase(subject: str) -> str | None:
     """Grouping key from a commit subject. See extant.collect.parse_phase."""
     return _collect.parse_phase(subject, _ACTIVE)
