@@ -985,14 +985,27 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("validate stops resetting its per-call caches", collect,
          "    if scope is not outer_scope:",
          "    if False:"),
-        # The `finally` puts both scopes back so a caller never sees the
-        # inner call's own objects after it returns. Dropping the document
-        # half alone is caught by
-        # test_the_document_path_is_restored_after_validate; dropping the RUN
-        # SCOPE half alone had nothing pinning it.
-        ("validate forgets to restore the run scope", collect,
-         "        _SCOPE, _DOC = outer_scope, outer_doc",
-         "        _DOC = outer_doc"),
+        # There is deliberately NO mutation for dropping the run-scope half of
+        # validate's `finally`, and the reason is worth more than the mutation
+        # would be. One was added, it SURVIVED, and tracing it showed the gap
+        # was not real: it is INERT, not unpinned.
+        #
+        # Leaving `_SCOPE` holding the scope validate built, instead of the
+        # caller's, cannot change an answer. Every field on RunScope is keyed
+        # by the repository path - `str(repo)`, `(str(repo), ref)`,
+        # `f"{repo}\0{relative}"` - so any two scopes hold identical values for
+        # identical keys. The one cache keyed without a repo, `(ref, sha)` in
+        # validate_merge_claims, is a LOCAL dict and never reaches a scope.
+        # The next validate() rebinds `_SCOPE` regardless, so the stale object
+        # survives only until then, and the one caller in that window,
+        # count_examined, reads data the same call just produced.
+        #
+        # Dropping the DOCUMENT half is a different matter and is pinned by
+        # test_the_document_path_is_restored_after_validate.
+        #
+        # If a future change makes scope identity observable - a field keyed on
+        # anything but the repository, or a reader between validate() and the
+        # next one - this becomes a real gap and the mutation should come back.
 
         # --- reStructuredText ------------------------------------------------
         # Markdown's link syntax is not a subset of anything. Running those two
