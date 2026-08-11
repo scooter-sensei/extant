@@ -219,7 +219,7 @@ def test_the_scope_is_released_even_when_a_document_explodes(
     assert hc._SCOPE.stable is False, "a crash left the repository marked stable"
     assert hc._SCOPE.dircache is None, "a crash left directory listings cached"
     # The document is replaced per file inside the
-    # loop, and were restored only after it - so a rule that raised left the
+    # loop, and was restored only after it - so a rule that raised left the
     # process resolving relative links against the last swept document's
     # directory. Flagged by CodeRabbit; the restore moved into the finally.
     assert hc._DOC.link_base is None, (

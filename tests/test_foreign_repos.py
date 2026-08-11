@@ -461,7 +461,6 @@ def test_a_site_config_in_a_subdirectory_is_found(git_repo) -> None:
     kinds = [f.kind for f in hc.validate(
         repo, "See [posts](/docs/posts/).\n", has_entries=False,
         base=repo / "docs")]
-    hc._SCOPE = hc.RunScope()
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -547,7 +546,6 @@ def test_an_astro_site_links_by_route(git_repo) -> None:
     kinds = [f.kind for f in hc.validate(
         repo, "See [config](/de/reference/configuration/).\n", has_entries=False,
         base=repo / "docs")]
-    hc._SCOPE = hc.RunScope()
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -578,7 +576,6 @@ def test_myst_resolves_a_label_defined_in_another_file(git_repo) -> None:
     kinds = [f.kind for f in hc.validate(
         repo, "See [opts](#site-options).\n", has_entries=False,
         base=repo / "docs")]
-    hc._SCOPE = hc.RunScope()
     assert "dead-md-anchor" not in kinds, kinds
 
 
@@ -600,7 +597,6 @@ def test_a_per_page_generator_keeps_its_anchors_local(git_repo) -> None:
         repo, "## Proxy mechanisms\n\nSee [Routing](#routing).\n",
         has_entries=False,
         base=repo / "docs")]
-    hc._SCOPE = hc.RunScope()
     assert "dead-md-anchor" in kinds, (
         "a heading in ANOTHER file must not forgive this one: " + str(kinds))
 
@@ -726,11 +722,8 @@ def test_hugo_partials_are_anchors_on_the_pages_that_include_them(git_repo) -> N
 
     import extant_collect as hc
     hc._SCOPE = hc.RunScope()
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [locale](#locale).\n", has_entries=False)]
-    finally:
-        hc._SCOPE = hc.RunScope()
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [locale](#locale).\n", has_entries=False)]
     assert "dead-md-anchor" not in kinds, kinds
 
 
@@ -748,11 +741,8 @@ def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
 
     import extant_collect as hc
     hc._SCOPE = hc.RunScope()
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [it](#some-heading).\n", has_entries=False)]
-    finally:
-        hc._SCOPE = hc.RunScope()
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [it](#some-heading).\n", has_entries=False)]
     assert "dead-md-anchor" in kinds, (
         "a heading in a Jekyll post must not become an ambient anchor: " + str(kinds))
 
@@ -777,11 +767,8 @@ def test_inside_hugo_only_underscore_directories_are_ambient(git_repo) -> None:
 
     import extant_collect as hc
     hc._SCOPE = hc.RunScope()
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [it](#some-heading).\n", has_entries=False)]
-    finally:
-        hc._SCOPE = hc.RunScope()
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [it](#some-heading).\n", has_entries=False)]
     assert "dead-md-anchor" in kinds, (
         "a heading in an ordinary Hugo content directory is not a fragment, so "
         "this link is dead: " + str(kinds))
@@ -825,28 +812,26 @@ def test_the_project_union_is_built_only_when_a_fragment_needs_it(
 
     monkeypatch.setattr(hc, "_project_anchors", counted)
     hc._SCOPE = hc.RunScope()
-    try:
-        # Every fragment resolves against this document's own headings.
-        local = "# Doc\n\n## Local Heading\n\nSee [it](#local-heading).\n"
-        findings = hc.validate(repo, local, has_entries=False)
-        assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
-        assert not built, (
-            "the project union was built for a document that never needed it, "
-            "which is a whole-repository read on every commit"
-        )
 
-        # The control. A fragment defined in ANOTHER file must still resolve,
-        # which requires the union - so this half proves the first half is
-        # laziness rather than the feature being switched off.
-        crossfile = "# Doc\n\nSee [it](#site-options).\n"
-        findings = hc.validate(repo, crossfile, has_entries=False)
-        assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
-        assert built == [repo], (
-            f"a cross-file fragment resolved without the union ever being "
-            f"built: {built}"
-        )
-    finally:
-        hc._SCOPE = hc.RunScope()
+    # Every fragment resolves against this document's own headings.
+    local = "# Doc\n\n## Local Heading\n\nSee [it](#local-heading).\n"
+    findings = hc.validate(repo, local, has_entries=False)
+    assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
+    assert not built, (
+        "the project union was built for a document that never needed it, "
+        "which is a whole-repository read on every commit"
+    )
+
+    # The control. A fragment defined in ANOTHER file must still resolve,
+    # which requires the union - so this half proves the first half is
+    # laziness rather than the feature being switched off.
+    crossfile = "# Doc\n\nSee [it](#site-options).\n"
+    findings = hc.validate(repo, crossfile, has_entries=False)
+    assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
+    assert built == [repo], (
+        f"a cross-file fragment resolved without the union ever being "
+        f"built: {built}"
+    )
 
 
 # --- repositories that actually use Git LFS --------------------------------

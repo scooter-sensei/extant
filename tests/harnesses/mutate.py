@@ -985,6 +985,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("validate stops resetting its per-call caches", collect,
          "    if scope is not outer_scope:",
          "    if False:"),
+        # The `finally` puts both scopes back so a caller never sees the
+        # inner call's own objects after it returns. Dropping the document
+        # half alone is caught by
+        # test_the_document_path_is_restored_after_validate; dropping the RUN
+        # SCOPE half alone had nothing pinning it.
+        ("validate forgets to restore the run scope", collect,
+         "        _SCOPE, _DOC = outer_scope, outer_doc",
+         "        _DOC = outer_doc"),
 
         # --- reStructuredText ------------------------------------------------
         # Markdown's link syntax is not a subset of anything. Running those two

@@ -1011,6 +1011,14 @@ def _ref_table(repo: Path) -> tuple[dict[str, str], dict[str, str]]:
 _INTEGRATION_NAMES = ("main", "master", "develop", "development", "trunk")
 
 
+# Memoised on the run scope for the lifetime of one call, exactly like the
+# ancestry indexes: the same handful of refs is asked for once per claim, and
+# each miss was a `for-each-ref` SUBPROCESS. Two of this project's worst
+# measured costs have been a subprocess per claim - ancestry was 17.7 of 18.0
+# seconds once - so a git call reached from inside a per-claim loop is the
+# shape to watch. See `RunScope.integration`.
+
+
 def _integration_refs(repo: Path) -> list[str]:
     """The branches this repository integrates work INTO.
 
@@ -1061,14 +1069,6 @@ def _integration_refs(repo: Path) -> list[str]:
     _SCOPE.integration[key] = [ref for ref in refs
                                if _resolve_ref(repo, ref) is not None]
     return _SCOPE.integration[key]
-
-
-# Memoised on the run scope for the lifetime of one call, exactly like the
-# ancestry indexes: the same handful of refs is asked for once per claim, and
-# each miss was a `for-each-ref` SUBPROCESS. Two of this project's worst
-# measured costs have been a subprocess per claim - ancestry was 17.7 of 18.0
-# seconds once - so a git call reached from inside a per-claim loop is the
-# shape to watch. See `RunScope.integration`.
 
 
 def _integrated_by(repo: Path, rev: str, *, exclude: str = "") -> list[str]:
@@ -3345,7 +3345,6 @@ _FLOOR_LOWER = re.compile(r"(?:>=|\^|~>?|>)?\s*([0-9]+(?:\.[0-9]+){0,2})")
 _LABEL_LINE = re.compile(r"^\*{0,2}([A-Za-z][A-Za-z0-9 /_-]{2,40})\*{0,2}:$")
 
 
-
 def _version(text: str) -> tuple[int, ...]:
     return tuple(int(part) for part in text.split(".") if part.isdigit())
 
@@ -3535,6 +3534,7 @@ _LINE_POINTER = re.compile(
 # A generated bundle or a vendored blob is not something a document points
 # into, and reading one per pointer is the only cost this rule can incur.
 _LINE_COUNT_LIMIT = 2_000_000
+
 
 def _line_count(repo: Path, relative: str) -> int | None:
     """Lines in a tracked file, or None when it cannot be counted here.
@@ -4256,7 +4256,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     # on this function remembering to put them back.
     scope = outer_scope if outer_scope.stable else RunScope()
     # Only what the caller actually SAID is overridden. `doc_format` is never a
-    # parameter and is inherited unchanged, because `find_still_false` and
+    # parameter and is inherited unchanged, because `deleted_claims` and
     # `run_sweep` set it around the call rather than through it - deriving it
     # from `doc` here would silently re-read a `.rst` document as markdown.
     document = DocScope(

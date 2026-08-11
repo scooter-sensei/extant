@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 __all__ = ["Context", "DocScope", "RunScope"]
 
@@ -67,7 +67,7 @@ class RunScope:
     # levels deep cost 12,000 listings and 0.88 of 6.4 seconds. Within one
     # validate() the filesystem is assumed stable, which every rule already
     # assumes.
-    dircache: Optional[Dict[Path, Any]] = None
+    dircache: dict[Path, Any] | None = None
 
     # Ancestry indexes and resolved refs. Git state can change between
     # validations, so an index that outlived the call would answer from a
@@ -79,39 +79,39 @@ class RunScope:
     # have a branch called `main` - and the second one was then answered from
     # the first one's history. The suite caught it as a TRUE merge claim
     # reported false.
-    ancestors: Dict[Any, Any] = field(default_factory=dict)
-    refs: Dict[Any, Any] = field(default_factory=dict)
+    ancestors: dict[Any, Any] = field(default_factory=dict)
+    refs: dict[Any, Any] = field(default_factory=dict)
     # The LFS survey walks the whole tree, and BOTH the rule and the denominator
     # need it. Computing it twice doubled the cost of the most expensive rule
     # here for no benefit.
-    lfs: Dict[Any, Any] = field(default_factory=dict)
+    lfs: dict[Any, Any] = field(default_factory=dict)
     # Another document's headings, read at most once per call and held no longer
     # than the repository state they were read from.
-    target_anchors: Dict[Any, Any] = field(default_factory=dict)
+    target_anchors: dict[Any, Any] = field(default_factory=dict)
     # The origin. Left uncached at first, then cached with no lifetime at all on
     # the reasoning that a remote cannot change while a process runs - true of
     # the CLI, false of a library caller and of the tests, and the failure it
     # produced was the silent kind. A repository whose origin was added between
     # two validate() calls kept answering None, so `dead-pinned-ref` examined
     # nothing and reported clean.
-    own_remote: Dict[Any, Any] = field(default_factory=dict)
+    own_remote: dict[Any, Any] = field(default_factory=dict)
     # The prefix convention the repository puts before a version number, derived
     # from its tags. A tag created between two calls would otherwise keep
     # resolving to nothing.
-    tag_prefixes: Dict[Any, Any] = field(default_factory=dict)
+    tag_prefixes: dict[Any, Any] = field(default_factory=dict)
     # Which branches this repository integrates into. Consulted once per claim,
     # and each miss was a `for-each-ref` SUBPROCESS: measured on a document with
     # 200 release claims and 30 tags, 11.6 seconds before and 1.2 after.
-    integration: Dict[Any, Any] = field(default_factory=dict)
+    integration: dict[Any, Any] = field(default_factory=dict)
     # Branches and tags, from one ref scan per call. This is what actually
     # carries the tag-lifetime property now that `_tags()` reads it.
-    ref_table: Dict[Any, Any] = field(default_factory=dict)
+    ref_table: dict[Any, Any] = field(default_factory=dict)
     # Line counts, so a sweep does not re-count the lines of a file once per
     # document that cites it.
-    linecount: Dict[Any, Any] = field(default_factory=dict)
+    linecount: dict[Any, Any] = field(default_factory=dict)
     # Declared version floors, so a sweep does not re-read every manifest once
     # per document.
-    manifest_floors: Dict[Any, Any] = field(default_factory=dict)
+    manifest_floors: dict[Any, Any] = field(default_factory=dict)
 
     # The eleven below are the ones no `global` statement ever named. All were
     # keyed on `str(repo)` and never invalidated, so a process that validated
@@ -119,17 +119,17 @@ class RunScope:
     # forever. Making them run-scoped is a behaviour change only for such a
     # process, which no shipped mode is: `--sweep` holds one scope for the whole
     # survey, and `--verify` reads a handful of documents from one checkout.
-    site: Dict[Any, Any] = field(default_factory=dict)
-    renames: Dict[Any, Any] = field(default_factory=dict)
-    numbered: Dict[Any, Any] = field(default_factory=dict)
-    changesets: Dict[Any, Any] = field(default_factory=dict)
-    basenames: Dict[Any, Any] = field(default_factory=dict)
-    routes: Dict[Any, Any] = field(default_factory=dict)
-    project_anchors: Dict[Any, Any] = field(default_factory=dict)
-    partial_ns: Dict[Any, Any] = field(default_factory=dict)
-    partial_anchors: Dict[Any, Any] = field(default_factory=dict)
-    global_ns: Dict[Any, Any] = field(default_factory=dict)
-    language_siblings: Dict[Any, Any] = field(default_factory=dict)
+    site: dict[Any, Any] = field(default_factory=dict)
+    renames: dict[Any, Any] = field(default_factory=dict)
+    numbered: dict[Any, Any] = field(default_factory=dict)
+    changesets: dict[Any, Any] = field(default_factory=dict)
+    basenames: dict[Any, Any] = field(default_factory=dict)
+    routes: dict[Any, Any] = field(default_factory=dict)
+    project_anchors: dict[Any, Any] = field(default_factory=dict)
+    partial_ns: dict[Any, Any] = field(default_factory=dict)
+    partial_anchors: dict[Any, Any] = field(default_factory=dict)
+    global_ns: dict[Any, Any] = field(default_factory=dict)
+    language_siblings: dict[Any, Any] = field(default_factory=dict)
 
     # NOT a cache, and the one field a fresh scope is asked about rather than
     # read from. True only while a caller reads many documents from one static
@@ -170,7 +170,7 @@ class DocScope:
     # resolves against its own file rather than against the repository root and
     # the rule signature (repo, text) carries no path. None means the caller did
     # not say, and the repository root is used.
-    link_base: Optional[Path] = None
+    link_base: Path | None = None
 
     # The markup language, for the same reason and set beside the other two.
     # It matters because `[text](url)` is markdown and nothing else. In
@@ -188,7 +188,7 @@ class DocScope:
     # reading needs this; `link_base` gives only the directory. None means the
     # caller did not say, and a rule that needs the path must then stay silent
     # rather than guess.
-    doc_path: Optional[str] = None
+    doc_path: str | None = None
 
 
 @dataclass(frozen=True)

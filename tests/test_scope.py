@@ -48,7 +48,7 @@ def test_a_nested_run_scope_does_not_disturb_the_outer_one() -> None:
     """The bug the save-and-restore block exists to prevent, now structural.
 
     Written against `ref_table` rather than a tag cache because `_TAGS` was
-    dead and is gone; `_REF_TABLE` is what actually answers "which tags exist"
+    dead and is gone; `ref_table` is what actually answers "which tags exist"
     and so is what the tag-lifetime property now rides on.
     """
     from extant.scope import RunScope
