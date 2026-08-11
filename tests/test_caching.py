@@ -44,13 +44,16 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
         return real(target, *args)
 
     monkeypatch.setattr(hc, "_git_soft", counted)
-    hc._OWN_REMOTE.clear()
+    # A fresh ambient scope, rather than clearing the one cache this test
+    # knows the name of. `_own_remote` is called DIRECTLY here, so what it
+    # memoises into is whatever scope the module is holding.
+    hc._SCOPE = hc.RunScope()
     try:
         first = hc._own_remote(repo)
         for _ in range(20):
             hc._own_remote(repo)
     finally:
-        hc._OWN_REMOTE.clear()
+        hc._SCOPE = hc.RunScope()
 
     remote_calls = [c for c in calls if c[:1] == ("remote",)]
     assert len(remote_calls) == 1, (
@@ -82,13 +85,13 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
         return real(target, *args)
 
     monkeypatch.setattr(hc, "_git_soft", counted)
-    hc._OWN_REMOTE.clear()
+    hc._SCOPE = hc.RunScope()
     try:
         assert hc._own_remote(repo) is None, "the fixture has no origin"
         for _ in range(10):
             hc._own_remote(repo)
     finally:
-        hc._OWN_REMOTE.clear()
+        hc._SCOPE = hc.RunScope()
 
     remote_calls = [c for c in calls if c[:1] == ("remote",)]
     assert len(remote_calls) == 1, (
@@ -177,16 +180,16 @@ def test_a_sweep_holds_one_cache_scope_and_gives_it_back(git_repo) -> None:
     commit("docs/a.md", "# A\n\nSee [x](gone-a.md).\n", "chore: a")
     commit("docs/b.md", "# B\n\nSee [y](gone-b.md).\n", "chore: b")
 
-    assert hc._STABLE_SCOPE is False, "the default must be off"
-    assert hc._DIRCACHE is None, "caching is off outside a declared scope"
+    assert hc._SCOPE.stable is False, "the default must be off"
+    assert hc._SCOPE.dircache is None, "caching is off outside a declared scope"
 
     hc.run_sweep(repo, "text")
 
-    assert hc._STABLE_SCOPE is False, (
+    assert hc._SCOPE.stable is False, (
         "the sweep kept the repository marked stable after finishing, so every "
         "later validate() in this process would reuse stale answers"
     )
-    assert hc._DIRCACHE is None, (
+    assert hc._SCOPE.dircache is None, (
         "directory listings outlived the scope that owned them"
     )
 
@@ -213,17 +216,17 @@ def test_the_scope_is_released_even_when_a_document_explodes(
     else:                                                   # pragma: no cover
         raise AssertionError("the fixture did not raise, so nothing was proven")
 
-    assert hc._STABLE_SCOPE is False, "a crash left the repository marked stable"
-    assert hc._DIRCACHE is None, "a crash left directory listings cached"
-    # `_LINK_BASE` and `_DOC_FORMAT` are reassigned per document inside the
+    assert hc._SCOPE.stable is False, "a crash left the repository marked stable"
+    assert hc._SCOPE.dircache is None, "a crash left directory listings cached"
+    # The document is replaced per file inside the
     # loop, and were restored only after it - so a rule that raised left the
     # process resolving relative links against the last swept document's
     # directory. Flagged by CodeRabbit; the restore moved into the finally.
-    assert hc._LINK_BASE is None, (
+    assert hc._DOC.link_base is None, (
         "a crash left the link base pointing at the last swept document"
     )
-    assert hc._DOC_FORMAT == "markdown", (
-        f"a crash left the document format as {hc._DOC_FORMAT!r}, so the next "
+    assert hc._DOC.doc_format == "markdown", (
+        f"a crash left the document format as {hc._DOC.doc_format!r}, so the next "
         "validation would skip the markdown rules"
     )
 
@@ -258,7 +261,7 @@ def test_validate_outside_a_sweep_still_gets_fresh_answers(git_repo) -> None:
 def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     """The filesystem is only half of what these caches hold.
 
-    `_DIRCACHE` uses None to mean "off", so failing to reset it merely turns
+    `scope.dircache` uses None to mean "off", so failing to reset it merely turns
     caching off - slower, still correct, and invisible to a test. The ancestry
     and ref indexes are plain dicts that default to empty, so failing to reset
     THOSE makes them permanent: every later call in the process answers from
@@ -270,8 +273,8 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     passed with the reset deleted. Picking the rule that actually reads the
     cache is the whole content of this test.
 
-    The release-tag rule has since grown caches of its own - `_TAGS`,
-    `_TAG_PREFIXES` and `_INTEGRATION` - so the version that would once have
+    The release-tag rule has since grown caches of its own - the ref table, the
+    tag prefixes and the integration refs - so the version that would once have
     proved nothing would now prove something. It is still the wrong test for
     THIS cache, which is why the two below exist separately rather than this
     one being loosened to cover them.
@@ -408,7 +411,7 @@ def test_one_ref_scan_answers_branches_tags_and_lookups(git_repo, monkeypatch) -
         return real(cmd, *a, **k)
 
     monkeypatch.setattr(sp, "run", counted)
-    hc._REF_TABLE = {}
+    hc._SCOPE = hc.RunScope()
     hc._tags(repo)
     hc._integration_refs(repo)
     hc._resolve_ref(repo, "main")
@@ -445,7 +448,7 @@ def test_a_bare_name_resolves_the_way_git_resolves_it(git_repo) -> None:
     sp.run(["git", "tag", "clash", "HEAD"], cwd=repo, check=True,
            capture_output=True)
 
-    hc._REF_TABLE, hc._REFS = {}, {}
+    hc._SCOPE = hc.RunScope()
     ours = hc._resolve_ref(repo, "clash")
     theirs = sp.run(["git", "rev-parse", "--verify", "--quiet", "clash^{commit}"],
                     cwd=repo, capture_output=True, text=True).stdout.strip()
@@ -465,14 +468,14 @@ def test_the_ref_table_is_re_read_between_validate_calls(git_repo) -> None:
     commit("README.md", "# R\n", "chore: init")
 
     # Asserted through a RULE, not by reading the table afterwards. `validate`
-    # restores every cache to its pre-call value in `finally`, so inspecting
-    # the table after the call sees the restored copy and says nothing about
-    # what the call itself used. The first version of this test did exactly
-    # that and failed against correct code.
+    # puts the caller's scope back in `finally`, so inspecting the table after
+    # the call sees the ambient scope and says nothing about the object the
+    # call itself used. The first version of this test did exactly that and
+    # failed against correct code.
     text = ("# R\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
             "Work is NOT yet merged on `feature/new`.\n\n## 1. Ref\n")
 
-    hc._REF_TABLE = {}
+    hc._SCOPE = hc.RunScope()
     before = [f.kind for f in hc.validate(repo, text)]
     assert "unknown-branch" in before, (
         "the branch does not exist yet, so it must be reported: " + str(before))
@@ -484,3 +487,54 @@ def test_the_ref_table_is_re_read_between_validate_calls(git_repo) -> None:
     assert "unknown-branch" not in after, (
         "a branch created between two validate() calls was not seen, so the "
         "ref table is outliving the call that built it: " + str(after))
+
+
+def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
+        git_repo, monkeypatch) -> None:
+    """The one memo that is NOT a field of the run scope, and why.
+
+    Both halves are asserted, because each alone permits the other's bug.
+
+    It must SURVIVE the call: `count_examined` computes the denominator for the
+    document `validate` has just read, and runs immediately after it returns.
+    A value tied to the call's scope would be thrown away exactly when it is
+    needed, and the rule and the denominator would each scan the document once.
+    That is the version that was written first, where it silently halved
+    nothing - measured on pytest's 308 documents at 617 calls and 1.19s.
+
+    It must NOT survive the NEXT call: the sites are derived from line counts
+    and from resolving each target on disk, so a caller validating the same
+    text OBJECT twice across a changed checkout would otherwise answer from the
+    checkout that moved on. Identity keying alone cannot see that, which is why
+    it is invalidated whenever a fresh scope opens rather than left pure.
+    """
+    import extant_collect as hc
+    repo, commit = git_repo
+    commit("a.py", "a\nb\nc\nd\ne\n", "chore: a")
+
+    calls: list[str] = []
+    real = hc._line_pointer_sites_uncached
+
+    def counted(target, text):
+        calls.append(text)
+        return real(target, text)
+
+    monkeypatch.setattr(hc, "_line_pointer_sites_uncached", counted)
+
+    # The SAME string object throughout: that is what the memo keys on, so
+    # passing an equal-but-distinct string would make both halves pass for the
+    # wrong reason.
+    text = "See `a.py:3` for the detail.\n"
+    hc.validate(repo, text, has_entries=False)
+    assert len(calls) == 1, f"the rule itself scanned {len(calls)} times"
+
+    hc.count_examined(repo, text)
+    assert len(calls) == 1, (
+        f"the denominator rescanned the document the rule had just scanned "
+        f"({len(calls)} scans); the memo did not survive validate() returning")
+
+    hc.validate(repo, text, has_entries=False)
+    assert len(calls) == 2, (
+        f"a second validate() reused a memo built against an earlier scope "
+        f"({len(calls)} scans); a checkout that changed in between would be "
+        f"answered from the one before it")

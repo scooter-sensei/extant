@@ -200,7 +200,7 @@ sys.path.insert(0, r"{repo / 'tools'}")
 import extant_collect as h
 repo = pathlib.Path(r"{repo}")
 text = pathlib.Path(r"{repo / 'NEXT_SESSION.md'}").read_text(encoding="utf-8")
-h._LINK_BASE = repo
+h._set_document(link_base=repo)
 rows = []
 for rule in h.RULES:
     start = time.perf_counter()

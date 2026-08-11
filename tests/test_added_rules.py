@@ -375,7 +375,7 @@ def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
     commit("docs/old.md", "# old\n", "docs: add")
     git(repo, "mv", "docs/old.md", "docs/new.md")
     git(repo, "commit", "-qm", "docs: rename")
-    extant_collect._RENAMES.clear()
+    extant_collect._SCOPE = extant_collect.RunScope()
 
     findings = validate_md_links(repo, "See [it](docs/old.md).\n")
 
@@ -726,7 +726,7 @@ def test_directory_listings_are_not_cached_outside_validate(git_repo) -> None:
     commit("docs/plan.md", "# plan\n", "docs: plan")
     text = "See [later](docs/later.md).\n"
 
-    assert hc._DIRCACHE is None, "caching must be off by default"
+    assert hc._SCOPE.dircache is None, "caching must be off by default"
     first = hc.validate_md_links(repo, text)
     assert [f.kind for f in first] == ["dead-md-link"]
 
@@ -957,7 +957,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     doc.write_text(text, encoding="utf-8")
     git(repo, "mv", "docs/plan.md", "docs/design.md")
     git(repo, "commit", "-qm", "docs: rename")
-    hc._RENAMES.clear()
+    hc._SCOPE = hc.RunScope()
 
     patch = suggest_renames(repo, repo, text, "NEXT_SESSION.md")
 
@@ -976,7 +976,7 @@ def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
     import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
-    hc._RENAMES.clear()
+    hc._SCOPE = hc.RunScope()
 
     assert suggest_renames(repo, repo, "See [x](docs/never-existed.md).\n",
                            "NEXT_SESSION.md") == ""
@@ -994,7 +994,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     commit("docs/plan.md", "# plan\n", "docs: plan")
     git(repo, "mv", "docs/plan.md", "docs/design.md")
     git(repo, "commit", "-qm", "docs: rename")
-    hc._RENAMES.clear()
+    hc._SCOPE = hc.RunScope()
     text = "See [plan](docs/plan.md).\nWe renamed docs/plan.md last week.\n"
 
     patch = suggest_renames(repo, repo, text, "NEXT_SESSION.md")
@@ -1120,7 +1120,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     commit("docs/plan.md", "# plan\n", "docs: plan")
     git(repo, "mv", "docs/plan.md", "docs/design.md")
     git(repo, "commit", "-qm", "docs: rename")
-    hc._RENAMES.clear()
+    hc._SCOPE = hc.RunScope()
     before = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
 
     patch = suggest_renames(repo, repo, "See [plan](docs/plan.md).\n", "DOC.md")

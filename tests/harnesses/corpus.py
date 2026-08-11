@@ -158,7 +158,7 @@ def examined(repo: Path) -> dict[str, int]:
     import extant_collect as hc
 
     totals: dict[str, int] = {}
-    previous_format = hc._DOC_FORMAT
+    previous_format = hc._DOC.doc_format
     try:
         for relative in hc.tracked_markdown(repo):
             try:
@@ -171,11 +171,11 @@ def examined(repo: Path) -> dict[str, int]:
             # `.rst` file was stripped as though it were markdown, and numpy
             # alone carries 555 of them. The counts were wrong in the column
             # this harness exists to provide.
-            hc._DOC_FORMAT = hc._format_for(relative)
+            hc._set_document(doc_format=hc._format_for(relative))
             for kind, count in hc.count_examined(repo, text).items():
                 totals[kind] = totals.get(kind, 0) + count
     finally:
-        hc._DOC_FORMAT = previous_format
+        hc._set_document(doc_format=previous_format)
     return totals
 
 

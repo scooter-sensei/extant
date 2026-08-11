@@ -27,13 +27,22 @@ def git(repo, *args):
 
 
 def test_a_tag_created_between_two_calls_is_seen_by_the_second(git_repo) -> None:
-    """The reason `_TAGS` is reset per call, stated in a comment beside it and
-    until now tested by nothing.
+    """The reason the tag list is reset per call, stated in a comment beside it
+    and until this test was written guarded by nothing.
 
     The comment reads: "A tag created between two validate() calls would
-    otherwise keep resolving to nothing." The mutation that makes `_TAGS`
+    otherwise keep resolving to nothing." The mutation that makes the tag list
     outlive its call SURVIVED the full campaign, which is that sentence being
     true and unguarded at the same time.
+
+    Named `_TAGS` when it was written, and that name was wrong by then: since
+    6c5c29c routed branches, tags and ref lookups through one `for-each-ref`,
+    `_tags()` has read the shared ref table and `_TAGS` was read by nothing at
+    all. It survived four commits as a global that was cleared, saved and
+    restored in four places while holding nothing, and was deleted when the
+    caches became a RunScope. What actually carries this property is
+    `scope.ref_table`. The test never changed, because the BEHAVIOUR it pins
+    never did - which is the argument for pinning behaviour rather than a name.
 
     One process, two calls, a tag created in between. Anything that caches the
     tag list across the boundary reports the second claim dead.
@@ -57,8 +66,9 @@ def test_a_tag_created_between_two_calls_is_seen_by_the_second(git_repo) -> None
         "means the tag list outlived the call that built it")
 
 
-# The `_INTEGRATION` cache has NO test here, deliberately, and the reason is
-# worth more than a weak one would be.
+# The integration-ref cache (`scope.integration`, formerly `_INTEGRATION`) has
+# NO test here, deliberately, and the reason is worth more than a weak one
+# would be.
 #
 # Its mutation survived the full campaign, and three attempts to close it all
 # failed for different reasons. Counting `_ref_table` proves nothing: that has

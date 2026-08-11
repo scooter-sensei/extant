@@ -24,8 +24,8 @@ sys.path.insert(0, str(PAYLOAD))
 
 def _reset():
     import extant_collect as hc
-    hc._LINECOUNT = {}
-    hc._DOC_FORMAT = "markdown"
+    hc._SCOPE = hc.RunScope()
+    hc._DOC = hc.DocScope()
 
 
 def _check(repo, text: str):
@@ -112,11 +112,11 @@ def test_a_pointer_inside_an_rst_literal_block_is_not_read(git_repo) -> None:
             ".. code-block:: pytest\n\n"
             "    SKIPPED [2] conftest.py:13: cannot run on platform linux\n")
     _reset()
-    hc._DOC_FORMAT = "rst"
+    hc._set_document(doc_format="rst")
     try:
         assert hc.validate_line_pointers(repo, text) == []
     finally:
-        hc._DOC_FORMAT = "markdown"
+        hc._set_document(doc_format="markdown")
 
 
 def test_a_path_the_repository_does_not_track_is_not_judged(git_repo) -> None:

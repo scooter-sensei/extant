@@ -20,11 +20,11 @@ sys.path.insert(0, str(PAYLOAD))
 
 def _kinds(repo, text, fmt="rst"):
     import extant_collect as hc
-    hc._DOC_FORMAT = fmt
+    hc._set_document(doc_format=fmt)
     try:
         return [f.kind for f in hc.validate(repo, text, has_entries=False)]
     finally:
-        hc._DOC_FORMAT = "markdown"
+        hc._set_document(doc_format="markdown")
 
 
 def test_rst_is_swept(git_repo) -> None:
@@ -95,8 +95,8 @@ def test_a_claim_in_rst_prose_is_still_checked(git_repo) -> None:
 def test_the_filename_decides_the_format() -> None:
     """`_format_for` is the dispatch, and nothing above ever calls it.
 
-    Every test in this file sets `_DOC_FORMAT` by hand, which is convenient and
-    leaves the thing that chooses it completely unpinned. A mutation campaign
+    Every test in this file sets the document's FORMAT by hand, which is
+    convenient and leaves the thing that chooses it completely unpinned. A mutation campaign
     made `_format_for` return "markdown" for every path and the whole suite
     stayed green: the rules were correct for a format nothing would ever
     select, which is a feature that works in tests and not in the product.

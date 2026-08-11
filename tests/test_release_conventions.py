@@ -23,8 +23,10 @@ def git(repo, *args):
 
 def _reset():
     import extant_collect as hc
-    hc._TAGS, hc._TAG_PREFIXES = {}, {}
-    hc._REFS = {}
+    # One fresh scope, not a list of cache names to keep in step with the
+    # code. The list form went stale silently: `_TAGS` stayed in it for four
+    # commits after `_tags()` stopped reading it.
+    hc._SCOPE = hc.RunScope()
     # These tests are about RESOLVING a claimed version against the tags a
     # repository really uses, so they assert what `release_claims_name_our_tags`
     # asserts: the claims are about this repository. The default is off, and
@@ -195,7 +197,7 @@ def test_a_tag_on_no_branch_is_still_reported_when_a_trunk_exists(git_repo) -> N
 def _pins(repo, text):
     from extant_collect import validate_pinned_refs
     import extant_collect as hc
-    hc._OWN_REMOTE = {}
+    hc._SCOPE = hc.RunScope()
     return [f.kind for f in validate_pinned_refs(repo, text)]
 
 
@@ -250,7 +252,7 @@ def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo) -> None:
 def _merge(repo, text):
     from extant_collect import validate_merge_claims
     import extant_collect as hc
-    hc._ANCESTORS, hc._REFS, hc._INTEGRATION = {}, {}, {}
+    hc._SCOPE = hc.RunScope()
     return [f.kind for f in validate_merge_claims(repo, text)]
 
 
@@ -357,8 +359,7 @@ def test_an_annotated_tag_resolves_to_the_commit_it_tags(git_repo) -> None:
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "-a", "v3.0.0", "-m", "annotated release")
 
-    hc._REF_TABLE, hc._REFS, hc._TAGS, hc._TAG_PREFIXES = {}, {}, {}, {}
-    hc._INTEGRATION, hc._ANCESTORS = {}, {}
+    hc._SCOPE = hc.RunScope()
     resolved = hc._resolve_ref(repo, "v3.0.0")
     head = hc._resolve_ref(repo, "main")
     assert resolved == head, (

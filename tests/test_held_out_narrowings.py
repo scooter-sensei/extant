@@ -25,15 +25,14 @@ sys.path.insert(0, str(PAYLOAD))
 def _clear() -> None:
     """Drop every per-repository cache between tests.
 
-    `_DIRCACHE` is None until a caller sets it, so this skips anything that is
-    not a live mapping rather than assuming they all are.
+    One fresh scope, rather than a list of nine cache names. The list form had
+    to be extended by hand every time a rule grew a cache, and a name missing
+    from it is invisible: the test still passes, from whatever the previous
+    test happened to leave behind. It also had to special-case `_DIRCACHE`,
+    which is None until a caller switches caching on and so has no `.clear`.
     """
     import extant_collect as hc
-    for name in ("_SITE", "_GLOBAL_NS", "_PARTIAL_NS", "_BASENAMES", "_ROUTES",
-                 "_CHANGESETS", "_NUMBERED", "_TARGET_ANCHORS", "_DIRCACHE"):
-        cache = getattr(hc, name, None)
-        if hasattr(cache, "clear"):
-            cache.clear()
+    hc._SCOPE = hc.RunScope()
 
 
 def _links(repo, text) -> list[str]:
@@ -139,8 +138,8 @@ def test_a_bare_name_does_not_resolve_across_translation_trees(
     commit("docs/en/docs/newsletter.md", "# News\n", "en")
     for lang in ("de", "es", "fr"):
         commit(f"docs/{lang}/docs/index.md", "# Index\n", lang)
-    monkeypatch.setattr(hc, "_DOC_PATH", "docs/de/docs/help.md")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo / "docs" / "de" / "docs")
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(
+        doc_path="docs/de/docs/help.md", link_base=repo / "docs" / "de" / "docs"))
     assert _links(repo, "See the [newsletter](newsletter.md).\n") == [
         "newsletter.md"]
 
@@ -155,8 +154,8 @@ def test_a_bare_name_still_resolves_inside_its_own_tree(
     commit("docs/en/guides/newsletter.md", "# News\n", "en")
     for lang in ("de", "es", "fr"):
         commit(f"docs/{lang}/docs/index.md", "# Index\n", lang)
-    monkeypatch.setattr(hc, "_DOC_PATH", "docs/en/docs/help.md")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo / "docs" / "en" / "docs")
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(
+        doc_path="docs/en/docs/help.md", link_base=repo / "docs" / "en" / "docs"))
     assert _links(repo, "See the [newsletter](newsletter.md).\n") == []
 
 
@@ -177,8 +176,8 @@ def test_a_lone_language_shaped_directory_is_not_a_tree(
     # which is exactly what the mutation run reported the first time.
     for name in ("guides", "reference", "tutorials"):
         commit(f"docs/{name}/index.md", "# Index\n", name)
-    monkeypatch.setattr(hc, "_DOC_PATH", "docs/guides/authn.md")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo / "docs" / "guides")
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(
+        doc_path="docs/guides/authn.md", link_base=repo / "docs" / "guides"))
     assert _links(repo, "See [contexts](contexts.md).\n") == []
 
 
@@ -202,8 +201,8 @@ def test_a_readme_outside_the_site_tree_is_still_judged(
     # reverts this line.
     commit("docs/guide.md", "# Guide\n", "docs")
     commit("packages/core/README.md", "# Core\n", "pkg")
-    monkeypatch.setattr(hc, "_DOC_PATH", "packages/core/README.md")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo / "packages" / "core")
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(
+        doc_path="packages/core/README.md", link_base=repo / "packages" / "core"))
     assert _links(repo, "See [the guide](guide.md).\n") == ["guide.md"]
 
 
@@ -215,8 +214,8 @@ def test_a_page_inside_the_site_tree_is_still_suppressed(
     repo, commit = git_repo
     commit("docs/mkdocs.yml", "site_name: x\n", "seed")
     commit("docs/reference/guide.md", "# Guide\n", "docs")
-    monkeypatch.setattr(hc, "_DOC_PATH", "docs/intro.md")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo / "docs")
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(
+        doc_path="docs/intro.md", link_base=repo / "docs"))
     assert _links(repo, "See [the guide](guide.md).\n") == []
 
 
@@ -234,14 +233,12 @@ def test_a_numbered_fixture_deep_in_a_package_is_not_a_site(git_repo) -> None:
     for name in ("1-one", "2-two", "3-three"):
         commit(f"packages/app/test/fixtures/content/{name}.md", "# x\n", name)
     commit("packages/app/README.md", "# App\n", "readme")
-    monkeypatch_free = repo / "packages" / "app"
-    hc._DOC_PATH = "packages/app/README.md"
-    hc._LINK_BASE = monkeypatch_free
+    hc._DOC = hc.DocScope(doc_path="packages/app/README.md",
+                          link_base=repo / "packages" / "app")
     try:
         assert _links(repo, "See [endpoint](../endpoint/).\n") == ["../endpoint/"]
     finally:
-        hc._DOC_PATH = None
-        hc._LINK_BASE = None
+        hc._DOC = hc.DocScope()
 
 
 def test_a_uuid_inside_an_identifier_is_not_a_sha(git_repo) -> None:
@@ -504,7 +501,7 @@ def test_a_pointer_resolves_relative_to_its_own_document(git_repo, monkeypatch) 
     import extant_collect as hc
     repo, commit = git_repo
     commit("skills/imagegen/references/cli.md", "# CLI\n", "seed")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo / "skills" / "imagegen")
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo / "skills" / "imagegen"))
     assert _pointers(repo, "See `references/cli.md` for the flags.\n") == []
 
 
@@ -513,7 +510,7 @@ def test_a_pointer_to_nothing_still_fires(git_repo, monkeypatch) -> None:
     import extant_collect as hc
     repo, commit = git_repo
     commit("skills/imagegen/SKILL.md", "x\n", "seed")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo / "skills" / "imagegen")
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo / "skills" / "imagegen"))
     assert _pointers(repo, "See `references/gone.md` for the flags.\n") == [
         "references/gone.md"]
 
@@ -529,7 +526,7 @@ def test_a_pointer_that_is_link_text_defers_to_its_url(git_repo, monkeypatch) ->
     import extant_collect as hc
     repo, commit = git_repo
     commit(".github/PULL_REQUEST_TEMPLATE.md", "# PR\n", "seed")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo)
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo))
     text = ("You MUST read [`PULL_REQUEST_TEMPLATE.md`]"
             "(./.github/PULL_REQUEST_TEMPLATE.md) first.\n")
     assert _pointers(repo, text) == []
@@ -544,7 +541,7 @@ def test_link_text_still_fires_when_the_url_is_dead_too(git_repo, monkeypatch) -
     import extant_collect as hc
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
-    monkeypatch.setattr(hc, "_LINK_BASE", repo)
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo))
     text = "See [`packages/evals/ADDING-EVALS.md`](packages/evals/ADDING-EVALS.md).\n"
     assert _pointers(repo, text) == ["packages/evals/ADDING-EVALS.md"]
 

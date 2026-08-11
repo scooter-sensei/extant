@@ -20,16 +20,13 @@ sys.path.insert(0, str(PAYLOAD))
 
 def _kinds(repo, text):
     import extant_collect as hc
-    for cache in (hc._SITE, hc._GLOBAL_NS, hc._PARTIAL_NS):
-        cache.clear()
+    hc._SCOPE = hc.RunScope()
     return [f.kind for f in hc.validate_md_links(repo, text)]
 
 
 def _anchor_kinds(repo, text):
     import extant_collect as hc
-    for cache in (hc._SITE, hc._GLOBAL_NS, hc._PARTIAL_NS,
-                  hc._PROJECT_ANCHORS):
-        cache.clear()
+    hc._SCOPE = hc.RunScope()
     return [f.kind for f in hc.validate_md_anchors(repo, text)]
 
 

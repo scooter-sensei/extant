@@ -28,30 +28,32 @@ def _prepare(git_repo, manifest: str = PYPROJECT):
     import extant_collect as hc
     repo, commit = git_repo
     commit("pyproject.toml", manifest, "chore: manifest")
-    hc._MANIFEST_FLOORS = {}
-    hc._DOC_PATH = None
+    # A fresh scope and a fresh document, rather than the two names this
+    # helper happened to know about.
+    hc._SCOPE = hc.RunScope()
+    hc._DOC = hc.DocScope()
     return repo
 
 
 def _check(repo, text: str, doc: str = "README.md"):
     """Findings from the rule alone, for a document at `doc`."""
     import extant_collect as hc
-    hc._MANIFEST_FLOORS = {}
-    hc._DOC_PATH = doc
+    hc._SCOPE.manifest_floors = {}
+    hc._set_document(doc_path=doc)
     try:
         return hc.validate_manifest_floors(repo, text)
     finally:
-        hc._DOC_PATH = None
+        hc._set_document(doc_path=None)
 
 
 def _examined(repo, text: str, doc: str = "README.md") -> int:
     import extant_collect as hc
-    hc._MANIFEST_FLOORS = {}
-    hc._DOC_PATH = doc
+    hc._SCOPE.manifest_floors = {}
+    hc._set_document(doc_path=doc)
     try:
         return len(hc._floor_claims(repo, text))
     finally:
-        hc._DOC_PATH = None
+        hc._set_document(doc_path=None)
 
 
 # --- the contradiction itself ------------------------------------------
@@ -148,15 +150,16 @@ def test_an_install_guide_is_read(git_repo) -> None:
 
 
 def test_a_document_with_no_path_is_not_guessed_at(git_repo) -> None:
-    """`_DOC_PATH` unset means the caller did not say which document this is.
+    """An unset document path means the caller did not say which document
+    this is.
 
     Catches a rule that treats "unknown" as "entry point" and therefore fires
     on any text handed to it by a library caller.
     """
     import extant_collect as hc
     repo = _prepare(git_repo)
-    hc._MANIFEST_FLOORS = {}
-    hc._DOC_PATH = None
+    hc._SCOPE.manifest_floors = {}
+    hc._set_document(doc_path=None)
     assert hc.validate_manifest_floors(repo, "Requires Python 3.8+.\n") == []
 
 
@@ -313,11 +316,11 @@ def test_count_examined_exposes_the_rule(git_repo) -> None:
     """The registry's denominator must reach the reported one."""
     import extant_collect as hc
     repo = _prepare(git_repo)
-    hc._DOC_PATH = "README.md"
+    hc._set_document(doc_path="README.md")
     try:
         counts = hc.count_examined(repo, "This requires Python 3.10+.\n")
     finally:
-        hc._DOC_PATH = None
+        hc._set_document(doc_path=None)
     assert counts["manifest-floor-mismatch"] == 1
 
 
@@ -424,13 +427,13 @@ def test_the_document_path_is_restored_after_validate(git_repo) -> None:
     """A leaked global makes the NEXT document be judged as this one."""
     import extant_collect as hc
     repo = _prepare(git_repo)
-    hc._DOC_PATH = "sentinel.md"
+    hc._set_document(doc_path="sentinel.md")
     try:
         hc.validate(repo, "Requires Python 3.8+.\n", has_entries=False,
                     doc="README.md")
-        assert hc._DOC_PATH == "sentinel.md"
+        assert hc._DOC.doc_path == "sentinel.md"
     finally:
-        hc._DOC_PATH = None
+        hc._set_document(doc_path=None)
 
 
 def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
@@ -439,17 +442,17 @@ def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
     import extant_collect as hc
     repo = _prepare(git_repo)
     text = "This requires Python 3.10+.\n"
-    hc._DOC_PATH = "README.md"
+    hc._set_document(doc_path="README.md")
     try:
         assert _check(repo, text) == []
-        hc._MANIFEST_FLOORS = {}
-        hc._DOC_PATH = "README.md"
+        hc._SCOPE.manifest_floors = {}
+        hc._set_document(doc_path="README.md")
         probed = hc._probe_manifest_floor(repo, text)
         assert probed is not None
-        hc._MANIFEST_FLOORS = {}
+        hc._SCOPE.manifest_floors = {}
         assert len(hc.validate_manifest_floors(repo, probed)) == 1
     finally:
-        hc._DOC_PATH = None
+        hc._set_document(doc_path=None)
 
 
 def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
@@ -457,8 +460,8 @@ def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
     `--selftest` reports it as NO PROBE rather than as a pass."""
     import extant_collect as hc
     repo = _prepare(git_repo)
-    hc._DOC_PATH = "README.md"
+    hc._set_document(doc_path="README.md")
     try:
         assert hc._probe_manifest_floor(repo, "Nothing here.\n") is None
     finally:
-        hc._DOC_PATH = None
+        hc._set_document(doc_path=None)

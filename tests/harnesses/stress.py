@@ -301,7 +301,7 @@ sys.path.insert(0, r"{repo / 'tools'}")
 import extant_collect as h
 repo = pathlib.Path(r"{repo}")
 text = pathlib.Path(r"{doc}").read_text(encoding="utf-8")
-h._LINK_BASE = repo
+h._set_document(link_base=repo)
 tracemalloc.start()
 h.validate(repo, text)
 current, peak = tracemalloc.get_traced_memory()

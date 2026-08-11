@@ -94,24 +94,33 @@ def neutral_config(tmp_path: Path):
     # end - so it is saved and restored alongside them rather than left to the
     # next test's reload to fix.
     saved_active = hc._ACTIVE
-    # Per-document state, cleared for the same reason the config is
-    # neutralised: it is a module global, and a test that leaves it set makes
-    # the NEXT test's answer depend on which one ran first.
+    # Per-document and per-run state, cleared for the same reason the config is
+    # neutralised: both are reachable from the module, and a test that leaves
+    # either set makes the NEXT test's answer depend on which one ran first.
     #
-    # It stayed invisible while nothing read `_DOC_PATH` outside the call that
-    # sets it. The moment link suppression became scoped to the document's
-    # position in the tree, three tests began failing in the full suite and
-    # passing alone - which is what an order dependency looks like, and why
-    # this belongs here rather than in the tests that noticed it.
-    saved_doc, saved_base = hc._DOC_PATH, hc._LINK_BASE
-    hc._DOC_PATH, hc._LINK_BASE = None, None
+    # It stayed invisible while nothing read the document's PATH outside the
+    # call that sets it. The moment link suppression became scoped to the
+    # document's position in the tree, three tests began failing in the full
+    # suite and passing alone - which is what an order dependency looks like,
+    # and why this belongs here rather than in the tests that noticed it.
+    #
+    # Two objects now, where this used to name `_DOC_PATH` and `_LINK_BASE`
+    # individually. That is the point of the change rather than a detail of it:
+    # the old form had to grow a name every time a per-document or per-run value
+    # appeared, and a value nobody added here is exactly the one that leaks. The
+    # RUN scope is reset for the same reason, and was not covered before at all
+    # - twenty-six caches keyed on `str(repo)` survived every test in this
+    # suite, and only tmp_path handing out a fresh directory per test kept that
+    # from being visible.
+    saved_doc, saved_scope = hc._DOC, hc._SCOPE
+    hc._DOC, hc._SCOPE = hc.DocScope(), hc.RunScope()
     hc.reload_config(neutral)
     try:
         yield
     finally:
         hc.CONFIG = saved_config
         hc._ACTIVE = saved_active
-        hc._DOC_PATH, hc._LINK_BASE = saved_doc, saved_base
+        hc._DOC, hc._SCOPE = saved_doc, saved_scope
         for name, value in saved.items():
             setattr(hc, name, value)
 

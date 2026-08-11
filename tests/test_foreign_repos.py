@@ -222,11 +222,8 @@ def test_a_fragment_on_another_file_is_checked(git_repo) -> None:
     text = "See [auth](auth.md#customizing-authentication).\n"
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(repo, text, has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, text, has_entries=False, base=repo / "docs")]
     assert "dead-md-anchor" in kinds, kinds
 
 
@@ -238,11 +235,8 @@ def test_a_fragment_that_does_exist_elsewhere_is_left_alone(git_repo) -> None:
     text = "See [auth](auth.md#custom-authentication-schemes).\n"
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(repo, text, has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, text, has_entries=False, base=repo / "docs")]
     assert "dead-md-anchor" not in kinds, kinds
 
 
@@ -254,11 +248,8 @@ def test_a_fragment_on_a_file_that_is_missing_is_not_this_rules_finding(git_repo
     text = "See [gone](nowhere.md#whatever).\n"
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(repo, text, has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, text, has_entries=False, base=repo / "docs")]
     assert "dead-md-link" in kinds, kinds
     assert "dead-md-anchor" not in kinds, f"double-counted: {kinds}"
 
@@ -302,12 +293,9 @@ def test_a_percent_encoded_path_resolves(git_repo) -> None:
     commit("docs/index.md", "x\n", "chore: index")
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [op](operator%5B%5D.md).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [op](operator%5B%5D.md).\n", has_entries=False,
+        base=repo / "docs")]
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -335,12 +323,9 @@ def test_a_generator_configured_inside_another_file_is_detected(git_repo) -> Non
     commit("guides/a.md", "x\n", "chore: guide")
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "guides"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [gen](Mix.Tasks.Phx.Gen.Auth.html).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [gen](Mix.Tasks.Phx.Gen.Auth.html).\n", has_entries=False,
+        base=repo / "guides")]
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -373,12 +358,9 @@ def test_a_flattened_guide_resolves_by_unique_basename(git_repo) -> None:
     commit("guides/authn_authz/auth.md", "x\n", "chore: auth")
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "guides" / "authn_authz"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [contexts](contexts.md).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [contexts](contexts.md).\n", has_entries=False,
+        base=repo / "guides" / "authn_authz")]
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -392,12 +374,9 @@ def test_an_ambiguous_basename_is_not_guessed(git_repo) -> None:
     commit("guides/c/page.md", "x\n", "chore: page")
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "guides" / "c"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [it](index.md).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [it](index.md).\n", has_entries=False,
+        base=repo / "guides" / "c")]
     assert "dead-md-link" in kinds, kinds
 
 
@@ -478,14 +457,11 @@ def test_a_site_config_in_a_subdirectory_is_found(git_repo) -> None:
     commit("docs/index.md", "x\n", "chore: index")
 
     import extant_collect as hc
-    hc._SITE.clear()
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [posts](/docs/posts/).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
-        hc._SITE.clear()
+    hc._SCOPE = hc.RunScope()
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [posts](/docs/posts/).\n", has_entries=False,
+        base=repo / "docs")]
+    hc._SCOPE = hc.RunScope()
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -567,14 +543,11 @@ def test_an_astro_site_links_by_route(git_repo) -> None:
     commit("docs/src/content/docs/index.md", "x\n", "chore: docs")
 
     import extant_collect as hc
-    hc._SITE.clear()
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [config](/de/reference/configuration/).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
-        hc._SITE.clear()
+    hc._SCOPE = hc.RunScope()
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [config](/de/reference/configuration/).\n", has_entries=False,
+        base=repo / "docs")]
+    hc._SCOPE = hc.RunScope()
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -601,14 +574,11 @@ def test_myst_resolves_a_label_defined_in_another_file(git_repo) -> None:
     commit("docs/analytics.md", "x\n", "chore: analytics")
 
     import extant_collect as hc
-    hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [opts](#site-options).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
-        hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
+    hc._SCOPE = hc.RunScope()
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [opts](#site-options).\n", has_entries=False,
+        base=repo / "docs")]
+    hc._SCOPE = hc.RunScope()
     assert "dead-md-anchor" not in kinds, kinds
 
 
@@ -625,15 +595,12 @@ def test_a_per_page_generator_keeps_its_anchors_local(git_repo) -> None:
     commit("docs/proxies.md", "x\n", "chore: proxies")
 
     import extant_collect as hc
-    hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear(); hc._SITE.clear()
-    hc._LINK_BASE = repo / "docs"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "## Proxy mechanisms\n\nSee [Routing](#routing).\n",
-            has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
-        hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear(); hc._SITE.clear()
+    hc._SCOPE = hc.RunScope()
+    kinds = [f.kind for f in hc.validate(
+        repo, "## Proxy mechanisms\n\nSee [Routing](#routing).\n",
+        has_entries=False,
+        base=repo / "docs")]
+    hc._SCOPE = hc.RunScope()
     assert "dead-md-anchor" in kinds, (
         "a heading in ANOTHER file must not forgive this one: " + str(kinds))
 
@@ -758,12 +725,12 @@ def test_hugo_partials_are_anchors_on_the_pages_that_include_them(git_repo) -> N
     commit("content/all.md", "x\n", "chore: page")
 
     import extant_collect as hc
-    hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    hc._SCOPE = hc.RunScope()
     try:
         kinds = [f.kind for f in hc.validate(
             repo, "See [locale](#locale).\n", has_entries=False)]
     finally:
-        hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+        hc._SCOPE = hc.RunScope()
     assert "dead-md-anchor" not in kinds, kinds
 
 
@@ -780,12 +747,12 @@ def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
     commit("index.md", "x\n", "chore: index")
 
     import extant_collect as hc
-    hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    hc._SCOPE = hc.RunScope()
     try:
         kinds = [f.kind for f in hc.validate(
             repo, "See [it](#some-heading).\n", has_entries=False)]
     finally:
-        hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+        hc._SCOPE = hc.RunScope()
     assert "dead-md-anchor" in kinds, (
         "a heading in a Jekyll post must not become an ambient anchor: " + str(kinds))
 
@@ -809,18 +776,19 @@ def test_inside_hugo_only_underscore_directories_are_ambient(git_repo) -> None:
     commit("content/all.md", "x\n", "chore: page")
 
     import extant_collect as hc
-    hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+    hc._SCOPE = hc.RunScope()
     try:
         kinds = [f.kind for f in hc.validate(
             repo, "See [it](#some-heading).\n", has_entries=False)]
     finally:
-        hc._PARTIAL_NS.clear(); hc._PARTIAL_ANCHORS.clear()
+        hc._SCOPE = hc.RunScope()
     assert "dead-md-anchor" in kinds, (
         "a heading in an ordinary Hugo content directory is not a fragment, so "
         "this link is dead: " + str(kinds))
 
 
-def test_the_project_union_is_built_only_when_a_fragment_needs_it(git_repo) -> None:
+def test_the_project_union_is_built_only_when_a_fragment_needs_it(
+        git_repo, monkeypatch) -> None:
     """A performance contract, pinned because nothing else can see it.
 
     Resolving a fragment project-wide means reading every tracked markdown
@@ -841,13 +809,28 @@ def test_the_project_union_is_built_only_when_a_fragment_needs_it(git_repo) -> N
     commit("docs/other.md", "# Other\n\n## Site Options\n\nx\n", "chore: other")
     commit("index.md", "x\n", "chore: index")
 
-    hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
+    # Asserted by COUNTING the builder, not by inspecting the cache afterwards.
+    # The union now lives on the run scope, and `validate` puts the caller's
+    # scope back when it returns - so a probe of the cache after the call reads
+    # the ambient scope and would say nothing about what the call did. That is
+    # the same trap `test_the_ref_table_is_re_read_between_validate_calls`
+    # records from the other side, and counting the call is the stronger form:
+    # it distinguishes "not built" from "built into somewhere else".
+    built: list[Path] = []
+    real = hc._project_anchors
+
+    def counted(target):
+        built.append(target)
+        return real(target)
+
+    monkeypatch.setattr(hc, "_project_anchors", counted)
+    hc._SCOPE = hc.RunScope()
     try:
         # Every fragment resolves against this document's own headings.
         local = "# Doc\n\n## Local Heading\n\nSee [it](#local-heading).\n"
         findings = hc.validate(repo, local, has_entries=False)
         assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
-        assert str(repo) not in hc._PROJECT_ANCHORS, (
+        assert not built, (
             "the project union was built for a document that never needed it, "
             "which is a whole-repository read on every commit"
         )
@@ -858,11 +841,12 @@ def test_the_project_union_is_built_only_when_a_fragment_needs_it(git_repo) -> N
         crossfile = "# Doc\n\nSee [it](#site-options).\n"
         findings = hc.validate(repo, crossfile, has_entries=False)
         assert not [f for f in findings if f.kind == "dead-md-anchor"], findings
-        assert str(repo) in hc._PROJECT_ANCHORS, (
-            "a cross-file fragment resolved without the union ever being built"
+        assert built == [repo], (
+            f"a cross-file fragment resolved without the union ever being "
+            f"built: {built}"
         )
     finally:
-        hc._GLOBAL_NS.clear(); hc._PROJECT_ANCHORS.clear()
+        hc._SCOPE = hc.RunScope()
 
 
 # --- repositories that actually use Git LFS --------------------------------
@@ -905,12 +889,9 @@ def test_a_root_relative_route_resolves_to_its_document(git_repo) -> None:
     commit("api/index.md", "x\n", "chore: index")
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "api"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [views](/api/ux-guidelines/views).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [views](/api/ux-guidelines/views).\n", has_entries=False,
+        base=repo / "api")]
     assert "dead-md-link" not in kinds, kinds
 
 
@@ -922,10 +903,7 @@ def test_a_route_to_no_document_is_still_reported(git_repo) -> None:
     commit("api/index.md", "x\n", "chore: index")
 
     import extant_collect as hc
-    hc._LINK_BASE = repo / "api"
-    try:
-        kinds = [f.kind for f in hc.validate(
-            repo, "See [gone](/api/references/vscode-api).\n", has_entries=False)]
-    finally:
-        hc._LINK_BASE = None
+    kinds = [f.kind for f in hc.validate(
+        repo, "See [gone](/api/references/vscode-api).\n", has_entries=False,
+        base=repo / "api")]
     assert "dead-md-link" in kinds, kinds

@@ -185,8 +185,8 @@ bypassed the thing being changed.
   guard actually protects - a Hugo repository whose heading sits in an ordinary
   content directory - was missing.
 - `_format_for` is the dispatch that chooses rst, and every test in
-  `test_rst.py` sets `_DOC_FORMAT` by hand. The rules were correct for a format
-  nothing would ever select.
+  `test_rst.py` sets the document's format by hand. The rules were correct for
+  a format nothing would ever select.
 - `_MARKDOWN_ONLY` looked covered and was not. Two mechanisms suppress a
   markdown link in rst - the format gate, and rst literal-stripping - and the
   existing test put its payload inside a literal, so the stripping alone

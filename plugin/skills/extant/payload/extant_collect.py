@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -104,6 +104,46 @@ from extant.collect import (          # noqa: F401  (re-exported as they are:
     _CHECKED, _PYTEST_DURATION, _PYTEST_FAILED, _PYTEST_PASSED, _UNCHECKED,
     _VENV_LAYOUTS, changed_files,     # these take no configuration)
 )
+
+from extant.scope import Context, DocScope, RunScope
+
+
+# The two objects that hold everything this module used to keep in twenty-six
+# cache globals and three per-document ones. Their lifetimes are stated on the
+# classes; what is stated here is why any module-level name survives at all.
+#
+# The rules are still functions taking `(repo, text)`. They carry no argument
+# through which a scope could be handed to them, so the scope they read has to
+# be reachable from the module - which is exactly the situation the old globals
+# were in, and exactly what Task 9 ends by giving every rule a `Context`.
+#
+# What changed is the NUMBER of names and who resets them. `validate()` swaps
+# ONE name and puts ONE name back, so a nested call cannot half-clear a caller's
+# view: it builds its own object, and the outer one is untouched because it is a
+# different object. The previous shape saved thirteen names and restored twelve,
+# by hand, and the two bugs its comments recorded were both a name somebody
+# forgot to add to one of the two lists.
+#
+# `_SCOPE` is never None. A rule called DIRECTLY, without going through
+# validate(), reads this ambient scope and memoises into it, which is what the
+# module globals did and what several tests assert by clearing one field and
+# counting subprocesses. `dircache` is None here, so directory listings stay
+# uncached outside a call - see the field's own comment.
+_SCOPE = RunScope()
+_DOC = DocScope()
+
+
+def _set_document(**changes: object) -> None:
+    """Replace the current document, changing only what is named.
+
+    A setter rather than three assignments at each call site, because the
+    three values move together and the old code proved they do not stay
+    together on their own: `--sweep` set two of them per file and restored
+    them after the loop, so a rule that raised left the process resolving
+    relative links against the last swept document's directory.
+    """
+    global _DOC
+    _DOC = replace(_DOC, **changes)      # type: ignore[arg-type]
 
 
 # The live Config, and the values the package's functions are handed. Assigned
@@ -689,12 +729,9 @@ _CHANGESET_ENTRY = re.compile(r"^\s*[-*]\s+[0-9a-f]{6,40}:\s")
 def _uses_changesets(repo: Path) -> bool:
     """Does this repository mint release notes with changesets?"""
     key = str(repo)
-    if key not in _CHANGESETS:
-        _CHANGESETS[key] = (repo / ".changeset").is_dir()
-    return _CHANGESETS[key]
-
-
-_CHANGESETS: dict[str, bool] = {}
+    if key not in _SCOPE.changesets:
+        _SCOPE.changesets[key] = (repo / ".changeset").is_dir()
+    return _SCOPE.changesets[key]
 
 
 def validate_references(repo: Path, text: str) -> list[Finding]:
@@ -836,24 +873,6 @@ def _branch_exists(repo: Path, branch: str) -> bool:
         return False
 
 
-# Ancestry indexes and resolved refs, for the duration of ONE validate() call.
-# Saved and restored rather than cleared, exactly as _DIRCACHE is: git state can
-# change between validations, so an index that outlived the call would answer
-# from a repository that no longer exists in that shape.
-#
-# Keyed by (repo, ref), never by ref alone. Keying by name looked sufficient and
-# was not: rules are also called directly, without going through validate(), so
-# nothing resets the cache between two repositories that both have a branch
-# called `main` - and the second one is then answered from the first one's
-# history. The suite caught it as a TRUE merge claim reported false.
-_ANCESTORS: dict[tuple[str, str], dict[str, list[str]] | None] = {}
-_REFS: dict[tuple[str, str], str | None] = {}
-# The LFS survey walks the whole tree, and BOTH the rule and the
-# denominator need it. Computing it twice doubled the cost of the most
-# expensive rule here for no benefit.
-_LFS: dict[str, list[tuple[str, str]]] = {}
-
-
 def _ancestor_index(repo: Path, ref: str) -> dict[str, list[str]] | None:
     """Every commit reachable from `ref`, indexed by its 7-character prefix.
 
@@ -879,17 +898,17 @@ def _ancestor_index(repo: Path, ref: str) -> dict[str, list[str]] | None:
     commit and get the same answer it always did.
     """
     key = (str(repo), ref)
-    if key in _ANCESTORS:
-        return _ANCESTORS[key]
+    if key in _SCOPE.ancestors:
+        return _SCOPE.ancestors[key]
     try:
         out = _git(repo, "rev-list", ref)
     except (subprocess.CalledProcessError, OSError):
-        _ANCESTORS[key] = None
+        _SCOPE.ancestors[key] = None
         return None
     index: dict[str, list[str]] = {}
     for full in out.split():
         index.setdefault(full[:7], []).append(full)
-    _ANCESTORS[key] = index
+    _SCOPE.ancestors[key] = index
     return index
 
 
@@ -924,8 +943,8 @@ def _resolve_ref(repo: Path, ref: str) -> str | None:
     test asserting the process count, and it caught this.
     """
     key = (str(repo), ref)
-    if key in _REFS:
-        return _REFS[key]
+    if key in _SCOPE.refs:
+        return _SCOPE.refs[key]
     # The ref TABLE first, which one `for-each-ref` builds for the whole call.
     # Measured on this repository's own status document, a validate spawned
     # eight git subprocesses and three of them asked questions this table
@@ -946,7 +965,7 @@ def _resolve_ref(repo: Path, ref: str) -> str | None:
                             f"{ref}^{{commit}}").strip() or None
         except (subprocess.CalledProcessError, OSError):
             resolved = None
-    _REFS[key] = resolved
+    _SCOPE.refs[key] = resolved
     return resolved
 
 
@@ -962,7 +981,7 @@ def _ref_table(repo: Path) -> tuple[dict[str, str], dict[str, str]]:
     Held for one call, like every other answer git gives here.
     """
     key = str(repo)
-    if key not in _REF_TABLE:
+    if key not in _SCOPE.ref_table:
         heads: dict[str, str] = {}
         tags: dict[str, str] = {}
         try:
@@ -981,11 +1000,8 @@ def _ref_table(repo: Path) -> tuple[dict[str, str], dict[str, str]]:
                 heads[full[len("refs/heads/"):]] = commit
             elif full.startswith("refs/tags/"):
                 tags[full[len("refs/tags/"):]] = commit
-        _REF_TABLE[key] = (heads, tags)
-    return _REF_TABLE[key]
-
-
-_REF_TABLE: dict[str, tuple[dict[str, str], dict[str, str]]] = {}
+        _SCOPE.ref_table[key] = (heads, tags)
+    return _SCOPE.ref_table[key]
 
 
 # The branch names the mainstream flows actually integrate into: gitflow and
@@ -1034,27 +1050,25 @@ def _integration_refs(repo: Path) -> list[str]:
     settle" rather than as "integrated nowhere".
     """
     key = str(repo)
-    if key in _INTEGRATION:
-        return _INTEGRATION[key]
+    if key in _SCOPE.integration:
+        return _SCOPE.integration[key]
     refs = [TRUNK]
     # The shared ref table, not a second `for-each-ref` of its own.
     present = set(_ref_table(repo)[0])
     for name in _INTEGRATION_NAMES:
         if name in present and name not in refs:
             refs.append(name)
-    _INTEGRATION[key] = [ref for ref in refs
-                         if _resolve_ref(repo, ref) is not None]
-    return _INTEGRATION[key]
+    _SCOPE.integration[key] = [ref for ref in refs
+                               if _resolve_ref(repo, ref) is not None]
+    return _SCOPE.integration[key]
 
 
-# Memoised for the lifetime of one call, exactly like the ancestry indexes and
-# for the same reason: the same handful of refs is asked for once per claim,
-# and each miss was a `for-each-ref` SUBPROCESS. Measured on a document with
-# 200 release claims and 30 tags: 11.6 seconds before, and this is the whole
-# difference. Two of this project's worst measured costs have been a
-# subprocess per claim - ancestry was 17.7 of 18.0 seconds once - so a git
-# call reached from inside a per-claim loop is the shape to watch.
-_INTEGRATION: dict[str, list[str]] = {}
+# Memoised on the run scope for the lifetime of one call, exactly like the
+# ancestry indexes: the same handful of refs is asked for once per claim, and
+# each miss was a `for-each-ref` SUBPROCESS. Two of this project's worst
+# measured costs have been a subprocess per claim - ancestry was 17.7 of 18.0
+# seconds once - so a git call reached from inside a per-claim loop is the
+# shape to watch. See `RunScope.integration`.
 
 
 def _integrated_by(repo: Path, rev: str, *, exclude: str = "") -> list[str]:
@@ -1238,7 +1252,7 @@ def validate_path_pointers(repo: Path, text: str) -> list[Finding]:
     #
     # Strictly narrowing: a pointer resolving either way is a working
     # pointer, so nothing that was a real defect stops being one.
-    base = _LINK_BASE or repo
+    base = _DOC.link_base or repo
     for number, line in enumerate(text.splitlines(), start=1):
         linked = {text_part.strip(): url
                   for text_part, url in _LINKED_PATH.findall(line)}
@@ -1330,10 +1344,9 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
     return findings
 
 
-# Cached per repository, because the query below cannot be narrowed with a
-# pathspec and so is the expensive one here. Keyed by path, and only ever read
-# after a pointer has already been found dead.
-_RENAMES: dict[str, dict[str, str]] = {}
+# Cached per repository on the run scope, because the query below cannot be
+# narrowed with a pathspec and so is the expensive one here. Keyed by path, and
+# only ever read after a pointer has already been found dead.
 
 
 def _rename_map(repo: Path) -> dict[str, str]:
@@ -1347,8 +1360,8 @@ def _rename_map(repo: Path) -> dict[str, str]:
     rename was two commits old.
     """
     key = str(repo)
-    if key in _RENAMES:
-        return _RENAMES[key]
+    if key in _SCOPE.renames:
+        return _SCOPE.renames[key]
     mapping: dict[str, str] = {}
     try:
         out = _git(repo, "log", "--diff-filter=R", "--name-status",
@@ -1359,7 +1372,7 @@ def _rename_map(repo: Path) -> dict[str, str]:
         parts = line.split("\t")
         if len(parts) == 3 and parts[0].startswith("R"):
             mapping.setdefault(parts[1], parts[2])
-    _RENAMES[key] = mapping
+    _SCOPE.renames[key] = mapping
     return mapping
 
 
@@ -1440,32 +1453,15 @@ _MYST_TARGET = re.compile(r"^\(([^)\s]+)\)=\s*$", re.MULTILINE)
 _DIRECTIVE_LABEL = re.compile(r"^\s*:(?:label|name):\s*(\S+)\s*$", re.MULTILINE)
 _FENCE = re.compile(r"^\s*(```|~~~)")
 
-# A relative link resolves against the FILE that contains it, not the repository
-# root, and the rule signature (repo, text) carries no path. main() sets this
-# before validating each document. Single-threaded CLI code, set in one place.
-_LINK_BASE: Path | None = None
-# The repository-relative path of the document being validated, set by the
-# same callers that set `_LINK_BASE` and restored the same way. A rule that
-# keys on WHICH document it is reading needs this; `_LINK_BASE` gives only the
-# directory. None means the caller did not say, and a rule that needs the path
-# must then stay silent rather than guess.
-_DOC_PATH: str | None = None
-
-
+# The three per-document values - the directory a relative link resolves
+# against, the document's own path, and its markup language - are one object
+# now. `DocScope` in extant/scope.py carries the reason each of them exists,
+# which is the same reason in all three cases: a rule signature is
+# (repo, text) and can carry none of them.
 def _current_document() -> str | None:
     """The document under validation, as a forward-slashed relative path."""
-    return _DOC_PATH.replace("\\", "/") if _DOC_PATH else None
+    return _DOC.doc_path.replace("\\", "/") if _DOC.doc_path else None
 
-
-# The markup language of the document being validated, set beside _LINK_BASE
-# and for the same reason: a rule signature is (repo, text) and carries no path.
-#
-# It matters because `[text](url)` is markdown and nothing else. In
-# reStructuredText that shape occurs in ordinary Python - numpy writes
-# `np.dtype[mp.mpf](dps=100)` in a doctest - so every match is false by
-# construction, not by accident. Twenty-three of numpy's findings and all ten
-# of Sphinx's were exactly that.
-_DOC_FORMAT: str = "markdown"
 
 # Rules whose syntax is markdown's alone. Skipped outside it rather than
 # tuned, because there is no version of a markdown link regex that is correct
@@ -1522,7 +1518,7 @@ def _blank(text: str, *, inline: bool) -> str:
 
 
 def _blank_uncached(text: str, *, inline: bool) -> str:
-    if _DOC_FORMAT == "rst":
+    if _DOC.doc_format == "rst":
         return _blank_rst(text, inline=inline)
     out: list[str] = []
     inside = False
@@ -1618,7 +1614,7 @@ def _unique_basename(repo: Path, target: str) -> bool:
     if not name:
         return False
     key = str(repo)
-    if key not in _BASENAMES:
+    if key not in _SCOPE.basenames:
         counts: dict[str, dict[str, int]] = {}
         try:
             for path in tracked_markdown(repo):
@@ -1628,7 +1624,7 @@ def _unique_basename(repo: Path, target: str) -> bool:
                 counts[tree][leaf] = counts[tree].get(leaf, 0) + 1
         except (OSError, subprocess.CalledProcessError):
             counts = {}
-        _BASENAMES[key] = counts
+        _SCOPE.basenames[key] = counts
     # Counted WITHIN the citing document's translation tree, not across the
     # whole repository.
     #
@@ -1642,10 +1638,7 @@ def _unique_basename(repo: Path, target: str) -> bool:
     # A repository with no translation trees has one bucket and behaves
     # exactly as before, which is what keeps ExDoc's flat namespace working.
     here = _translation_tree(repo, _current_document() or "")
-    return _BASENAMES[key].get(here, {}).get(name, 0) == 1
-
-
-_BASENAMES: dict[str, dict[str, dict[str, int]]] = {}
+    return _SCOPE.basenames[key].get(here, {}).get(name, 0) == 1
 
 # A directory named for a language: `en`, `de`, `pt`, `zh-hant`, `pt_BR`.
 _LANGUAGE_DIR = re.compile(r"^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$")
@@ -1666,7 +1659,7 @@ def _translation_tree(repo: Path, path: str) -> str:
             continue
         parent = "/".join(parts[:index])
         key = (str(repo), parent)
-        if key not in _LANGUAGE_SIBLINGS:
+        if key not in _SCOPE.language_siblings:
             directory = repo / parent if parent else repo
             try:
                 siblings = sum(1 for child in directory.iterdir()
@@ -1674,13 +1667,10 @@ def _translation_tree(repo: Path, path: str) -> str:
                                and _LANGUAGE_DIR.match(child.name))
             except OSError:
                 siblings = 0
-            _LANGUAGE_SIBLINGS[key] = siblings
-        if _LANGUAGE_SIBLINGS[key] >= 3:
+            _SCOPE.language_siblings[key] = siblings
+        if _SCOPE.language_siblings[key] >= 3:
             return "/".join(parts[:index + 1])
     return ""
-
-
-_LANGUAGE_SIBLINGS: dict[tuple[str, str], int] = {}
 
 
 # `07-misc`, `04-custom-elements.md`, `1.2-intro.md`: an ordering prefix a
@@ -1710,7 +1700,7 @@ def _numbered_document(repo: Path, target: str) -> bool:
     if not wanted or not wanted[-1]:
         return False
     key = str(repo)
-    if key not in _ROUTES:
+    if key not in _SCOPE.routes:
         routes: dict[str, int] = {}
         try:
             for path in tracked_markdown(repo):
@@ -1731,14 +1721,11 @@ def _numbered_document(repo: Path, target: str) -> bool:
                     routes[suffix] = routes.get(suffix, 0) + 1
         except (OSError, subprocess.CalledProcessError):
             routes = {}
-        _ROUTES[key] = routes
-    return _ROUTES[key].get("/".join(wanted[-_ROUTE_DEPTH:]), 0) == 1
+        _SCOPE.routes[key] = routes
+    return _SCOPE.routes[key].get("/".join(wanted[-_ROUTE_DEPTH:]), 0) == 1
 
 
 _ROUTE_DEPTH = 4
-
-
-_ROUTES: dict[str, dict[str, int]] = {}
 
 
 def _percent_decoded(target: str) -> str:
@@ -1971,7 +1958,7 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
     which would break the deterministic-local guarantee and make a green run
     depend on someone else's uptime.
     """
-    base = _LINK_BASE or repo
+    base = _DOC.link_base or repo
     findings: list[Finding] = []
     for number, line in enumerate(_strip_code(text).splitlines(), start=1):
         for raw in _MD_LINK.findall(line):
@@ -2109,16 +2096,13 @@ def validate_md_links(repo: Path, text: str) -> list[Finding]:
 def _target_anchors(path: Path) -> set[str] | None:
     """Anchors offered by another document, or None if it cannot be read."""
     key = str(path)
-    if key not in _TARGET_ANCHORS:
+    if key not in _SCOPE.target_anchors:
         try:
             with open(path, encoding="utf-8", newline="") as fh:
-                _TARGET_ANCHORS[key] = _anchors(fh.read())
+                _SCOPE.target_anchors[key] = _anchors(fh.read())
         except (OSError, UnicodeDecodeError):
-            _TARGET_ANCHORS[key] = None
-    return _TARGET_ANCHORS[key]
-
-
-_TARGET_ANCHORS: dict[str, set[str] | None] = {}
+            _SCOPE.target_anchors[key] = None
+    return _SCOPE.target_anchors[key]
 
 
 def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
@@ -2178,7 +2162,7 @@ def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
                 ambient = set()
         return ambient
 
-    base = _LINK_BASE or repo
+    base = _DOC.link_base or repo
     findings: list[Finding] = []
     for number, line in enumerate(_strip_code(text).splitlines(), start=1):
         for raw in _MD_LINK.findall(line):
@@ -2258,44 +2242,18 @@ def _named_in_merge_history(repo: Path, branch: str) -> bool:
 _FILEISH = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,4}$")
 
 
-# Directory listings, cached only while validate() says it is safe to.
-#
-# The case check lists a directory per path component, so 3000 links four levels
-# deep cost 12,000 listings and 0.88 of 6.4 seconds. Within one validate() the
-# filesystem is assumed stable, which every rule here already assumes.
-#
-# None means CACHING IS OFF, which is the state whenever a rule is called
-# directly rather than through validate(). That matters: a caller that creates a
-# file between two checks must see the new answer, and a cache with no owner
-# would quietly hand back the old one. Correctness is the default; speed is
-# opted into by the one function that knows the scope.
-_DIRCACHE: dict[Path, set[str]] | None = None
-
-
-# Set ONLY by a caller that reads many documents from one static checkout and
-# writes nothing while doing so. `validate()` then leaves its per-call caches
-# alone instead of rebuilding them per document.
-#
-# `--sweep` is the whole reason it exists. It validates every tracked file in
-# turn, and each call was re-listing the same directories: profiled over 1600
-# documents in 20 directories, `_listdir` built 128,000 Path objects to answer
-# 20 distinct questions.
-#
-# The narrowness is the safety argument. The default stays OFF, so the promise
-# the comment above makes - a caller that creates a file between two checks
-# sees the new answer - holds for every other caller unchanged. `run_sweep`
-# opens no file for writing and shells out to nothing that could, which is
-# what makes the promise safe to suspend there and nowhere else.
-_STABLE_SCOPE = False
-
-
+# Directory listings, cached only while validate() says it is safe to. Both the
+# cache and the "is this repository static" flag that governs it now live on the
+# run scope, where their lifetimes are written down beside them; see
+# `RunScope.dircache` and `RunScope.stable`.
 def _listdir(directory: Path) -> set[str]:
-    if _DIRCACHE is None:
+    cache = _SCOPE.dircache
+    if cache is None:
         return {entry.name for entry in directory.iterdir()}
-    names = _DIRCACHE.get(directory)
+    names = cache.get(directory)
     if names is None:
         names = {entry.name for entry in directory.iterdir()}
-        _DIRCACHE[directory] = names
+        cache[directory] = names
     return names
 
 
@@ -2443,7 +2401,7 @@ _GLOBAL_ANCHOR_CONFIGS = ("myst.yml", "conf.py", "antora.yml")
 
 def _has_global_anchors(repo: Path) -> bool:
     key = str(repo)
-    if key not in _GLOBAL_NS:
+    if key not in _SCOPE.global_ns:
         # The same directory list as `_is_generated_site`, deliberately. Two
         # searches for "where does this project keep its generator config"
         # that disagree is a latent bug, and this exact shape has been a
@@ -2451,10 +2409,10 @@ def _has_global_anchors(repo: Path) -> bool:
         # then the marker search missed docsify's `docs/index.html`. Measured
         # across 30 repositories it changes nothing today; it exists so the
         # two cannot answer differently about the same repository tomorrow.
-        _GLOBAL_NS[key] = any((d / name).is_file()
-                              for d in _site_dirs(repo)
-                              for name in _GLOBAL_ANCHOR_CONFIGS)
-    return _GLOBAL_NS[key]
+        _SCOPE.global_ns[key] = any((d / name).is_file()
+                                    for d in _site_dirs(repo)
+                                    for name in _GLOBAL_ANCHOR_CONFIGS)
+    return _SCOPE.global_ns[key]
 
 
 # Hugo alone, because the convention is Hugo's. Its `_`-prefixed content
@@ -2473,17 +2431,17 @@ _PARTIAL_CONFIGS = ("hugo.toml", "hugo.yaml", "hugo.json")
 
 def _has_partial_anchors(repo: Path) -> bool:
     key = str(repo)
-    if key not in _PARTIAL_NS:
-        _PARTIAL_NS[key] = any((d / name).is_file()
-                               for d in _site_dirs(repo)
-                               for name in _PARTIAL_CONFIGS)
-    return _PARTIAL_NS[key]
+    if key not in _SCOPE.partial_ns:
+        _SCOPE.partial_ns[key] = any((d / name).is_file()
+                                     for d in _site_dirs(repo)
+                                     for name in _PARTIAL_CONFIGS)
+    return _SCOPE.partial_ns[key]
 
 
 def _partial_anchors(repo: Path) -> set[str]:
     """Anchors from fragment files, which belong to every page that includes one."""
     key = str(repo)
-    if key not in _PARTIAL_ANCHORS:
+    if key not in _SCOPE.partial_anchors:
         found: set[str] = set()
         try:
             for rel in tracked_markdown(repo):
@@ -2496,18 +2454,14 @@ def _partial_anchors(repo: Path) -> set[str]:
                     continue
         except (OSError, subprocess.CalledProcessError):
             found = set()
-        _PARTIAL_ANCHORS[key] = found
-    return _PARTIAL_ANCHORS[key]
-
-
-_PARTIAL_NS: dict[str, bool] = {}
-_PARTIAL_ANCHORS: dict[str, set[str]] = {}
+        _SCOPE.partial_anchors[key] = found
+    return _SCOPE.partial_anchors[key]
 
 
 def _project_anchors(repo: Path) -> set[str]:
     """Every anchor offered by every tracked markdown file in the project."""
     key = str(repo)
-    if key not in _PROJECT_ANCHORS:
+    if key not in _SCOPE.project_anchors:
         found: set[str] = set()
         try:
             for rel in tracked_markdown(repo):
@@ -2519,12 +2473,8 @@ def _project_anchors(repo: Path) -> set[str]:
                     continue
         except (OSError, subprocess.CalledProcessError):
             found = set()
-        _PROJECT_ANCHORS[key] = found
-    return _PROJECT_ANCHORS[key]
-
-
-_GLOBAL_NS: dict[str, bool] = {}
-_PROJECT_ANCHORS: dict[str, set[str]] = {}
+        _SCOPE.project_anchors[key] = found
+    return _SCOPE.project_anchors[key]
 
 
 def _site_dirs(repo: Path) -> list[Path]:
@@ -2576,7 +2526,7 @@ def _site_scopes(repo: Path) -> set[str]:
     `docs/src/content/docs/`. Scoping to `docs/` covers both.
     """
     key = str(repo)
-    if key not in _SITE:
+    if key not in _SCOPE.site:
         scopes: set[str] = set()
         for directory in _site_dirs(repo):
             declared = any((directory / name).is_file()
@@ -2596,8 +2546,8 @@ def _site_scopes(repo: Path) -> set[str]:
                 if top is not None:
                     scopes.add(top)
         scopes |= _numbered_docs_scopes(repo)
-        _SITE[key] = scopes
-    return _SITE[key]
+        _SCOPE.site[key] = scopes
+    return _SCOPE.site[key]
 
 
 def _top_level(repo: Path, directory: Path) -> str | None:
@@ -2639,9 +2589,6 @@ def _in_site_tree(repo: Path) -> bool:
     return document.split("/")[0] in scopes
 
 
-_SITE: dict[str, set[str]] = {}
-
-
 def _numbered_docs_scopes(repo: Path) -> set[str]:
     """Top-level directories holding a numbered documentation tree."""
     return {top for top, count in _numbered_docs_tree(repo).items() if count >= 3}
@@ -2666,7 +2613,7 @@ def _numbered_docs_tree(repo: Path) -> dict[str, int]:
     convention with a consumer.
     """
     key = str(repo)
-    if key not in _NUMBERED:
+    if key not in _SCOPE.numbered:
         per_dir: dict[str, int] = {}
         try:
             for path in tracked_markdown(repo):
@@ -2696,11 +2643,8 @@ def _numbered_docs_tree(repo: Path) -> dict[str, int]:
         for directory, count in per_dir.items():
             top = directory.split("/")[0] if "/" in directory else directory
             tops[top] = max(tops.get(top, 0), count)
-        _NUMBERED[key] = tops
-    return _NUMBERED[key]
-
-
-_NUMBERED: dict[str, dict[str, int]] = {}
+        _SCOPE.numbered[key] = tops
+    return _SCOPE.numbered[key]
 
 
 def _looks_like_a_path(repo: Path, token: str) -> bool:
@@ -2828,14 +2772,14 @@ def _tag_prefixes(repo: Path) -> list[str]:
     resolves to nothing, so the rule reported a release that had shipped.
     """
     key = str(repo)
-    if key not in _TAG_PREFIXES:
+    if key not in _SCOPE.tag_prefixes:
         prefixes = set()
         for tag in _tags(repo):
             digit = re.search(r"\d", tag)
             if digit is not None:
                 prefixes.add(tag[:digit.start()])
-        _TAG_PREFIXES[key] = sorted(prefixes)
-    return _TAG_PREFIXES[key]
+        _SCOPE.tag_prefixes[key] = sorted(prefixes)
+    return _SCOPE.tag_prefixes[key]
 
 
 def _released_tag(repo: Path, version: str) -> str | None:
@@ -2873,10 +2817,6 @@ def _released_tag(repo: Path, version: str) -> str | None:
         if series:
             return series[0]
     return None
-
-
-_TAGS: dict[str, set[str]] = {}
-_TAG_PREFIXES: dict[str, list[str]] = {}
 
 
 # An install snippet pins a version. `repo:` and `rev:` are pre-commit's fixed
@@ -2917,13 +2857,10 @@ def _own_remote(repo: Path) -> str | None:
     membership decides rather than truthiness.
     """
     key = str(repo)
-    if key not in _OWN_REMOTE:
-        _OWN_REMOTE[key] = _normalise_remote(
+    if key not in _SCOPE.own_remote:
+        _SCOPE.own_remote[key] = _normalise_remote(
             _git_soft(repo, "remote", "get-url", "origin"))
-    return _OWN_REMOTE[key]
-
-
-_OWN_REMOTE: dict[str, str | None] = {}
+    return _SCOPE.own_remote[key]
 
 
 def _pinned_refs(repo: Path, text: str) -> list[tuple[int, str]]:
@@ -3244,10 +3181,10 @@ def _lfs_governed(repo: Path) -> list[tuple[str, str]]:
     worse implementation of something git already exposes.
     """
     key = str(repo)
-    if key in _LFS:
-        return _LFS[key]
+    if key in _SCOPE.lfs:
+        return _SCOPE.lfs[key]
     if not _lfs_is_configured(repo):
-        _LFS[key] = []
+        _SCOPE.lfs[key] = []
         return []
     # HEAD's tree, not the index. This runs after a commit, so the committed
     # state is the thing being judged - and reading the index made the rule
@@ -3260,7 +3197,7 @@ def _lfs_governed(repo: Path) -> list[tuple[str, str]]:
             ["git", "ls-tree", "-r", "-z", "HEAD"], cwd=repo,
             capture_output=True, check=True).stdout.decode("utf-8", "replace")
     except (subprocess.CalledProcessError, OSError):
-        _LFS[key] = []
+        _SCOPE.lfs[key] = []
         return []   # unborn HEAD: nothing is committed to judge
     blobs: dict[str, str] = {}
     for record in listing.split("\0"):
@@ -3269,7 +3206,7 @@ def _lfs_governed(repo: Path) -> list[tuple[str, str]]:
         if path and len(parts) >= 3 and parts[1] == "blob":
             blobs[path] = parts[2]
     if not blobs:
-        _LFS[key] = []
+        _SCOPE.lfs[key] = []
         return []
     # BYTES and NUL separators, for two separate reasons that both bit here.
     #
@@ -3290,7 +3227,7 @@ def _lfs_governed(repo: Path) -> list[tuple[str, str]]:
             ["git", "check-attr", "-z", "--stdin", "filter"], cwd=repo,
             input=payload, capture_output=True, check=True).stdout
     except (subprocess.CalledProcessError, OSError):
-        _LFS[key] = []
+        _SCOPE.lfs[key] = []
         return []
     fields = raw.decode("utf-8", "replace").split("\0")
     governed = []
@@ -3299,7 +3236,7 @@ def _lfs_governed(repo: Path) -> list[tuple[str, str]]:
         path, _attr, value = fields[i], fields[i + 1], fields[i + 2]
         if value == "lfs" and path in blobs:
             governed.append((path, blobs[path]))
-    _LFS[key] = governed
+    _SCOPE.lfs[key] = governed
     return governed
 
 
@@ -3407,7 +3344,6 @@ _FLOOR_LOWER = re.compile(r"(?:>=|\^|~>?|>)?\s*([0-9]+(?:\.[0-9]+){0,2})")
 # A short line ending in a colon, which introduces the list beneath it.
 _LABEL_LINE = re.compile(r"^\*{0,2}([A-Za-z][A-Za-z0-9 /_-]{2,40})\*{0,2}:$")
 
-_MANIFEST_FLOORS: dict[str, dict[str, tuple[str, str, str]]] = {}
 
 
 def _version(text: str) -> tuple[int, ...]:
@@ -3442,8 +3378,8 @@ def _manifest_floors(repo: Path) -> dict[str, tuple[str, str, str]]:
     and the answer cannot change between them.
     """
     key = str(repo)
-    if key in _MANIFEST_FLOORS:
-        return _MANIFEST_FLOORS[key]
+    if key in _SCOPE.manifest_floors:
+        return _SCOPE.manifest_floors[key]
     found: dict[str, tuple[str, str, str]] = {}
     for language, filename, pattern, enforcement in _FLOOR_MANIFESTS:
         if language in found:
@@ -3461,7 +3397,7 @@ def _manifest_floors(repo: Path) -> dict[str, tuple[str, str, str]]:
                 found[language] = (match.group(1).strip(), relative,
                                    enforcement)
                 break
-    _MANIFEST_FLOORS[key] = found
+    _SCOPE.manifest_floors[key] = found
     return found
 
 
@@ -3600,9 +3536,6 @@ _LINE_POINTER = re.compile(
 # into, and reading one per pointer is the only cost this rule can incur.
 _LINE_COUNT_LIMIT = 2_000_000
 
-_LINECOUNT: dict[str, int | None] = {}
-
-
 def _line_count(repo: Path, relative: str) -> int | None:
     """Lines in a tracked file, or None when it cannot be counted here.
 
@@ -3617,8 +3550,8 @@ def _line_count(repo: Path, relative: str) -> int | None:
     file would otherwise read it forty times.
     """
     key = f"{repo}\0{relative}"
-    if key in _LINECOUNT:
-        return _LINECOUNT[key]
+    if key in _SCOPE.linecount:
+        return _SCOPE.linecount[key]
     count: int | None = None
     target = repo / relative
     try:
@@ -3627,7 +3560,7 @@ def _line_count(repo: Path, relative: str) -> int | None:
                 count = sum(1 for _ in handle)
     except (OSError, ValueError):
         count = None
-    _LINECOUNT[key] = count
+    _SCOPE.linecount[key] = count
     return count
 
 
@@ -3649,10 +3582,11 @@ def _line_pointer_sites(repo: Path, text: str) -> list[tuple[int, str, int, int]
     """
     global _POINTER_SITES
     if (_POINTER_SITES is not None and _POINTER_SITES[0] is text
-            and _POINTER_SITES[1] == repo and _POINTER_SITES[2] == _DOC_FORMAT):
+            and _POINTER_SITES[1] == repo
+            and _POINTER_SITES[2] == _DOC.doc_format):
         return _POINTER_SITES[3]
     sites = _line_pointer_sites_uncached(repo, text)
-    _POINTER_SITES = (text, repo, _DOC_FORMAT, sites)
+    _POINTER_SITES = (text, repo, _DOC.doc_format, sites)
     return sites
 
 
@@ -4260,8 +4194,8 @@ def _rule_applies(rule: Rule, in_archive: bool, has_entries: bool) -> bool:
     that was never provided, which is the reassuring number rather than the
     honest one, and is precisely the failure a denominator exists to prevent.
 
-    Reads `_DOC_FORMAT`, so the caller must set it for the document in hand
-    before asking.
+    Reads the current document's FORMAT, so the caller must set the document
+    in hand before asking.
     """
     primary = not in_archive and has_entries
     if rule.scope == "repository" and not primary:
@@ -4271,7 +4205,7 @@ def _rule_applies(rule: Rule, in_archive: bool, has_entries: bool) -> bool:
         return False
     if (in_archive or not has_entries) and not rule.in_archive:
         return False
-    if _DOC_FORMAT != "markdown" and rule.kind in _MARKDOWN_ONLY:
+    if _DOC.doc_format != "markdown" and rule.kind in _MARKDOWN_ONLY:
         # Not tuned for the format, skipped for it. `[text](url)` is
         # markdown's syntax; where it does not exist, every match is
         # something else wearing its shape.
@@ -4313,81 +4247,56 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     makes the two agree, and leaving it None keeps the old repo-root behaviour
     for callers that have no particular file in mind.
     """
-    global _LINK_BASE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
-    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
-    global _DOC_PATH, _MANIFEST_FLOORS, _LINECOUNT, _POINTER_SITES
-    previous, previous_cache = _LINK_BASE, _DIRCACHE
-    previous_doc = _DOC_PATH
-    previous_ancestors, previous_refs, previous_lfs = _ANCESTORS, _REFS, _LFS
-    previous_target_anchors = _TARGET_ANCHORS
-    previous_own_remote = _OWN_REMOTE
-    previous_tags, previous_prefixes = _TAGS, _TAG_PREFIXES
-    previous_integration = _INTEGRATION
-    previous_ref_table = _REF_TABLE
-    # Saved and restored like every sibling above. Without this a NESTED
-    # validate() cleared the caller's caches and never gave them back, so
-    # the outer call carried on against a half-empty view it had built.
-    previous_manifest_floors = _MANIFEST_FLOORS
-    previous_linecount = _LINECOUNT
-    # `_POINTER_SITES` is deliberately NOT saved and restored here, unlike
-    # every cache above it. Those are dicts mutated in place, so saving the
-    # reference preserves what the call added; this one is rebound, so a
-    # restore would DISCARD the entry the rules just computed - and the caller
-    # that needs it, `count_examined`, runs immediately after this returns.
-    # Written the symmetrical way first, where it silently halved nothing.
-    if base is not None:
-        _LINK_BASE = base
-    if doc is not None:
-        _DOC_PATH = doc
-    if _STABLE_SCOPE:
-        # A caller has declared the repository static for the duration of many
-        # documents and taken ownership of these caches. Resetting them here
-        # would rebuild the same answers per document, which is precisely what
-        # the scope exists to stop. See `_STABLE_SCOPE`.
-        pass
-    else:
-        # Directory listings may be reused for the duration of this call and no
-        # longer. Restoring rather than clearing keeps a nested call honest.
-        _DIRCACHE = {}
-        # Ancestry indexes have exactly the same lifetime and the same reason
-        # for it: three rules now ask about the same handful of refs, so
-        # building each index once per call is the whole performance argument,
-        # and holding one any longer would answer from a repository that may
-        # have moved on.
-        _ANCESTORS = {}
-        _REFS = {}
-        _LFS = {}
-        # Same lifetime, same reason: another document's headings are read at
-        # most once per call, and held no longer than the repository state they
-        # were read from.
-        _TARGET_ANCHORS = {}
-        # And the origin. This was left out when it was first memoised, on the
-        # reasoning that a remote cannot change while a process runs - true of
-        # the CLI, false of a library caller and of the tests, and the failure
-        # it produced was the silent kind. A repository whose origin was added
-        # between two validate() calls kept answering None, so `dead-pinned-ref`
-        # examined nothing and reported clean. Held for one call, exactly like
-        # every other answer git gives.
-        _OWN_REMOTE = {}
-        # Tags, and the prefix convention derived from them, for the same
-        # reason and with the same lifetime. A tag created between two
-        # validate() calls would otherwise keep resolving to nothing.
-        _TAGS = {}
-        _TAG_PREFIXES = {}
-        _INTEGRATION = {}
-        # Branches and tags, read once per call. See _ref_table.
-        _REF_TABLE = {}
-        # Declared version floors, same lifetime and same reason: a sweep
-        # would otherwise re-read every manifest once per document.
-        _MANIFEST_FLOORS = {}
-        # Same lifetime, same reason: a sweep would otherwise re-count the
-        # lines of a file once per document that cites it.
-        _LINECOUNT = {}
-        # Dropped WITH `_LINECOUNT`, because it is derived from it. Identity
-        # keying alone would be wrong here: a caller validating the same text
-        # object twice across a changed checkout is exactly what clearing
-        # `_LINECOUNT` exists to handle, and a sites cache that outlived it
-        # would answer from the checkout that moved on.
+    global _SCOPE, _DOC, _POINTER_SITES
+    outer_scope, outer_doc = _SCOPE, _DOC
+    # A fresh scope per call, unless a caller has declared the repository static
+    # and taken ownership of this one. The nesting bug the old block existed to
+    # prevent cannot be written here: a nested call gets its OWN object, so the
+    # outer call's answers are not cleared, not half-cleared, and not dependent
+    # on this function remembering to put them back.
+    scope = outer_scope if outer_scope.stable else RunScope()
+    # Only what the caller actually SAID is overridden. `doc_format` is never a
+    # parameter and is inherited unchanged, because `find_still_false` and
+    # `run_sweep` set it around the call rather than through it - deriving it
+    # from `doc` here would silently re-read a `.rst` document as markdown.
+    document = DocScope(
+        link_base=base if base is not None else outer_doc.link_base,
+        doc_format=outer_doc.doc_format,
+        doc_path=doc if doc is not None else outer_doc.doc_path)
+    # Built here and read immediately below. Task 9 hands this to every rule
+    # instead, at which point the two installs it feeds go away with the last
+    # module-level scope name.
+    context = Context(config=_ACTIVE, run=scope, doc=document, repo=repo)
+    _SCOPE, _DOC = context.run, context.doc
+    # Everything below applies to a scope THIS call opened. When the two are the
+    # same object a caller has declared the repository static for the duration
+    # of many documents and taken ownership of these caches, and touching them
+    # here would rebuild the same answers per document - which is precisely what
+    # the scope exists to stop. See `RunScope.stable`.
+    #
+    # That used to be an empty `if` branch with the reasoning in it and an
+    # `else` doing the work, which is one more way to write the wrong thing.
+    if scope is not outer_scope:
+        # Directory listings may be reused for the duration of this call and
+        # no longer. The fresh scope above already carries None, so this only
+        # has to say that caching is ON for the duration; nothing has to put
+        # anything back, because the object itself is dropped on the way out.
+        scope.dircache = {}
+        # Dropped WITH `scope.linecount`, because it is derived from it.
+        # Identity keying alone would be wrong here: a caller validating the
+        # same text object twice across a changed checkout is exactly what a
+        # fresh `linecount` exists to handle, and a sites cache that outlived
+        # it would answer from the checkout that moved on.
+        #
+        # This is the one memo that could not become a scope FIELD, and the
+        # reason is the mirror image of why it has to be dropped here: the
+        # caller that needs it, `count_examined`, runs immediately AFTER this
+        # returns, by which point a call-scoped value is gone. Tying it to the
+        # scope would discard the entry the rules just computed, which is the
+        # version that was written first and silently halved nothing. So it is
+        # invalidated when a fresh scope opens and deliberately left alone when
+        # the call ends - exactly the asymmetry it has always had, now with one
+        # name instead of thirteen around it.
         _POINTER_SITES = None
     try:
         findings: list[Finding] = []
@@ -4397,19 +4306,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
             findings += rule.check(repo, text)  # type: ignore[operator]
         return findings
     finally:
-        _LINK_BASE = previous
-        _DOC_PATH = previous_doc
-        _DIRCACHE = previous_cache
-        _ANCESTORS = previous_ancestors
-        _REFS = previous_refs
-        _LFS = previous_lfs
-        _TARGET_ANCHORS = previous_target_anchors
-        _OWN_REMOTE = previous_own_remote
-        _TAGS, _TAG_PREFIXES = previous_tags, previous_prefixes
-        _INTEGRATION = previous_integration
-        _REF_TABLE = previous_ref_table
-        _MANIFEST_FLOORS = previous_manifest_floors
-        _LINECOUNT = previous_linecount
+        _SCOPE, _DOC = outer_scope, outer_doc
 
 
 FORMATS = ("text", "github", "sarif")
@@ -4767,7 +4664,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
     the reason `extra_docs` skips them: an arbitrary markdown file has no dated
     entries, so "the newest entry" is a category error rather than a pass.
     """
-    global _LINK_BASE, _DOC_FORMAT, _MANIFEST_FLOORS
+    global _DOC
     try:
         paths = tracked_markdown(repo)
     except (subprocess.CalledProcessError, OSError):
@@ -4827,23 +4724,21 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # resolved refs, other documents' headings - are the same answers every
     # time. Restored in `finally` so a library caller that sweeps and then
     # validates something else gets the per-call behaviour back.
-    global _LINECOUNT, _POINTER_SITES
-    global _STABLE_SCOPE, _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS
-    global _OWN_REMOTE, _TAGS, _TAG_PREFIXES, _INTEGRATION, _REF_TABLE
-    _DIRCACHE, _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}, {}
-    _OWN_REMOTE = {}
-    _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
-    _REF_TABLE = {}
-    _LINECOUNT = {}
+    global _SCOPE, _POINTER_SITES
+    previous_scope = _SCOPE
+    # `stable=True` on the scope itself rather than a separate boolean beside
+    # it. The old pair could disagree - a caller could clear the caches and
+    # leave the flag set, or the reverse - and "is this scope owned by someone
+    # else" is a fact about the scope, not about the module.
+    _SCOPE = RunScope(stable=True)
+    _SCOPE.dircache = {}
     _POINTER_SITES = None
-    _STABLE_SCOPE = True
-    # `_LINK_BASE` and `_DOC_FORMAT` are per-DOCUMENT rather than per-scope, and
-    # they are saved here because the loop below reassigns them. Restoring them
-    # only after the loop left them holding the last swept document whenever a
-    # rule raised, so the next validation in the process resolved relative links
-    # against a directory it never chose. Cheap to get right, invisible when
-    # wrong.
-    previous_link_base, previous_format = _LINK_BASE, _DOC_FORMAT
+    # The DOCUMENT is per-file rather than per-scope, and it is saved here
+    # because the loop below replaces it. Restoring it only after the loop left
+    # it holding the last swept document whenever a rule raised, so the next
+    # validation in the process resolved relative links against a directory it
+    # never chose. Cheap to get right, invisible when wrong.
+    previous_document = _DOC
     try:
         # Seeded here, inside the stable scope, for two reasons at once: it
         # fixes the printing ORDER to the one `--verify` uses, so the two modes
@@ -4865,8 +4760,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
                     # tool is about.
                     unreadable.append(f"{relative} ({exc.__class__.__name__})")
                     continue
-                _LINK_BASE = path.parent
-                _DOC_FORMAT = _format_for(relative)
+                _set_document(link_base=path.parent,
+                              doc_format=_format_for(relative))
                 findings = validate(repo, text,
                                     has_entries=(relative == primary),
                                     doc=relative)
@@ -4918,20 +4813,19 @@ def run_sweep(repo: Path, fmt: str) -> int:
                 for finding in rule.check(repo, ""))  # type: ignore[operator]
             examined[rule.kind] = repository_examined[rule.kind]
     finally:
-        _STABLE_SCOPE = False
-        _DIRCACHE = None
-        _ANCESTORS, _REFS, _LFS, _TARGET_ANCHORS = {}, {}, {}, {}
-        _OWN_REMOTE = {}
-        _TAGS, _TAG_PREFIXES, _INTEGRATION = {}, {}, {}
-        _REF_TABLE = {}
-        # Cleared with its siblings. It is deliberately NOT cleared per
-        # document during the sweep - counting one file's lines once for
-        # the whole survey is the point - but holding it past the sweep
-        # would answer from a checkout that may have moved on.
-        _LINECOUNT = {}
+        # Handed back, and handed back on the failing path too. A crash
+        # mid-sweep that left the process holding a scope with no owner would
+        # make every later validate() answer from a checkout that has moved on,
+        # and the happy path restores it either way - which is what makes this
+        # the half that is easy to write without and never notice.
+        _SCOPE = previous_scope
+        # Dropped with the scope it was derived from. It is deliberately NOT
+        # cleared per document during the sweep - counting one file's lines
+        # once for the whole survey is the point, and `scope.linecount` rides
+        # along - but holding either past the sweep would answer from a
+        # checkout that may have moved on.
         _POINTER_SITES = None
-        _LINK_BASE = previous_link_base
-        _DOC_FORMAT = previous_format
+        _DOC = previous_document
 
     # Diagnostics follow the convention the other modes use: stdout unless
     # SARIF, where stdout must carry nothing but one JSON value. Writing the
@@ -5109,7 +5003,6 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
     what keeps `--archive` legitimate and what catches a claim moved into a
     fence.
     """
-    global _DOC_FORMAT
     documents = _configured_documents()
     haystack = _live_prose(repo, documents)
     found: list[Located] = []
@@ -5125,17 +5018,17 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
         if previous is None:
             continue
         examined += 1
-        # `base` is a parameter; `_DOC_FORMAT` is not, so it is the one piece
-        # of global state this has to set - and it is restored in `finally`,
+        # `base` is a parameter; the FORMAT is not, so it is the one piece of
+        # document state this has to set - and it is restored in `finally`,
         # because a rule raising part-way would otherwise leave the process
         # reading every later document in the wrong markup language.
-        previous_format = _DOC_FORMAT
-        _DOC_FORMAT = _format_for(relative)
+        previous_format = _DOC.doc_format
+        _set_document(doc_format=_format_for(relative))
         try:
             was = validate(repo, previous, base=(repo / relative).parent,
                            has_entries=(relative == CONFIG.primary_doc))
         finally:
-            _DOC_FORMAT = previous_format
+            _set_document(doc_format=previous_format)
         for finding in was:
             if finding.subject is None:
                 skipped += 1
@@ -5596,7 +5489,6 @@ def _survivable_output() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _LINK_BASE, _DOC_PATH
     _survivable_output()
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -5686,7 +5578,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"{exc.start}). The status document must be a text file.",
                   file=sys.stderr)
             return 1
-        _LINK_BASE = target.parent
+        _set_document(link_base=target.parent)
         lines, fired, unprobeable = selftest(repo, text)
         print(f"selftest: probing {len(RULES)} rules against {PRIMARY_DOC}\n")
         for line in lines:
@@ -5700,7 +5592,7 @@ def main(argv: list[str] | None = None) -> int:
         if unprobeable:
             print("  'No probe' is not a failure by itself, but a rule that "
                   "cannot be exercised is also not known to work.")
-        _LINK_BASE = None
+        _set_document(link_base=None)
         return 1 if silent else 0
     if args.collect:
         bundle = collect(repo, suite_json=args.suite_json)
@@ -5779,7 +5671,7 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 1
         # Relative links resolve against the document, not the repo root.
-        _LINK_BASE = target.parent
+        _set_document(link_base=target.parent)
         mapping = load_sha_map(args.sha_map) if args.sha_map else None
         if mapping is not None:
             text, changed = translate_shas(text, mapping)
@@ -5856,7 +5748,7 @@ def main(argv: list[str] | None = None) -> int:
         # works in --sweep and is silent in --verify, and reports 0 examined
         # beside 0 findings - the exact conflation the denominator exists to
         # prevent. Found by running the gate, not by any test.
-        _DOC_PATH = _rel(repo, target)
+        _set_document(doc_path=_rel(repo, target))
         findings = validate(repo, text)
         exit_code = 1 if record(_rel(repo, target), findings, primary=True) else 0
 
@@ -5887,7 +5779,7 @@ def main(argv: list[str] | None = None) -> int:
                     with open(archive_path, "w", encoding="utf-8", newline="") as fh:
                         fh.write(archive_text)
                     diag(f"translated {archive_changed} stale SHA reference(s) in {ARCHIVE_DOC}")
-            _DOC_PATH = ARCHIVE_DOC
+            _set_document(doc_path=ARCHIVE_DOC)
             archive_findings = validate(repo, archive_text, in_archive=True)
             if record(ARCHIVE_DOC, archive_findings, primary=False):
                 exit_code = 1
@@ -5913,8 +5805,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             with open(extra, encoding="utf-8", newline="") as fh:
                 extra_text = fh.read()
-            _LINK_BASE = extra.parent
-            _DOC_PATH = relative
+            _set_document(link_base=extra.parent, doc_path=relative)
             extra_findings = validate(repo, extra_text, has_entries=False)
             new_extra = record(relative, extra_findings, primary=False)
             examined_extra = count_examined(repo, extra_text)
@@ -5932,7 +5823,7 @@ def main(argv: list[str] | None = None) -> int:
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
             if new_extra:
                 exit_code = 1
-        _LINK_BASE = None
+        _set_document(link_base=None)
 
         if args.suggest_fixes:
             # Written to stdout as a patch and never applied. In sarif mode the

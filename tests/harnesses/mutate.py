@@ -72,9 +72,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                continue        # a bare word, likelier prose than a ref",
          "            if False:\n"
          "                continue        # a bare word, likelier prose than a ref"),
+        # Retargeted when the caches moved onto a RunScope; the cache
+        # is the same, the name it is reached through is not.
         ("the ancestry cache stops distinguishing repositories", collect,
-         "    key = (str(repo), ref)\n    if key in _ANCESTORS:",
-         '    key = ("", ref)\n    if key in _ANCESTORS:'),
+         "    key = (str(repo), ref)\n    if key in _SCOPE.ancestors:",
+         '    key = ("", ref)\n    if key in _SCOPE.ancestors:'),
         ("a branch counts as merged into itself", collect,
          "    return [ref for ref in _integration_refs(repo)\n"
          "            if ref != exclude and _reachable_from(repo, rev, ref)]",
@@ -108,9 +110,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Half the ecosystem tags `v1.2.3` and half tags `1.2.3`. Reading the
         # prefix from the repository is what stops a claim written in the other
         # convention reporting a release that shipped.
+        # Retargeted when the caches moved onto a RunScope; the cache
+        # is the same, the name it is reached through is not.
         ("release claims stop using this repository's tag prefix", collect,
-         "        _TAG_PREFIXES[key] = sorted(prefixes)",
-         '        _TAG_PREFIXES[key] = [""]'),
+         "        _SCOPE.tag_prefixes[key] = sorted(prefixes)",
+         '        _SCOPE.tag_prefixes[key] = [""]'),
         # A configured pattern can capture the WHOLE tag name - the installer
         # derives one for repositories tagging `release-1.2.3`. Trying this
         # repository's prefixes first makes that `release-release-1.2.3`.
@@ -205,10 +209,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # never asked. symfony has no main and no master.
         # Retargeted when the list learned to memoise itself and the filter
         # moved into the assignment.
+        # Retargeted when the caches moved onto a RunScope; the cache
+        # is the same, the name it is reached through is not.
         ("integration refs include ones that do not exist", collect,
-         "    _INTEGRATION[key] = [ref for ref in refs\n"
-         "                         if _resolve_ref(repo, ref) is not None]",
-         "    _INTEGRATION[key] = refs"),
+         "    _SCOPE.integration[key] = [ref for ref in refs\n"
+         "                               if _resolve_ref(repo, ref) is not None]",
+         "    _SCOPE.integration[key] = refs"),
         # `rev: ''` is pre-commit's own placeholder and `rev: 'v1.2.3'` is the
         # same pin as the bare spelling. 69 bare, 4 quoted, 2 empty across 30
         # repositories.
@@ -903,23 +909,25 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The third spelling of "where does this project keep its
         # generator config". Left one level shallower than the other two,
         # detection and the namespace disagree about the same repository.
+        # Retargeted when the caches moved onto a RunScope; the cache
+        # is the same, the name it is reached through is not.
         ("the namespace search looks less deep than detection does", collect,
-         "        _GLOBAL_NS[key] = any((d / name).is_file()\n"
-         "                              for d in _site_dirs(repo)\n"
-         "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
-         "        _GLOBAL_NS[key] = any((repo / d / name).is_file()\n"
-         "                              for d in _SITE_DIRS\n"
-         "                              for name in _GLOBAL_ANCHOR_CONFIGS)"),
+         "        _SCOPE.global_ns[key] = any((d / name).is_file()\n"
+         "                                    for d in _site_dirs(repo)\n"
+         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        _SCOPE.global_ns[key] = any((repo / d / name).is_file()\n"
+         "                                    for d in _SITE_DIRS\n"
+         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)"),
         ("cross-reference namespace is the page everywhere", collect,
-         "        _GLOBAL_NS[key] = any((d / name).is_file()\n"
-         "                              for d in _site_dirs(repo)\n"
-         "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
-         "        _GLOBAL_NS[key] = False"),
+         "        _SCOPE.global_ns[key] = any((d / name).is_file()\n"
+         "                                    for d in _site_dirs(repo)\n"
+         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        _SCOPE.global_ns[key] = False"),
         ("cross-reference namespace is the project everywhere", collect,
-         "        _GLOBAL_NS[key] = any((d / name).is_file()\n"
-         "                              for d in _site_dirs(repo)\n"
-         "                              for name in _GLOBAL_ANCHOR_CONFIGS)",
-         "        _GLOBAL_NS[key] = True"),
+         "        _SCOPE.global_ns[key] = any((d / name).is_file()\n"
+         "                                    for d in _site_dirs(repo)\n"
+         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        _SCOPE.global_ns[key] = True"),
         # The project union is built ON DEMAND, and this reverts it to eager.
         # Ordinarily a cost-only change gets NO mutation here - the `raw-lfs-blob`
         # size shortcut is excluded for exactly that reason, because a mutation
@@ -949,26 +957,34 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # as a test gap. These four are here because each has a test that
         # observes it, so each is killable - and because a silent regression
         # would put back a 70 percent slowdown nobody could date afterwards.
+        # Retargeted when the caches moved onto a RunScope; the cache
+        # is the same, the name it is reached through is not.
         ("the remote is fetched once per document again", collect,
          "    key = str(repo)\n"
-         "    if key not in _OWN_REMOTE:\n"
-         "        _OWN_REMOTE[key] = _normalise_remote(\n"
+         "    if key not in _SCOPE.own_remote:\n"
+         "        _SCOPE.own_remote[key] = _normalise_remote(\n"
          '            _git_soft(repo, "remote", "get-url", "origin"))\n'
-         "    return _OWN_REMOTE[key]",
+         "    return _SCOPE.own_remote[key]",
          '    return _normalise_remote(_git_soft(repo, "remote", "get-url", "origin"))'),
         # `None` means "no origin", which is an ANSWER. Probed by truthiness it
         # is a miss forever, so the cache silently stops working on exactly the
         # repositories that have no remote.
+        # Retargeted when the caches moved onto a RunScope; the cache
+        # is the same, the name it is reached through is not.
         ("a cached no-origin answer is treated as a cache miss", collect,
-         "    if key not in _OWN_REMOTE:",
-         "    if not _OWN_REMOTE.get(key):"),
+         "    if key not in _SCOPE.own_remote:",
+         "    if not _SCOPE.own_remote.get(key):"),
+        # Retargeted when the caches became a RunScope. The sweep hands back one
+        # OBJECT instead of clearing eleven names, and validate() decides whether
+        # to reset by asking if it opened its own scope rather than by reading a
+        # separate boolean - so both old anchors named lines that no longer
+        # exist, and would have reported NOT APPLIED rather than a result.
         ("the sweep never gives its cache scope back", collect,
-         "        _STABLE_SCOPE = False\n"
-         "        _DIRCACHE = None",
-         "        pass\n        _released = None"),
+         "        _SCOPE = previous_scope",
+         "        _released = previous_scope"),
         ("validate stops resetting its per-call caches", collect,
-         "    if _STABLE_SCOPE:",
-         "    if True:"),
+         "    if scope is not outer_scope:",
+         "    if False:"),
 
         # --- reStructuredText ------------------------------------------------
         # Markdown's link syntax is not a subset of anything. Running those two

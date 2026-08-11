@@ -706,15 +706,17 @@ def test_every_module_defers_annotations() -> None:
 # the reason each is exempt. Kept SHORT and justified: a skip-list is how a
 # check quietly stops examining anything, so the assertion below also states
 # how many globals it did compare.
+#
+# It got SHORTER when the caches became scope objects, which is worth stating
+# because a shrinking skip-list is the rare direction. `_LINK_BASE`,
+# `_DIRCACHE`, `_ANCESTORS`, `_REFS`, `_LFS` and `_RENAMES` were exempt as
+# per-call state that two checkouts need not agree on. They are now fields of
+# `_SCOPE` and `_DOC`, which are freshly built at import in either process and
+# so compare EQUAL - meaning they are now checked rather than excused, and six
+# names of judgement about what does not need comparing became none.
 _RELOAD_ORACLE_EXEMPT = {
     "REPO_ROOT",        # derived from __file__, so it differs by construction
     "CONFIG",           # carries `source`, the path the config was read from
-    "_LINK_BASE",       # per-call state, not configuration
-    "_DIRCACHE",        # caches, emptied and restored around validate()
-    "_ANCESTORS",
-    "_REFS",
-    "_LFS",
-    "_RENAMES",
 }
 
 
