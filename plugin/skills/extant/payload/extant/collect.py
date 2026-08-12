@@ -15,7 +15,9 @@ from pathlib import Path
 
 
 # The seam, one module-level instance, rather than the underscore names this
-# file used to qualify. Two things go away with them.
+# file used to qualify. One problem goes away with them; the other changes
+# shape rather than disappearing, and is stated correctly below rather than
+# repeated.
 #
 # The first is a boundary violation the gate could not see. Reaching for a
 # private helper as a module ATTRIBUTE slipped past
@@ -24,13 +26,17 @@ from pathlib import Path
 # private again now that git.py declares Git/SubprocessGit/CountingGit, and
 # nothing here names either.
 #
-# The second is a trap this comment used to describe rather than fix. Call
-# sites qualifying the helper off the git MODULE meant a test patching the same
-# name on the SHIM intercepted nothing here - a different module object - so a
-# test written against collect(), find_boundary(), commits_since() or
-# changed_files() would exercise the real function and pass while testing
-# nothing. Swap `_GIT` and every one of the four is covered, by the same
-# CountingGit the shim's tests use.
+# The second is the trap this comment used to describe as fixed, and it is
+# not - it moved. `find_boundary`, `commits_since`, `changed_files` and
+# `collect()` all read THIS module's own `_GIT` (declared below), so a test
+# has to swap `extant.collect._GIT` specifically to intercept any of them.
+# The shim (`extant_collect.py`) installs a SEPARATE `_GIT` under the same
+# name: `hc._GIT is extant.collect._GIT` is False. Patching the shim's `_GIT`
+# and calling `find_boundary` or `changed_files` records zero calls; patching
+# this module's `_GIT` records them. Sharing a name and a `CountingGit` class
+# makes the two objects look interchangeable - they are not, and a test
+# written against the shim's copy would exercise the real function here and
+# pass while testing nothing, exactly as before this file had a seam.
 from extant.git import CountingGit, Git, SubprocessGit    # noqa: F401
 #                      ^ re-exported so a test can install one here.
 

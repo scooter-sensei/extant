@@ -217,6 +217,11 @@ def test_a_sweep_still_shares_the_remote_across_documents(
         f"a 3-document sweep asked for the origin {len(remote_calls)} times; "
         "the stable scope is meant to make that once"
     )
+    assert remote_calls, (
+        "no remote lookups were recorded at all, so this bound proves "
+        "nothing; either the sweep never asked for the origin or _GIT was "
+        "not what it asked through"
+    )
 
 
 def test_a_sweep_holds_one_cache_scope_and_gives_it_back(git_repo) -> None:
@@ -426,6 +431,11 @@ def test_integration_refs_are_asked_for_once_not_once_per_claim(
     assert len(scans) <= 1, (
         f"40 release claims spawned {len(scans)} `for-each-ref` processes; the "
         "branch list cannot change while one validation runs"
+    )
+    assert scans, (
+        "no for-each-ref scans were recorded at all, so this bound proves "
+        "nothing; either nothing here reached the ref table or _GIT was not "
+        "what it asked through"
     )
 
 

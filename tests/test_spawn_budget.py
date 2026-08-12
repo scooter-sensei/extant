@@ -204,3 +204,75 @@ def test_the_same_question_is_not_asked_twice(monkeypatch, git_repo) -> None:
     repeated = {c for c in spawns if spawns.count(c) > 1}
     print(f"checked {len(spawns)} spawns for repeats: {spawns}")
     assert not repeated, f"asked twice in one run: {sorted(repeated)}"
+
+
+def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
+    """`main()`'s OWN use of run_scope(), not the fixture's.
+
+    The two tests above open `hc.run_scope()` themselves and call `validate()`
+    and `count_examined()` directly, so they pin the CONTEXT MANAGER working
+    correctly - never whether `main()` actually opens one around its own two
+    call sites (the primary document, and each extra document in its loop).
+    That is a real hole, demonstrated by hand: delete `with run_scope():`
+    from `main()` and both tests above stay green while `--verify` on this
+    repository regresses. Only a test that drives `main()` itself can see
+    that regression, so this one does - against the repository this checkout
+    actually is, `--repo "."`, rather than a fixture, because the point is
+    `main()`'s real argument parsing and control flow, not a synthetic
+    document built to reach every rule.
+
+    Tied to this repository's own git history as a result - its tags, its
+    `extra_docs`, how many documents --verify touches - so it will need
+    re-measuring if that history changes what --verify does here. This
+    repository's suite already accepts that kind of upkeep for tests that
+    read its own real files rather than a fixture (test_docs_match_code.py
+    checks README.md, SKILL.md and pyproject.toml directly); this test
+    extends the same idea to a spawn count instead of a document. Measured
+    at the time of writing: 12 spawns.
+
+    `conftest.py`'s `neutral_config` is autouse and has already pointed
+    `CONFIG` at an empty temp directory by the time this test body runs -
+    deliberately, so ordinary tests are not coupled to this repository's own
+    `.extant.toml` (its extra_docs, most of all). This test is the declared
+    exception: its whole point IS this repository's real configuration, since
+    that is what decides how many documents --verify touches and therefore
+    how many spawns are budgeted. `reload_config(hc.REPO_ROOT)` re-does
+    exactly what import did, and `neutral_config`'s own teardown restores
+    CONFIG afterward regardless of what this test does to it - it saves
+    before neutralising and unconditionally puts that back, not whatever was
+    live when the test ended - so nothing leaks to the next test.
+    """
+    import extant_collect as hc
+
+    hc.reload_config(hc.REPO_ROOT)
+
+    spawns: list[str] = []
+    real = subprocess.run
+
+    def counted(cmd, *a, **kw):
+        if cmd and str(cmd[0]) == "git":
+            spawns.append(" ".join(str(c) for c in cmd[1:]))
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", counted)
+
+    exit_code = hc.main(["--verify", "--repo", "."])
+
+    assert spawns, "no git processes were spawned; this test would pass vacuously"
+    print(f"checked hc.main(['--verify', '--repo', '.']): {len(spawns)} git "
+          f"spawn(s), exit code {exit_code}")
+    for cmd in spawns:
+        print(f"    git {cmd}")
+    # 12, with no spare margin, for the same measured reason CEILING carries
+    # none above: with a spare, this exact regression - a `with run_scope():`
+    # quietly deleted from main() - left the budget green. If this grows
+    # because of a genuine new question, raise the number here and say why in
+    # the commit; if it grows because a run_scope() was removed, that is the
+    # regression this test exists to catch.
+    assert len(spawns) <= 12, (
+        f"{len(spawns)} git processes for --verify on this repository, above "
+        f"the 12 measured with run_scope() wrapping main()'s own validate() "
+        f"+ count_examined() pairs. If this is a genuine new question, raise "
+        f"the number here and say why in the commit; if a `with run_scope():` "
+        f"was removed from main(), that is the regression this test exists "
+        f"to catch.")
