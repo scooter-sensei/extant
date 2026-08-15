@@ -40,6 +40,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # seven matching nothing, which --check-only reports as STALE and a
     # campaign would have reported as a clean result it did not earn.
     refs = collect.parent / "extant/refs.py"
+    text = collect.parent / "extant/text.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -280,7 +281,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # it strips punctuation the same way, so the old one-line anchor
         # matched twice and probed neither reliably. The return line
         # disambiguates - only `_slug` trims the edges.
-        ("slug keeps punctuation", collect,
+        ("slug keeps punctuation", text,
          '    text = re.sub(r"[^\\w\\s-]", "", _heading_text(title))\n'
          '    return re.sub(r"\\s", "-", text).strip("-")',
          "    text = _heading_text(title)\n"
@@ -289,14 +290,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # GitHub, because the emoji is dropped and the space after it still
         # becomes one. Trimming both spellings reported 58 working links as
         # dead across the held-out corpus.
-        ("the untrimmed slug spelling is lost", collect,
+        ("the untrimmed slug spelling is lost", text,
          '    return untrimmed if untrimmed != untrimmed.strip("-") else ""',
          '    return ""'),
         # The other half of the same function, and the reason it is written
         # this way. Returning the trimmed spelling as well duplicates `_slug`
         # and masks it - "slug keeps punctuation" SURVIVED while it did.
         ("the untrimmed slug also returns the trimmed one, masking _slug",
-         collect,
+         text,
          '    return untrimmed if untrimmed != untrimmed.strip("-") else ""',
          "    return untrimmed"),
         ("cross-file anchors no longer checked", collect,
@@ -1035,10 +1036,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # rules over rst does not degrade, it invents: 23 of numpy's findings
         # and all ten of Sphinx's came from reading `.rst` as though it were
         # markdown, and every one was false.
-        ("rst files are read as markdown", collect,
+        ("rst files are read as markdown", text,
          '    return "rst" if suffix == "rst" else "markdown"',
          '    return "markdown"'),
-        ("markdown-only rules stop being markdown-only", collect,
+        ("markdown-only rules stop being markdown-only", text,
          '_MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}',
          "_MARKDOWN_ONLY = set()"),
     ]

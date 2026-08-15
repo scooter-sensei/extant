@@ -25,14 +25,21 @@ sys.path.insert(0, str(PAYLOAD))
 # first time somebody adds a cache.
 #
 #   22  became RunScope fields (the list in scope.py, in this order)
-#    3  stayed module-level in extant_collect.py: _STRIPPED, _BARE_SHAS and
-#       _POINTER_SITES. The first two are keyed on the IDENTITY of the text
-#       passed in and read nothing else about the repository, so they are pure
-#       memos that self-invalidate; giving them a scope would be a lifetime
-#       they do not have. _POINTER_SITES is not pure - it reads the filesystem
-#       through _line_count - but its consumer, count_examined, runs AFTER
-#       validate() returns, so a value tied to the call's scope would be
-#       discarded exactly when it is needed. See the comment beside it.
+#    3  stayed MODULE-LEVEL rather than becoming scope fields: _STRIPPED,
+#       _BARE_SHAS and _POINTER_SITES. The first two are keyed on the IDENTITY
+#       of the text passed in and read nothing else about the repository, so
+#       they are pure memos that self-invalidate; giving them a scope would be
+#       a lifetime they do not have. _POINTER_SITES is not pure - it reads the
+#       filesystem through _line_count - but its consumer, count_examined,
+#       runs AFTER validate() returns, so a value tied to the call's scope
+#       would be discarded exactly when it is needed. See the comment beside
+#       it.
+#
+#       Module-level, not necessarily in extant_collect.py, and that stopped
+#       being the same statement in Task 8: _STRIPPED moved to extant/text.py
+#       with the stripping functions that own it. Still a module-level memo,
+#       still no lifetime to state, one file over. _BARE_SHAS and
+#       _POINTER_SITES are still in the shim.
 #    1  was deleted: _TAGS has been dead since 6c5c29c rewired _tags() through
 #       _ref_table, and only the save-and-restore choreography still named it.
 #
