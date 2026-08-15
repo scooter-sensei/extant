@@ -41,6 +41,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # campaign would have reported as a clean result it did not earn.
     refs = collect.parent / "extant/refs.py"
     text = collect.parent / "extant/text.py"
+    sites = collect.parent / "extant/sites.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -256,9 +257,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                continue  # a file reference caught by a path-shaped pattern",
          "            if False:\n"
          "                continue  # a file reference caught by a path-shaped pattern"),
-        ("path guard over-broad: skips anything containing a dot", collect,
-         "    return bool(_FILEISH.search(token)) or (repo / token).exists()",
-         '    return "." in token or (repo / token).exists()'),
+        ("path guard over-broad: skips anything containing a dot", sites,
+         "    return bool(_FILEISH.search(token)) or (ctx.repo / token).exists()",
+         '    return "." in token or (ctx.repo / token).exists()'),
         ("live-claim loses the path guard", collect,
          "            if _looks_like_a_path(repo, branch):\n                continue\n"
          "            exists = _branch_exists(repo, branch)",
@@ -316,7 +317,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("claim rules stop ignoring fenced code", collect,
          "def _prose(text: str) -> str:",
          "def _prose(text: str) -> str:\n    return text"),
-        ("case check accepts any spelling", collect,
+        ("case check accepts any spelling", sites,
          "    return (True, None) if actual == normalised else (False, actual)",
          "    return True, None"),
 
@@ -844,11 +845,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # monorepo builds a site from `docs/` and still keeps ordinary
         # READMEs in `packages/`; suppressing routes across both silenced six
         # real defects.
-        ("site detection goes blind, so routes are dead files again", collect,
+        ("site detection goes blind, so routes are dead files again", sites,
          "            declared = any((directory / name).is_file()\n"
          "                           for name in _SITE_CONFIGS)",
          "            declared = False"),
-        ("every repository is treated as a generated site", collect,
+        ("every repository is treated as a generated site", sites,
          "            declared = any((directory / name).is_file()\n"
          "                           for name in _SITE_CONFIGS)",
          "            declared = True"),
@@ -858,7 +859,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted twice now, both times because the tuple gained a name a
         # held-out repository declared its site in: `docs-website` from
         # haystack, `documentation` from svelte, `fern` from Skyvern.
-        ("generator config is looked for at the root only", collect,
+        ("generator config is looked for at the root only", sites,
          '_SITE_DIRS = ("", "docs", "site", "www", "website", "docs-website",\n'
          '              "documentation", "fern")',
          '_SITE_DIRS = ("",)'),
@@ -866,7 +867,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # anchor named a single-line form that no longer exists, and
         # --check-only caught it at the commit that moved it - which is the
         # whole reason that mode is in CI rather than only in the campaign.
-        ("a generator declared inside another file is missed", collect,
+        ("a generator declared inside another file is missed", sites,
          '    ("mix.exs", "ex_doc"),',
          '    ("mix.exs", "never-matches-anything"),'),
         # The marker search walks _SITE_DIRS now, because docsify keeps its
@@ -876,42 +877,42 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # own loop over the directory list, so "root only" was separable from
         # the config search; both now share one walk, and the thing this can
         # still probe alone is whether markers are consulted at all.
-        ("markers inside a file stop being consulted", collect,
+        ("markers inside a file stop being consulted", sites,
          "                for name, marker in _SITE_MARKERS_IN_FILE:",
          "                for name, marker in ():"),
         # A generator declared nowhere but in its own filename convention.
         # svelte's pages are built by svelte.dev, so no config exists in the
         # repository at all and 64 of its own `/docs/svelte` links were
         # judged as files.
-        ("a numbered documentation tree stops declaring a site", collect,
-         "        scopes |= _numbered_docs_scopes(repo)",
+        ("a numbered documentation tree stops declaring a site", sites,
+         "        scopes |= _numbered_docs_scopes(ctx)",
          "        scopes |= set()"),
         # aider keeps a Jekyll site at `aider/website/_config.yml`: a package
         # directory, and the site inside it. Searching only `website/` found
         # nothing, so the repository was judged plain and 29 of its own asset
         # links were reported dead.
-        ("a site one directory deeper is never found", collect,
+        ("a site one directory deeper is never found", sites,
          '    for name in _SITE_DIRS:\n'
          '        if name:\n'
-         '            dirs.extend(repo.glob(f"*/{name}"))',
+         '            dirs.extend(ctx.repo.glob(f"*/{name}"))',
          "    for name in ():\n"
          "        if name:\n"
-         '            dirs.extend(repo.glob(f"*/{name}"))'),
+         '            dirs.extend(ctx.repo.glob(f"*/{name}"))'),
         # The other half: the search is bounded to one extra level. Unbounded,
         # it scans every directory in the repository to answer a question asked
         # on every run, and a vendored copy four levels down silences the lot.
-        ("the deeper search stops being bounded to one level", collect,
-         '            dirs.extend(repo.glob(f"*/{name}"))',
-         '            dirs.extend(repo.glob(f"**/{name}"))'),
+        ("the deeper search stops being bounded to one level", sites,
+         '            dirs.extend(ctx.repo.glob(f"*/{name}"))',
+         '            dirs.extend(ctx.repo.glob(f"**/{name}"))'),
         # Mintlify serves .mdx by route from one declaration. humanlayer
         # reported 5 of its own `/core/require-approval` links dead without it.
         # Anchored on the entry alone rather than on it being LAST in the
         # tuple, which is what went stale when `fern.config.json` was added
         # after it.
-        ("mint.json stops counting as a generator", collect,
+        ("mint.json stops counting as a generator", sites,
          '    "mint.json",\n',
          '    "mint.never-matches.json",\n'),
-        ("fern.config.json stops counting as a generator", collect,
+        ("fern.config.json stops counting as a generator", sites,
          '    "fern.config.json",\n',
          '    "fern.never-matches.json",\n'),
         # A `.html` target is a rendered page. Measured at 407 links across 20
@@ -923,7 +924,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "            if False:\n                continue"),
         # Next.js routes by file path. Without it, nextra reported 227 of its
         # own links dead.
-        ("next.config stops counting as a generator", collect,
+        ("next.config stops counting as a generator", sites,
          '    "next.config.js", "next.config.ts", "next.config.mjs",',
          '    "next.config.never", "next.config.matches", "next.config.nothing",'),
         # The namespace is a property of the GENERATOR, and the measurement that
@@ -935,23 +936,23 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # detection and the namespace disagree about the same repository.
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
-        ("the namespace search looks less deep than detection does", collect,
-         "        _SCOPE.global_ns[key] = any((d / name).is_file()\n"
-         "                                    for d in _site_dirs(repo)\n"
-         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)",
-         "        _SCOPE.global_ns[key] = any((repo / d / name).is_file()\n"
-         "                                    for d in _SITE_DIRS\n"
-         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)"),
-        ("cross-reference namespace is the page everywhere", collect,
-         "        _SCOPE.global_ns[key] = any((d / name).is_file()\n"
-         "                                    for d in _site_dirs(repo)\n"
-         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)",
-         "        _SCOPE.global_ns[key] = False"),
-        ("cross-reference namespace is the project everywhere", collect,
-         "        _SCOPE.global_ns[key] = any((d / name).is_file()\n"
-         "                                    for d in _site_dirs(repo)\n"
-         "                                    for name in _GLOBAL_ANCHOR_CONFIGS)",
-         "        _SCOPE.global_ns[key] = True"),
+        ("the namespace search looks less deep than detection does", sites,
+         "        ctx.run.global_ns[key] = any((d / name).is_file()\n"
+         "                                     for d in _site_dirs(ctx)\n"
+         "                                     for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        ctx.run.global_ns[key] = any((ctx.repo / d / name).is_file()\n"
+         "                                     for d in _SITE_DIRS\n"
+         "                                     for name in _GLOBAL_ANCHOR_CONFIGS)"),
+        ("cross-reference namespace is the page everywhere", sites,
+         "        ctx.run.global_ns[key] = any((d / name).is_file()\n"
+         "                                     for d in _site_dirs(ctx)\n"
+         "                                     for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        ctx.run.global_ns[key] = False"),
+        ("cross-reference namespace is the project everywhere", sites,
+         "        ctx.run.global_ns[key] = any((d / name).is_file()\n"
+         "                                     for d in _site_dirs(ctx)\n"
+         "                                     for name in _GLOBAL_ANCHOR_CONFIGS)",
+         "        ctx.run.global_ns[key] = True"),
         # The project union is built ON DEMAND, and this reverts it to eager.
         # Ordinarily a cost-only change gets NO mutation here - the `raw-lfs-blob`
         # size shortcut is excluded for exactly that reason, because a mutation
@@ -966,11 +967,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Hugo's fragment convention, and the guard that keeps it Hugo's. Without
         # the `_` test every page in the project becomes an ambient anchor
         # source, which is the project-wide union arriving through the back door.
-        ("hugo fragments stop being recognised as ambient anchors", collect,
+        ("hugo fragments stop being recognised as ambient anchors", sites,
          '                if not any(part.startswith("_") for part in rel.split("/")[:-1]):\n'
          "                    continue",
          "                continue"),
-        ("every directory is treated as a hugo fragment directory", collect,
+        ("every directory is treated as a hugo fragment directory", sites,
          '                if not any(part.startswith("_") for part in rel.split("/")[:-1]):\n'
          "                    continue",
          "                pass"),
