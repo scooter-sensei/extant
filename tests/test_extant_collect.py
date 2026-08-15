@@ -331,7 +331,7 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
     anything. "---" appears nowhere in the code's own additions, so losing
     one of its six copies is an unambiguous, undiluted deficit.
     """
-    import extant_collect as extant_collect
+    from extant import entries
     from extant_collect import archive
 
     doc = (
@@ -348,15 +348,22 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
     with open(repo / "NEXT_SESSION.md", "rb") as fh:
         before = fh.read()
 
-    real_split_entries = extant_collect.split_entries
+    # Swapped on extant.entries, NOT on extant_collect, and the difference is
+    # the whole point of the test rather than an import detail. `archive` lives
+    # in extant/entries.py and calls the `split_entries` beside it, so the
+    # shim's same-named wrapper is not in the path at all. Patching there would
+    # leave the real splitter running, no line would go missing, the guard
+    # would correctly stay silent, and this test would pass while proving
+    # nothing - which is precisely the failure it exists to catch in the code.
+    real_split_entries = entries.split_entries
 
-    def buggy_split_entries(text):
+    def buggy_split_entries(text, config):
         # retain=3 keeps segments[0:3] (9.6, 9.5b, 9.5a) and moves the rest,
         # so segments[-1] (9.3) lands in `moved`. Drop its "---" line only -
         # the other five copies (preamble + 9.6/9.5b/9.5a/9.4) survive
         # untouched, so a naive `line in remaining or line in archived`
         # membership check would NOT have caught this loss.
-        preamble, segments, base = real_split_entries(text)
+        preamble, segments, base = real_split_entries(text, config)
         kind, chunk = segments[-1]
         lines = chunk.split("\n")
         assert lines.count("---") == 1
@@ -364,7 +371,7 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
         segments[-1] = (kind, "\n".join(lines))
         return preamble, segments, base
 
-    monkeypatch.setattr(extant_collect, "split_entries", buggy_split_entries)
+    monkeypatch.setattr(entries, "split_entries", buggy_split_entries)
 
     with pytest.raises(RuntimeError):
         archive(repo, retain=3)

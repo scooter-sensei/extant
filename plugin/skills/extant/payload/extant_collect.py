@@ -319,148 +319,28 @@ def collect(repo: Path, suite_json: str | None = None) -> dict[str, object]:
     return _collect.collect(repo, suite_json, _ACTIVE, CONFIG)
 
 
+# Splitting a status document into entries, and retiring the old ones, is
+# extant/entries.py now. Both keep their public names: they were never
+# underscored, they are what `--archive` and the /extant command call, and the
+# rule the rest of this package follows would promote them anyway.
+from extant import entries as _entries
+
+
 def split_entries(text: str) -> tuple[str, list[tuple[str, str]], str]:
-    """Split a status doc into (preamble, [(kind, text)], reference base).
-
-    GA-4: splits on EVERY top-level section, not just `## Phase `. Sections
-    classified "other" are reference material interleaved among the phase
-    entries, and archiving them as history would lose them.
-    """
-    base_match = _BASE_HEADER.search(text)
-    base_start = base_match.start() if base_match else len(text)
-    body, base = text[:base_start], text[base_start:]
-
-    starts = [m.start() for m in _SECTION_HEADER.finditer(body)]
-    if not starts:
-        return body, [], base
-    preamble = body[: starts[0]]
-    bounds = starts + [len(body)]
-    segments: list[tuple[str, str]] = []
-    for index in range(len(starts)):
-        chunk = body[bounds[index]: bounds[index + 1]]
-        kind = "phase" if chunk.startswith(_PHASE_PREFIX) else "other"
-        segments.append((kind, chunk))
-    return preamble, segments, base
+    """Split a status doc into (preamble, [(kind, text)], reference base)."""
+    return _entries.split_entries(text, _ACTIVE)
 
 
 def archive(repo: Path, retain: int | None = None) -> dict[str, int]:
     """Move all but the newest `retain` phase entries into the archive doc.
 
-    `retain` defaults to None rather than to RETAIN_ENTRIES, because a
-    default expression is evaluated once at import. Written the other way it
-    froze whatever the module was configured with at import time, so
-    `reload_config` could update the global and this function would go on
-    using the stale one.
-
-    Fails closed if any original line would be lost. This is the only
-    irreversible file operation in the system, so conservation is asserted
-    rather than trusted.
+    TRAP, and it is worth a line here because a test depends on it: `archive`
+    calls the `split_entries` in extant/entries.py, NOT the wrapper above.
+    Swapping this module's `split_entries` no longer reaches it. The test that
+    proves the conservation guard is independent of the splitter swaps
+    `extant.entries.split_entries` for exactly that reason.
     """
-    if retain is None:
-        retain = RETAIN_ENTRIES
-    doc = repo / PRIMARY_DOC
-    with open(doc, encoding="utf-8", newline="") as fh:
-        original = fh.read()
-    newline = "\r\n" if "\r\n" in original else "\n"
-    normalised = original.replace("\r\n", "\n")
-
-    preamble, segments, base = split_entries(normalised)
-
-    # Idempotency: the pointer this function writes below is tool-generated
-    # bookkeeping, not content - a PRIOR run's pointer must never survive
-    # into this run's output, kept inline or archived. split_entries files
-    # it under "other" (GA-6's own top-level header), and GA-4 keeps every
-    # "other" segment inline forever, so without this a stale pointer would
-    # ride along unchanged while a fresh one gets appended alongside it: N
-    # runs, N stacked pointer blocks, none ever removed.
-    live_segments = [
-        (kind, chunk) for kind, chunk in segments
-        if not chunk.startswith(_POINTER_PREFIX)
-    ]
-    stale_pointer_text = "".join(
-        chunk for _, chunk in segments if chunk.startswith(_POINTER_PREFIX)
-    )
-
-    phase_count = sum(1 for kind, _ in live_segments if kind == "phase")
-    if phase_count <= retain:
-        return {"retained": phase_count, "archived": 0}
-
-    kept: list[str] = []
-    moved: list[str] = []
-    seen = 0
-    for kind, chunk in live_segments:
-        if kind != "phase":
-            kept.append(chunk)  # GA-4: reference sections are never archived
-            continue
-        (kept if seen < retain else moved).append(chunk)
-        seen += 1
-
-    # GA-6: the pointer gets its own top-level `## ` header so a later
-    # split_entries() classifies it as a standalone "other" segment instead
-    # of gluing it onto the tail of whichever phase chunk precedes it - an
-    # un-headered pointer would otherwise end up embedded inside that
-    # entry's body once the entry itself is archived.
-    pointer = (
-        "## Archive pointer\n\n"
-        f"> Entries older than the newest {retain} live in `{ARCHIVE_DOC}`.\n\n"
-    )
-    remaining = preamble + "".join(kept) + pointer + base
-
-    archive_path = repo / ARCHIVE_DOC
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
-    existing = ""
-    if archive_path.exists():
-        with open(archive_path, encoding="utf-8", newline="") as fh:
-            existing = fh.read().replace("\r\n", "\n")
-    # GA-6: new phase entries are always PREPENDED to NEXT_SESSION.md, so
-    # whatever falls out of the retain window on THIS run is chronologically
-    # newer than anything archived on a prior run. `moved` (already
-    # newest-first, per split_entries order) must land directly under the
-    # header, above everything previously archived - never appended after it.
-    existing_body = existing.removeprefix(_ARCHIVE_HEADER)
-    archived_text = _ARCHIVE_HEADER + "".join(moved) + existing_body
-
-    # GA-3: multiset comparison. A set-membership check cannot detect the loss
-    # of DUPLICATE lines - blanks, "---" rules - because one surviving copy
-    # satisfies it. Counter subtraction keeps only positive residuals.
-    #
-    # The baseline is `normalised` with the stale pointer's own lines
-    # subtracted, NOT rebuilt from `live_segments` (preamble + join + base).
-    # Those two are equal whenever split_entries partitions losslessly - but
-    # anchoring to `normalised` keeps the guard independent of split_entries
-    # itself, so it still catches a bug THERE (see
-    # test_archive_detects_loss_of_duplicate_lines, which monkeypatches
-    # split_entries to drop a line and asserts this guard still fires). A
-    # live_segments-rebuilt baseline would launder that exact class of bug:
-    # both the baseline and remaining+archived would be built from the same
-    # corrupted segments and agree with each other, silently.
-    #
-    # Subtracting the stale pointer's lines here - rather than comparing
-    # against the raw on-disk text as-is - is what makes idempotent archive
-    # runs possible: on run 2+, `normalised` (read fresh from disk) already
-    # contains run 1's pointer block, which this run deliberately discards
-    # (never placed in `kept` or `moved` above). Without this subtraction
-    # the guard would see that discarded block's lines as "lost" and raise
-    # a false positive on every run after the first.
-    cleaned_baseline = (
-        Counter(normalised.splitlines()) - Counter(stale_pointer_text.splitlines())
-    )
-    lost = (
-        cleaned_baseline
-        - Counter(remaining.splitlines())
-        - Counter(archived_text.splitlines())
-    )
-    if lost:
-        raise RuntimeError(
-            f"archive would lose {sum(lost.values())} line(s); "
-            f"examples: {list(lost)[:3]}"
-        )
-
-    with open(doc, "w", encoding="utf-8", newline="") as fh:
-        fh.write(remaining.replace("\n", newline))
-    with open(archive_path, "w", encoding="utf-8", newline="") as fh:
-        fh.write(archived_text.replace("\n", newline))
-    return {"retained": retain, "archived": len(moved)}
+    return _entries.archive(repo, retain, _ACTIVE)
 
 
 _BACKTICKED = re.compile(r"`([^`]+)`")
@@ -926,13 +806,27 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
 # arrive here: patching a CONFIG-DERIVED global on this module no longer
 # reaches the functions below, because they read the built Config through
 # `ctx.config`. Re-measured for this move against the seven derived names the
-# suite patches - the re-grep that comment asks for - exactly one has a reader
-# that moved: `TRUNK`, read by `integration_refs`, patched at four sites in
-# tests/test_multi_trunk.py. All four still pass, and not because the patch
-# still works: the gitflow fixture carries both `main` and `develop`, so
-# `_INTEGRATION_NAMES` finds the same set whichever name seeds it and only the
-# ORDER differs. That is precisely why it is written down here instead of left
-# to be discovered. A test that needs a different trunk must call
+# suite patches - the re-grep that comment asks for - TWO of the seven have
+# readers that left this file in Task 8:
+#
+#   TRUNK             read by `integration_refs`, patched at four sites in
+#                     tests/test_multi_trunk.py. All four still pass, and not
+#                     because the patch still works: the gitflow fixture
+#                     carries both `main` and `develop`, so
+#                     `_INTEGRATION_NAMES` finds the same set whichever name
+#                     seeds it and only the ORDER differs. Written down here
+#                     rather than left to be discovered.
+#   _SECTION_HEADER   read by `split_entries`, patched once, at
+#                     test_packaging.py:521 - which calls `reload_config`
+#                     rather than assigning the global, so it rebuilds
+#                     `_ACTIVE` too and reaches the package unharmed.
+#
+# The other five - _BRANCH_TOKEN, _CONSISTENCY_TIMEOUT, _MERGE_CLAIM,
+# _RELEASE_TAG, _RELEASE_CLAIMS_ARE_OURS - are still read by rules in this
+# file, so patching them still works. Re-grep again when those rules move in
+# Task 9; that is the whole reason this count is written out by name.
+#
+# A test that needs a different value from a MOVED reader must call
 # `reload_config`.
 def _ctx(repo: Path) -> Context:
     """This module's ambient state, as the object the package takes."""
