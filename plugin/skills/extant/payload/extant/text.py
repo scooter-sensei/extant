@@ -11,17 +11,18 @@ Three calling conventions, and the split is deliberate rather than untidy:
   `_definition_terms` and the rest cannot be affected by a repository or a run,
   so handing them a Context would be a claim about their dependencies that is
   simply false.
-* `current_document`, `_blank`, `_blank_uncached`, `strip_code` and `prose` take
+* `current_document`, `_blank`, `_blank_uncached`, `_strip_code` and `_prose`
+  take
   a `DocScope`, because the only ambient thing they read is which document is
   open and what language it is written in.
-* `unique_basename`, `_translation_tree` and `numbered_document` take the full
+* `_unique_basename`, `_translation_tree` and `_numbered_document` take the full
   `Context`: they ask git what it tracks and memoise the answer on the run.
 
 The alternative - one `Context` parameter everywhere - was rejected because the
 one thing this split is for is making a module's dependencies legible from its
-signature, and a `Context` on `prose()` would advertise a repository, a git
+signature, and a `Context` on `_prose()` would advertise a repository, a git
 seam and a configuration that it never touches. It would also have to be
-CONSTRUCTED by every caller that has none, which for `prose` means inventing a
+CONSTRUCTED by every caller that has none, which for `_prose` means inventing a
 repository path, and an invented value in a field named `repo` is the kind of
 false claim this project keeps paying for.
 
@@ -39,32 +40,43 @@ from pathlib import Path
 from extant.refs import tracked_markdown
 from extant.scope import Context, DocScope
 
-# The thirteen names with a consumer outside this module are public; the
-# twenty-eight with none keep their underscore. That line is MEASURED rather
-# than chosen by taste: each of the thirteen is read today by shim code that
-# Task 9 turns into a rule module or into registry/sweep/cli, at which point it
-# becomes a sibling and an underscore on it would be a false claim about the
-# boundary - and a hard failure of
-# test_no_module_reaches_past_another_modules_surface. Three of them,
-# `current_document`, `anchors` and `ORDER_PREFIX`, are already read by
-# sites.py in this same task.
+# THREE of these forty-one names are public, and the rule is the same one
+# every module in this package follows: a name is public when a SIBLING MODULE
+# calls it, and keeps its underscore when it does not.
 #
-# The private ones are listed here too, following extant/collect.py, which
-# keeps `_CHECKED` and `_VENV_LAYOUTS` in its own `__all__`: the shim
-# re-exports them under their historical names for the tests and the mutation
-# harness, so they are part of what this module hands out even though no
-# sibling should call them.
+# `current_document`, `anchors` and `ORDER_PREFIX` are the three, and sites.py
+# calls all three. Reaching for an underscore name across that boundary is a
+# hard failure of test_no_module_reaches_past_another_modules_surface, so the
+# choice there is between promoting them and lying about the boundary.
+#
+# The other thirty-eight are read by extant_collect.py and by nothing else.
+# The shim is deliberately NOT counted as a sibling here - that gate's own
+# comment says so, because extant_collect.py sits outside the package - and it
+# is deleted outright in Task 10. Promoting a name for a caller that is about
+# to disappear is churn with a rename at both ends.
+#
+# Task 9 is where the rest of this gets settled, and it will settle it by
+# measurement rather than by taste: when a shim rule becomes extant/rules/*.py,
+# whatever it reaches for here becomes a genuine sibling call and is promoted
+# in the commit that creates the caller. `_prose` has eleven such consumers
+# waiting, which is the largest single promotion that task will make.
+#
+# The private names are listed in `__all__` anyway, following
+# extant/collect.py, which keeps `_CHECKED` and `_VENV_LAYOUTS` in its own:
+# the shim re-exports them under their historical spellings for the suite and
+# the mutation harness, so they are part of what this module hands out even
+# though no sibling should be calling them.
 __all__ = [
     "ORDER_PREFIX", "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
     "_EXTERNAL", "_FENCE", "_HEADING", "_INLINE_CODE", "_LANGUAGE_DIR",
     "_MARKDOWN_ONLY", "_MD_LINK", "_MYST_TARGET", "_NESTED_HEADING",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_SETEXT_RULE", "_STRIPPED", "_blank", "_blank_rst",
-    "_blank_uncached", "_definition_terms", "_disambiguated", "_heading_text",
+    "_blank_uncached", "_definition_terms", "_disambiguated", "_format_for",
+    "_heading_text", "_numbered_document", "_percent_decoded", "_prose",
     "_route_name", "_setext_headings", "_slug", "_slug_keeping_edges",
-    "_slug_punctuation_to_dash", "_translation_tree", "_without_tags",
-    "anchors", "current_document", "format_for", "numbered_document",
-    "percent_decoded", "prose", "strip_code", "unique_basename",
+    "_slug_punctuation_to_dash", "_strip_code", "_translation_tree",
+    "_unique_basename", "_without_tags", "anchors", "current_document",
 ]
 
 # Markdown link syntax is fixed by the format, not by any project's habits, so
@@ -149,7 +161,7 @@ def current_document(doc: DocScope) -> str | None:
 _MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}
 
 
-def format_for(path: str) -> str:
+def _format_for(path: str) -> str:
     """Which markup language a filename is written in."""
     suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     return "rst" if suffix == "rst" else "markdown"
@@ -158,7 +170,7 @@ def format_for(path: str) -> str:
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 
 
-def strip_code(doc: DocScope, text: str) -> str:
+def _strip_code(doc: DocScope, text: str) -> str:
     """Blank out fenced blocks AND inline code spans, preserving line numbers.
 
     A README demonstrating link syntax is showing an example, not making a
@@ -262,7 +274,7 @@ def _blank_rst(text: str, *, inline: bool) -> str:
     return "\n".join(out)
 
 
-def prose(doc: DocScope, text: str) -> str:
+def _prose(doc: DocScope, text: str) -> str:
     """Text with FENCED BLOCKS removed, for rules that check claims.
 
     A fenced block is an example or captured output, not a promise. A README
@@ -283,7 +295,7 @@ def prose(doc: DocScope, text: str) -> str:
     return _blank(doc, text, inline=False)
 
 
-def unique_basename(ctx: Context, target: str) -> bool:
+def _unique_basename(ctx: Context, target: str) -> bool:
     """Does exactly one tracked markdown file carry this basename?
 
     Exactly one, never "at least one". Two files called `index.md` say nothing
@@ -367,7 +379,7 @@ def _route_name(segment: str) -> str:
     return ORDER_PREFIX.sub("", stem).lower()
 
 
-def numbered_document(ctx: Context, target: str) -> bool:
+def _numbered_document(ctx: Context, target: str) -> bool:
     """Does exactly one tracked document answer to this route once prefixes go?
 
     Compares the WHOLE path segment by segment, not just the basename, so
@@ -376,7 +388,7 @@ def numbered_document(ctx: Context, target: str) -> bool:
     on its last segment; a two-segment target must match the last two.
 
     Exactly one match, never "at least one", for the reason
-    `unique_basename` gives: guessing between candidates trades a false
+    `_unique_basename` gives: guessing between candidates trades a false
     positive for a silently wrong answer.
     """
     wanted = [_route_name(part) for part in target.strip("/").split("/") if part]
@@ -390,7 +402,7 @@ def numbered_document(ctx: Context, target: str) -> bool:
                 segments = path.split("/")
                 # ONLY documents that actually carry an ordering prefix are
                 # indexed. Without that condition this becomes
-                # `unique_basename` with the generator gate removed, and
+                # `_unique_basename` with the generator gate removed, and
                 # would silence a link to `foo` anywhere `foo.md` happens to
                 # exist in an unrelated directory. The prefix is the evidence
                 # that something strips it, so no prefix, no claim.
@@ -411,7 +423,7 @@ def numbered_document(ctx: Context, target: str) -> bool:
 _ROUTE_DEPTH = 4
 
 
-def percent_decoded(target: str) -> str:
+def _percent_decoded(target: str) -> str:
     """A link target with percent-escapes resolved, or unchanged if it has none.
 
     Left alone when there is nothing to decode, so a path containing a literal

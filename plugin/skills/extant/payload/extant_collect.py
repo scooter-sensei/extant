@@ -1268,15 +1268,14 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
 # that read ambient state are wrapped, because the package takes the state as
 # an argument and this module's callers still pass `(repo, text)`.
 #
-# THIRTEEN OF THESE NAMES LOST THEIR UNDERSCORE on the way over, and the line
-# is measured rather than chosen: those thirteen are the ones something outside
-# text.py reads. Every one of them is read here by code that Task 9 turns into
-# a rule module, or into registry/sweep/cli, so each is about to become a
-# genuine cross-module call - at which point an underscore on it is a false
-# claim about the boundary and a hard failure of
-# test_no_module_reaches_past_another_modules_surface. Three are already
-# sibling calls today, from sites.py. The other twenty-eight are read only
-# inside text.py and kept theirs.
+# THREE of these names lost their underscore, and only three, because sites.py
+# calls exactly three of them. That is the rule every module in this package
+# follows: a name is public when a SIBLING calls it, and keeps its underscore
+# when it does not. The rest are read by this module and by nothing else, and
+# this module is not a sibling - it sits outside the package, which is what
+# test_no_module_reaches_past_another_modules_surface says in its own comment,
+# and Task 10 deletes it. Promoting a name for a caller about to disappear is a
+# rename at both ends and no boundary made clearer.
 #
 # The historical spellings survive here, because this module's job is that its
 # call surface does not move under the suite or under an adopter's script.
@@ -1286,14 +1285,13 @@ from extant.text import (            # noqa: F401  (re-exported as they are:
     _MARKDOWN_ONLY, _MD_LINK, _MYST_TARGET, _NESTED_HEADING, _ROUTE_DEPTH,
     _RST_DIRECTIVE, _RST_DOCTEST, _RST_INLINE, _RST_LITERAL_INTRO,
     _SETEXT_RULE, _STRIPPED, _blank_rst, _definition_terms, _disambiguated,
-    _heading_text, _route_name, _setext_headings, _slug, _slug_keeping_edges,
-    _slug_punctuation_to_dash, _without_tags,
+    _format_for, _heading_text, _percent_decoded, _route_name,
+    _setext_headings, _slug, _slug_keeping_edges, _slug_punctuation_to_dash,
+    _without_tags,
 )
-from extant.text import (            # noqa: F401  (renamed on promotion, and
+from extant.text import (            # noqa: F401  (promoted for sites.py, and
     ORDER_PREFIX as _ORDER_PREFIX,   # re-exported under the old spelling)
     anchors as _anchors,
-    format_for as _format_for,
-    percent_decoded as _percent_decoded,
 )
 
 # The MODULE as well, so the wrappers below look each function up at call time
@@ -1317,17 +1315,17 @@ def _blank_uncached(text: str, *, inline: bool) -> str:
 
 def _strip_code(text: str) -> str:
     """Blank out fenced blocks AND inline code spans, preserving line numbers."""
-    return _text.strip_code(_DOC, text)
+    return _text._strip_code(_DOC, text)
 
 
 def _prose(text: str) -> str:
     """Text with FENCED BLOCKS removed, for rules that check claims."""
-    return _text.prose(_DOC, text)
+    return _text._prose(_DOC, text)
 
 
 def _unique_basename(repo: Path, target: str) -> bool:
     """Does exactly one tracked markdown file carry this basename?"""
-    return _text.unique_basename(_ctx(repo), target)
+    return _text._unique_basename(_ctx(repo), target)
 
 
 def _translation_tree(repo: Path, path: str) -> str:
@@ -1337,7 +1335,7 @@ def _translation_tree(repo: Path, path: str) -> str:
 
 def _numbered_document(repo: Path, target: str) -> bool:
     """Does exactly one tracked document answer to this route once prefixes go?"""
-    return _text.numbered_document(_ctx(repo), target)
+    return _text._numbered_document(_ctx(repo), target)
 
 
 def validate_md_links(repo: Path, text: str) -> list[Finding]:
