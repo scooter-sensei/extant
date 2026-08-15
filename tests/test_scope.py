@@ -55,17 +55,24 @@ NOT_A_CACHE = {"stable"}
 # need something `run(repo, *args)` cannot express. Named individually so this
 # is a list somebody maintains rather than a number that drifts:
 #
-#   3  `cat-file` batches, which feed object names to git on STDIN
+#   2  `cat-file` batches, which feed object names to git on STDIN
 #   1  `ls-tree -r -z HEAD`, whose NUL-separated output pairs with the next one
 #   1  `check-attr -z --stdin filter`, also stdin-fed
 #   1  `git show`, which must return BYTES: `_git` passes text=True, which
 #      makes subprocess decode inside a reader thread, so invalid UTF-8 raises
 #      somewhere a caller cannot catch it
 #
+# Six until Task 8, when the third `cat-file` batch left with the code around
+# it: `_batch_shas` backs `resolve_shas`, which moved to extant/refs.py so that
+# the merge rule would not have to reach into the SHA rule for it. It did not
+# stop bypassing the seam by moving, so it is still counted - one file over, as
+# PACKAGE_DIRECT_SUBPROCESS_SITES below. Lowering this without adding that one
+# would have retired a watched site by losing track of it.
+#
 # The seam deliberately did not grow a method for these in Task 7. What it has
 # to do is stay visible, because CountingGit cannot see them and neither will
 # `--profile`; see test_the_rules_reach_git_only_through_the_seam.
-DIRECT_SUBPROCESS_SITES = 6
+DIRECT_SUBPROCESS_SITES = 5
 
 # extant/git.py is the seam's own implementation, not a consumer of it: it is
 # where `_git`/`_git_soft` are DEFINED and where `SubprocessGit` legitimately
@@ -87,12 +94,34 @@ DIRECT_SUBPROCESS_SITES = 6
 PACKAGE_SEAM_DIRECT_SITES = 5
 PACKAGE_SEAM_OUTSIDE_SITES = 1
 
-# extant/collect.py's own routed count (8: 6 `run`, 2 `soft`) is the entire
-# package population today - the other four modules (config.py, finding.py,
-# scope.py, __init__.py) ask git nothing. Pinned as a floor for the same
-# reason the shim's own assertion pins one below: a population that stopped
-# reaching git entirely would still pass "nothing bypasses", proving nothing.
-PACKAGE_ROUTED_FLOOR = 8
+# The package's routed count: 8 in extant/collect.py (6 `run`, 2 `soft`) plus
+# 9 in extant/refs.py, which Task 8 filled with the ancestry, ref-table, rename
+# and object-resolution helpers the rules used to reach through this module for.
+# config.py, finding.py, scope.py and __init__.py ask git nothing.
+#
+# Pinned as a floor for the same reason the shim's own assertion pins one
+# below: a population that stopped reaching git entirely would still pass
+# "nothing bypasses", proving nothing. It goes UP as rules move, not down -
+# the calls are not disappearing, they are changing file.
+PACKAGE_ROUTED_FLOOR = 17
+
+# The one package call site that runs git through subprocess directly, for the
+# same reason the shim has five: `cat-file --batch-check` is fed on stdin and
+# `Git.run(repo, *args)` cannot express that. It is `_batch_shas` in
+# extant/refs.py, and it is named here rather than waved through so that a
+# SECOND one cannot appear unnoticed - which is exactly what an `== 0`
+# assertion would have done the moment this one arrived.
+PACKAGE_DIRECT_SUBPROCESS_SITES = 1
+
+# The shim's own routed count, and it is a floor for the anti-vacuity reason
+# rather than a target. It was 12 when Task 7 wrote this test and every rule
+# still lived in extant_collect.py; Task 8 took the nine git-history helpers
+# into extant/refs.py and left four (`_own_remote`, `validate_pinned_refs`,
+# `_probe_merge`, `_changed_between`). Tasks 9 and 10 take those too, at which
+# point this number reaches zero and the assertion below has to be deleted
+# rather than set to 0 - a floor of zero is satisfied by an empty file, which
+# is the shape of broken check this file exists to refuse.
+SHIM_ROUTED_FLOOR = 4
 
 
 def test_a_nested_run_scope_does_not_disturb_the_outer_one() -> None:
@@ -256,22 +285,43 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     here was watching that file to notice either the false claim or a real
     regression.
 
-    NOT a claim that the seam is the only route to git in the shim, and the
-    second number printed below is why. Six invocations there run git through
-    subprocess directly because they need something `run(repo, *args)` cannot
-    express - stdin for the three `cat-file` batches, a `-z` listing paired
-    with `check-attr --stdin`, and bytes rather than decoded text for `git
-    show`. Those are counted here rather than glossed, so the gap is a number
-    somebody chose and can watch, and so a seventh cannot appear unnoticed.
+    NOT a claim that the seam is the only route to git, and the numbers
+    printed below are why. Five invocations in the shim and one in the package
+    run git through subprocess directly, because they need something
+    `run(repo, *args)` cannot express - stdin for the three `cat-file`
+    batches, a `-z` listing paired with `check-attr --stdin`, and bytes rather
+    than decoded text for `git show`. Those are counted here rather than
+    glossed, so the gap is a number somebody chose and can watch, and so a
+    seventh cannot appear unnoticed. It was six-and-none until Task 8 moved
+    `_batch_shas` into extant/refs.py; the split is where the code is, not a
+    change in how many bypass the seam.
     tests/test_spawn_budget.py counts at the subprocess boundary for the same
     reason: it is the only place that sees both populations.
     """
     import re
 
     def seam_counts(source: str) -> tuple[int, int, int]:
-        """(routed, direct, outside) git-reaching call sites in one file."""
+        """(routed, direct, outside) git-reaching call sites in one file.
+
+        TWO routed spellings, and the second is not decoration. The shim
+        installs a module-level `_GIT` because a rule taking `(repo, text)` has
+        no argument a Git could arrive through; the package takes a Context and
+        reaches git as `ctx.git`. Task 8 moved nine call sites to the second
+        spelling, and this counter knew only the first - so extant/refs.py
+        scanned as 0 routed calls while making nine, and PACKAGE_ROUTED_FLOOR
+        went on being satisfied by extant/collect.py alone.
+
+        Nothing would have failed. The floor would simply have stopped
+        measuring the population it names, quietly, for the rest of the
+        refactor - which is this repository's most-repeated defect and the one
+        a denominator is supposed to prevent. Task 9 makes `ctx.git` the only
+        spelling, so a counter blind to it would end up watching nothing at
+        all.
+        """
         direct = re.findall(r"(?<![.\w])_git_soft\(|(?<![.\w])_git\(", source)
-        routed = re.findall(r"(?<![.\w])_GIT\.(?:run|soft)\(", source)
+        routed = re.findall(
+            r"(?<![.\w])_GIT\.(?:run|soft)\(|(?<![.\w])ctx\.git\.(?:run|soft)\(",
+            source)
         outside = re.findall(r'subprocess\.run\(\s*\n?\s*\[\s*"git"', source)
         return len(routed), len(direct), len(outside)
 
@@ -284,9 +334,11 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     # The denominator. A file where nothing reached git at all would satisfy
     # the assertion below while proving nothing, and that is the exact shape of
     # broken check this project keeps finding.
-    assert routed >= 12, (
-        f"only {routed} seam call site(s) in the shim; this test passes "
-        f"vacuously below that, because it can only prove an ABSENCE")
+    assert routed >= SHIM_ROUTED_FLOOR, (
+        f"only {routed} seam call site(s) in the shim, below the "
+        f"{SHIM_ROUTED_FLOOR} left here after Task 8; this test passes "
+        f"vacuously at zero, because it can only prove an ABSENCE. If a task "
+        f"moved the rest out, delete this assertion rather than lowering it")
     assert direct == 0, (
         f"{direct} call site(s) still bypass the seam; a swapped Git "
         f"cannot see those calls and a budget reading it would miss them")
@@ -318,10 +370,12 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
         f"{pkg_direct} call site(s) in the package name a raw git helper "
         f"directly, outside extant/git.py; a swapped Git cannot see those "
         f"calls")
-    assert pkg_outside == 0, (
+    assert pkg_outside <= PACKAGE_DIRECT_SUBPROCESS_SITES, (
         f"{pkg_outside} call site(s) in the package run git through "
-        f"subprocess directly, outside extant/git.py, bypassing the seam "
-        f"entirely")
+        f"subprocess directly, outside extant/git.py, up from "
+        f"{PACKAGE_DIRECT_SUBPROCESS_SITES}. Each is invisible to CountingGit "
+        f"and to --profile. If the new one genuinely cannot fit "
+        f"run(repo, *args), raise the number there and say which one it is")
 
     # extant/git.py, on its own: see PACKAGE_SEAM_DIRECT_SITES above for why
     # it is not folded into population 2, and for what its two pinned numbers

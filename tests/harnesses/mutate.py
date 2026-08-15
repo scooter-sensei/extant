@@ -26,6 +26,20 @@ from pathlib import Path
 
 def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, str]]:
     """(label, file, find, replace). Each must match exactly once."""
+    # Code that used to live in extant_collect.py and now has its own module. A
+    # mutation names the file the code is in TODAY; the LABEL says which
+    # behaviour it probes, and that does not change when the code moves house.
+    #
+    # Twelve anchors below moved here in Task 8 with the ancestry, ref-table,
+    # rename and object-resolution helpers. Seven of the twelve also needed
+    # their TEXT rewritten, not just their path: those functions stopped
+    # reading `_SCOPE`, `_GIT` and `repo` off a module and started taking the
+    # Context that carries them, so `_SCOPE.ancestors` became
+    # `ctx.run.ancestors` and `_GIT.run(repo, ...)` became
+    # `ctx.git.run(ctx.repo, ...)`. A path-only retarget would have left those
+    # seven matching nothing, which --check-only reports as STALE and a
+    # campaign would have reported as a clean result it did not earn.
+    refs = collect.parent / "extant/refs.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -40,7 +54,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        if False:\n            findings.append(Finding("),
         # Retargeted when ancestry became per-ref: the index is keyed by
         # (repo, ref) now and the prefix lookup moved into _reachable_from.
-        ("batched ancestry always answers yes", collect,
+        ("batched ancestry always answers yes", refs,
          "        return any(full.startswith(rev) for full in index.get(rev[:7], ()))",
          "        return True"),
         # The three rules that used to ask about trunk now ask about the
@@ -54,10 +68,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # near-miss --check-only exists to stop being lucky about.
         # Retargeted a third time, when the branch scan moved into the shared
         # ref table and this function stopped parsing `for-each-ref` itself.
-        ("integration refs collapse to the configured trunk alone", collect,
-         "    present = set(_ref_table(repo)[0])",
+        ("integration refs collapse to the configured trunk alone", refs,
+         "    present = set(_ref_table(ctx)[0])",
          "    present = set()"),
-        ("any branch counts as an integration branch", collect,
+        ("any branch counts as an integration branch", refs,
          "    for name in _INTEGRATION_NAMES:\n"
          "        if name in present and name not in refs:\n"
          "            refs.append(name)",
@@ -74,14 +88,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                continue        # a bare word, likelier prose than a ref"),
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
-        ("the ancestry cache stops distinguishing repositories", collect,
-         "    key = (str(repo), ref)\n    if key in _SCOPE.ancestors:",
-         '    key = ("", ref)\n    if key in _SCOPE.ancestors:'),
-        ("a branch counts as merged into itself", collect,
-         "    return [ref for ref in _integration_refs(repo)\n"
-         "            if ref != exclude and _reachable_from(repo, rev, ref)]",
-         "    return [ref for ref in _integration_refs(repo)\n"
-         "            if _reachable_from(repo, rev, ref)]"),
+        ("the ancestry cache stops distinguishing repositories", refs,
+         "    key = (str(ctx.repo), ref)\n    if key in ctx.run.ancestors:",
+         '    key = ("", ref)\n    if key in ctx.run.ancestors:'),
+        ("a branch counts as merged into itself", refs,
+         "    return [ref for ref in integration_refs(ctx)\n"
+         "            if ref != exclude and _reachable_from(ctx, rev, ref)]",
+         "    return [ref for ref in integration_refs(ctx)\n"
+         "            if _reachable_from(ctx, rev, ref)]"),
         # The installer writes its own merge_claim, which OVERRIDES the default,
         # so a collector that supports named refs still ships single-trunk
         # behaviour if this line regresses. That is exactly what happened.
@@ -155,7 +169,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # `refs/heads/`. Reading the table heads-first resolves a repository
         # holding a branch and a tag of the same name to a different commit
         # than `rev-parse` does.
-        ("a bare ref name resolves heads before tags", collect,
+        ("a bare ref name resolves heads before tags", refs,
          "    resolved = tags.get(ref) or heads.get(ref)",
          "    resolved = heads.get(ref) or tags.get(ref)"),
         # A cost contract: one ref scan answers what `tag -l`, a second
@@ -170,7 +184,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the tag list goes back to its own subprocess", collect,
          "    return set(_ref_table(repo)[1])",
          '    return set(_GIT.soft(repo, "tag", "-l").split())'),
-        ("an annotated tag stops being peeled to its commit", collect,
+        ("an annotated tag stops being peeled to its commit", refs,
          "            commit = peeled or obj",
          "            commit = obj"),
         # The tag list is per-CALL. A plain dict that is never reset becomes
@@ -217,10 +231,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # moved into the assignment.
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
-        ("integration refs include ones that do not exist", collect,
-         "    _SCOPE.integration[key] = [ref for ref in refs\n"
-         "                               if _resolve_ref(repo, ref) is not None]",
-         "    _SCOPE.integration[key] = refs"),
+        ("integration refs include ones that do not exist", refs,
+         "    ctx.run.integration[key] = [ref for ref in refs\n"
+         "                                if _resolve_ref(ctx, ref) is not None]",
+         "    ctx.run.integration[key] = refs"),
         # `rev: ''` is pre-commit's own placeholder and `rev: 'v1.2.3'` is the
         # same pin as the bare spelling. 69 bare, 4 quoted, 2 empty across 30
         # repositories.
@@ -288,16 +302,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("cross-file anchors no longer checked", collect,
          "            offered = _target_anchors(resolved)",
          "            offered = None"),
-        ("rename chains no longer followed", collect,
+        ("rename chains no longer followed", refs,
          "    while current in mapping:",
          "    if current in mapping:"),
         # Retargeted when git calls moved behind the `_GIT` seam in Task 7. The
         # command is the same command; the name it is reached through is not.
-        ("rename map narrowed by a pathspec again (a shipped bug)", collect,
-         '        out = _GIT.run(repo, "log", "--diff-filter=R", "--name-status",\n'
-         '                       "--format=", "-n", "200")',
-         '        out = _GIT.run(repo, "log", "--diff-filter=R", "--name-status",\n'
-         '                       "--format=", "-n", "200", "--", "nonexistent-path")'),
+        ("rename map narrowed by a pathspec again (a shipped bug)", refs,
+         '        out = ctx.git.run(ctx.repo, "log", "--diff-filter=R", "--name-status",\n'
+         '                          "--format=", "-n", "200")',
+         '        out = ctx.git.run(ctx.repo, "log", "--diff-filter=R", "--name-status",\n'
+         '                          "--format=", "-n", "200", "--", "nonexistent-path")'),
         ("claim rules stop ignoring fenced code", collect,
          "def _prose(text: str) -> str:",
          "def _prose(text: str) -> str:\n    return text"),
@@ -744,10 +758,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # repository having examined nothing. Measured on a helm clone: 0 files
         # swept against 96 in the tree, exit 0, no diagnostic.
         # Retargeted onto the `_GIT` seam; see the note at the rename map above.
-        ("the sweep reads the index instead of the committed tree", collect,
-         '    out = _GIT.run(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")',
-         '    out = _GIT.run(repo, "ls-files", "-z")'),
-        ("the sweep forgets every format except .md", collect,
+        ("the sweep reads the index instead of the committed tree", refs,
+         '    out = ctx.git.run(ctx.repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")',
+         '    out = ctx.git.run(ctx.repo, "ls-files", "-z")'),
+        ("the sweep forgets every format except .md", refs,
          '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))',
          '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md",))'),
         # Both directions of the vetted/unvetted split, because it is the whole
