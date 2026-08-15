@@ -180,35 +180,78 @@ def test_a_deleted_branch_whose_work_never_landed_still_fires(gitflow) -> None:
     assert [f.kind for f in findings] == ["false-merge-claim"], findings
 
 
-def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(gitflow, monkeypatch) -> None:
+def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(gitflow) -> None:
     """The measured false positive.
 
     `v1.0.0` sits on main's release merge. develop received the release BRANCH
     back, not that commit, so the tag is not an ancestor of develop - and with
     trunk=develop the old rule called a genuinely shipped release dead. An
     implementation that still asks about one configured trunk fails here.
+
+    Set through `reload_config`, not `monkeypatch.setattr(ec, "TRUNK", ...)`.
+    The latter only reaches this module's own globals; `_integration_refs` is a
+    package function reading `ctx.config.trunk` off the built Config, which a
+    monkeypatched module attribute never touches. That is exactly why the old
+    form of this test passed even when a review plugin skipped the patch
+    entirely - the module-level TRUNK it set was never read on this path.
+    Proven by mutation: temporarily reducing `integration_refs` in
+    extant/refs.py to `return [ctx.config.trunk]` (dropping the
+    `_INTEGRATION_NAMES` scan) turns this test red with a genuine trunk=develop
+    applied, and green again once reverted.
     """
     import extant_collect as ec
     repo, _on_main, _on_develop, _unmerged = gitflow
-    monkeypatch.setattr(ec, "TRUNK", "develop")
 
-    assert ec.validate_release_tags(repo, "Released in v1.0.0 last week.\n") == []
+    saved_config, saved_active = ec.CONFIG, ec._ACTIVE
+    saved = {name: getattr(ec, name) for name in ec._CONFIG_DERIVED}
+    (repo / ".extant.toml").write_text('trunk = "develop"\n', encoding="utf-8")
+    try:
+        ec.reload_config(repo)
+        assert ec.TRUNK == "develop", "reload_config did not apply trunk"
+
+        assert ec.validate_release_tags(repo, "Released in v1.0.0 last week.\n") == []
+    finally:
+        ec.CONFIG, ec._ACTIVE = saved_config, saved_active
+        for name, value in saved.items():
+            setattr(ec, name, value)
 
 
-def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow, monkeypatch) -> None:
+def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow) -> None:
     """With trunk=main, `feature/search` is not an ancestor of main, so the old
     rule accepted "not yet merged" about work that shipped to develop weeks
-    ago. Merged means landed on an integration branch, not on one of them."""
+    ago. Merged means landed on an integration branch, not on one of them.
+
+    trunk=main is the deliberate choice, not a placeholder - it is also the
+    value `neutral_config` already leaves in place, so this alone cannot prove
+    configuration is read at all. What it pins is `develop` staying in the
+    integration set regardless of which branch is configured as trunk (see
+    `integration_refs` in extant/refs.py): the OLD single-trunk rule missed
+    this claim precisely when trunk=main, which is why that is the value
+    written here rather than trunk=develop. Routed through `reload_config`
+    rather than `monkeypatch.setattr(ec, "TRUNK", ...)` for the same reason as
+    the test above: the latter never reaches `ctx.config.trunk`.
+    """
     import extant_collect as ec
     repo, _on_main, _on_develop, _unmerged = gitflow
-    monkeypatch.setattr(ec, "TRUNK", "main")
-    text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
-            "Work is NOT yet merged on `feature/search`.\n\n## 1. Ref\n")
 
-    findings = ec.validate_live_claims(repo, text)
+    saved_config, saved_active = ec.CONFIG, ec._ACTIVE
+    saved = {name: getattr(ec, name) for name in ec._CONFIG_DERIVED}
+    (repo / ".extant.toml").write_text('trunk = "main"\n', encoding="utf-8")
+    try:
+        ec.reload_config(repo)
+        assert ec.TRUNK == "main", "reload_config did not apply trunk"
 
-    assert [f.kind for f in findings] == ["stale-live-claim"], findings
-    assert "develop" in findings[0].detail
+        text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
+                "Work is NOT yet merged on `feature/search`.\n\n## 1. Ref\n")
+
+        findings = ec.validate_live_claims(repo, text)
+
+        assert [f.kind for f in findings] == ["stale-live-claim"], findings
+        assert "develop" in findings[0].detail
+    finally:
+        ec.CONFIG, ec._ACTIVE = saved_config, saved_active
+        for name, value in saved.items():
+            setattr(ec, name, value)
 
 
 def test_an_unmerged_feature_is_still_reported_as_open(gitflow) -> None:
@@ -229,12 +272,20 @@ def test_an_integration_branch_is_not_merged_into_itself(gitflow, monkeypatch) -
     already merged. Reachable only with a `branch_token` that matches slashless
     names, which is a configuration choice several projects make, and a
     mutation campaign confirmed nothing else pinned it.
+
+    No trunk override any more (there used to be one,
+    `monkeypatch.setattr(ec, "TRUNK", "main")`). `_integrated_by`'s `exclude`
+    argument drops `develop` from the candidate set before ancestry is even
+    asked, so whichever branch is configured as trunk cannot move the answer -
+    checked against trunk="main" (the default), trunk="develop", and a trunk
+    that resolves to nothing at all, every one leaves the result at `["main"]`
+    after exclusion. A patch that cannot move the outcome under any value pins
+    nothing: a review plugin that skipped it left this test green too.
     """
     import re
 
     import extant_collect as ec
     repo, _on_main, _on_develop, _unmerged = gitflow
-    monkeypatch.setattr(ec, "TRUNK", "main")
     monkeypatch.setattr(ec, "_BRANCH_TOKEN", re.compile(r"`([\w.\-/]+)`"))
     text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
             "Work is NOT yet merged on `develop`.\n\n## 1. Ref\n")
@@ -258,21 +309,45 @@ def test_integration_refs_ignore_unconventional_branches(gitflow) -> None:
     assert "gh-pages" not in refs and "experiment" not in refs
 
 
-def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow, monkeypatch) -> None:
+def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow) -> None:
     """Back-compat. A project that customised `merge_claim` before claims
     became self-describing wrote one group, the sha, and meant trunk. Breaking
-    those configs would turn a working rule into one that matches nothing."""
+    those configs would turn a working rule into one that matches nothing.
+
+    Unlike the trunk tests above, this one genuinely needs TRUNK to be right:
+    `_merge_claims`'s one-group fallback (extant_collect.py, `claims.append(
+    (number, TRUNK, match.group(1)))`) reads the module global directly,
+    because that function never left the shim. A plain `monkeypatch.setattr(
+    ec, "TRUNK", ...)` reached it for exactly that reason - still switched to
+    `reload_config` here, for consistency with the other three and so this
+    stays correct if `_merge_claims` ever moves to the package. `_MERGE_CLAIM`
+    is set by plain assignment after `reload_config` rebuilds it, and restored
+    by the `finally` block below rather than by `monkeypatch` - both would
+    work, but mixing them means two teardowns racing to write the same name
+    last. Proven by mutation: temporarily changing that append to a fixed
+    wrong ref instead of `TRUNK` turns this test red, and reverting turns it
+    green.
+    """
     import re
 
     import extant_collect as ec
     repo, on_main, on_develop, _unmerged = gitflow
-    monkeypatch.setattr(ec, "TRUNK", "main")
-    monkeypatch.setattr(ec, "_MERGE_CLAIM",
-                        re.compile(r"landed at `([0-9a-f]{7,40})`"))
 
-    assert ec.validate_merge_claims(repo, f"landed at `{on_main}`.\n") == []
-    findings = ec.validate_merge_claims(repo, f"landed at `{on_develop}`.\n")
-    assert [f.kind for f in findings] == ["false-merge-claim"], findings
+    saved_config, saved_active = ec.CONFIG, ec._ACTIVE
+    saved = {name: getattr(ec, name) for name in ec._CONFIG_DERIVED}
+    (repo / ".extant.toml").write_text('trunk = "main"\n', encoding="utf-8")
+    try:
+        ec.reload_config(repo)
+        assert ec.TRUNK == "main", "reload_config did not apply trunk"
+        ec._MERGE_CLAIM = re.compile(r"landed at `([0-9a-f]{7,40})`")
+
+        assert ec.validate_merge_claims(repo, f"landed at `{on_main}`.\n") == []
+        findings = ec.validate_merge_claims(repo, f"landed at `{on_develop}`.\n")
+        assert [f.kind for f in findings] == ["false-merge-claim"], findings
+    finally:
+        ec.CONFIG, ec._ACTIVE = saved_config, saved_active
+        for name, value in saved.items():
+            setattr(ec, name, value)
 
 
 def test_the_ancestry_cache_does_not_leak_between_repositories(git_repo, tmp_path) -> None:

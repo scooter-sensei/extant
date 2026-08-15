@@ -305,10 +305,97 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     tests/test_spawn_budget.py counts at the subprocess boundary for the same
     reason: it is the only place that sees both populations.
     """
+    import ast
     import re
 
-    def seam_counts(source: str) -> tuple[int, int, int]:
-        """(routed, direct, outside) git-reaching call sites in one file.
+    def _names_git(node: ast.AST, git_vars: set[str]) -> bool:
+        """Does this argument expression name a git invocation?
+
+        A string is read as a command line - `"git status"` and `"git"` both
+        count, because `os.system` takes one string rather than a list. A list
+        or tuple is read positionally, the shape `subprocess.run` and `Popen`
+        take: single-quoted or double-quoted makes no difference, since both
+        parse to the same `ast.Constant`. A bare name is looked up in
+        `git_vars`, the names already known (from a prior assignment anywhere
+        in the file) to hold a git-shaped literal - the "built a variable,
+        then passed it" case.
+        """
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            first = node.value.strip().split()[:1]
+            return first == ["git"]
+        if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+            return _names_git(node.elts[0], git_vars)
+        if isinstance(node, ast.Name):
+            return node.id in git_vars
+        return False
+
+    def _git_subprocess_calls(source: str) -> tuple[int, int]:
+        """(git-naming call sites, total candidate call sites) in one file.
+
+        Replaces a regex keyed on one literal spelling,
+        `subprocess.run(["git"`, which review found blind to seven other ways
+        to write the same call: a single-quoted list, a tuple instead of a
+        list, `subprocess.check_output`, `subprocess.Popen`, a variable built
+        then passed, `os.system`, and `from subprocess import run`. All seven
+        parse to different source text and the same AST shapes below, which is
+        what an AST walk buys over a richer regex - it is why relaxing
+        pkg_outside from `== 0` to `<= 1` in Task 8 needed a detector that
+        cannot be out-spelled, not a longer pattern.
+
+        A CANDIDATE is a call to subprocess.run/check_output/check_call/Popen,
+        to a bare name imported directly from subprocess, or to os.system -
+        not every call in the file, which would make "examined" a number
+        nobody could use to judge the check. Whether a candidate NAMES git is
+        decided by its first argument; see `_names_git`. Keyword-only
+        invocations (`subprocess.run(args=[...])`) are not covered, matching
+        every call site this repository actually writes.
+        """
+        tree = ast.parse(source)
+
+        bare_names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "subprocess":
+                for alias in node.names:
+                    if alias.name in ("run", "Popen", "check_output", "check_call"):
+                        bare_names.add(alias.asname or alias.name)
+
+        # Every name assigned a git-shaped literal anywhere in the file,
+        # collected in a pass of its own that finishes before any call is
+        # judged - so it does not matter whether the assignment is written
+        # above or below the call site that reads it.
+        git_vars: set[str] = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and _names_git(node.value, git_vars)):
+                git_vars.add(node.targets[0].id)
+
+        examined = 0
+        naming_git = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            is_subprocess_attr = (
+                isinstance(func, ast.Attribute)
+                and func.attr in ("run", "check_output", "check_call", "Popen")
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "subprocess"
+            )
+            is_bare_import = isinstance(func, ast.Name) and func.id in bare_names
+            is_os_system = (
+                isinstance(func, ast.Attribute) and func.attr == "system"
+                and isinstance(func.value, ast.Name) and func.value.id == "os"
+            )
+            if not (is_subprocess_attr or is_bare_import or is_os_system):
+                continue
+            examined += 1
+            if node.args and _names_git(node.args[0], git_vars):
+                naming_git += 1
+        return naming_git, examined
+
+    def seam_counts(source: str) -> tuple[int, int, int, int]:
+        """(routed, direct, outside, examined) git-reaching call sites in one file.
 
         TWO routed spellings, and the second is not decoration. The shim
         installs a module-level `_GIT` because a rule taking `(repo, text)` has
@@ -324,20 +411,26 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
         a denominator is supposed to prevent. Task 9 makes `ctx.git` the only
         spelling, so a counter blind to it would end up watching nothing at
         all.
+
+        `outside` is the AST walk in `_git_subprocess_calls`, not a regex: see
+        there for what that bought over `subprocess\\.run\\(\\s*\\n?\\s*\\[\\s*"git"`,
+        the single spelling this used to match. `examined` is new too - the
+        denominator, so this cannot pass by silently scanning nothing.
         """
         direct = re.findall(r"(?<![.\w])_git_soft\(|(?<![.\w])_git\(", source)
         routed = re.findall(
             r"(?<![.\w])_GIT\.(?:run|soft)\(|(?<![.\w])ctx\.git\.(?:run|soft)\(",
             source)
-        outside = re.findall(r'subprocess\.run\(\s*\n?\s*\[\s*"git"', source)
-        return len(routed), len(direct), len(outside)
+        outside, examined = _git_subprocess_calls(source)
+        return len(routed), len(direct), outside, examined
 
     # Population 1: the shim.
     source = (PAYLOAD / "extant_collect.py").read_text(encoding="utf-8")
-    routed, direct, outside = seam_counts(source)
+    routed, direct, outside, examined = seam_counts(source)
     print(f"checked extant_collect.py: {routed} call(s) through the seam, "
-          f"{direct} still naming a raw helper, {outside} running "
-          f"git through subprocess directly")
+          f"{direct} still naming a raw helper, {examined} subprocess/"
+          f"os.system call site(s) examined, {outside} of them running "
+          f"git directly")
     # The denominator. A file where nothing reached git at all would satisfy
     # the assertion below while proving nothing, and that is the exact shape of
     # broken check this project keeps finding.
@@ -359,16 +452,18 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     package_dir = PAYLOAD / "extant"
     seam_file = package_dir / "git.py"
     consumers = sorted(p for p in package_dir.glob("*.py") if p != seam_file)
-    pkg_routed = pkg_direct = pkg_outside = 0
+    pkg_routed = pkg_direct = pkg_outside = pkg_examined = 0
     for path in consumers:
-        r, d, o = seam_counts(path.read_text(encoding="utf-8"))
+        r, d, o, e = seam_counts(path.read_text(encoding="utf-8"))
         pkg_routed += r
         pkg_direct += d
         pkg_outside += o
+        pkg_examined += e
     print(f"checked {len(consumers)} package module(s) "
           f"({', '.join(p.name for p in consumers)}): {pkg_routed} call(s) "
           f"through the seam, {pkg_direct} naming a raw helper, "
-          f"{pkg_outside} running git through subprocess directly")
+          f"{pkg_examined} subprocess/os.system call site(s) examined, "
+          f"{pkg_outside} of them running git directly")
     assert pkg_routed >= PACKAGE_ROUTED_FLOOR, (
         f"only {pkg_routed} seam call site(s) across the package modules; "
         f"this test passes vacuously below that, because it can only prove "
@@ -387,13 +482,14 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     # extant/git.py, on its own: see PACKAGE_SEAM_DIRECT_SITES above for why
     # it is not folded into population 2, and for what its two pinned numbers
     # are actually made of.
-    seam_routed, seam_direct, seam_outside = seam_counts(
+    seam_routed, seam_direct, seam_outside, seam_examined = seam_counts(
         seam_file.read_text(encoding="utf-8"))
     print(f"checked git.py (the seam's own implementation): {seam_routed} "
           f"call(s) through _GIT (expected 0, git.py has no _GIT of its "
           f"own), {seam_direct} internal call(s) naming _git/_git_soft "
-          f"directly or as their own definition, {seam_outside} direct "
-          f"subprocess-run-git call(s)")
+          f"directly or as their own definition, {seam_examined} "
+          f"subprocess/os.system call site(s) examined, {seam_outside} "
+          f"direct subprocess-run-git call(s)")
     assert seam_direct <= PACKAGE_SEAM_DIRECT_SITES, (
         f"{seam_direct} internal call/definition site(s) in git.py naming "
         f"_git/_git_soft, up from {PACKAGE_SEAM_DIRECT_SITES}")

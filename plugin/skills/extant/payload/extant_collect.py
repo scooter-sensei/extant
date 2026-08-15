@@ -806,16 +806,26 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
 # arrive here: patching a CONFIG-DERIVED global on this module no longer
 # reaches the functions below, because they read the built Config through
 # `ctx.config`. Re-measured for this move against the seven derived names the
-# suite patches - the re-grep that comment asks for - TWO of the seven have
-# readers that left this file in Task 8:
+# suite patches - the re-grep that comment asks for - TWO of the seven
+# gained a reader that left this file in Task 8, and one of those two keeps
+# a reader here as well:
 #
-#   TRUNK             read by `integration_refs`, patched at four sites in
-#                     tests/test_multi_trunk.py. All four still pass, and not
-#                     because the patch still works: the gitflow fixture
+#   TRUNK             read in the package by `integration_refs`
+#                     (extant/refs.py) and by `collect()` (extant/collect.py) -
+#                     AND still read here, by the one-group back-compat path in
+#                     `_merge_claims` at line 630, which never moved. A name
+#                     with a reader in both places is not a clean member of
+#                     either bucket: tests/test_multi_trunk.py sets it at four
+#                     sites, and only the one exercising `_merge_claims`
+#                     directly ever depended on the value reaching anywhere.
+#                     The other three exercise `integration_refs` and passed
+#                     regardless of whether it did, because the gitflow fixture
 #                     carries both `main` and `develop`, so
 #                     `_INTEGRATION_NAMES` finds the same set whichever name
-#                     seeds it and only the ORDER differs. Written down here
-#                     rather than left to be discovered.
+#                     seeds it and only the ORDER differs. All four now go
+#                     through `reload_config` rather than a module-attribute
+#                     patch, which reaches both buckets at once and is what the
+#                     fourth site actually needs.
 #   _SECTION_HEADER   read by `split_entries`, patched once, at
 #                     test_packaging.py:521 - which calls `reload_config`
 #                     rather than assigning the global, so it rebuilds
