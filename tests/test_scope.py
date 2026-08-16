@@ -38,8 +38,10 @@ sys.path.insert(0, str(PAYLOAD))
 #       Module-level, not necessarily in extant_collect.py, and that stopped
 #       being the same statement in Task 8: _STRIPPED moved to extant/text.py
 #       with the stripping functions that own it. Still a module-level memo,
-#       still no lifetime to state, one file over. _BARE_SHAS and
-#       _POINTER_SITES are still in the shim.
+#       still no lifetime to state, one file over. Task 9 moved the other two
+#       the same way - _BARE_SHAS to extant/commits.py with the SHA scanners,
+#       _POINTER_SITES to extant/rules/line_pointer.py with the rule and the
+#       denominator that share it - and neither gained a lifetime by moving.
 #    1  was deleted: _TAGS has been dead since 6c5c29c rewired _tags() through
 #       _ref_table, and only the save-and-restore choreography still named it.
 #
@@ -451,7 +453,14 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     # Population 2: the package, minus its own seam implementation.
     package_dir = PAYLOAD / "extant"
     seam_file = package_dir / "git.py"
-    consumers = sorted(p for p in package_dir.glob("*.py") if p != seam_file)
+    # rglob, NOT glob. Task 9 put thirteen rule modules under
+    # extant/rules/, and a one-level glob would have gone on scanning
+    # ten files while claiming to cover the package - the seam gate
+    # would not have failed, it would simply have stopped watching the
+    # population that does most of the asking. That is this repository's
+    # most-repeated defect and the reason every count here is printed.
+    consumers = sorted(p for p in package_dir.rglob("*.py")
+                       if p != seam_file and "__pycache__" not in p.parts)
     pkg_routed = pkg_direct = pkg_outside = pkg_examined = 0
     for path in consumers:
         r, d, o, e = seam_counts(path.read_text(encoding="utf-8"))

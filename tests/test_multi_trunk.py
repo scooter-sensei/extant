@@ -315,31 +315,36 @@ def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow) -> None:
     those configs would turn a working rule into one that matches nothing.
 
     Unlike the trunk tests above, this one genuinely needs TRUNK to be right:
-    `_merge_claims`'s one-group fallback (extant_collect.py, `claims.append(
-    (number, TRUNK, match.group(1)))`) reads the module global directly,
-    because that function never left the shim. A plain `monkeypatch.setattr(
-    ec, "TRUNK", ...)` reached it for exactly that reason - still switched to
-    `reload_config` here, for consistency with the other three and so this
-    stays correct if `_merge_claims` ever moves to the package. `_MERGE_CLAIM`
-    is set by plain assignment after `reload_config` rebuilds it, and restored
-    by the `finally` block below rather than by `monkeypatch` - both would
-    work, but mixing them means two teardowns racing to write the same name
-    last. Proven by mutation: temporarily changing that append to a fixed
-    wrong ref instead of `TRUNK` turns this test red, and reverting turns it
-    green.
-    """
-    import re
+    the one-group fallback (`claims.append((number, config.trunk,
+    match.group(1)))`) is what supplies the ref the claim does not name.
 
+    BOTH values now go through `reload_config`, and the second one had to.
+    `_merge_claims` moved to extant/commits.py in Task 9 and reads
+    `config.merge_claim` off the built Config, so the plain `ec._MERGE_CLAIM =
+    ...` assignment this used to make no longer reaches it - the rule matched
+    nothing and the test reported no findings, which is the exact trap the
+    shim's own wrapper block warns would arrive when the rules moved. Writing
+    the pattern into `.extant.toml` reaches the Config and the module global
+    together, which is the only arrangement in which the two cannot disagree.
+    The pattern is a LITERAL string (single quotes) because TOML processes
+    escapes in basic strings and would reject the backslashes. Proven by
+    mutation: temporarily changing that append to a fixed wrong ref instead of
+    `config.trunk` turns this test red, and reverting turns it green.
+    """
     import extant_collect as ec
     repo, on_main, on_develop, _unmerged = gitflow
 
     saved_config, saved_active = ec.CONFIG, ec._ACTIVE
     saved = {name: getattr(ec, name) for name in ec._CONFIG_DERIVED}
-    (repo / ".extant.toml").write_text('trunk = "main"\n', encoding="utf-8")
+    (repo / ".extant.toml").write_text(
+        'trunk = "main"\nmerge_claim = \'landed at `([0-9a-f]{7,40})`\'\n',
+        encoding="utf-8")
     try:
         ec.reload_config(repo)
         assert ec.TRUNK == "main", "reload_config did not apply trunk"
-        ec._MERGE_CLAIM = re.compile(r"landed at `([0-9a-f]{7,40})`")
+        assert ec._ACTIVE.merge_claim.groups == 1, (
+            "the one-group pattern did not reach the built Config, so this "
+            "test would exercise the default two-group contract instead")
 
         assert ec.validate_merge_claims(repo, f"landed at `{on_main}`.\n") == []
         findings = ec.validate_merge_claims(repo, f"landed at `{on_develop}`.\n")

@@ -116,8 +116,9 @@ from extant.scope import Context, DocScope, RunScope
 from extant import refs as _refs
 
 from extant.refs import (            # noqa: F401  (re-exported as they are:
-    _INTEGRATION_NAMES, _SHA_SHAPE,  # neither reads any ambient state)
-)
+    _INTEGRATION_NAMES,              # neither reads any ambient state)
+    SHA_SHAPE as _SHA_SHAPE,         # promoted in Task 9: extant/commits.py
+)                                    # is a sibling and reads it
 
 
 # The two objects that hold everything this module used to keep in twenty-six
@@ -343,449 +344,75 @@ def archive(repo: Path, retain: int | None = None) -> dict[str, int]:
     return _entries.archive(repo, retain, _ACTIVE)
 
 
-_BACKTICKED = re.compile(r"`([^`]+)`")
-# I-1: SHA-shaped tokens written WITHOUT backticks. Anchored both sides with
-# \b so a hex-looking run embedded inside a longer word (an identifier, a
-# version tag) never matches - \w includes both hex letters and non-hex
-# letters/digits/underscore, so there is no \b between e.g. "deadbeef" and a
-# following "zz", and the whole run correctly fails to match at all rather
-# than matching a truncated prefix of it.
-# `(?<![#\w])` so a CSS colour is not read as a commit. `#646cffaa` is an
-# eight-digit hex with alpha, and vitejs/vite carries it inside a drop-shadow
-# in prose that no code fence covers. A `#` prefix means colour far more often
-# than it means anything git would recognise, and a real SHA reference is never
-# written that way.
-_BARE_SHA_TOKEN = re.compile(r"(?<![#\w])[0-9a-f]{7,40}\b")
+# Which commits a document CITES, and which of them git has, is
+# extant/commits.py now. It is a module of its own rather than part of either
+# rule that reads them: `dead-sha` and `false-merge-claim` share one
+# `cat-file --batch-check` over the document's UNION, so neither can own the
+# other's scanner without a rule importing a rule - which is what the leaf gate
+# forbids and what housed rename detection inside the live-claim rule once
+# already.
+#
+# Five names lost their underscore over there, and only five, because the rule
+# modules call exactly those. This file is deliberately NOT counted as a
+# sibling - it sits outside the package and Task 10 deletes it - so the
+# historical spellings survive here as aliases and the suite's call surface
+# does not move.
+from extant.commits import (          # noqa: F401  (re-exported as they are:
+    _ASSET_PATH, _LINKED_SHA,         # patterns and pure helpers, no state)
+    _PINNED_REF, _URL, _UUID, _find_bare_sha_candidates, _is_digest_length,
+    find_bare_sha_candidates, find_sha_candidates,
+)
+from extant.commits import (          # noqa: F401  (promoted for the rule
+    BACKTICKED as _BACKTICKED,        # modules, re-exported under the old
+    BARE_SHA_TOKEN as _BARE_SHA_TOKEN,                            # spellings)
+    looks_like_bare_sha as _looks_like_bare_sha,
+    looks_like_sha as _looks_like_sha,
+    spans_overlap as _spans_overlap,
+)
+
+# The MODULE as well, for the reason `_collect` and `_refs` are imported this
+# way: the wrappers below look each function up at call time, so a test may
+# swap one there and see this module's callers go through the replacement.
+from extant import commits as _commits
 
 
 from extant.finding import Finding, Located  # noqa: F401
 
 
-def _looks_like_sha(token: str) -> bool:
-    """Shape test for a BACKTICKED token.
+# The dead-sha rule is extant/rules/sha.py now: its check, its denominator, its
+# probe and the `--sha-map` rewriter that repairs exactly what it reports. The
+# wrappers below keep this module's `(repo, text)` call surface, which is what
+# the suite and the RULES tuple further down already use.
+from extant.rules import sha as _rule_sha
 
-    A letter is required as well as a digit, matching the bare test. An
-    all-digit run is a number: nlohmann/json documents the limits of its
-    integer types and `9223372036854775807` is INT64_MAX, not a commit, but
-    every character in it is valid hex.
-
-    The cost is stated rather than hidden. A real seven-character SHA is
-    all-digits about 4% of the time, and those go unchecked now. That is the
-    better side of the trade - a missed check is silent, while flagging every
-    large number in a document is the noise that gets a validator ignored.
-    """
-    return (bool(_SHA_SHAPE.match(token))
-            and not _is_digest_length(token)
-            and any(ch.isdigit() for ch in token)
-            and any(ch.isalpha() for ch in token))
+from extant.rules.sha import load_sha_map, translate_shas  # noqa: F401
+#                            ^ re-exported unchanged: neither reads ambient
+#                              state, and `main()` calls both by these names.
 
 
-def _is_digest_length(token: str) -> bool:
-    """Exactly 32 hex characters, which is a digest and not a commit.
-
-    MD5 and a UUID with its dashes removed are both 32. Git abbreviations run
-    7 to 12 in practice and a full object name is 40, so nothing legitimate
-    sits at exactly 32 - and anything that did would RESOLVE, which produces
-    no finding either way. Only unresolvable tokens are reported, and an
-    unresolvable 32-character hex run is an API key, a content hash or an id.
-
-    Measured on the held-out corpus: 45 findings, every one a documented
-    example value. lobe-chat writes `Example: c55168be3874490ef0565d9779ecd5a6`
-    beside an API key setting.
-    """
-    return len(token) == 32
-
-
-def _looks_like_bare_sha(token: str) -> bool:
-    """Shape test for a token found OUTSIDE backticks (I-1).
-
-    Requires a letter as well as a digit - unlike `_looks_like_sha` (applied
-    only to backticked tokens), which requires just a digit. Backticks are
-    themselves a signal the author meant a SHA; bare text has no such signal,
-    so the extra letter requirement is needed to exclude a plain number (a
-    year, a test count) that `_looks_like_sha` alone would wrongly accept.
-    The digit requirement excludes a hex-looking English word the same way it
-    already does for `_looks_like_sha`. Measured against ~2600 lines of the
-    real status documents with zero false positives.
-    """
-    return (not _is_digest_length(token)
-            and any(ch.isdigit() for ch in token)
-            and any(ch.isalpha() for ch in token))
-
-
-# Hex inside a URL belongs to somebody else's repository.
-#
-# `https://github.com/pyca/service-identity/blob/fa91bf55.../AI_POLICY.md` and
-# `https://gist.github.com/user/d56764d7...` are a cross-repo permalink and a
-# gist id. Neither is a commit THIS repository has any opinion about, and the
-# core guarantee is that a rule only asks questions git can settle - which
-# means git in this repo, about this repo.
-#
-# Measured, not supposed: of 301 bare-SHA findings across rust-lang/rfcs,
-# requests and httpx, 287 sat inside a URL. Left in, the rule reported a wall
-# of findings on every project that links to another project's source, which
-# is most of them.
-_URL = re.compile(r"(?:https?://|ftp://|git@)\S+", re.I)
-# A UUID is not a commit, and it is made of pieces that look like one.
-#
-# `ContentId: dd7207b0-cf8b-4ed6-8c75-941834179dca` sits in the YAML
-# frontmatter of every page in microsoft/vscode-docs. Split on the hyphens, the
-# 8- and 12-character groups are valid hex with both a letter and a digit, so
-# each was read as a short SHA that does not resolve.
-#
-# 750 of the 789 bare-SHA findings across 40 repositories were fragments of
-# one, every one in that repository. Matched whole and skipped whole, because
-# skipping the groups individually would also silence a genuine SHA that
-# happened to sit beside a hyphen.
-# The left edge is a negative lookbehind for HEX, not a word boundary.
-#
-# `\b` fails between an underscore and a hex digit, because both are word
-# characters, so a UUID embedded in an identifier was not recognised as one:
-# `conversation_f43eb21b-84cb-49e7-90fb-56595df594e6` slipped past and its
-# trailing 12-character field was read as a short SHA. Four findings in one
-# agent's debug log. A real abbreviated SHA is not preceded by another hex
-# character, so this costs nothing it used to catch.
-_UUID = re.compile(
-    r"(?<![0-9a-fA-F])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}"
-    r"-[0-9a-f]{12}\b", re.I)
-# A hex run inside a FILENAME is part of the filename.
-#
-# Documentation platforms mint asset names by prefixing a content hash:
-# `<ClickableImage src="/img/83f686b-Pipeline_Illustrations_1_1.png" />`. The
-# hash is seven valid hex characters with a word boundary on each side, so it
-# read as an abbreviated commit that does not resolve. Measured on the
-# held-out corpus: 144 findings, all of them in one documentation site, none
-# of them a commit.
-#
-# Matches the whole path-like run so the span covers any hex inside it, which
-# is why this is a skip SPAN rather than a token test.
-# The lookbehind and the length bound are both load-bearing, not tidiness.
-# Written first as `[\w./~-]*\.(ext)`, this took 322 SECONDS on one
-# 120,000-character line: the unbounded run restarts at every position, and a
-# long path or a base64 data URI is quadratic. The longest markdown line in
-# the earlier corpus was 123,427 characters, so that was a hang waiting for a
-# document rather than a theoretical concern. Anchoring to the START of a
-# path-like run and bounding its length brings the same line under 20 ms.
-_ASSET_PATH = re.compile(
-    r"(?<![\w./~-])[\w./~-]{0,200}\.(?:png|jpe?g|gif|svg|webp|avif|ico|bmp|"
-    r"pdf|mp4|webm|mov|woff2?|ttf|eot|css|js|mjs|map|zip|tar|gz|whl)\b", re.I)
-# A ref pinned to a repository that is not this one.
-#
-# `uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd` pins a
-# workflow to a commit in `actions/checkout`. The `owner/repo@` prefix names
-# whose commit it is, and it is not this repository's, so this repository
-# cannot answer for it - the same reasoning `_URL` already applies to a
-# cross-repo permalink. 14 findings on the held-out corpus, every one an
-# action pinned by SHA, which is the practice security guidance asks for.
-_PINNED_REF = re.compile(r"(?<![\w./-])[\w.-]+/[\w.-]+@[0-9a-f]{7,40}\b", re.I)
-
-
-def _spans_overlap(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
-    start, end = span
-    return any(s < end and start < e for s, e in others)
-
-
-# A backticked SHA that is the VISIBLE TEXT of a link to somebody's commit.
-#
-# The changesets tool writes release notes this way, and a monorepo that
-# absorbed another project keeps citing the original:
-#
-#     - [#159](https://github.com/withastro/adapters/pull/159)
-#       [`adb8bf2a4caeead9a1a255740c7abe8666a6f852`](https://github.com/withastro/adapters/commit/adb8bf2a...)
-#
-# The URL states whose commit it is. `_URL` already drops a bare hex run
-# inside a link target for exactly this reason - "hex inside a URL belongs to
-# somebody else's repository" - but the backticked path never had the
-# equivalent, so the same SHA was checked against the wrong repository purely
-# because it was also written as link text. 192 findings on the held-out
-# corpus, 162 of them in one changelog tree.
-#
-# Deliberately does NOT compare owners. Neither does the `_URL` rule it
-# mirrors, and it cannot: a document does not reliably state which repository
-# it is in. A link to this repository's own commit is unaffected in practice,
-# because a SHA that resolves produces no finding to suppress.
-_LINKED_SHA = re.compile(
-    r"\[\s*`([0-9a-fA-F]{6,40})`\s*\]\(\s*[^)\s]*?"
-    r"/(?:commit|commits|blob|tree|pull|compare)/[^)\s]*\)", re.I)
-
-
-def find_sha_candidates(text: str) -> list[tuple[int, str]]:
-    """(line number, token) for every backticked SHA-shaped token."""
-    out: list[tuple[int, str]] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        qualified = [m.span(1) for m in _LINKED_SHA.finditer(line)]
-        for match in _BACKTICKED.finditer(line):
-            if _spans_overlap(match.span(1), qualified):
-                continue
-            token = match.group(1)
-            if _looks_like_sha(token):
-                out.append((number, token))
-    return out
-
-
-# Same idiom and same reasoning as `_STRIPPED` above: keyed on object IDENTITY,
-# so a different string simply misses and no lifecycle is needed. Added when the
-# sweep began reporting a per-rule denominator, which made `count_examined` a
-# second caller for the same document - this function and `_line_pointer_sites`
-# were then the two most expensive things in a sweep, each computed twice over
-# identical bytes. Measured on pytest's 308 documents: 617 calls, 1.20s.
-_BARE_SHAS: tuple[str, list[tuple[int, str]]] | None = None
-
-
-def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
-    """(line number, token) for every SHA-shaped token OUTSIDE backticks.
-
-    I-1: a SHA written without backticks previously escaped both
-    `validate_references` and `translate_shas` entirely. Scanned per line,
-    consistent with `find_sha_candidates` and the rest of the module - see
-    the EX-8 note in docs/superpowers/plans/2026-07-20-status-system.md for
-    why a whole-text scan drifts out of phase with backtick pairing.
-
-    "Outside backticks" is computed per line: the spans `_BACKTICKED` covers
-    on that line are found first, and any bare candidate whose span overlaps
-    one of them is skipped, so a token already inside backticks is never
-    double-counted here.
-    """
-    global _BARE_SHAS
-    if _BARE_SHAS is not None and _BARE_SHAS[0] is text:
-        return _BARE_SHAS[1]
-    result = _find_bare_sha_candidates(text)
-    _BARE_SHAS = (text, result)
-    return result
-
-
-def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
-    """The scan itself. Separate only so the cache above stays readable."""
-    out: list[tuple[int, str]] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        skip_spans = [m.span() for m in _BACKTICKED.finditer(line)]
-        skip_spans += [m.span() for m in _URL.finditer(line)]
-        skip_spans += [m.span() for m in _UUID.finditer(line)]
-        skip_spans += [m.span() for m in _ASSET_PATH.finditer(line)]
-        skip_spans += [m.span() for m in _PINNED_REF.finditer(line)]
-        for match in _BARE_SHA_TOKEN.finditer(line):
-            if _spans_overlap(match.span(), skip_spans):
-                continue
-            token = match.group(0)
-            if _looks_like_bare_sha(token):
-                out.append((number, token))
-    return out
+def _merge_claims(prose: str) -> list[tuple[int, str, str]]:
+    """(line, ref, sha) for every merge claim. See extant.commits.merge_claims."""
+    return _commits.merge_claims(_ACTIVE, prose)
 
 
 def _document_sha_tokens(prose: str) -> list[str]:
-    """Every SHA-shaped token in this document that a rule will ask git about.
-
-    The UNION, gathered once so a document costs ONE `cat-file --batch-check`
-    rather than one per rule that reads SHAs. Two rules read them:
-    `validate_references`, for its backticked and bare candidates, and
-    `validate_merge_claims`, for the commit each claim names.
-
-    GATHERING THE TOKENS IS NOT GATHERING THE CANDIDATES, and that distinction
-    is the whole safety argument. Each rule still finds its own candidates and
-    decides its own findings from them; what is shared is only the question put
-    to git, which is per token and gives the same answer whoever asks. A larger
-    batch cannot change any token's answer, so nothing here can move a finding.
-
-    Measured on this repository's own document before it existed: 29 tokens in
-    one batch and 2 in another, overlapping in 1. A per-token memo alone would
-    therefore have left two subprocesses, because the odd token out is real
-    rather than an artefact - `PR #499 merged into main at 6ff1f4ac` backticks
-    the whole phrase, so the commit inside it is neither a backticked TOKEN nor
-    a bare one, and only the claim rule ever sees it.
-
-    Takes PROSE, because both callers blank code blocks before reading and
-    passing raw text here would resolve tokens from fences that no rule reads.
-    """
-    tokens = [token for _number, token in find_sha_candidates(prose)]
-    tokens += [token for _number, token in find_bare_sha_candidates(prose)]
-    tokens += [sha for _number, _ref, sha in _merge_claims(prose)]
-    return tokens
+    """Every SHA-shaped token in this document a rule will ask git about."""
+    return _commits._document_sha_tokens(_ACTIVE, prose)
 
 
 def _document_shas(repo: Path, prose: str) -> set[str]:
     """Which of this document's SHA-shaped tokens resolve to commits."""
-    return _resolve_shas(repo, _document_sha_tokens(prose))
-
-
-def _merge_claims(prose: str) -> list[tuple[int, str, str]]:
-    """(line, ref, sha) for every merge claim, ref as written.
-
-    Split out of `validate_merge_claims` so `_document_sha_tokens` can see the
-    commits a claim names without reimplementing how a claim is found. One
-    reader of `_MERGE_CLAIM`, so a project that customises the pattern cannot
-    end up with the batch and the rule disagreeing about what a claim is.
-
-    A two-group pattern means (ref, sha). A one-group pattern is the older
-    contract and still means (sha), checked against trunk exactly as before.
-    """
-    named = _MERGE_CLAIM.groups >= 2
-    claims: list[tuple[int, str, str]] = []
-    for number, line in enumerate(prose.splitlines(), start=1):
-        for match in _MERGE_CLAIM.finditer(line):
-            if named:
-                # The pattern keeps any backticks so the rule can tell a
-                # deliberate ref from a word of prose. See _claimed_ref.
-                claims.append((number, match.group(1), match.group(2)))
-            else:
-                claims.append((number, TRUNK, match.group(1)))
-    return claims
-
-
-# A changesets release note. The id is minted by the tool, not by git.
-#
-#     - 8b82179: Fix auto imports and code actions not working
-#
-# It is hex-shaped, seven characters, and resolves to nothing because it never
-# named a commit. 50 findings on the held-out corpus, all in one project's
-# generated changelogs.
-#
-# The line shape ALONE is not enough - `- abc1234: fixed the parser` is how a
-# person writes a real commit reference - so this is gated on the repository
-# actually using the tool, which is a directory that either exists or does not.
-_CHANGESET_ENTRY = re.compile(r"^\s*[-*]\s+[0-9a-f]{6,40}:\s")
+    return _commits.document_shas(_ctx(repo), prose)
 
 
 def _uses_changesets(repo: Path) -> bool:
     """Does this repository mint release notes with changesets?"""
-    key = str(repo)
-    if key not in _SCOPE.changesets:
-        _SCOPE.changesets[key] = (repo / ".changeset").is_dir()
-    return _SCOPE.changesets[key]
+    return _rule_sha._uses_changesets(_ctx(repo))
 
 
 def validate_references(repo: Path, text: str) -> list[Finding]:
     """Every referenced SHA must still resolve; a dead reference is useless."""
-    # Claims inside code are examples, not promises. See _prose.
-    text = _prose(text)
-    findings: list[Finding] = []
-    backticked = find_sha_candidates(text)
-    bare = find_bare_sha_candidates(text)
-    # The document's tokens rather than only this rule's two lists, so the
-    # whole document costs one batch. Only `backticked` and `bare` decide
-    # anything below; see `_document_sha_tokens` for why a wider batch cannot
-    # move a finding.
-    alive = _document_shas(repo, text)
-    for number, token in backticked:
-        if token not in alive:
-            findings.append(
-                Finding(number, "dead-sha",
-                        f"`{token}` does not resolve in this repo",
-                        subject=token)
-            )
-    # I-1(b): a bare token that RESOLVES is merely unstyled, not broken -
-    # flagging it would be noise, so only a bare token that fails to resolve
-    # is worth a finding.
-    lines = text.splitlines()
-    changesets = _uses_changesets(repo)
-    for number, token in bare:
-        if token in alive:
-            continue
-        line = lines[number - 1] if 0 < number <= len(lines) else ""
-        if changesets and _CHANGESET_ENTRY.match(line):
-            continue
-        findings.append(Finding(
-            number, "bare-dead-sha",
-            f"`{token}` is un-backticked and does not resolve; "
-            "backtick real SHAs so they are checked",
-            subject=token,
-        ))
-    return findings
-
-
-def load_sha_map(path: str) -> dict[str, str]:
-    """Parse a git-filter-repo commit-map (old SHA, whitespace, new SHA)."""
-    mapping: dict[str, str] = {}
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            parts = line.split()
-            if len(parts) == 2:
-                mapping[parts[0]] = parts[1]
-    return mapping
-
-
-def _translated_value(token: str, mapping: dict[str, str]) -> str | None:
-    """New value for `token` via prefix match, or None if it must stay put.
-
-    GA-6: an AMBIGUOUS prefix - two old SHAs sharing it - is left untranslated
-    rather than resolved by dict order. Picking a winner silently would rewrite
-    a reference to point at the wrong commit, and a wrong SHA is worse than a
-    dead one: the dead one is visibly broken, the wrong one reads as correct.
-    Shared by both the backticked and bare translation paths below, so both
-    apply the same ambiguity rule.
-    """
-    hits = [new for old, new in mapping.items() if old.startswith(token)]
-    return hits[0][: len(token)] if len(hits) == 1 else None
-
-
-def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
-    """Rewrite dead SHAs - backticked AND bare (I-1c) - to their post-rewrite
-    values, matched by prefix.
-
-    Ambiguous prefixes are left alone; see `_translated_value`. Ambiguous or
-    otherwise unresolved tokens stay dead and get reported by
-    validate_references.
-
-    Tokenizes per line, exactly like find_sha_candidates and
-    find_bare_sha_candidates. `_BACKTICKED`'s `[^`]+` matches newlines, so
-    subbing over the whole text at once pairs backticks ACROSS line
-    boundaries - an odd number of backticks on an earlier line shifts every
-    pairing after it out of phase with the per-line scan find_sha_candidates
-    (and validate_references) rely on, making some backticked SHAs invisible
-    here even though they are reported as findings elsewhere. Scanning line
-    by line keeps the two in agreement by construction.
-    `splitlines(keepends=True)` + `"".join(...)` preserves line endings
-    byte-for-byte, so a no-op translation is a no-op on disk.
-
-    I-1(c): a bare token is repaired in place, at its original length, and
-    stays bare - this rewrites the SHA, it does not add styling the author
-    never wrote. This half is not optional: adding `bare-dead-sha` findings
-    (I-1b) without also extending translation to reach them would recreate
-    EX-8 - a class of reference the validator reports that --sha-map is
-    structurally unable to fix. The backtick substitution runs first on each
-    line; it preserves length and leaves the backtick characters themselves
-    untouched, so the backtick spans re-scanned afterwards for the bare pass
-    land at the same offsets either way.
-    """
-    count = 0
-
-    def replace_backticked(match: re.Match[str]) -> str:
-        nonlocal count
-        token = match.group(1)
-        if not _looks_like_sha(token):
-            return match.group(0)
-        new = _translated_value(token, mapping)
-        if new is None:
-            return match.group(0)
-        count += 1
-        return f"`{new}`"
-
-    def replace_bare(line: str) -> str:
-        nonlocal count
-        backticked_spans = [m.span() for m in _BACKTICKED.finditer(line)]
-        pieces: list[str] = []
-        cursor = 0
-        for match in _BARE_SHA_TOKEN.finditer(line):
-            if _spans_overlap(match.span(), backticked_spans):
-                continue
-            token = match.group(0)
-            if not _looks_like_bare_sha(token):
-                continue
-            new = _translated_value(token, mapping)
-            if new is None:
-                continue
-            pieces.append(line[cursor: match.start()])
-            pieces.append(new)
-            cursor = match.end()
-            count += 1
-        pieces.append(line[cursor:])
-        return "".join(pieces)
-
-    lines = []
-    for line in text.splitlines(keepends=True):
-        line = _BACKTICKED.sub(replace_backticked, line)
-        line = replace_bare(line)
-        lines.append(line)
-    return "".join(lines), count
+    return _rule_sha.check(_ctx(repo), text)
 
 
 # The git questions the rules ask, answered by extant/refs.py now. These
@@ -855,7 +482,7 @@ def _resolve_shas(repo: Path, tokens: list[str]) -> set[str]:
 
 def _branch_exists(repo: Path, branch: str) -> bool:
     """Does this branch resolve here?"""
-    return _refs._branch_exists(_ctx(repo), branch)
+    return _refs.branch_exists(_ctx(repo), branch)
 
 
 def _ancestor_index(repo: Path, ref: str) -> dict[str, list[str]] | None:
@@ -865,17 +492,17 @@ def _ancestor_index(repo: Path, ref: str) -> dict[str, list[str]] | None:
 
 def _reachable_from(repo: Path, rev: str, ref: str) -> bool:
     """Is `rev` an ancestor of `ref`?"""
-    return _refs._reachable_from(_ctx(repo), rev, ref)
+    return _refs.reachable_from(_ctx(repo), rev, ref)
 
 
 def _resolve_ref(repo: Path, ref: str) -> str | None:
     """The full commit SHA a ref points at, or None."""
-    return _refs._resolve_ref(_ctx(repo), ref)
+    return _refs.resolve_ref(_ctx(repo), ref)
 
 
 def _ref_table(repo: Path) -> tuple[dict[str, str], dict[str, str]]:
     """Every local branch and tag, by short name, annotated tags peeled."""
-    return _refs._ref_table(_ctx(repo))
+    return _refs.ref_table(_ctx(repo))
 
 
 def _integration_refs(repo: Path) -> list[str]:
@@ -900,7 +527,7 @@ def _renamed_to(repo: Path, missing: str) -> str | None:
 
 def _named_in_merge_history(repo: Path, branch: str) -> bool:
     """Did a merge commit ever mention this branch?"""
-    return _refs._named_in_merge_history(_ctx(repo), branch)
+    return _refs.named_in_merge_history(_ctx(repo), branch)
 
 
 def tracked_markdown(repo: Path) -> list[str]:
@@ -1223,7 +850,7 @@ def _strip_code(text: str) -> str:
 
 def _prose(text: str) -> str:
     """Text with FENCED BLOCKS removed, for rules that check claims."""
-    return _text._prose(_DOC, text)
+    return _text.prose(_DOC, text)
 
 
 def _unique_basename(repo: Path, target: str) -> bool:
@@ -2677,25 +2304,23 @@ def _probe_lfs_storage(repo: Path, text: str) -> str | None:
     return None
 
 
-# A letter is required now that an all-digit run reads as a number rather than
-# a commit, so forty zeroes would be corrupted into something no rule looks at
-# and `--selftest` would report dead-sha silent when the rule was fine.
-_DEAD_SHA = "dead" + "0" * 36
-_MISSING_PATH = "__extant_selftest_missing__.md"
-_FAKE_BRANCH_LEAF = "extant-selftest-no-such-branch"
+# The machinery more than one probe needs is extant/probes.py now, because
+# `stale-live-claim`'s probe called `unknown-branch`'s probe outright and four
+# rules corrupt a document through the same one-capture substitution. Both
+# marker strings are re-exported under their historical spellings; `_DEAD_SHA`
+# went to extant/rules/sha.py instead, being the one that has a single owner.
+from extant.probes import (           # noqa: F401  (re-exported as they are:
+    FAKE_BRANCH_LEAF as _FAKE_BRANCH_LEAF,   # marker strings and one pure
+    MISSING_PATH as _MISSING_PATH,           # function, none reading state)
+    sub_group as _sub_group,
+)
 
-
-def _sub_group(text: str, pattern: re.Pattern[str], group: int, value: str) -> str | None:
-    """Replace one capture of the first match, or None if nothing matched."""
-    match = pattern.search(text)
-    if not match:
-        return None
-    start, end = match.span(group)
-    return text[:start] + value + text[end:]
+from extant import probes as _probes
 
 
 def _probe_sha(repo: Path, text: str) -> str | None:
-    return _sub_group(text, re.compile(r"`([0-9a-f]{7,40})`"), 1, _DEAD_SHA)
+    """Corrupt one backticked SHA. See extant.rules.sha.probe."""
+    return _rule_sha.probe(_ctx(repo), text)
 
 
 def _probe_merge(repo: Path, text: str) -> str | None:
@@ -2775,19 +2400,13 @@ def _probe_md_anchor(repo: Path, text: str) -> str | None:
 
 
 def _probe_branch_in_newest(repo: Path, text: str) -> str | None:
-    """Point the first branch token of the newest entry at a name git never saw."""
-    _, segments, _ = split_entries(text)
-    for kind, entry in segments:
-        if kind != "phase":
-            continue
-        match = _BRANCH_TOKEN.search(entry)
-        if not match:
-            return None
-        leaf = match.group(1).split("/", 1)
-        fake = f"{leaf[0]}/{_FAKE_BRANCH_LEAF}" if len(leaf) > 1 else _FAKE_BRANCH_LEAF
-        start, end = match.span(1)
-        return text.replace(entry, entry[:start] + fake + entry[end:], 1)
-    return None
+    """Point the first branch token of the newest entry at a name git never saw.
+
+    See extant.probes.branch_in_newest. It moved there because BOTH branch
+    rules probe this way and the live-claim probe below called this one
+    directly, which is a rule reaching into a rule.
+    """
+    return _probes.branch_in_newest(_ctx(repo), text)
 
 
 def _probe_live_claim(repo: Path, text: str) -> str | None:
@@ -2814,34 +2433,14 @@ def _probe_consistency(repo: Path, text: str) -> str | None:
     return None
 
 
-@dataclass(frozen=True)
-class Rule:
-    """One validation rule and the properties that decide where it applies.
-
-    These were previously implicit - carried in a boolean parameter, in
-    docstrings, and in the author's head. Declaring them makes the design's own
-    constraints checkable: a test asserts every rule states its `falsifiable`
-    question, so a rule that cannot be answered by git or the filesystem cannot
-    be added quietly.
-    """
-
-    kind: str          # the finding kind it emits, for cross-checking
-    check: object      # (repo, text) -> list[Finding]
-    scope: str         # "whole-file" | "newest-entry"
-    in_archive: bool   # does it still hold once an entry is retired?
-    falsifiable: str   # the exact git/filesystem question asked. REQUIRED.
-    # (repo, text) -> text with one deliberate falsehood, or None when the
-    # document offers nothing to corrupt. REQUIRED, and why --selftest exists:
-    # a rule that cannot state how to make itself fire cannot be shown to work.
-    probe: object
-    # For a REPOSITORY-scoped rule: the repo-relative file that DECLARES
-    # the claim being checked. Such a finding is about the repository and
-    # belongs to no document, so a sweep has nothing to attribute it to;
-    # `--verify` prints it under whichever document happened to be in hand,
-    # which is the primary one. Naming the declaring file is more useful
-    # than either. Left None for document-scoped rules, which carry their
-    # own path already.
-    subject_file: str | None = None
+# `Rule` is extant/contract.py now, re-exported by extant/registry.py beside
+# the registry it declares. The class had to leave this file for the rule
+# modules to construct one without importing the shim, which is the same leaf
+# argument that moved rename detection and object resolution into
+# extant/refs.py.
+from extant.registry import Rule      # noqa: F401  (re-exported: the suite
+#                                       builds one, and RULES below is a
+#                                       tuple of them)
 
 
 def count_examined(repo: Path, text: str) -> dict[str, int]:
@@ -2866,8 +2465,6 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     # example output. An overstated denominator is the worst of the three
     # numbers available: it is the one that reassures.
     prose = _prose(text)
-    backticked = len(find_sha_candidates(prose))
-    bare = len(find_bare_sha_candidates(prose))
     _, segments, _ = split_entries(prose)
     newest = next((s for kind, s in segments if kind == "phase"), "")
     # Counts what the rules actually inspect, not what the pattern matched.
@@ -2881,7 +2478,9 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     links = [raw for line in _strip_code(text).splitlines()
              for raw in _MD_LINK.findall(line)]
     return {
-        "dead-sha": backticked + bare,
+        # Asked of the rule module, which finds these candidates and so is the
+        # only place that can count them over the same population.
+        "dead-sha": _rule_sha.examined(_ctx(repo), text),
         "stale-live-claim": branches_in_newest,
         "unknown-branch": branches_in_newest,
         "false-merge-claim": len(_MERGE_CLAIM.findall(prose)),

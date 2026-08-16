@@ -11,7 +11,7 @@ Three calling conventions, and the split is deliberate rather than untidy:
   `_definition_terms` and the rest cannot be affected by a repository or a run,
   so handing them a Context would be a claim about their dependencies that is
   simply false.
-* `current_document`, `_blank`, `_blank_uncached`, `_strip_code` and `_prose`
+* `current_document`, `_blank`, `_blank_uncached`, `_strip_code` and `prose`
   take
   a `DocScope`, because the only ambient thing they read is which document is
   open and what language it is written in.
@@ -20,9 +20,9 @@ Three calling conventions, and the split is deliberate rather than untidy:
 
 The alternative - one `Context` parameter everywhere - was rejected because the
 one thing this split is for is making a module's dependencies legible from its
-signature, and a `Context` on `_prose()` would advertise a repository, a git
+signature, and a `Context` on `prose()` would advertise a repository, a git
 seam and a configuration that it never touches. It would also have to be
-CONSTRUCTED by every caller that has none, which for `_prose` means inventing a
+CONSTRUCTED by every caller that has none, which for `prose` means inventing a
 repository path, and an invented value in a field named `repo` is the kind of
 false claim this project keeps paying for.
 
@@ -55,11 +55,11 @@ from extant.scope import Context, DocScope
 # is deleted outright in Task 10. Promoting a name for a caller that is about
 # to disappear is churn with a rename at both ends.
 #
-# Task 9 is where the rest of this gets settled, and it will settle it by
-# measurement rather than by taste: when a shim rule becomes extant/rules/*.py,
-# whatever it reaches for here becomes a genuine sibling call and is promoted
-# in the commit that creates the caller. `_prose` has eleven such consumers
-# waiting, which is the largest single promotion that task will make.
+# Task 9 settled the rest by measurement rather than by taste: when a shim rule
+# became extant/rules/*.py, whatever it reached for here became a genuine
+# sibling call and was promoted in the commit that created the caller. `prose`
+# was the largest of those, with eight rule modules reading it; the eleven shim
+# consumers it also had are wrappers that Task 10 deletes.
 #
 # The private names are listed in `__all__` anyway, following
 # extant/collect.py, which keeps `_CHECKED` and `_VENV_LAYOUTS` in its own:
@@ -73,10 +73,11 @@ __all__ = [
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_SETEXT_RULE", "_STRIPPED", "_blank", "_blank_rst",
     "_blank_uncached", "_definition_terms", "_disambiguated", "_format_for",
-    "_heading_text", "_numbered_document", "_percent_decoded", "_prose",
+    "_heading_text", "_numbered_document", "_percent_decoded",
     "_route_name", "_setext_headings", "_slug", "_slug_keeping_edges",
     "_slug_punctuation_to_dash", "_strip_code", "_translation_tree",
     "_unique_basename", "_without_tags", "anchors", "current_document",
+    "prose",
 ]
 
 # Markdown link syntax is fixed by the format, not by any project's habits, so
@@ -274,7 +275,7 @@ def _blank_rst(text: str, *, inline: bool) -> str:
     return "\n".join(out)
 
 
-def _prose(doc: DocScope, text: str) -> str:
+def prose(doc: DocScope, text: str) -> str:
     """Text with FENCED BLOCKS removed, for rules that check claims.
 
     A fenced block is an example or captured output, not a promise. A README

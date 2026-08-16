@@ -12,7 +12,7 @@ The three that were moved for that reason, and where they came from:
   and both `dead-md-link` and `dead-path-pointer` were calling into it.
 * object resolution (`_sha_exists`, `resolve_shas`, `_batch_shas`) sat with the
   SHA rule, and the merge rule was calling into it.
-* `_named_in_merge_history` sat among the site helpers, which is where the
+* `named_in_merge_history` sat among the site helpers, which is where the
   branch rule happened to need it.
 
 Each is a git-history question rather than a property of whichever rule needed
@@ -21,7 +21,7 @@ it first, so this is where a reader looks for it.
 THREE MORE ARRIVED HERE THAT THE PLAN PUT ELSEWHERE, and the reason is the same
 leaf rule rather than a change of mind:
 
-* `_SHA_SHAPE` is listed with the SHA rule for Task 9, but `_reachable_from`
+* `SHA_SHAPE` is listed with the SHA rule for Task 9, but `reachable_from`
   below tests it to tell an abbreviated commit from a branch name. Left where
   it was, this module would import a rule.
 * `tracked_markdown` is listed with the sweep driver for Task 10, and both
@@ -47,14 +47,22 @@ import subprocess
 
 from extant.scope import Context
 
+# Eight of these names lost their underscore in Task 9, when the rules became
+# modules of this package and their calls into here became SIBLING calls. That
+# is the rule the whole package follows - a name is public when a sibling
+# module calls it - and `test_no_module_reaches_past_another_modules_surface`
+# turns reaching for an underscore name across that boundary into a hard
+# failure, so the choice was between promoting them and lying about the
+# boundary. `_ancestor_index`, `_rename_map` and `_sha_exists` keep theirs:
+# each has exactly one caller, and it is in this file.
 __all__ = [
-    "_INTEGRATION_NAMES", "_SHA_SHAPE", "_ancestor_index", "_branch_exists",
-    "_named_in_merge_history", "_reachable_from", "_ref_table", "_rename_map",
-    "_resolve_ref", "_sha_exists", "integrated_by", "integration_refs",
-    "renamed_to", "resolve_shas", "tracked_markdown",
+    "SHA_SHAPE", "_INTEGRATION_NAMES", "_ancestor_index", "_rename_map",
+    "_sha_exists", "branch_exists", "integrated_by", "integration_refs",
+    "named_in_merge_history", "reachable_from", "ref_table", "renamed_to",
+    "resolve_ref", "resolve_shas", "tracked_markdown",
 ]
 
-_SHA_SHAPE = re.compile(r"^[0-9a-f]{7,40}$")
+SHA_SHAPE = re.compile(r"^[0-9a-f]{7,40}$")
 
 
 def _sha_exists(ctx: Context, sha: str) -> bool:
@@ -125,7 +133,7 @@ def _batch_shas(ctx: Context, unique: list[str]) -> set[str]:
     }
 
 
-def _branch_exists(ctx: Context, branch: str) -> bool:
+def branch_exists(ctx: Context, branch: str) -> bool:
     try:
         ctx.git.run(ctx.repo, "rev-parse", "--verify", branch)
         return True
@@ -172,7 +180,7 @@ def _ancestor_index(ctx: Context, ref: str) -> dict[str, list[str]] | None:
     return index
 
 
-def _reachable_from(ctx: Context, rev: str, ref: str) -> bool:
+def reachable_from(ctx: Context, rev: str, ref: str) -> bool:
     """Is `rev` an ancestor of `ref`? Batched through the index when possible."""
     index = _ancestor_index(ctx, ref)
     if index is None:
@@ -181,16 +189,16 @@ def _reachable_from(ctx: Context, rev: str, ref: str) -> bool:
             return True
         except (subprocess.CalledProcessError, OSError):
             return False
-    if _SHA_SHAPE.match(rev):
+    if SHA_SHAPE.match(rev):
         # A document carries an abbreviated commit; rev-list returns full ones.
         # `startswith` covers the 40-character case too, which is its own prefix.
         return any(full.startswith(rev) for full in index.get(rev[:7], ()))
     # A branch or tag name: resolve it once, then answer from the index.
-    resolved = _resolve_ref(ctx, rev)
+    resolved = resolve_ref(ctx, rev)
     return bool(resolved) and resolved in index.get(resolved[:7], ())
 
 
-def _resolve_ref(ctx: Context, ref: str) -> str | None:
+def resolve_ref(ctx: Context, ref: str) -> str | None:
     """The full commit SHA a ref points at, or None if it does not resolve.
 
     `^{commit}` dereferences an annotated tag to the commit it tags, which is
@@ -210,7 +218,7 @@ def _resolve_ref(ctx: Context, ref: str) -> str | None:
     # eight git subprocesses and three of them asked questions this table
     # already answers: two `rev-parse --verify` and one `tag -l`, beside the
     # `for-each-ref` that was being run anyway.
-    heads, tags = _ref_table(ctx)
+    heads, tags = ref_table(ctx)
     # TAGS BEFORE HEADS, because that is git's precedence for a bare name:
     # `refs/tags/<name>` is tried before `refs/heads/<name>`. Reversing it
     # would resolve a repository that has both to a different commit than
@@ -229,7 +237,7 @@ def _resolve_ref(ctx: Context, ref: str) -> str | None:
     return resolved
 
 
-def _ref_table(ctx: Context) -> tuple[dict[str, str], dict[str, str]]:
+def ref_table(ctx: Context) -> tuple[dict[str, str], dict[str, str]]:
     """Every local branch and tag, by short name, with annotated tags peeled.
 
     One subprocess answers what `rev-parse --verify` per ref, `tag -l` and
@@ -322,12 +330,12 @@ def integration_refs(ctx: Context) -> list[str]:
         return ctx.run.integration[key]
     refs = [ctx.config.trunk]
     # The shared ref table, not a second `for-each-ref` of its own.
-    present = set(_ref_table(ctx)[0])
+    present = set(ref_table(ctx)[0])
     for name in _INTEGRATION_NAMES:
         if name in present and name not in refs:
             refs.append(name)
     ctx.run.integration[key] = [ref for ref in refs
-                                if _resolve_ref(ctx, ref) is not None]
+                                if resolve_ref(ctx, ref) is not None]
     return ctx.run.integration[key]
 
 
@@ -339,7 +347,7 @@ def integrated_by(ctx: Context, rev: str, *, exclude: str = "") -> list[str]:
     itself, so every live claim about one would be reported as already merged.
     """
     return [ref for ref in integration_refs(ctx)
-            if ref != exclude and _reachable_from(ctx, rev, ref)]
+            if ref != exclude and reachable_from(ctx, rev, ref)]
 
 
 # Cached per repository on the run scope, because the query below cannot be
@@ -392,7 +400,7 @@ def renamed_to(ctx: Context, missing: str) -> str | None:
     return None if current == missing.replace("\\", "/") else current
 
 
-def _named_in_merge_history(ctx: Context, branch: str) -> bool:
+def named_in_merge_history(ctx: Context, branch: str) -> bool:
     """Did a merge commit ever mention this branch?
 
     THE MEASUREMENT THAT MADE THIS RULE POSSIBLE. Every one of the four branches

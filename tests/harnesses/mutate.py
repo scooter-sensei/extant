@@ -40,6 +40,20 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # seven matching nothing, which --check-only reports as STALE and a
     # campaign would have reported as a clean result it did not earn.
     refs = collect.parent / "extant/refs.py"
+    # Task 9 moved the rules into extant/rules/, and moved out from under them
+    # the two things more than one rule reads: the SHA-token and merge-claim
+    # scanners (extant/commits.py) and the shared probe machinery
+    # (extant/probes.py). Anchors follow the code, and several also needed
+    # their TEXT rewritten rather than only their path - a rule reads
+    # `ctx.repo`, `ctx.run` and `ctx.config` where the shim read `repo`,
+    # `_SCOPE` and a module global, and the names it calls across a package
+    # boundary lost their underscores when they became sibling calls. A
+    # path-only retarget leaves those matching nothing, which --check-only
+    # reports as STALE and a campaign reports as a clean result it did not
+    # earn. Three anchors in refs.py needed exactly that rename this task, from
+    # code that moved in Task 8 and did not move again.
+    commits = collect.parent / "extant/commits.py"
+    rules = collect.parent / "extant/rules"
     text = collect.parent / "extant/text.py"
     sites = collect.parent / "extant/sites.py"
     return [
@@ -55,7 +69,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        if not merged[key]:\n            findings.append(Finding(",
          "        if False:\n            findings.append(Finding("),
         # Retargeted when ancestry became per-ref: the index is keyed by
-        # (repo, ref) now and the prefix lookup moved into _reachable_from.
+        # (repo, ref) now and the prefix lookup moved into reachable_from.
         ("batched ancestry always answers yes", refs,
          "        return any(full.startswith(rev) for full in index.get(rev[:7], ()))",
          "        return True"),
@@ -71,7 +85,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted a third time, when the branch scan moved into the shared
         # ref table and this function stopped parsing `for-each-ref` itself.
         ("integration refs collapse to the configured trunk alone", refs,
-         "    present = set(_ref_table(ctx)[0])",
+         "    present = set(ref_table(ctx)[0])",
          "    present = set()"),
         ("any branch counts as an integration branch", refs,
          "    for name in _INTEGRATION_NAMES:\n"
@@ -95,9 +109,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    key = ("", ref)\n    if key in ctx.run.ancestors:'),
         ("a branch counts as merged into itself", refs,
          "    return [ref for ref in integration_refs(ctx)\n"
-         "            if ref != exclude and _reachable_from(ctx, rev, ref)]",
+         "            if ref != exclude and reachable_from(ctx, rev, ref)]",
          "    return [ref for ref in integration_refs(ctx)\n"
-         "            if _reachable_from(ctx, rev, ref)]"),
+         "            if reachable_from(ctx, rev, ref)]"),
         # The installer writes its own merge_claim, which OVERRIDES the default,
         # so a collector that supports named refs still ships single-trunk
         # behaviour if this line regresses. That is exactly what happened.
@@ -215,8 +229,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Also survived that campaign, and also for want of anything to
         # observe. It memoises over an ALREADY-cached ref table, so what it
         # saves is a handful of dict operations. Three closing attempts
-        # failed: counting `_ref_table` calls (cached underneath, built once
-        # either way), counting `_resolve_ref` calls (the merge-claim rule
+        # failed: counting `ref_table` calls (cached underneath, built once
+        # either way), counting `resolve_ref` calls (the merge-claim rule
         # resolves the named ref per claim for its own legitimate reasons, so
         # a four-claim document resolves the trunk four times with or without
         # this cache - that assertion failed on UNMUTATED code), and asserting
@@ -235,7 +249,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # is the same, the name it is reached through is not.
         ("integration refs include ones that do not exist", refs,
          "    ctx.run.integration[key] = [ref for ref in refs\n"
-         "                                if _resolve_ref(ctx, ref) is not None]",
+         "                                if resolve_ref(ctx, ref) is not None]",
          "    ctx.run.integration[key] = refs"),
         # `rev: ''` is pre-commit's own placeholder and `rev: 'v1.2.3'` is the
         # same pin as the bare spelling. 69 bare, 4 quoted, 2 empty across 30
@@ -350,9 +364,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        return False"),
 
         # --- denominator ------------------------------------------------------
-        ("denominator lies: dead-sha always 1", collect,
-         '        "dead-sha": backticked + bare,',
-         '        "dead-sha": 1,'),
+        # Retargeted when the denominator stopped being one entry in a central
+        # dict and became the rule module's own `examined`, computed over the
+        # same population its `check` reads.
+        ("denominator lies: dead-sha always 1", rules / "sha.py",
+         "    return len(find_sha_candidates(text)) + len(find_bare_sha_candidates(text))",
+         "    return 1"),
         ("denominator drops a rule entirely", collect,
          '        "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),',
          ""),
@@ -411,10 +428,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # rule. Deleted rather than retargeted: there is no code left for it to
         # name, and a mutation kept alive by pointing it at something else
         # would be testing a different thing under an old label.
-        ("bare sha shape drops the letter requirement", collect,
-         "def _looks_like_bare_sha(token: str) -> bool:",
-         "def _looks_like_bare_sha(token: str) -> bool:\n"
-         "    return bool(_SHA_SHAPE.match(token))"),
+        # Retargeted when the SHA shape tests moved to extant/commits.py, which
+        # is where both rules that read them can reach without reaching through
+        # each other. The names lost their underscore in the same move: a rule
+        # module calling them is a sibling call.
+        ("bare sha shape drops the letter requirement", commits,
+         "def looks_like_bare_sha(token: str) -> bool:",
+         "def looks_like_bare_sha(token: str) -> bool:\n"
+         "    return bool(SHA_SHAPE.match(token))"),
 
         # --- config errors -----------------------------------------------------
         ("every TOML error blamed on regex quoting again", collect.parent / "extant/config.py",

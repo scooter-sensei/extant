@@ -56,4 +56,9 @@ extant = "extant_collect:cli"
 [tool.setuptools]
 package-dir = {"" = "plugin/skills/extant/payload"}
 py-modules = ["extant_collect"]
-packages = ["extant"]
+# `extant.rules` is listed EXPLICITLY, and it has to be: setuptools takes this
+# list literally rather than as a prefix, so a subpackage left off is simply
+# not built. The failure would be loud - the registry raises rather than
+# assembling an empty RULES - but it would only be loud for the pre-commit
+# path, which is the one path nobody runs locally.
+packages = ["extant", "extant.rules"]
