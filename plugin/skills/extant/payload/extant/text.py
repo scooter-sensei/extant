@@ -68,7 +68,7 @@ from extant.scope import Context, DocScope
 # though no sibling should be calling them.
 __all__ = [
     "ORDER_PREFIX", "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
-    "_FENCE", "_HEADING", "_INLINE_CODE", "_LANGUAGE_DIR",
+    "_FENCE", "_INLINE_CODE", "_LANGUAGE_DIR",
     "_MARKDOWN_ONLY", "_MYST_TARGET", "_NESTED_HEADING",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_SETEXT_RULE", "_STRIPPED", "_blank", "_blank_rst",
@@ -76,7 +76,7 @@ __all__ = [
     "_heading_text",
     "_route_name", "_setext_headings", "_slug", "_slug_keeping_edges",
     "_slug_punctuation_to_dash", "_translation_tree",
-    "_without_tags", "EXTERNAL", "MD_LINK", "anchors",
+    "_without_tags", "EXTERNAL", "HEADING", "MD_LINK", "anchors",
     "current_document", "numbered_document", "percent_decoded",
     "prose", "strip_code", "unique_basename",
 ]
@@ -91,7 +91,7 @@ MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
 # characters before the colon so a Windows drive letter is not mistaken for
 # one; a relative path does not carry a colon before its first slash.
 EXTERNAL = re.compile(r"^(?:[a-z][a-z0-9+.-]+:|//)", re.I)
-_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
+HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 # A heading nested inside a list item. CommonMark renders `- ### Title` as a
 # real h3 and gives it an id, which is how a README builds an indented table
 # of contents:
@@ -605,7 +605,7 @@ def _setext_headings(text: str) -> list[str]:
 def anchors(text: str) -> set[str]:
     """Every fragment this document offers, from headings and explicit anchors."""
     headings = [m.group(1) for line in text.splitlines()
-                if (m := _HEADING.match(line) or _NESTED_HEADING.match(line))]
+                if (m := HEADING.match(line) or _NESTED_HEADING.match(line))]
     headings += _definition_terms(text)
     headings += _setext_headings(text)
     # Every spelling a renderer might produce: two slug conventions, each over
