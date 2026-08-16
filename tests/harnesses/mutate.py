@@ -129,11 +129,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          detect.parent / "install.py",
          'rf"\\s+(?:at|in|as)\\s+`?([0-9a-f]{{7,40}})`?(?![0-9a-f])"',
          'rf"\\s+(?:at|in|as)\\s+`([0-9a-f]{{7,40}})`"'),
-        ("live-claim checks EVERY entry, not just the newest", collect,
+        ("live-claim checks EVERY entry, not just the newest",
+         rules / "live_claim.py",
          '        if kind != "phase" or newest_checked:\n            continue\n'
-         "        newest_checked = True\n        if not _LIVE_PHRASES.search(entry):",
+         "        newest_checked = True\n"
+         "        if not ctx.config.live_phrases.search(entry):",
          '        if kind != "phase":\n            continue\n'
-         "        if not _LIVE_PHRASES.search(entry):"),
+         "        if not ctx.config.live_phrases.search(entry):"),
         ("branch rule loses the merge-history rescue", collect,
          "            if _branch_exists(repo, branch) or _named_in_merge_history(repo, branch):",
          "            if _branch_exists(repo, branch):"),
@@ -274,11 +276,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("path guard over-broad: skips anything containing a dot", sites,
          "    return bool(_FILEISH.search(token)) or (ctx.repo / token).exists()",
          '    return "." in token or (ctx.repo / token).exists()'),
-        ("live-claim loses the path guard", collect,
-         "            if _looks_like_a_path(repo, branch):\n                continue\n"
-         "            exists = _branch_exists(repo, branch)",
+        ("live-claim loses the path guard", rules / "live_claim.py",
+         "            if looks_like_a_path(ctx, branch):\n                continue\n"
+         "            exists = branch_exists(ctx, branch)",
          "            if False:\n                continue\n"
-         "            exists = _branch_exists(repo, branch)"),
+         "            exists = branch_exists(ctx, branch)"),
 
         # --- markdown --------------------------------------------------------
         ("external links get checked (needs the network)", collect,

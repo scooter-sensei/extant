@@ -568,64 +568,18 @@ def _probe_pointer(repo: Path, text: str) -> str | None:
     return _rule_pointer.probe(_ctx(repo), text)
 
 
+# The stale-live-claim rule is extant/rules/live_claim.py now.
+from extant.rules import live_claim as _rule_live
+
+
 def validate_live_claims(repo: Path, text: str) -> list[Finding]:
-    """Present-tense status claims, re-checked against git.
+    """Present-tense status claims, re-checked against git."""
+    return _rule_live.check(_ctx(repo), text)
 
-    Only a small closed set of phrases is inspected. Nothing here looks at
-    numbers or dates, which is what keeps historical facts structurally immune
-    to false positives.
 
-    Only the NEWEST phase entry is ever checked for a live-status claim.
-    Phase entries are stored newest-first, so the newest is the first segment
-    whose kind is "phase"; every phase entry after it is historical by
-    definition and must never produce a finding, no matter what it says. The
-    cursor/line walk still advances over EVERY segment (phase or not) so
-    reported line numbers stay correct - only the checking itself is
-    restricted to that first phase segment.
-    """
-    # Claims inside code are examples, not promises. See _prose.
-    text = _prose(text)
-    findings: list[Finding] = []
-    _, segments, _ = split_entries(text)
-    cursor = 0
-    newest_checked = False
-    for kind, entry in segments:
-        start = text.index(entry, cursor)
-        cursor = start + len(entry)  # advance for every segment, phase or not
-        if kind != "phase" or newest_checked:
-            continue
-        newest_checked = True
-        if not _LIVE_PHRASES.search(entry):
-            continue
-        for match in _BRANCH_TOKEN.finditer(entry):
-            branch = match.group(1)
-            # Same path/branch ambiguity as `unknown-branch`. Harder to reach
-            # here, because a live phrase must appear in the entry first, but
-            # the pattern is equally capable of matching a file and the
-            # consequence would be a confident falsehood about a document.
-            if _looks_like_a_path(repo, branch):
-                continue
-            exists = _branch_exists(repo, branch)
-            # "Merged" means landed on an integration branch, and which one is
-            # measured rather than configured. Against a single-trunk repo that
-            # is the same question as before; on a gitflow repo with trunk=main
-            # it is the difference between noticing that a feature reached
-            # develop and silently accepting a stale claim about it.
-            holders = _integrated_by(repo, branch, exclude=branch) if exists else []
-            if exists and not holders:
-                continue  # genuinely still open: the claim is true
-            line = text.count("\n", 0, start + match.start()) + 1
-            if exists:
-                detail = (f"claims `{branch}` unmerged, but it is an ancestor of "
-                          f"{', '.join(holders)}")
-            else:
-                detail = (
-                    f"claims `{branch}` unmerged, but that branch no longer exists "
-                    "(merged and cleaned up, or the claim is stale)"
-                )
-            findings.append(Finding(line, "stale-live-claim", detail,
-                                    subject=branch))
-    return findings
+def _probe_live_claim(repo: Path, text: str) -> str | None:
+    """Corrupt a branch token, but only where a live claim is actually made."""
+    return _rule_live.probe(_ctx(repo), text)
 
 
 # Reading a document - what is code, what is prose, what anchors it offers -
@@ -1053,7 +1007,7 @@ def _numbered_docs_tree(repo: Path) -> dict[str, int]:
 
 def _looks_like_a_path(repo: Path, token: str) -> bool:
     """True when a token is better explained as a file than as a branch."""
-    return _sites._looks_like_a_path(_ctx(repo), token)
+    return _sites.looks_like_a_path(_ctx(repo), token)
 
 
 def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
@@ -2211,20 +2165,6 @@ def _probe_branch_in_newest(repo: Path, text: str) -> str | None:
     return _probes.branch_in_newest(_ctx(repo), text)
 
 
-def _probe_live_claim(repo: Path, text: str) -> str | None:
-    """Only probeable if the document actually makes a live claim.
-
-    A synthetic phrase would be written in THIS project's default vocabulary
-    and would tell an adopter with different wording nothing except that the
-    default matches the default.
-    """
-    _, segments, _ = split_entries(text)
-    newest = next((s for kind, s in segments if kind == "phase"), "")
-    if not newest or not _LIVE_PHRASES.search(newest):
-        return None
-    return _probe_branch_in_newest(repo, text)
-
-
 def _probe_consistency(repo: Path, text: str) -> str | None:
     """Not probeable by corrupting text, and honest about it.
 
@@ -2283,7 +2223,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         # Asked of the rule module, which finds these candidates and so is the
         # only place that can count them over the same population.
         "dead-sha": _rule_sha.examined(_ctx(repo), text),
-        "stale-live-claim": branches_in_newest,
+        "stale-live-claim": _rule_live.examined(_ctx(repo), text),
         "unknown-branch": branches_in_newest,
         "false-merge-claim": _rule_merge.examined(_ctx(repo), text),
         "dead-release-tag": len(_RELEASE_TAG.findall(prose)),

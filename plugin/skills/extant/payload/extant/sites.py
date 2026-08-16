@@ -32,10 +32,10 @@ __all__ = [
     "_ABSOLUTE", "_FILEISH", "_GLOBAL_ANCHOR_CONFIGS", "_PARTIAL_CONFIGS",
     "_SITE_CONFIGS", "_SITE_DIRS", "_SITE_MARKERS_IN_FILE", "_actual_case",
     "_has_global_anchors", "_has_partial_anchors", "_in_site_tree",
-    "_is_generated_site", "_listdir", "_looks_like_a_path",
+    "_is_generated_site", "_listdir",
     "_numbered_docs_scopes", "_numbered_docs_tree", "_partial_anchors",
     "_project_anchors", "_site_dirs", "_site_scopes",
-    "_top_level", "resolve_reference",
+    "_top_level", "looks_like_a_path", "resolve_reference",
 ]
 
 # An absolute path, which resolves against the filesystem root rather than
@@ -470,6 +470,6 @@ def _numbered_docs_tree(ctx: Context) -> dict[str, int]:
     return ctx.run.numbered[key]
 
 
-def _looks_like_a_path(ctx: Context, token: str) -> bool:
+def looks_like_a_path(ctx: Context, token: str) -> bool:
     """True when a token is better explained as a file than as a branch."""
     return bool(_FILEISH.search(token)) or (ctx.repo / token).exists()
