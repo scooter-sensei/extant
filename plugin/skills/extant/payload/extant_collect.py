@@ -815,136 +815,33 @@ def _probe_branch_in_newest(repo: Path, text: str) -> str | None:
     return _probes.branch_in_newest(_ctx(repo), text)
 
 
+# The dead-release-tag rule is extant/rules/release_tag.py now.
+from extant.rules import release_tag as _rule_tag
+
+
 def validate_release_tags(repo: Path, text: str) -> list[Finding]:
-    """"Released in v2.1" where no such tag exists, or it shipped on nothing.
-
-    Measured as absent from the corpus this was built against, so its
-    denominator honestly reports 0 here. It is included for projects that keep
-    a CHANGELOG, where this is the usual way a release is claimed, and it is
-    falsifiable in exactly the way a merge claim is.
-
-    "On an integration branch" rather than "an ancestor of trunk", because a
-    release tag lives on the RELEASE line and that is not always the branch a
-    project integrates into day to day. Measured on a gitflow fixture with
-    trunk=develop, the old question reported a genuinely shipped `v1.2.0` as
-    dead: the tag sits on main's release merge, and develop received the
-    release branch rather than that commit. A tag reachable from no integration
-    branch at all is still reported, which is the case this rule exists for -
-    a tag created for a release that was abandoned or rewritten away.
-    """
-    # Claims inside code are examples, not promises. See _prose.
-    text = _prose(text)
-    findings: list[Finding] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for tag in _RELEASE_TAG.findall(line):
-            resolved = _released_tag(repo, tag)
-            if resolved is None:
-                if _RELEASE_CLAIMS_ARE_OURS:
-                    findings.append(Finding(
-                        number, "dead-release-tag",
-                        f"claims release `{tag}`, but no such tag exists",
-                        subject=tag,
-                    ))
-                    continue
-                # "NO SUCH TAG EXISTS" IS NOT A QUESTION GIT CAN SETTLE, and
-                # this branch used to answer it anyway. A version in prose can
-                # name a git tag, an npm or PyPI release, a sub-package, a
-                # plugin, or a toolchain somebody else ships, and nothing in
-                # the sentence says which.
-                #
-                # Measured on 15 repositories that write prose release claims,
-                # it was wrong 19 times out of 26. eugenelim/agent-ready-repo
-                # tags `credbroker-v0.4.0` and writes "shipped as 0.27.0", an
-                # npm version; 10CG/Aria tags to v1.5.0 and cites v1.17.3
-                # through v1.24.1, its plugin's numbering; rust-lang/rfcs has
-                # no tags at all and discusses Rust's releases throughout.
-                #
-                # A range test was tried and does not separate them - two of
-                # the false positives sit inside the repository's own tag
-                # range - so there is no narrowing here, only a question the
-                # rule should not be asking. `dead-pinned-ref` stays honest on
-                # the same problem only because `repo:` names the owner on the
-                # line above; prose carries no such marker.
-                #
-                # The cost is real and stated: a project that claims a release
-                # it never tagged is no longer caught. What remains is the
-                # half that IS settleable - the tag is here, and it shipped on
-                # nothing - which was right 7 times out of 7.
-                continue
-            if not _integration_refs(repo):
-                continue        # no integration branch here to have shipped it
-            if not _integrated_by(repo, f"refs/tags/{resolved}"):
-                findings.append(Finding(
-                    number, "dead-release-tag",
-                    f"tag `{resolved}` exists but is on no integration branch "
-                    f"({', '.join(_integration_refs(repo))})",
-                    subject=tag,
-                ))
-    return findings
+    """"Released in v2.1" where no such tag exists, or it shipped on nothing."""
+    return _rule_tag.check(_ctx(repo), text)
 
 
 def _tags(repo: Path) -> set[str]:
     """Every tag in this repository, read once."""
-    # From the shared ref table rather than its own `tag -l`. Same names, one
-    # fewer subprocess; see `_ref_table`.
-    return set(_ref_table(repo)[1])
+    return _rule_tag._tags(_ctx(repo))
 
 
 def _tag_prefixes(repo: Path) -> list[str]:
-    """What this repository puts BEFORE a version number in a tag.
-
-    Read from `git tag -l` rather than configured, because which convention a
-    project uses is a fact git already holds. Measured across 30 repositories:
-    black tags `18.3a0`, poetry `0.1.0`, ruff and uv likewise - all bare -
-    while symfony tags `v8.0.0`. A claim written in the other convention
-    resolves to nothing, so the rule reported a release that had shipped.
-    """
-    key = str(repo)
-    if key not in _SCOPE.tag_prefixes:
-        prefixes = set()
-        for tag in _tags(repo):
-            digit = re.search(r"\d", tag)
-            if digit is not None:
-                prefixes.add(tag[:digit.start()])
-        _SCOPE.tag_prefixes[key] = sorted(prefixes)
-    return _SCOPE.tag_prefixes[key]
+    """What this repository puts BEFORE a version number in a tag."""
+    return _rule_tag._tag_prefixes(_ctx(repo))
 
 
 def _released_tag(repo: Path, version: str) -> str | None:
-    """The real tag a release claim names, or None if there is none.
+    """The real tag a release claim names, or None if there is none."""
+    return _rule_tag._released_tag(_ctx(repo), version)
 
-    Two things stand between a claimed version and a tag, and both are the
-    project's own habits rather than the author's error.
 
-    The PREFIX: see `_tag_prefixes`. A claimed `v8.0` and a claimed `8.0` mean
-    the same release, and which spelling is correct depends on the repository.
-
-    The SERIES: a claim names one far more often than it names a tag. Symfony's
-    own triage guide says work "shipped in 8.0" and no tag is called that - the
-    tags are `v8.0.0`, `v8.0.1` and so on. A claimed version that is the stem
-    of a real tag has therefore shipped, and saying otherwise is pedantry about
-    a number rather than a fact about git.
-    """
-    tags = _tags(repo)
-    # LITERALLY FIRST, and this is not an optimisation. A project can configure
-    # `release_tag` to capture its whole tag name - the installer derives such
-    # a pattern from repositories tagging `release-1.2.3` or `api@2.0.0` - and
-    # for those the captured text IS the tag. Trying prefixes first turns
-    # `release-1.2.3` into `release-release-1.2.3`, resolves nothing, and
-    # reports a shipped release as dead. Caught by the scenario harness rather
-    # than by any unit test here, every one of which used a bare or
-    # `v`-prefixed version.
-    if version in tags:
-        return version
-    bare = version.removeprefix("v")
-    for prefix in _tag_prefixes(repo):
-        exact = prefix + bare
-        if exact in tags:
-            return exact
-        series = sorted(tag for tag in tags if tag.startswith(exact + "."))
-        if series:
-            return series[0]
-    return None
+def _probe_tag(repo: Path, text: str) -> str | None:
+    """Repoint a real release claim at a version nothing tagged."""
+    return _rule_tag.probe(_ctx(repo), text)
 
 
 # An install snippet pins a version. `repo:` and `rev:` are pre-commit's fixed
@@ -1884,10 +1781,6 @@ def _probe_sha(repo: Path, text: str) -> str | None:
     return _rule_sha.probe(_ctx(repo), text)
 
 
-def _probe_tag(repo: Path, text: str) -> str | None:
-    return _sub_group(text, _RELEASE_TAG, 1, "v0.0.0-extant-selftest")
-
-
 def _probe_pinned_ref(repo: Path, text: str) -> str | None:
     """Repoint a real install pin at a version that does not exist.
 
@@ -1957,7 +1850,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "stale-live-claim": _rule_live.examined(_ctx(repo), text),
         "unknown-branch": _rule_branch.examined(_ctx(repo), text),
         "false-merge-claim": _rule_merge.examined(_ctx(repo), text),
-        "dead-release-tag": len(_RELEASE_TAG.findall(prose)),
+        "dead-release-tag": _rule_tag.examined(_ctx(repo), text),
         "dead-path-pointer": _rule_pointer.examined(_ctx(repo), text),
         "dead-md-link": _rule_md_link.examined(_ctx(repo), text),
         "dead-md-anchor": _rule_md_anchor.examined(_ctx(repo), text),

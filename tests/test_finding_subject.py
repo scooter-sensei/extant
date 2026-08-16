@@ -45,7 +45,8 @@ def test_a_bare_dead_sha_names_its_token(git_repo) -> None:
     assert bare[0].subject == DEAD, bare[0]
 
 
-def test_every_document_scoped_claim_carries_a_subject(git_repo) -> None:
+def test_every_document_scoped_claim_carries_a_subject(
+        git_repo, reconfigure) -> None:
     """The coverage gate, and the reason it is a single test rather than one
     per rule.
 
@@ -83,16 +84,19 @@ def test_every_document_scoped_claim_carries_a_subject(git_repo) -> None:
     # `dead-release-tag`'s never-tagged branch is opt-in, and this fixture
     # needs it to reach eight rule kinds. The denominator assertion below is
     # what would otherwise turn that into a quietly weaker test.
-    # Restored in a `finally`. Left set, it leaked into every test that ran
-    # after this one in the same process, so `dead-release-tag`'s opt-in
-    # branch was silently on for them - and under xdist which of those tests
-    # saw it depended on scheduling.
-    previous = hc._RELEASE_CLAIMS_ARE_OURS
-    hc._RELEASE_CLAIMS_ARE_OURS = True
-    try:
-        findings = hc.validate(repo, text)
-    finally:
-        hc._RELEASE_CLAIMS_ARE_OURS = previous
+    # Through `reconfigure`, which writes the built Config as well as the
+    # module global. Setting the global alone stopped reaching the rule the
+    # moment it became extant/rules/release_tag.py and started reading
+    # `ctx.config` - and the failure was visible only because of the
+    # denominator assertion below, which fell from 8 kinds to 7. Without that
+    # assertion this test would have gone on passing over a rule it no longer
+    # exercised.
+    #
+    # `monkeypatch` undoes it, which is what stops the setting leaking into
+    # every test that runs after this one in the same process - under xdist,
+    # which of those saw it depended on scheduling.
+    reconfigure(release_claims_are_ours=True)
+    findings = hc.validate(repo, text)
     document_scoped = [f for f in findings
                        if f.kind not in ("inconsistent-artifact", "raw-lfs-blob")]
 

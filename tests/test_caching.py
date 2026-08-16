@@ -366,7 +366,7 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     )
 
 
-def test_tags_are_re_read_between_validate_calls(git_repo) -> None:
+def test_tags_are_re_read_between_validate_calls(git_repo, reconfigure) -> None:
     """The tag list and the prefix convention read from it are per-call too.
 
     Both are plain dicts that default to empty, so a missing reset makes them
@@ -383,7 +383,7 @@ def test_tags_are_re_read_between_validate_calls(git_repo) -> None:
 
     # The never-tagged branch is opt-in, and this test needs it: it proves the
     # tag list is re-read by cutting a tag between two validations.
-    hc._RELEASE_CLAIMS_ARE_OURS = True
+    reconfigure(release_claims_are_ours=True)
     text = "# R\n\nReleased in v2.0.0 last week.\n"
     before = [f.kind for f in hc.validate(repo, text, has_entries=False)]
     assert "dead-release-tag" in before, (

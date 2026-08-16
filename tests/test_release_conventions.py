@@ -21,6 +21,30 @@ def git(repo, *args):
                    capture_output=True)
 
 
+def _configure(**changes):
+    """Change a configured value so that BOTH readers see it.
+
+    The same job conftest's `reconfigure` fixture does, as a plain function,
+    because `_tags` below is an ordinary helper called from twenty tests and
+    threading a fixture through it would touch every one.
+
+    Why it is needed at all: these rules read `ctx.config` since they became
+    extant/rules/*.py, so setting the module global alone reaches the shim's
+    leftovers and NOT the rule under test. The rule then matches on the default
+    pattern, finds nothing, and the "not reported" half of each test below
+    passes for the wrong reason - which is exactly why each of them also
+    asserts the reported half. `neutral_config` in conftest restores `_ACTIVE`
+    and every derived global at teardown.
+    """
+    import dataclasses
+
+    import extant_collect as hc
+
+    hc._ACTIVE = dataclasses.replace(hc._ACTIVE, **changes)
+    for name, build in hc._CONFIG_DERIVED.items():
+        setattr(hc, name, build(hc._ACTIVE))
+
+
 def _reset():
     import extant_collect as hc
     # One fresh scope, not a list of cache names to keep in step with the
@@ -31,7 +55,7 @@ def _reset():
     # repository really uses, so they assert what `release_claims_name_our_tags`
     # asserts: the claims are about this repository. The default is off, and
     # the two tests at the bottom of this file are the ones that pin that.
-    hc._RELEASE_CLAIMS_ARE_OURS = True
+    _configure(release_claims_are_ours=True)
 
 
 def _tags(repo, text):
@@ -119,14 +143,14 @@ def test_a_pattern_capturing_the_whole_tag_name_still_resolves(git_repo) -> None
     git(repo, "tag", "-a", "release-1.2.3", "-m", "release")
     git(repo, "tag", "-a", "api@2.0.0", "-m", "package")
 
-    previous = hc._RELEASE_TAG
-    hc._RELEASE_TAG = re.compile(r"[Ss]hipped in `([\w.@-]+)`")
-    try:
-        assert "dead-release-tag" not in _tags(repo, "Shipped in `release-1.2.3`.\n")
-        # The control, under the same pattern: a tag that was never cut.
-        assert "dead-release-tag" in _tags(repo, "Shipped in `release-9.9.9`.\n")
-    finally:
-        hc._RELEASE_TAG = previous
+    _configure(release_tag=re.compile(r"[Ss]hipped in `([\w.@-]+)`"))
+    assert "dead-release-tag" not in _tags(repo, "Shipped in `release-1.2.3`.\n")
+    # The control, under the same pattern: a tag that was never cut. It is not
+    # decoration - a pattern that failed to reach the rule would leave the
+    # assertion above passing on a rule that matched nothing at all, which is
+    # exactly what happened when this rule moved into the package and the test
+    # still set the module global.
+    assert "dead-release-tag" in _tags(repo, "Shipped in `release-9.9.9`.\n")
 
 
 def test_a_literal_tag_name_beginning_with_v_is_not_mangled(git_repo) -> None:
@@ -149,13 +173,9 @@ def test_a_literal_tag_name_beginning_with_v_is_not_mangled(git_repo) -> None:
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "-a", "vendor-1.0", "-m", "vendored")
 
-    previous = hc._RELEASE_TAG
-    hc._RELEASE_TAG = re.compile(r"[Ss]hipped in `([\w.@-]+)`")
-    try:
-        assert "dead-release-tag" not in _tags(repo, "Shipped in `vendor-1.0`.\n")
-        assert "dead-release-tag" in _tags(repo, "Shipped in `vendor-9.9`.\n")
-    finally:
-        hc._RELEASE_TAG = previous
+    _configure(release_tag=re.compile(r"[Ss]hipped in `([\w.@-]+)`"))
+    assert "dead-release-tag" not in _tags(repo, "Shipped in `vendor-1.0`.\n")
+    assert "dead-release-tag" in _tags(repo, "Shipped in `vendor-9.9`.\n")
 
 
 # --- an integration branch that is not there ---------------------------------
@@ -316,7 +336,7 @@ def test_a_claimed_release_that_was_never_tagged_is_silent_by_default(git_repo) 
     git(repo, "tag", "v1.0.0")
 
     _reset()
-    hc._RELEASE_CLAIMS_ARE_OURS = False          # the shipped default
+    _configure(release_claims_are_ours=False)   # the shipped default
     from extant_collect import validate_release_tags
     kinds = [f.kind for f in validate_release_tags(repo, "Released in v9.9.9.\n")]
     assert "dead-release-tag" not in kinds, kinds
@@ -335,7 +355,7 @@ def test_the_settleable_half_is_checked_whatever_the_setting(git_repo) -> None:
     git(repo, "checkout", "-q", "main")
 
     _reset()
-    hc._RELEASE_CLAIMS_ARE_OURS = False
+    _configure(release_claims_are_ours=False)
     from extant_collect import validate_release_tags
     kinds = [f.kind for f in validate_release_tags(repo, "Released in v2.1.0.\n")]
     assert "dead-release-tag" in kinds, kinds

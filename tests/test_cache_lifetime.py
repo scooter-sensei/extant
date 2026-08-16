@@ -26,7 +26,7 @@ def git(repo, *args):
                           text=True, encoding="utf-8", check=True).stdout
 
 
-def test_a_tag_created_between_two_calls_is_seen_by_the_second(git_repo) -> None:
+def test_a_tag_created_between_two_calls_is_seen_by_the_second(git_repo, reconfigure) -> None:
     """The reason the tag list is reset per call, stated in a comment beside it
     and until this test was written guarded by nothing.
 
@@ -48,7 +48,7 @@ def test_a_tag_created_between_two_calls_is_seen_by_the_second(git_repo) -> None
     tag list across the boundary reports the second claim dead.
     """
     import extant_collect as hc
-    hc._RELEASE_CLAIMS_ARE_OURS = True
+    reconfigure(release_claims_are_ours=True)
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "v1.0")

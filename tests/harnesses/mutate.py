@@ -144,18 +144,19 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # convention reporting a release that shipped.
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
-        ("release claims stop using this repository's tag prefix", collect,
-         "        _SCOPE.tag_prefixes[key] = sorted(prefixes)",
-         '        _SCOPE.tag_prefixes[key] = [""]'),
+        ("release claims stop using this repository's tag prefix",
+         rules / "release_tag.py",
+         "        ctx.run.tag_prefixes[key] = sorted(prefixes)",
+         '        ctx.run.tag_prefixes[key] = [""]'),
         # A configured pattern can capture the WHOLE tag name - the installer
         # derives one for repositories tagging `release-1.2.3`. Trying this
         # repository's prefixes first makes that `release-release-1.2.3`.
-        ("a captured tag name is not tried literally first", collect,
+        ("a captured tag name is not tried literally first", rules / "release_tag.py",
          "    if version in tags:\n        return version",
          "    if False:\n        return version"),
         # A claim names a SERIES more often than a tag: symfony names the 8.0
         # series and the tags are `v8.0.0`, `v8.0.1`.
-        ("a claimed version stops matching a tag series", collect,
+        ("a claimed version stops matching a tag series", rules / "release_tag.py",
          '        series = sorted(tag for tag in tags if tag.startswith(exact + "."))',
          "        series = []"),
         # The rule's largest measured blind spot: requiring the commit in
@@ -173,14 +174,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # prose can name an npm release, a sub-package or a plugin - so it is
         # opt-in. On by default it was wrong 19 times in 26 across 15 projects
         # that write such claims.
-        ("a claimed release is judged local without being told", collect,
+        ("a claimed release is judged local without being told",
+         rules / "release_tag.py",
          "            if resolved is None:\n"
-         "                if _RELEASE_CLAIMS_ARE_OURS:",
+         "                if ctx.config.release_claims_are_ours:",
          "            if resolved is None:\n"
          "                if True:"),
-        ("the opt-in never fires even when it is set", collect,
+        ("the opt-in never fires even when it is set", rules / "release_tag.py",
          "            if resolved is None:\n"
-         "                if _RELEASE_CLAIMS_ARE_OURS:",
+         "                if ctx.config.release_claims_are_ours:",
          "            if resolved is None:\n"
          "                if False:"),
         # Git resolves a bare name by trying `refs/tags/` BEFORE
@@ -199,9 +201,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # NameError, because the shim stopped importing that name. A mutation
         # killed by a crash proves the suite notices crashes, not that anything
         # pins the property in its label.
-        ("the tag list goes back to its own subprocess", collect,
-         "    return set(_ref_table(repo)[1])",
-         '    return set(_GIT.soft(repo, "tag", "-l").split())'),
+        ("the tag list goes back to its own subprocess", rules / "release_tag.py",
+         "    return set(ref_table(ctx)[1])",
+         '    return set(ctx.git.soft(ctx.repo, "tag", "-l").split())'),
         ("an annotated tag stops being peeled to its commit", refs,
          "            commit = peeled or obj",
          "            commit = obj"),
@@ -265,8 +267,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # asking whether the tag is on ANY integration branch.
         # Retargeted a second time when the rule started asking about the tag
         # it RESOLVED the claim to rather than the string the author wrote.
-        ("release-tag ancestry check dropped", collect,
-         '            if not _integrated_by(repo, f"refs/tags/{resolved}"):',
+        ("release-tag ancestry check dropped", rules / "release_tag.py",
+         '            if not integrated_by(ctx, f"refs/tags/{resolved}"):',
          "            if False:"),
         ("path/branch guard removed (a file becomes a phantom branch)",
          rules / "branch.py",
