@@ -14,7 +14,7 @@ Reading `text.py` from here is a sibling call already, which is why
 `current_document`, `anchors` and `ORDER_PREFIX` are public over there.
 
 `_ABSOLUTE` arrived with this module rather than going to `rules/path_pointer`
-as the plan had it. Nothing else names it: `_resolve_reference` is its only
+as the plan had it. Nothing else names it: `resolve_reference` is its only
 reader, and once that moved here, leaving the pattern behind would have meant
 this module importing the shim.
 """
@@ -34,8 +34,8 @@ __all__ = [
     "_has_global_anchors", "_has_partial_anchors", "_in_site_tree",
     "_is_generated_site", "_listdir", "_looks_like_a_path",
     "_numbered_docs_scopes", "_numbered_docs_tree", "_partial_anchors",
-    "_project_anchors", "_resolve_reference", "_site_dirs", "_site_scopes",
-    "_top_level",
+    "_project_anchors", "_site_dirs", "_site_scopes",
+    "_top_level", "resolve_reference",
 ]
 
 # An absolute path, which resolves against the filesystem root rather than
@@ -114,7 +114,7 @@ def _actual_case(ctx: Context, base: Path, relative: str) -> str | None:
     return "/".join(parts)
 
 
-def _resolve_reference(ctx: Context, base: Path,
+def resolve_reference(ctx: Context, base: Path,
                        raw: str) -> tuple[bool, str | None]:
     """(exists_portably, on_disk_spelling_if_it_differs)."""
     if _ABSOLUTE.match(raw):

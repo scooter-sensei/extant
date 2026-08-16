@@ -554,80 +554,18 @@ def _probe_merge(repo: Path, text: str) -> str | None:
     return _rule_merge.probe(_ctx(repo), text)
 
 
-# A backticked path that is the VISIBLE TEXT of a markdown link.
-#
-#     read [`PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md)
-#
-# The text names the file; the URL says where it is. This rule read the text
-# as a pointer, resolved it against the repository root, and reported a link
-# that works. Same shape as `_LINKED_SHA` one rule over, and settled the same
-# way: the link BESIDE it is the authority, so if that resolves there is
-# nothing to report.
-#
-# Measured on the held-out corpus: 4 findings have this shape and the URL
-# resolves in 3. The fourth is Roo-Code citing an `ADDING-EVALS.md` that is
-# absent both ways, and it is still reported.
-_LINKED_PATH = re.compile(r"\[\s*`([^`]+)`\s*\]\(\s*([^)\s]+)")
+# The dead-path-pointer rule is extant/rules/path_pointer.py now.
+from extant.rules import path_pointer as _rule_pointer
 
 
 def validate_path_pointers(repo: Path, text: str) -> list[Finding]:
-    """Paths offered as pointers must resolve; a pointer to nothing is useless.
+    """Paths offered as pointers must resolve; a pointer to nothing is useless."""
+    return _rule_pointer.check(_ctx(repo), text)
 
-    Only OPERATIVE references are checked - a path introduced by "Plan:",
-    "Design:", "see", or "read". A path merely MENTIONED ("we deleted X",
-    "Phase 8 had X", "Phase 10 will add X") is description or intent, not a
-    pointer, and flagging it would be noise. See the note above `_PATH_POINTER`
-    for the corpus measurement behind that distinction.
 
-    Checked whole-file and in the archive, like merge claims: a pointer is an
-    operative promise at any age, and archiving an entry does not make its
-    broken pointer work.
-    """
-    # Claims inside code are examples, not promises. See _prose.
-    text = _prose(text)
-    findings: list[Finding] = []
-    # Resolved from the repository root AND from the directory holding the
-    # document, because both are how people write these.
-    #
-    # The rule used to try the root alone. A nested `SKILL.md` saying "see
-    # `references/cli.md`" was reported dead while the file sat in the very
-    # next directory entry, because `references/cli.md` does not exist at the
-    # root. 61 findings on the held-out corpus, every one of them a pointer a
-    # reader can follow, and `validate_md_links` two rules down had resolved
-    # relative to the document all along - the inconsistency was the bug.
-    #
-    # Strictly narrowing: a pointer resolving either way is a working
-    # pointer, so nothing that was a real defect stops being one.
-    base = _DOC.link_base or repo
-    for number, line in enumerate(text.splitlines(), start=1):
-        linked = {text_part.strip(): url
-                  for text_part, url in _LINKED_PATH.findall(line)}
-        for raw in _PATH_POINTER.findall(line):
-            url = linked.get(raw)
-            if url is not None and not _EXTERNAL.match(url):
-                target = _percent_decoded(url.split("#")[0])
-                if (_resolve_reference(repo, base, target)[0]
-                        or _resolve_reference(repo, repo, target.lstrip("/"))[0]):
-                    continue
-            exists, actual_case = _resolve_reference(repo, repo, raw)
-            if not exists and base != repo:
-                beside, beside_case = _resolve_reference(repo, base, raw)
-                if beside:
-                    continue
-                actual_case = actual_case or beside_case
-            if not exists:
-                if actual_case:
-                    detail = (f"points at `{raw}`, but the file on disk is "
-                              f"`{actual_case}`; the case differs, which fails "
-                              f"on a case-sensitive filesystem")
-                else:
-                    detail = f"points at `{raw}`, which does not exist"
-                    moved = _renamed_to(repo, raw)
-                    if moved:
-                        detail += f"; git shows it renamed to `{moved}`"
-                findings.append(Finding(number, "dead-path-pointer", detail,
-                                        subject=raw))
-    return findings
+def _probe_pointer(repo: Path, text: str) -> str | None:
+    """Repoint a real pointer at a path that does not exist."""
+    return _rule_pointer.probe(_ctx(repo), text)
 
 
 def validate_live_claims(repo: Path, text: str) -> list[Finding]:
@@ -708,17 +646,19 @@ def validate_live_claims(repo: Path, text: str) -> list[Finding]:
 # call surface does not move under the suite or under an adopter's script.
 from extant.text import (            # noqa: F401  (re-exported as they are:
     _ATTR_ANCHOR, _DIRECTIVE_LABEL,  # patterns and pure functions, no state)
-    _EXPLICIT_ANCHOR, _EXTERNAL, _FENCE, _HEADING, _INLINE_CODE, _LANGUAGE_DIR,
+    _EXPLICIT_ANCHOR, _FENCE, _HEADING, _INLINE_CODE, _LANGUAGE_DIR,
     _MARKDOWN_ONLY, _MD_LINK, _MYST_TARGET, _NESTED_HEADING, _ROUTE_DEPTH,
     _RST_DIRECTIVE, _RST_DOCTEST, _RST_INLINE, _RST_LITERAL_INTRO,
     _SETEXT_RULE, _STRIPPED, _blank_rst, _definition_terms, _disambiguated,
-    _format_for, _heading_text, _percent_decoded, _route_name,
+    _format_for, _heading_text, _route_name,
     _setext_headings, _slug, _slug_keeping_edges, _slug_punctuation_to_dash,
     _without_tags,
 )
-from extant.text import (            # noqa: F401  (promoted for sites.py, and
-    ORDER_PREFIX as _ORDER_PREFIX,   # re-exported under the old spelling)
-    anchors as _anchors,
+from extant.text import (            # noqa: F401  (promoted for a sibling
+    EXTERNAL as _EXTERNAL,           # that calls them - sites.py for the first
+    ORDER_PREFIX as _ORDER_PREFIX,   # three, a rule module for the rest - and
+    anchors as _anchors,             # re-exported here under the old spelling)
+    percent_decoded as _percent_decoded,
 )
 
 # The MODULE as well, so the wrappers below look each function up at call time
@@ -1053,7 +993,7 @@ def _actual_case(base: Path, relative: str) -> str | None:
 
 def _resolve_reference(repo: Path, base: Path, raw: str) -> tuple[bool, str | None]:
     """(exists_portably, on_disk_spelling_if_it_differs)."""
-    return _sites._resolve_reference(_ctx(repo), base, raw)
+    return _sites.resolve_reference(_ctx(repo), base, raw)
 
 
 def _has_global_anchors(repo: Path) -> bool:
@@ -2220,10 +2160,6 @@ def _probe_sha(repo: Path, text: str) -> str | None:
     return _rule_sha.probe(_ctx(repo), text)
 
 
-def _probe_pointer(repo: Path, text: str) -> str | None:
-    return _sub_group(text, _PATH_POINTER, 1, _MISSING_PATH)
-
-
 def _probe_tag(repo: Path, text: str) -> str | None:
     return _sub_group(text, _RELEASE_TAG, 1, "v0.0.0-extant-selftest")
 
@@ -2351,7 +2287,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "unknown-branch": branches_in_newest,
         "false-merge-claim": _rule_merge.examined(_ctx(repo), text),
         "dead-release-tag": len(_RELEASE_TAG.findall(prose)),
-        "dead-path-pointer": len(_PATH_POINTER.findall(prose)),
+        "dead-path-pointer": _rule_pointer.examined(_ctx(repo), text),
         "dead-md-link": sum(1 for raw in links
                             if not _EXTERNAL.match(raw) and not raw.startswith("#")),
         "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),

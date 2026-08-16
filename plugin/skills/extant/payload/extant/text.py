@@ -68,16 +68,16 @@ from extant.scope import Context, DocScope
 # though no sibling should be calling them.
 __all__ = [
     "ORDER_PREFIX", "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
-    "_EXTERNAL", "_FENCE", "_HEADING", "_INLINE_CODE", "_LANGUAGE_DIR",
+    "_FENCE", "_HEADING", "_INLINE_CODE", "_LANGUAGE_DIR",
     "_MARKDOWN_ONLY", "_MD_LINK", "_MYST_TARGET", "_NESTED_HEADING",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_SETEXT_RULE", "_STRIPPED", "_blank", "_blank_rst",
     "_blank_uncached", "_definition_terms", "_disambiguated", "_format_for",
-    "_heading_text", "_numbered_document", "_percent_decoded",
+    "_heading_text", "_numbered_document",
     "_route_name", "_setext_headings", "_slug", "_slug_keeping_edges",
     "_slug_punctuation_to_dash", "_strip_code", "_translation_tree",
-    "_unique_basename", "_without_tags", "anchors", "current_document",
-    "prose",
+    "_unique_basename", "_without_tags", "EXTERNAL", "anchors",
+    "current_document", "percent_decoded", "prose",
 ]
 
 # Markdown link syntax is fixed by the format, not by any project's habits, so
@@ -89,7 +89,7 @@ _MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
 # next scheme somebody uses - slack:, vscode:, ssh:, matrix:. Two or more
 # characters before the colon so a Windows drive letter is not mistaken for
 # one; a relative path does not carry a colon before its first slash.
-_EXTERNAL = re.compile(r"^(?:[a-z][a-z0-9+.-]+:|//)", re.I)
+EXTERNAL = re.compile(r"^(?:[a-z][a-z0-9+.-]+:|//)", re.I)
 _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 # A heading nested inside a list item. CommonMark renders `- ### Title` as a
 # real h3 and gives it an id, which is how a README builds an indented table
@@ -424,7 +424,7 @@ def _numbered_document(ctx: Context, target: str) -> bool:
 _ROUTE_DEPTH = 4
 
 
-def _percent_decoded(target: str) -> str:
+def percent_decoded(target: str) -> str:
     """A link target with percent-escapes resolved, or unchanged if it has none.
 
     Left alone when there is nothing to decode, so a path containing a literal
