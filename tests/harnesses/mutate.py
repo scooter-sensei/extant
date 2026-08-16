@@ -258,7 +258,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # `rev: ''` is pre-commit's own placeholder and `rev: 'v1.2.3'` is the
         # same pin as the bare spelling. 69 bare, 4 quoted, 2 empty across 30
         # repositories.
-        ("a pin is read with its yaml quotes attached", collect,
+        ("a pin is read with its yaml quotes attached", rules / "pinned_ref.py",
          "            ref = match.group(1).strip(_PIN_QUOTES)\n"
          "            if ref:",
          "            ref = match.group(1)\n"
@@ -602,16 +602,19 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # the harness lying rather than the tests failing. This shape also
         # leaves the DENOMINATOR at 1 while findings drop to 0, which is the
         # exact "examined but never reports" defect the project cares about.
-        ("pinned-ref never fires", collect,
-         "    for number, ref in _pinned_refs(repo, text):",
+        ("pinned-ref never fires", rules / "pinned_ref.py",
+         "    for number, ref in _pinned_refs(ctx, text):",
          "    for number, ref in []:"),
-        ("pinned-ref ignores the governing repo (flags third-party pins)", collect,
+        ("pinned-ref ignores the governing repo (flags third-party pins)",
+         rules / "pinned_ref.py",
          "        if match and governing == own:",
          "        if match:"),
-        ("pinned-ref stops normalising remotes (SSH never matches HTTPS)", collect,
+        ("pinned-ref stops normalising remotes (SSH never matches HTTPS)",
+         rules / "pinned_ref.py",
          '    parts = [p for p in url.replace(":", "/").split("/") if p]',
          '    parts = [p for p in url.split("/") if p]'),
-        ("pinned-ref keeps the .git suffix, so no remote ever matches", collect,
+        ("pinned-ref keeps the .git suffix, so no remote ever matches",
+         rules / "pinned_ref.py",
          '    if url.endswith(".git"):',
          "    if False:"),
         # NOT a no-origin mutation. Removing `if own is None: return []` changes
@@ -620,7 +623,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # A mutation there survives forever and blames the tests for it. This
         # probes the reported line number instead, which is what a reader
         # actually navigates by.
-        ("pinned-ref reports the wrong line number", collect,
+        ("pinned-ref reports the wrong line number", rules / "pinned_ref.py",
          "    governing: str | None = None\n"
          "    for number, line in enumerate(text.splitlines(), start=1):",
          "    governing: str | None = None\n"
@@ -1013,21 +1016,23 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # would put back a 70 percent slowdown nobody could date afterwards.
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
-        ("the remote is fetched once per document again", collect,
-         "    key = str(repo)\n"
-         "    if key not in _SCOPE.own_remote:\n"
-         "        _SCOPE.own_remote[key] = _normalise_remote(\n"
-         '            _GIT.soft(repo, "remote", "get-url", "origin"))\n'
-         "    return _SCOPE.own_remote[key]",
-         '    return _normalise_remote(_GIT.soft(repo, "remote", "get-url", "origin"))'),
+        ("the remote is fetched once per document again", rules / "pinned_ref.py",
+         "    key = str(ctx.repo)\n"
+         "    if key not in ctx.run.own_remote:\n"
+         "        ctx.run.own_remote[key] = _normalise_remote(\n"
+         '            ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))\n'
+         "    return ctx.run.own_remote[key]",
+         "    return _normalise_remote(\n"
+         '        ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))'),
         # `None` means "no origin", which is an ANSWER. Probed by truthiness it
         # is a miss forever, so the cache silently stops working on exactly the
         # repositories that have no remote.
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
-        ("a cached no-origin answer is treated as a cache miss", collect,
-         "    if key not in _SCOPE.own_remote:",
-         "    if not _SCOPE.own_remote.get(key):"),
+        ("a cached no-origin answer is treated as a cache miss",
+         rules / "pinned_ref.py",
+         "    if key not in ctx.run.own_remote:",
+         "    if not ctx.run.own_remote.get(key):"),
         # Retargeted when the caches became a RunScope. The sweep hands back one
         # OBJECT instead of clearing eleven names, and validate() decides whether
         # to reset by asking if it opened its own scope rather than by reading a
