@@ -375,16 +375,19 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("denominator lies: dead-sha always 1", rules / "sha.py",
          "    return len(find_sha_candidates(text)) + len(find_bare_sha_candidates(text))",
          "    return 1"),
-        ("denominator drops a rule entirely", collect,
-         '        "dead-md-anchor": _rule_md_anchor.examined(_ctx(repo), text),',
-         ""),
+        # Retargeted when `count_examined` stopped being a dict of thirteen entries
+        # and became a fold over the registry. A rule is dropped from the
+        # denominator by skipping one, not by deleting a line.
+        ("denominator drops a rule entirely", collect.parent / "extant/registry.py",
+         "    for rule in RULES:",
+         "    for rule in RULES[1:]:"),
 
         # --- selftest ---------------------------------------------------------
         ("selftest reports FIRED unconditionally", collect,
          "        if findings:\n            fired += 1",
          "        if True:\n            fired += 1"),
         ("every probe returns None", collect,
-         "        probed = rule.probe(repo, text)  # type: ignore[operator]",
+         "        probed = rule.probe(context, text)  # type: ignore[operator]",
          "        probed = None"),
 
         # --- output formats ---------------------------------------------------
@@ -813,10 +816,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # repository into build failures; gating on nothing makes `--sweep`
         # incapable of ever failing, which reads identically to a clean run.
         ("the sweep gates on unreviewed documents too", collect,
-         '    return 1 if results["vetted"] else 0',
-         '    return 1 if (results["vetted"] or results["unvetted"]) else 0'),
+         '    return 1 if (results["vetted"] or RULE_ERRORS) else 0',
+         '    return 1 if (results["unvetted"] or RULE_ERRORS) else 0'),
         ("the sweep gates on nothing at all", collect,
-         '    return 1 if results["vetted"] else 0',
+         '    return 1 if (results["vetted"] or RULE_ERRORS) else 0',
          "    return 0"),
         ("everything is vetted, so nothing is surveyed separately", collect,
          "    vetted = [p for p in paths if p in normalised]\n"

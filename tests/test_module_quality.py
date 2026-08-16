@@ -197,12 +197,40 @@ def test_no_module_reaches_past_another_modules_surface() -> None:
     print(f"checked {len(_modules())} modules for cross-boundary private imports")
     assert not violations, violations
 
-# test_rules_are_leaves deliberately does NOT live here. Removed per the
-# coordinator's plan fix: it asserts 13 rule modules that only exist from
-# Task 9 onward, and a gate that passes (or fails outright) while examining a
-# population that does not exist yet is the defect this whole file exists to
-# prevent. test_every_module_declares_its_surface and
-# test_no_module_reaches_past_another_modules_surface were deferred for the
-# same reason with a smaller population - there was nothing to check until
-# Task 2 created git.py - and Step 5b added them here once that population
-# existed. Task 9 Step 6d adds test_rules_are_leaves the same way.
+def test_rules_are_leaves() -> None:
+    """Only the registry may import a rule.
+
+    Three rule-to-rule dependencies existed before the split: md_link and
+    path_pointer both reached into live_claim for rename detection, and merge
+    reached into sha for object resolution. Each was shared machinery housed in
+    whichever rule happened to need it first.
+
+    Task 9 found three more the plan had not: the SHA-token and merge-claim
+    scanners, which `dead-sha` and `false-merge-claim` share because the
+    document's tokens must be resolved in ONE batch; the branch-token probe,
+    which `stale-live-claim` called on `unknown-branch` outright; and the
+    one-capture substitution four probes use. They went to extant/commits.py
+    and extant/probes.py rather than being imported sideways.
+
+    The `== 13` is the denominator that makes this real, and it is exactly why
+    this gate could not live in Task 1: that task creates no rule modules, so
+    the assertion fails outright rather than passing vacuously.
+    """
+    offenders = []
+    for path in _modules():
+        if path.name == "registry.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            module = getattr(node, "module", "") or ""
+            if isinstance(node, ast.ImportFrom) and module.startswith("extant.rules"):
+                offenders.append(f"{path.name}:{node.lineno} imports {module}")
+    # `rules/__init__.py` is excluded, because it is the package marker rather
+    # than a rule. Left in, this counted 14 and the number would have had to be
+    # 14 - a denominator naming a population it does not describe, which is the
+    # thing this file exists to refuse.
+    rules = [p for p in _modules()
+             if p.parent.name == "rules" and p.name != "__init__.py"]
+    assert len(rules) == 13, f"found {len(rules)} rule modules, expected 13"
+    print(f"checked {len(_modules())} modules; {len(rules)} of them are rules")
+    assert not offenders, offenders

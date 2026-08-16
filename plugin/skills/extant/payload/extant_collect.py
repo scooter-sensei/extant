@@ -14,13 +14,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
-from collections import Counter
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -114,6 +112,14 @@ from extant.scope import Context, DocScope, RunScope
 # further down look each function up on it at call time, so a test may swap one
 # there and see the shim's own callers go through the replacement.
 from extant import refs as _refs
+
+# The registry, which owns both the rule list and the per-rule denominators,
+# and the list of rules that RAISED during this run. `RULE_ERRORS` is mutated
+# and never rebound - see its comment there for why an assignment anywhere
+# would hand one caller a different list.
+from extant import registry as _registry
+
+from extant.registry import RULE_ERRORS   # noqa: F401
 
 from extant.refs import (            # noqa: F401  (re-exported as they are:
     _INTEGRATION_NAMES,              # neither reads any ambient state)
@@ -1050,46 +1056,15 @@ from extant.registry import Rule      # noqa: F401  (re-exported: the suite
 
 
 def count_examined(repo: Path, text: str) -> dict[str, int]:
-    """How many candidates each rule actually LOOKED AT, findings aside.
+    """Per-rule denominators. See extant.registry.count_examined.
 
-    The denominator, and the reason it exists: five separate times in one day a
-    check reported success while examining nothing - patterns that matched
-    nothing on a foreign repo, a hook that found no interpreter, a config value
-    nothing read, a worktree survey resolving to the wrong repo, a lint whose
-    skip-list excluded every file. Every one printed exactly what success
-    prints, because "zero findings" and "zero checked" are the same output.
-
-    Reporting the denominator makes those two states visibly different. A rule
-    showing 0 examined is either genuinely absent from this document or broken,
-    and the reader needs to know which.
+    A fold over the registry now, rather than one dict of thirteen entries
+    maintained here. The dict guarded against forgetting a rule; asking each
+    rule removes the opportunity, because the module that finds a rule's
+    candidates is the module that counts them and the two can no longer
+    describe different populations.
     """
-    # Computed from PROSE, because that is what the rules read. Six of them
-    # open with `text = _prose(text)` - claims inside code are examples, not
-    # promises - and counting the raw document reported candidates no rule ever
-    # looked at. Measured 2026-08-04: rust-lang/rfcs reported `dead-sha 23`
-    # where the rule read 11, so more than half that denominator was fenced
-    # example output. An overstated denominator is the worst of the three
-    # numbers available: it is the one that reassures.
-    prose = _prose(text)
-    links = [raw for line in _strip_code(text).splitlines()
-             for raw in _MD_LINK.findall(line)]
-    return {
-        # Asked of the rule module, which finds these candidates and so is the
-        # only place that can count them over the same population.
-        "dead-sha": _rule_sha.examined(_ctx(repo), text),
-        "stale-live-claim": _rule_live.examined(_ctx(repo), text),
-        "unknown-branch": _rule_branch.examined(_ctx(repo), text),
-        "false-merge-claim": _rule_merge.examined(_ctx(repo), text),
-        "dead-release-tag": _rule_tag.examined(_ctx(repo), text),
-        "dead-path-pointer": _rule_pointer.examined(_ctx(repo), text),
-        "dead-md-link": _rule_md_link.examined(_ctx(repo), text),
-        "dead-md-anchor": _rule_md_anchor.examined(_ctx(repo), text),
-        "inconsistent-artifact": _rule_consistency.examined(_ctx(repo), text),
-        "dead-pinned-ref": _rule_pin.examined(_ctx(repo), text),
-        "raw-lfs-blob": _rule_lfs.examined(_ctx(repo), text),
-        "manifest-floor-mismatch": _rule_floor.examined(_ctx(repo), text),
-        "dead-line-pointer": _rule_line.examined(_ctx(repo), text),
-    }
+    return _registry.count_examined(_ctx(repo), text)
 
 
 # THE ADMISSION TEST for anything added here: it must answer a yes/no question
@@ -1097,120 +1072,35 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
 # A rule that inspects numbers or dates fails it - historical facts are true
 # when written and stale forever after, so checking them cries wolf, and a
 # validator that cries wolf stops being read.
-RULES: tuple[Rule, ...] = (
-    Rule(
-        kind="dead-line-pointer",
-        check=validate_line_pointers,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does the cited file have at least that many lines?",
-        probe=_probe_line_pointer,
-    ),
-    Rule(
-        kind="manifest-floor-mismatch",
-        check=validate_manifest_floors,
-        scope="whole-file",
-        # Whole-file, so never archive-exempt: the exemption tracks scope
-        # exactly and `test_only_non_whole_file_rules_are_archive_exempt`
-        # pins that. The flag is moot in practice anyway - what limits this
-        # rule is `_ENTRY_DOC`, and an archive is never an entry-point
-        # document. A floor offered to a reader is a promise at any age.
-        in_archive=True,
-        falsifiable="does the manifest for this ecosystem declare a different "
-                    "floor than this document states?",
-        probe=_probe_manifest_floor,
-    ),
-    Rule(
-        kind="dead-sha",
-        check=validate_references,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does `git cat-file -e <sha>^{commit}` succeed?",
-        probe=_probe_sha,
-    ),
-    Rule(
-        kind="stale-live-claim",
-        check=validate_live_claims,
-        scope="newest-entry",
-        in_archive=False,
-        falsifiable="is the named branch on an integration branch, or gone entirely?",
-        probe=_probe_live_claim,
-    ),
-    Rule(
-        kind="unknown-branch",
-        check=validate_branch_mentions,
-        scope="newest-entry",
-        in_archive=False,
-        falsifiable="does the branch exist, or appear in any merge commit?",
-        probe=_probe_branch_in_newest,
-    ),
-    Rule(
-        kind="false-merge-claim",
-        check=validate_merge_claims,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="is the claimed commit an ancestor of the ref the claim names?",
-        probe=_probe_merge,
-    ),
-    Rule(
-        kind="dead-release-tag",
-        check=validate_release_tags,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does the tag exist, and is it on an integration branch?",
-        probe=_probe_tag,
-    ),
-    Rule(
-        kind="dead-path-pointer",
-        check=validate_path_pointers,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does the referenced path exist on disk?",
-        probe=_probe_pointer,
-    ),
-    Rule(
-        kind="dead-md-link",
-        check=validate_md_links,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does the linked file exist on disk?",
-        probe=_probe_md_link,
-    ),
-    Rule(
-        kind="dead-md-anchor",
-        check=validate_md_anchors,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does this document contain a heading with that anchor?",
-        probe=_probe_md_anchor,
-    ),
-    Rule(
-        kind="inconsistent-artifact",
-        check=validate_consistency,
-        scope="repository",
-        in_archive=False,
-        falsifiable="do the configured files state the same value?",
-        probe=_probe_consistency,
-        subject_file=".extant.toml",
-    ),
-    Rule(
-        kind="dead-pinned-ref",
-        check=validate_pinned_refs,
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="does `git rev-parse <ref>` resolve, for a pin naming this repository?",
-        probe=_probe_pinned_ref,
-    ),
-    Rule(
-        kind="raw-lfs-blob",
-        check=validate_lfs_storage,
-        scope="repository",
-        in_archive=False,
-        falsifiable="does every path under an LFS filter store a pointer?",
-        probe=_probe_lfs_storage,
-        subject_file=".gitattributes",
-    ),
-)
+#
+# The tuple that used to be written out here is assembled from the modules by
+# extant/registry.py, which imports every one of them EAGERLY. A rule is now
+# added by creating extant/rules/<name>.py and nothing else; there is no second
+# place to forget, which is what the literal tuple made possible.
+from extant.registry import RULES     # noqa: F401  (re-exported: `validate`
+#                                       below reads this name, and the suite
+#                                       swaps it to test the registry's effect)
+
+
+def _report_rule_errors(emit, mark: int = 0) -> int:
+    """Name every rule that RAISED since `mark`, and return the new mark.
+
+    Printed where the denominators are printed, not to a log. That placement is
+    the whole safety argument for catching a rule's exception at all: a rule
+    that crashed and was quietly skipped reports no findings, which is
+    byte-identical to a clean document, so the ONLY thing separating the two is
+    that the reader is told. The caller must also refuse to exit 0 - see
+    `RULE_ERRORS`.
+
+    Taking a mark rather than draining the list, because `--verify` reads
+    several documents and each one's errors belong beside its own `checked ...`
+    line; the list itself has to survive to the end, where the exit code is
+    decided.
+    """
+    for kind, message in RULE_ERRORS[mark:]:
+        emit(f"  ERRORED: {kind} raised {message}. A rule that raised has not "
+             f"found nothing, it has failed to look, so this run is not a pass.")
+    return len(RULE_ERRORS)
 
 
 def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
@@ -1228,15 +1118,16 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
     """
     lines: list[str] = []
     fired = unprobeable = 0
+    context = _ctx(repo)
     for rule in RULES:
-        probed = rule.probe(repo, text)  # type: ignore[operator]
+        probed = rule.probe(context, text)  # type: ignore[operator]
         if probed is None:
             unprobeable += 1
             lines.append(f"  {rule.kind:<20} NO PROBE       nothing to corrupt "
                          f"(no such claim here, or the repository offers "
                          f"nothing to corrupt it with)")
             continue
-        findings = [f for f in rule.check(repo, probed)  # type: ignore[operator]
+        findings = [f for f in rule.check(context, probed)  # type: ignore[operator]
                     if f.kind == rule.kind]
         if findings:
             fired += 1
@@ -1415,7 +1306,24 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         for rule in RULES:
             if not _rule_applies(rule, in_archive, has_entries):
                 continue
-            findings += rule.check(repo, text)  # type: ignore[operator]
+            try:
+                findings += rule.check(context, text)  # type: ignore[operator]
+            except Exception as exc:                   # noqa: BLE001
+                # Deliberately broad, and deliberately not silent. A rule that
+                # raises has not "found nothing"; it has failed to LOOK, and
+                # those two print identically unless it is said out loud. The
+                # run continues so the other twelve rules still report, and
+                # `RULE_ERRORS` is what every caller reads to name this rule
+                # beside the denominators and to refuse to exit 0.
+                #
+                # This is the one place in this codebase where the broad form
+                # is correct, and it is correct ONLY because of those two
+                # things. The convention forbidding it exists to stop errors
+                # vanishing, which is precisely what this does not do: swallow
+                # the exception and drop the record, and a crashed rule becomes
+                # a clean document.
+                RULE_ERRORS.append(
+                    (rule.kind, f"{exc.__class__.__name__}: {exc}"))
         return findings
     finally:
         _SCOPE, _DOC = outer_scope, outer_doc
@@ -1898,10 +1806,20 @@ def run_sweep(repo: Path, fmt: str) -> int:
                 # Repository findings are surveyed and never gate - the section
                 # heading says "not gated" and the exit code honours it, so the
                 # machine format must say the same thing.
+                # Isolated exactly as the per-document loop in `validate` is,
+                # and for the same reason: these run outside it, so a
+                # repository rule that raised would take down a whole survey
+                # rather than one rule of it.
+                try:
+                    produced = rule.check(_ctx(repo), "")  # type: ignore[operator]
+                except Exception as exc:                   # noqa: BLE001
+                    RULE_ERRORS.append(
+                        (rule.kind, f"{exc.__class__.__name__}: {exc}"))
+                    produced = []
                 results["repository"].extend(
                     Located(rule.subject_file or ".", finding, primary=False,
                             gating=False)
-                    for finding in rule.check(repo, ""))  # type: ignore[operator]
+                    for finding in produced)
                 examined[rule.kind] = repository_examined[rule.kind]
         finally:
             # The DOCUMENT only. The run scope hands itself back, on the
@@ -1970,6 +1888,11 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # against 30 repositories where six of them had a denominator of zero.
     print("  examined: " + ", ".join(f"{kind} {n}"
                                      for kind, n in examined.items()), file=out)
+    # Beside the denominators, for the reason `_report_rule_errors` gives: a
+    # rule that crashed reports no findings, which is what a clean survey looks
+    # like. A sweep is where that matters most - hundreds of documents, one
+    # malformed input - and it is exactly why isolation was worth adding here.
+    _report_rule_errors(lambda line: print(line, file=out))
     # Zero counts are REPORTED rather than filtered, and named again here. A
     # rule examining nothing across a WHOLE repository is a far stronger signal
     # than the same zero in one document, and it is the one a reader skimming a
@@ -1990,7 +1913,10 @@ def run_sweep(repo: Path, fmt: str) -> int:
         print("  unreviewed findings do not affect the exit code. Some will be "
               "examples rather than claims; move a file into extra_docs once "
               "you have read them.", file=out)
-    return 1 if results["vetted"] else 0
+    # An errored run never exits 0, even in the mode whose findings do not
+    # gate. "Nothing failed here" and "a rule could not be run" are different
+    # answers and a survey must not give the first when it means the second.
+    return 1 if (results["vetted"] or RULE_ERRORS) else 0
 
 
 def _document_at(repo: Path, ref: str, relative: str) -> str | None:
@@ -2551,6 +2477,12 @@ def _survivable_output() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     _survivable_output()
+    # One RUN, one list. Cleared here rather than by `validate()`, which is
+    # called several times per run and would otherwise forget the primary
+    # document's failures the moment it read the archive. MUTATED, never
+    # rebound: `_registry.RULE_ERRORS` and this name are one list, and an
+    # assignment here would leave the rules appending to the other one.
+    RULE_ERRORS.clear()
     parser = build_parser()
     args = parser.parse_args(argv)
     repo = Path(args.repo)
@@ -2834,6 +2766,9 @@ def main(argv: list[str] | None = None) -> int:
         summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
         blind = [kind for kind, n in examined.items() if n == 0]
         diag(f"checked {Path(args.validate).name}: {summary}")
+        # Beside the denominators, because that is where a reader looks to
+        # decide whether a quiet rule was quiet or broken.
+        errors_reported = _report_rule_errors(diag)
         if blind:
             diag("  NOTE: these rules matched nothing at all - either this "
                  "document makes no such claims, or the pattern is wrong: "
@@ -2899,6 +2834,7 @@ def main(argv: list[str] | None = None) -> int:
             checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
                                 if kind not in skipped)
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
+            errors_reported = _report_rule_errors(diag, errors_reported)
             if new_extra:
                 exit_code = 1
         _set_document(link_base=None)
@@ -2955,6 +2891,16 @@ def main(argv: list[str] | None = None) -> int:
             # to surface, reintroduced by one of its own features.
             diag(f"{len(located)} new finding(s), {suppressed} suppressed by "
                  f"{_rel(repo, baseline_path)}")
+
+        # Anything the archive pass raised, which happens between the two
+        # blocks above and belongs to no `checked ...` line of its own.
+        errors_reported = _report_rule_errors(diag, errors_reported)
+        if RULE_ERRORS:
+            # An errored run NEVER exits 0. A partial answer that reports
+            # success is the failure this whole project exists to prevent, and
+            # it is the one thing that would make per-rule isolation worse than
+            # letting the traceback out.
+            exit_code = 1
 
         if args.baseline_check:
             stale = [entry for fingerprint, entry in sorted(baselined.items())

@@ -460,14 +460,18 @@ def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> Non
     import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
-    blind = hc.Rule(
-        kind="dead-sha",
-        check=lambda _repo, _text: [],   # corrupt anything; notice nothing
-        scope="whole-file",
-        in_archive=True,
-        falsifiable="never answered",
-        probe=hc._probe_sha,
-    )
+    # Built from the REAL rule rather than by hand, so its probe is the one
+    # the registry carries and takes the same `(ctx, text)` every other rule
+    # takes. Hand-built, this passed `hc._probe_sha` - the shim's `(repo, text)`
+    # wrapper - and worked only because that probe ignores its first argument.
+    # A rule whose probe actually read the repository would have made this test
+    # pass against a Context handed in where a Path was expected, which is a
+    # setup nobody could see was wrong.
+    import dataclasses
+
+    real = next(r for r in hc.RULES if r.kind == "dead-sha")
+    blind = dataclasses.replace(
+        real, check=lambda _ctx, _text: [])   # corrupt anything; notice nothing
     monkeypatch.setattr(hc, "RULES", (blind,))
 
     lines, fired, unprobeable = hc.selftest(repo, "Shipped at `abc1234567890`.\n")
