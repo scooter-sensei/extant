@@ -64,24 +64,24 @@ NOT_A_CACHE = {"stable"}
 # need something `run(repo, *args)` cannot express. Named individually so this
 # is a list somebody maintains rather than a number that drifts:
 #
-#   2  `cat-file` batches, which feed object names to git on STDIN
-#   1  `ls-tree -r -z HEAD`, whose NUL-separated output pairs with the next one
-#   1  `check-attr -z --stdin filter`, also stdin-fed
 #   1  `git show`, which must return BYTES: `_git` passes text=True, which
 #      makes subprocess decode inside a reader thread, so invalid UTF-8 raises
 #      somewhere a caller cannot catch it
 #
 # Six until Task 8, when the third `cat-file` batch left with the code around
 # it: `_batch_shas` backs `resolve_shas`, which moved to extant/refs.py so that
-# the merge rule would not have to reach into the SHA rule for it. It did not
-# stop bypassing the seam by moving, so it is still counted - one file over, as
-# PACKAGE_DIRECT_SUBPROCESS_SITES below. Lowering this without adding that one
-# would have retired a watched site by losing track of it.
+# the merge rule would not have to reach into the SHA rule for it. Five until
+# Task 9, which took the other four with the raw-lfs-blob rule - the two
+# `cat-file` batches, the `ls-tree -r -z` and the `check-attr -z --stdin`
+# paired with it, all now in extant/rules/lfs.py. None of them stopped
+# bypassing the seam by moving, so all four are still counted, one file over,
+# as PACKAGE_DIRECT_SUBPROCESS_SITES below. Lowering this without raising that
+# one would have retired four watched sites by losing track of them.
 #
 # The seam deliberately did not grow a method for these in Task 7. What it has
 # to do is stay visible, because CountingGit cannot see them and neither will
 # `--profile`; see test_the_rules_reach_git_only_through_the_seam.
-DIRECT_SUBPROCESS_SITES = 5
+DIRECT_SUBPROCESS_SITES = 1
 
 # extant/git.py is the seam's own implementation, not a consumer of it: it is
 # where `_git`/`_git_soft` are DEFINED and where `SubprocessGit` legitimately
@@ -114,13 +114,23 @@ PACKAGE_SEAM_OUTSIDE_SITES = 1
 # the calls are not disappearing, they are changing file.
 PACKAGE_ROUTED_FLOOR = 17
 
-# The one package call site that runs git through subprocess directly, for the
-# same reason the shim has five: `cat-file --batch-check` is fed on stdin and
-# `Git.run(repo, *args)` cannot express that. It is `_batch_shas` in
-# extant/refs.py, and it is named here rather than waved through so that a
-# SECOND one cannot appear unnoticed - which is exactly what an `== 0`
-# assertion would have done the moment this one arrived.
-PACKAGE_DIRECT_SUBPROCESS_SITES = 1
+# The package call sites that run git through subprocess directly, for the
+# same reason the shim keeps one: they need something `Git.run(repo, *args)`
+# cannot express. Named here rather than waved through, so a SIXTH cannot
+# appear unnoticed - which is exactly what an `== 0` assertion would have done
+# the moment the first one arrived:
+#
+#   1  `_batch_shas` in extant/refs.py - `cat-file --batch-check` fed on stdin
+#   2  the two `cat-file` batches in extant/rules/lfs.py, likewise stdin-fed
+#      and wanting bytes, since blob content is arbitrary
+#   1  `ls-tree -r -z HEAD` in the same file, whose NUL-separated output pairs
+#      with the next one
+#   1  `check-attr -z --stdin filter`, also stdin-fed
+#
+# It was 1 until Task 9 moved raw-lfs-blob into the package; the split is where
+# the code is, not a change in how many bypass the seam. DIRECT_SUBPROCESS_SITES
+# above came down by exactly the four that arrived here.
+PACKAGE_DIRECT_SUBPROCESS_SITES = 5
 
 # The shim's own routed count, and it is a floor for the anti-vacuity reason
 # rather than a target. It was 12 when Task 7 wrote this test and every rule

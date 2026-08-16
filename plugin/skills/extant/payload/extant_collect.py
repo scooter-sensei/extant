@@ -917,100 +917,36 @@ def _probe_consistency(repo: Path, text: str) -> str | None:
 _CONSISTENCY_TIMEOUT: float | None
 
 
-# A Git LFS pointer is a small text stub. The spec fixes the first line, which
-# is the whole test - no LFS binary is invoked and no network is touched.
-_LFS_POINTER = b"version https://git-lfs.github.com/spec/v1"
-# Pointers are ~130 bytes. Anything larger under an LFS filter cannot be one,
-# so its size alone settles the question and its content is never read. That is
-# what keeps this affordable on a repository with thousands of binaries.
-_LFS_POINTER_MAX = 1024
+# The raw-lfs-blob rule is extant/rules/lfs.py now, and it took four of this
+# file's five direct `subprocess.run(["git", ...])` call sites with it - the
+# two `cat-file` batches, the `ls-tree -r -z` and the `check-attr -z --stdin`
+# paired with it. They still bypass the seam over there, and tests/test_scope.py
+# still counts them; what changed is which file they are counted in.
+from extant.rules import lfs as _rule_lfs
+
+from extant.rules.lfs import (         # noqa: F401  (re-exported as they are:
+    _LFS_POINTER, _LFS_POINTER_MAX,    # two constants from the LFS spec)
+)
 
 
 def _lfs_is_configured(repo: Path) -> bool:
-    """Cheap gate: does this repository route anything through LFS at all?
-
-    One file read, so a project with no `.gitattributes` - which is most of
-    them - pays nothing for this rule beyond that.
-    """
-    try:
-        text = (repo / ".gitattributes").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-    return any("filter=lfs" in line and not line.lstrip().startswith("#")
-               for line in text.splitlines())
+    """Cheap gate: does this repository route anything through LFS at all?"""
+    return _rule_lfs._lfs_is_configured(_ctx(repo))
 
 
 def _lfs_governed(repo: Path) -> list[tuple[str, str]]:
-    """(path, blob sha) for every tracked file the LFS filter governs.
+    """(path, blob sha) for every tracked file the LFS filter governs."""
+    return _rule_lfs._lfs_governed(_ctx(repo))
 
-    `git check-attr --stdin` answers for every path in ONE call. Asking per
-    file is the same mistake the merge-claim rule made before it was batched,
-    and a game repository has thousands of assets rather than a document's
-    handful of claims.
 
-    Attributes are read rather than the patterns re-implemented, because
-    `.gitattributes` composes: nested files, negations and later rules
-    overriding earlier ones. Re-deriving that from the text would be a second,
-    worse implementation of something git already exposes.
-    """
-    key = str(repo)
-    if key in _SCOPE.lfs:
-        return _SCOPE.lfs[key]
-    if not _lfs_is_configured(repo):
-        _SCOPE.lfs[key] = []
-        return []
-    # HEAD's tree, not the index. This runs after a commit, so the committed
-    # state is the thing being judged - and reading the index made the rule
-    # examine ZERO files on a repository whose checkout had not completed,
-    # while `.gitattributes` sat right there saying 47 patterns were LFS. A
-    # denominator of 0 on a project full of assets is the shape of failure this
-    # rule exists to report, so it must not be the rule's own behaviour.
-    try:
-        listing = subprocess.run(
-            ["git", "ls-tree", "-r", "-z", "HEAD"], cwd=repo,
-            capture_output=True, check=True).stdout.decode("utf-8", "replace")
-    except (subprocess.CalledProcessError, OSError):
-        _SCOPE.lfs[key] = []
-        return []   # unborn HEAD: nothing is committed to judge
-    blobs: dict[str, str] = {}
-    for record in listing.split("\0"):
-        meta, _, path = record.partition("\t")
-        parts = meta.split()
-        if path and len(parts) >= 3 and parts[1] == "blob":
-            blobs[path] = parts[2]
-    if not blobs:
-        _SCOPE.lfs[key] = []
-        return []
-    # BYTES and NUL separators, for two separate reasons that both bit here.
-    #
-    # `text=True` makes Python translate "\n" to "\r\n" on the pipe under
-    # Windows, so git received every path with a trailing carriage return,
-    # treated it as a literal path character, and answered `unspecified`. Only
-    # the LAST path - the one with no trailing newline - was matched. The rule
-    # then reported 1 examined out of 4 and found the single real problem
-    # anyway, so it looked perfect. Had the bad file sorted first it would have
-    # printed 0 findings over 0 examined and read as a clean repository.
-    #
-    # `-z` removes the other half: without it git QUOTES any path containing a
-    # space or a non-ASCII character, and game projects are full of both, so a
-    # line-and-colon parse would silently skip exactly those assets.
-    payload = ("\0".join(blobs) + "\0").encode("utf-8")
-    try:
-        raw = subprocess.run(
-            ["git", "check-attr", "-z", "--stdin", "filter"], cwd=repo,
-            input=payload, capture_output=True, check=True).stdout
-    except (subprocess.CalledProcessError, OSError):
-        _SCOPE.lfs[key] = []
-        return []
-    fields = raw.decode("utf-8", "replace").split("\0")
-    governed = []
-    # `-z` emits a flat NUL-separated stream of (path, attribute, value).
-    for i in range(0, len(fields) - 2, 3):
-        path, _attr, value = fields[i], fields[i + 1], fields[i + 2]
-        if value == "lfs" and path in blobs:
-            governed.append((path, blobs[path]))
-    _SCOPE.lfs[key] = governed
-    return governed
+def validate_lfs_storage(repo: Path, text: str) -> list[Finding]:
+    """A file `.gitattributes` says lives in LFS, stored as a raw blob instead."""
+    return _rule_lfs.check(_ctx(repo), text)
+
+
+def _probe_lfs_storage(repo: Path, text: str) -> str | None:
+    """No probe. This rule reads the repository, never the document."""
+    return _rule_lfs.probe(_ctx(repo), text)
 
 
 # --- manifest floor mismatch -------------------------------------------
@@ -1403,113 +1339,6 @@ def validate_line_pointers(repo: Path, text: str) -> list[Finding]:
     return findings
 
 
-def validate_lfs_storage(repo: Path, text: str) -> list[Finding]:
-    """A file `.gitattributes` says lives in LFS, stored as a raw blob instead.
-
-    `.gitattributes` is a document making a falsifiable claim: it says files
-    matching these patterns are stored as LFS pointers. That claim can be
-    false, and when it is, nothing says so. Git accepts the commit, the engine
-    loads the asset, and the repository quietly carries a real binary in its
-    history forever - where removing it means rewriting history.
-
-    It happens two ways, both ordinary: a binary committed BEFORE
-    `.gitattributes` covered its extension, and a commit made from a clone with
-    no LFS filter installed. Neither produces a warning from anything.
-
-    Deliberately NOT the other direction. "Is the LFS object present locally"
-    looks like the same question and is unusable: a fresh CI checkout without
-    `git lfs pull` holds zero objects, so that rule would report every asset in
-    the project as missing on every run. Measured, not assumed.
-
-    Reads no document, like `inconsistent-artifact`, and is silent on any
-    repository that does not use LFS.
-    """
-    findings: list[Finding] = []
-    governed = _lfs_governed(repo)
-    if not governed:
-        return findings
-    sizes: dict[str, int] = {}
-    # Bytes again, and for the same reason: a "\r" appended to each SHA makes
-    # every one of them unresolvable, and cat-file would report nothing.
-    request = ("\n".join(sha for _p, sha in governed) + "\n").encode("ascii")
-    try:
-        out = subprocess.run(
-            ["git", "cat-file", "--batch-check=%(objectname) %(objectsize)"],
-            cwd=repo, input=request, capture_output=True,
-            check=True).stdout.decode("utf-8", "replace")
-    except (subprocess.CalledProcessError, OSError):
-        return findings
-    for line in out.split("\n"):
-        parts = line.split()
-        if len(parts) == 2 and parts[1].isdigit():
-            sizes[parts[0]] = int(parts[1])
-
-    # Only blobs small enough to BE a pointer need their contents read; anything
-    # larger under an LFS filter is settled by its size alone. Those reads are
-    # then batched into one `cat-file --batch`, because one subprocess per file
-    # cost 40 seconds on a 7802-file project - which is not a slow hook, it is
-    # an uninstalled one. Exactly the mistake the merge-claim rule already made.
-    small = [sha for _p, sha in governed
-             if 0 < sizes.get(sha, 0) <= _LFS_POINTER_MAX]
-    pointers: set[str] = set()
-    if small:
-        request = ("\n".join(dict.fromkeys(small)) + "\n").encode("ascii")
-        try:
-            stream = subprocess.run(["git", "cat-file", "--batch"], cwd=repo,
-                                    input=request, capture_output=True,
-                                    check=True).stdout
-        except (subprocess.CalledProcessError, OSError):
-            return findings
-        # `<sha> blob <size>\n<content>\n`, repeated. Parsed by declared length
-        # rather than by splitting on newlines, because blob content is
-        # arbitrary bytes and may contain them.
-        cursor = 0
-        while cursor < len(stream):
-            end = stream.find(b"\n", cursor)
-            if end == -1:
-                break
-            header = stream[cursor:end].split()
-            cursor = end + 1
-            if len(header) != 3 or not header[2].isdigit():
-                break
-            length = int(header[2])
-            if stream[cursor:cursor + len(_LFS_POINTER)] == _LFS_POINTER:
-                pointers.add(header[0].decode("ascii", "replace"))
-            cursor += length + 1
-
-    for path, sha in governed:
-        size = sizes.get(sha)
-        if size is None or sha in pointers:
-            continue
-        # An EMPTY file is not a violation. git-lfs passes zero bytes through
-        # unchanged rather than writing a pointer, because there is nothing to
-        # store, so a 0-byte blob under a filter is LFS behaving correctly.
-        #
-        # Verified rather than assumed: committing an empty file and a real one
-        # under the same filter produces a 0-byte blob and a 126-byte pointer.
-        # Measured on o3de/o3de, which declares 123 filters over 2,948 governed
-        # files - 44 of its 45 findings were empty test fixtures, and the only
-        # true one was an asset planted to check the rule still fires.
-        if size == 0:
-            continue
-        findings.append(Finding(
-            1, "raw-lfs-blob",
-            f"`{path}` is tracked by an LFS filter but stored as a raw "
-            f"{size}-byte blob, so it is committed into git itself",
-        ))
-    return findings
-
-
-def _probe_lfs_storage(repo: Path, text: str) -> str | None:
-    """No probe. This rule reads the repository, never the document.
-
-    `--selftest` corrupts a claim in the prose and re-runs; there is no prose
-    here to corrupt. Reported as "no probe" rather than passed off as working,
-    which is the same treatment `inconsistent-artifact` gets.
-    """
-    return None
-
-
 # The machinery more than one probe needs is extant/probes.py now, because
 # `stale-live-claim`'s probe called `unknown-branch`'s probe outright and four
 # rules corrupt a document through the same one-capture substitution. Both
@@ -1576,9 +1405,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "dead-md-anchor": _rule_md_anchor.examined(_ctx(repo), text),
         "inconsistent-artifact": _rule_consistency.examined(_ctx(repo), text),
         "dead-pinned-ref": _rule_pin.examined(_ctx(repo), text),
-        # Paths under an LFS filter. A project not using LFS reports 0, which
-        # is the honest answer rather than a quiet pass.
-        "raw-lfs-blob": len(_lfs_governed(repo)),
+        "raw-lfs-blob": _rule_lfs.examined(_ctx(repo), text),
         # Counted AFTER the keying, not before: a README stating no floor
         # reports 0 examined. This rule speaks about roughly 13% of
         # repositories, so silence is its normal output and the denominator
