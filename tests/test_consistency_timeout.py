@@ -57,17 +57,24 @@ FEEDS = "a" * 40 + "c"
 VALUE = re.compile(r'"v": "([^"]+)"')
 
 
-def test_a_timeout_turns_a_hang_into_a_finding(git_repo, monkeypatch) -> None:
+def test_a_timeout_turns_a_hang_into_a_finding(
+        git_repo, monkeypatch, reconfigure) -> None:
     import extant_collect as hc
+    from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.txt", FEEDS, "chore: a")
     commit("b.txt", FEEDS, "chore: b")
 
     pattern = re.compile(EVIL)
-    monkeypatch.setattr(hc, "_consistency_for", lambda _repo: {
+    monkeypatch.setattr(rule, "_consistency_for", lambda _ctx: {
         "evil": (("a.txt", pattern), ("b.txt", pattern)),
     })
-    monkeypatch.setattr(hc, "_CONSISTENCY_TIMEOUT", 2.0)
+    # Through the built Config, not the module global. The rule reads
+    # `ctx.config.consistency_timeout` since it became
+    # extant/rules/consistency.py, so setting the global alone leaves the
+    # bound at its unbounded default - and this test then runs the
+    # catastrophic pattern below with nothing to stop it.
+    reconfigure(consistency_timeout=2.0)
 
     # A test for "it gives up" must not itself be able to hang forever. If the
     # timeout regresses, the catastrophic pattern below backtracks without
@@ -82,7 +89,7 @@ def test_a_timeout_turns_a_hang_into_a_finding(git_repo, monkeypatch) -> None:
     assert any("gave up" in f.detail for f in findings), [f.detail for f in findings]
 
 
-def test_the_default_spawns_nothing(git_repo, monkeypatch) -> None:
+def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
     """The control, and the reason this is opt-in.
 
     If the default reached for a subprocess, every user would pay a spawn per
@@ -90,14 +97,15 @@ def test_the_default_spawns_nothing(git_repo, monkeypatch) -> None:
     project's own stress case.
     """
     import extant_collect as hc
+    from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.json", '{"v": "1"}\n', "chore: a")
     commit("b.json", '{"v": "2"}\n', "chore: b")
 
-    monkeypatch.setattr(hc, "_consistency_for", lambda _repo: {
+    monkeypatch.setattr(rule, "_consistency_for", lambda _ctx: {
         "v": (("a.json", VALUE), ("b.json", VALUE)),
     })
-    monkeypatch.setattr(hc, "_CONSISTENCY_TIMEOUT", None)
+    reconfigure(consistency_timeout=None)
 
     spawned: list[object] = []
     real_run = hc.subprocess.run
@@ -113,18 +121,20 @@ def test_the_default_spawns_nothing(git_repo, monkeypatch) -> None:
     assert not spawned, f"the default spawned {len(spawned)} process(es)"
 
 
-def test_a_bounded_search_still_returns_the_captured_value(git_repo, monkeypatch) -> None:
+def test_a_bounded_search_still_returns_the_captured_value(
+        git_repo, monkeypatch, reconfigure) -> None:
     """The other control. A timeout that broke normal matching would make every
     consistency check report a disagreement between a value and nothing."""
     import extant_collect as hc
+    from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.json", '{"v": "1.2.3"}\n', "chore: a")
     commit("b.json", '{"v": "1.2.3"}\n', "chore: b")
 
-    monkeypatch.setattr(hc, "_consistency_for", lambda _repo: {
+    monkeypatch.setattr(rule, "_consistency_for", lambda _ctx: {
         "v": (("a.json", VALUE), ("b.json", VALUE)),
     })
-    monkeypatch.setattr(hc, "_CONSISTENCY_TIMEOUT", 10.0)
+    reconfigure(consistency_timeout=10.0)
 
     findings = hc.validate_consistency(repo, "")
     assert not findings, (

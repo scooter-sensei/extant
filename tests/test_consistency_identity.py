@@ -24,6 +24,7 @@ VERSION = re.compile(r'"version": "([^"]+)"')
 def test_two_routes_to_one_file_are_reported(git_repo, monkeypatch) -> None:
     """A symlink is a genuinely different route to the same bytes."""
     import extant_collect as hc
+    from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("version.json", '{"version": "1.2.3"}\n', "chore: init")
     link = repo / "alias.json"
@@ -32,7 +33,7 @@ def test_two_routes_to_one_file_are_reported(git_repo, monkeypatch) -> None:
     except (OSError, NotImplementedError):
         pytest.skip("this platform does not permit symlink creation here")
 
-    monkeypatch.setattr(hc, "_consistency_for", lambda _repo: {
+    monkeypatch.setattr(rule, "_consistency_for", lambda _ctx: {
         "version": (("version.json", VERSION), ("alias.json", VERSION)),
     })
 
@@ -61,12 +62,13 @@ def test_a_case_variant_reaches_the_same_file(git_repo, monkeypatch) -> None:
     forever.
     """
     import extant_collect as hc
+    from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("version.json", '{"version": "1.2.3"}\n', "chore: init")
     if not _case_insensitive(repo):
         pytest.skip("this filesystem is case-sensitive; the symlink test covers it")
 
-    monkeypatch.setattr(hc, "_consistency_for", lambda _repo: {
+    monkeypatch.setattr(rule, "_consistency_for", lambda _ctx: {
         "version": (("version.json", VERSION), ("VERSION.JSON", VERSION)),
     })
 
@@ -85,11 +87,12 @@ def test_two_genuinely_different_files_are_not_reported(git_repo, monkeypatch) -
     self-comparing, which is a false positive on every run.
     """
     import extant_collect as hc
+    from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.json", '{"version": "1.2.3"}\n', "chore: a")
     commit("b.json", '{"version": "1.2.3"}\n', "chore: b")
 
-    monkeypatch.setattr(hc, "_consistency_for", lambda _repo: {
+    monkeypatch.setattr(rule, "_consistency_for", lambda _ctx: {
         "version": (("a.json", VERSION), ("b.json", VERSION)),
     })
 
@@ -102,11 +105,12 @@ def test_a_real_disagreement_is_still_reported(git_repo, monkeypatch) -> None:
     `continue`s past it, so getting the guard wrong would silence the rule's
     actual job rather than merely adding noise."""
     import extant_collect as hc
+    from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.json", '{"version": "1.2.3"}\n', "chore: a")
     commit("b.json", '{"version": "9.9.9"}\n', "chore: b")
 
-    monkeypatch.setattr(hc, "_consistency_for", lambda _repo: {
+    monkeypatch.setattr(rule, "_consistency_for", lambda _ctx: {
         "version": (("a.json", VERSION), ("b.json", VERSION)),
     })
 
@@ -122,6 +126,7 @@ def test_identity_discriminates_before_it_is_trusted(tmp_path) -> None:
     a false positive on every run, which is worse than the hole it closes.
     """
     import extant_collect as hc
+    from extant.rules import consistency as rule
     one = tmp_path / "one.txt"
     two = tmp_path / "two.txt"
     one.write_text("1\n", encoding="utf-8")
