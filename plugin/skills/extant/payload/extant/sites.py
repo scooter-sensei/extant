@@ -31,11 +31,11 @@ from extant.text import ORDER_PREFIX, anchors, current_document
 __all__ = [
     "_ABSOLUTE", "_FILEISH", "_GLOBAL_ANCHOR_CONFIGS", "_PARTIAL_CONFIGS",
     "_SITE_CONFIGS", "_SITE_DIRS", "_SITE_MARKERS_IN_FILE", "_actual_case",
-    "_has_global_anchors", "_has_partial_anchors", "_in_site_tree",
-    "_is_generated_site", "_listdir",
+    "_has_global_anchors", "_has_partial_anchors", "_listdir",
     "_numbered_docs_scopes", "_numbered_docs_tree", "_partial_anchors",
     "_project_anchors", "_site_dirs", "_site_scopes",
-    "_top_level", "looks_like_a_path", "resolve_reference",
+    "_top_level", "in_site_tree", "is_generated_site",
+    "looks_like_a_path", "resolve_reference",
 ]
 
 # An absolute path, which resolves against the filesystem root rather than
@@ -224,7 +224,7 @@ _GLOBAL_ANCHOR_CONFIGS = ("myst.yml", "conf.py", "antora.yml")
 def _has_global_anchors(ctx: Context) -> bool:
     key = str(ctx.repo)
     if key not in ctx.run.global_ns:
-        # The same directory list as `_is_generated_site`, deliberately. Two
+        # The same directory list as `is_generated_site`, deliberately. Two
         # searches for "where does this project keep its generator config"
         # that disagree is a latent bug, and this exact shape has been a
         # shipped one twice: root-only missed jekyll's `docs/_config.yml`, and
@@ -327,7 +327,7 @@ def _site_dirs(ctx: Context) -> list[Path]:
     return dirs
 
 
-def _is_generated_site(ctx: Context) -> bool:
+def is_generated_site(ctx: Context) -> bool:
     """Does this repository compile its markdown into a website?"""
     return bool(_site_scopes(ctx))
 
@@ -395,7 +395,7 @@ def _top_level(ctx: Context, directory: Path) -> str | None:
     return None
 
 
-def _in_site_tree(ctx: Context) -> bool:
+def in_site_tree(ctx: Context) -> bool:
     """Is the document being validated inside a tree some generator builds?
 
     A repository with a site somewhere is not a repository whose every

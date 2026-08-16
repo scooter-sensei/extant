@@ -11,11 +11,11 @@ Three calling conventions, and the split is deliberate rather than untidy:
   `_definition_terms` and the rest cannot be affected by a repository or a run,
   so handing them a Context would be a claim about their dependencies that is
   simply false.
-* `current_document`, `_blank`, `_blank_uncached`, `_strip_code` and `prose`
+* `current_document`, `_blank`, `_blank_uncached`, `strip_code` and `prose`
   take
   a `DocScope`, because the only ambient thing they read is which document is
   open and what language it is written in.
-* `_unique_basename`, `_translation_tree` and `_numbered_document` take the full
+* `unique_basename`, `_translation_tree` and `numbered_document` take the full
   `Context`: they ask git what it tracks and memoise the answer on the run.
 
 The alternative - one `Context` parameter everywhere - was rejected because the
@@ -69,21 +69,22 @@ from extant.scope import Context, DocScope
 __all__ = [
     "ORDER_PREFIX", "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
     "_FENCE", "_HEADING", "_INLINE_CODE", "_LANGUAGE_DIR",
-    "_MARKDOWN_ONLY", "_MD_LINK", "_MYST_TARGET", "_NESTED_HEADING",
+    "_MARKDOWN_ONLY", "_MYST_TARGET", "_NESTED_HEADING",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_SETEXT_RULE", "_STRIPPED", "_blank", "_blank_rst",
     "_blank_uncached", "_definition_terms", "_disambiguated", "_format_for",
-    "_heading_text", "_numbered_document",
+    "_heading_text",
     "_route_name", "_setext_headings", "_slug", "_slug_keeping_edges",
-    "_slug_punctuation_to_dash", "_strip_code", "_translation_tree",
-    "_unique_basename", "_without_tags", "EXTERNAL", "anchors",
-    "current_document", "percent_decoded", "prose",
+    "_slug_punctuation_to_dash", "_translation_tree",
+    "_without_tags", "EXTERNAL", "MD_LINK", "anchors",
+    "current_document", "numbered_document", "percent_decoded",
+    "prose", "strip_code", "unique_basename",
 ]
 
 # Markdown link syntax is fixed by the format, not by any project's habits, so
 # unlike the prose patterns this one is not configurable. There is no corpus to
 # measure: `[text](target)` means the same thing everywhere.
-_MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
+MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
 # ANY URI scheme, not an enumerated few. phoenixframework/phoenix links to
 # `irc://irc.libera.chat/elixir`, and a named list will always be missing the
 # next scheme somebody uses - slack:, vscode:, ssh:, matrix:. Two or more
@@ -171,7 +172,7 @@ def _format_for(path: str) -> str:
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
 
 
-def _strip_code(doc: DocScope, text: str) -> str:
+def strip_code(doc: DocScope, text: str) -> str:
     """Blank out fenced blocks AND inline code spans, preserving line numbers.
 
     A README demonstrating link syntax is showing an example, not making a
@@ -296,7 +297,7 @@ def prose(doc: DocScope, text: str) -> str:
     return _blank(doc, text, inline=False)
 
 
-def _unique_basename(ctx: Context, target: str) -> bool:
+def unique_basename(ctx: Context, target: str) -> bool:
     """Does exactly one tracked markdown file carry this basename?
 
     Exactly one, never "at least one". Two files called `index.md` say nothing
@@ -380,7 +381,7 @@ def _route_name(segment: str) -> str:
     return ORDER_PREFIX.sub("", stem).lower()
 
 
-def _numbered_document(ctx: Context, target: str) -> bool:
+def numbered_document(ctx: Context, target: str) -> bool:
     """Does exactly one tracked document answer to this route once prefixes go?
 
     Compares the WHOLE path segment by segment, not just the basename, so
@@ -389,7 +390,7 @@ def _numbered_document(ctx: Context, target: str) -> bool:
     on its last segment; a two-segment target must match the last two.
 
     Exactly one match, never "at least one", for the reason
-    `_unique_basename` gives: guessing between candidates trades a false
+    `unique_basename` gives: guessing between candidates trades a false
     positive for a silently wrong answer.
     """
     wanted = [_route_name(part) for part in target.strip("/").split("/") if part]
@@ -403,7 +404,7 @@ def _numbered_document(ctx: Context, target: str) -> bool:
                 segments = path.split("/")
                 # ONLY documents that actually carry an ordering prefix are
                 # indexed. Without that condition this becomes
-                # `_unique_basename` with the generator gate removed, and
+                # `unique_basename` with the generator gate removed, and
                 # would silence a link to `foo` anywhere `foo.md` happens to
                 # exist in an unrelated directory. The prefix is the evidence
                 # that something strips it, so no prefix, no claim.

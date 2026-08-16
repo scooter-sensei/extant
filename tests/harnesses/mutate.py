@@ -284,8 +284,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "            exists = branch_exists(ctx, branch)"),
 
         # --- markdown --------------------------------------------------------
-        ("external links get checked (needs the network)", collect,
-         '            if _EXTERNAL.match(raw) or raw.startswith("#"):\n'
+        ("external links get checked (needs the network)", rules / "md_link.py",
+         '            if EXTERNAL.match(raw) or raw.startswith("#"):\n'
          '                continue\n            target = raw.split("#", 1)[0]',
          '            if raw.startswith("#"):\n'
          '                continue\n            target = raw.split("#", 1)[0]'),
@@ -514,7 +514,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # invisible to `--deleted-since`, and the mode reports the skip rather
         # than hiding it - so the loss is quiet rather than silent, which is
         # still not good enough to leave unpinned.
-        ("a rule stops recording which token its claim is about", collect,
+        ("a rule stops recording which token its claim is about",
+         rules / "md_link.py",
          '            findings.append(Finding(number, "dead-md-link", detail,\n'
          "                                    subject=target))",
          '            findings.append(Finding(number, "dead-md-link", detail))'),
@@ -943,7 +944,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # repositories in two corpora, with ZERO resolving to a checked-in
         # file. Re-gating it on generator detection is what made rails report
         # 276 of its own guide links dead.
-        ("a .html target is judged again unless a generator is declared", collect,
+        ("a .html target is judged again unless a generator is declared",
+         rules / "md_link.py",
          '            if target.endswith(".html"):\n                continue',
          "            if False:\n                continue"),
         # Next.js routes by file path. Without it, nextra reported 227 of its
