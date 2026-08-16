@@ -126,6 +126,43 @@ def neutral_config(tmp_path: Path):
 
 
 @pytest.fixture
+def reconfigure(monkeypatch):
+    """Change a configured value so that BOTH readers see it.
+
+    Setting `hc._BRANCH_TOKEN` (or any of the twenty-one names in
+    `_CONFIG_DERIVED`) used to be enough, because the rules read those globals.
+    From Task 9 the rules are package modules that read `ctx.config`, which is
+    the built `Config` on `hc._ACTIVE` - so a plain attribute patch reaches the
+    shim's own leftovers and NOT the rule under test. The rule then matches
+    nothing and the test reports no findings, which is indistinguishable from
+    the rule working and the document being clean. Two tests failed exactly
+    that way when their rules moved; the danger is the ones that would have
+    kept passing.
+
+    This writes the built Config and every global derived from it together,
+    which is the same invariant `_apply_config` maintains: one build feeds both,
+    so there is no arrangement in which a global and `_ACTIVE` disagree.
+    `monkeypatch` undoes both at teardown.
+
+    The alternative - writing a `.extant.toml` and calling `reload_config` -
+    reaches the same two places and is what a test should use when the point IS
+    the file. This exists for the many tests whose point is a pattern.
+    """
+    import dataclasses
+
+    import extant_collect as hc
+
+    def apply(**changes: object):
+        monkeypatch.setattr(hc, "_ACTIVE",
+                            dataclasses.replace(hc._ACTIVE, **changes))
+        for name, build in hc._CONFIG_DERIVED.items():
+            monkeypatch.setattr(hc, name, build(hc._ACTIVE))
+        return hc._ACTIVE
+
+    return apply
+
+
+@pytest.fixture
 def git_repo(tmp_path: Path) -> tuple[Path, Callable[[str, str, str], str]]:
     repo = tmp_path / "repo"
     repo.mkdir()

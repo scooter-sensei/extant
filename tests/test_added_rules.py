@@ -225,7 +225,7 @@ def test_branch_git_never_saw_is_flagged(git_repo) -> None:
     assert [f.kind for f in findings] == ["unknown-branch"]
 
 
-def test_a_file_path_is_not_reported_as_a_branch(git_repo, monkeypatch) -> None:
+def test_a_file_path_is_not_reported_as_a_branch(git_repo, reconfigure) -> None:
     """THE false positive this rule shipped with, found on a real install.
 
     A branch token and a file path are the same shape. The installer's fallback
@@ -241,7 +241,7 @@ def test_a_file_path_is_not_reported_as_a_branch(git_repo, monkeypatch) -> None:
     import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
-    monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
+    reconfigure(branch_token=re.compile(r"`([\w.-]+/[^`]+)`"))
 
     findings = hc.validate_branch_mentions(
         repo, _entry("**Design:** `docs/arch.md`"))
@@ -251,7 +251,8 @@ def test_a_file_path_is_not_reported_as_a_branch(git_repo, monkeypatch) -> None:
     )
 
 
-def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(git_repo, monkeypatch) -> None:
+def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(
+        git_repo, reconfigure) -> None:
     """The same guard, on the other rule that reads branch tokens.
 
     Found by mutation after the fix: removing the guard from
@@ -264,7 +265,7 @@ def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(git_repo, monk
     import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
-    monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
+    reconfigure(branch_token=re.compile(r"`([\w.-]+/[^`]+)`"))
 
     findings = hc.validate_live_claims(
         repo, _entry("Work is NOT yet merged. **Design:** `docs/arch.md`"))
@@ -275,7 +276,7 @@ def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(git_repo, monk
     )
 
 
-def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, monkeypatch) -> None:
+def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, reconfigure) -> None:
     """The other half: excluding paths must not blind the rule to real branches.
 
     `release/v1.2` ends in a dot and digits. The cheap version of the fix above
@@ -286,7 +287,7 @@ def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, monkeypatch)
     import extant_collect as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
-    monkeypatch.setattr(hc, "_BRANCH_TOKEN", re.compile(r"`([\w.-]+/[^`]+)`"))
+    reconfigure(branch_token=re.compile(r"`([\w.-]+/[^`]+)`"))
 
     findings = hc.validate_branch_mentions(
         repo, _entry("Work is on `release/v1.2`."))

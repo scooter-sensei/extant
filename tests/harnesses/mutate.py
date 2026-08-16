@@ -136,9 +136,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        if not ctx.config.live_phrases.search(entry):",
          '        if kind != "phase":\n            continue\n'
          "        if not ctx.config.live_phrases.search(entry):"),
-        ("branch rule loses the merge-history rescue", collect,
-         "            if _branch_exists(repo, branch) or _named_in_merge_history(repo, branch):",
-         "            if _branch_exists(repo, branch):"),
+        ("branch rule loses the merge-history rescue", rules / "branch.py",
+         "            if branch_exists(ctx, branch) or named_in_merge_history(ctx, branch):",
+         "            if branch_exists(ctx, branch):"),
         # Half the ecosystem tags `v1.2.3` and half tags `1.2.3`. Reading the
         # prefix from the repository is what stops a claim written in the other
         # convention reporting a release that shipped.
@@ -268,8 +268,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("release-tag ancestry check dropped", collect,
          '            if not _integrated_by(repo, f"refs/tags/{resolved}"):',
          "            if False:"),
-        ("path/branch guard removed (a file becomes a phantom branch)", collect,
-         "            if _looks_like_a_path(repo, branch):\n"
+        ("path/branch guard removed (a file becomes a phantom branch)",
+         rules / "branch.py",
+         "            if looks_like_a_path(ctx, branch):\n"
          "                continue  # a file reference caught by a path-shaped pattern",
          "            if False:\n"
          "                continue  # a file reference caught by a path-shaped pattern"),

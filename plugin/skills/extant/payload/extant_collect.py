@@ -1010,39 +1010,13 @@ def _looks_like_a_path(repo: Path, token: str) -> bool:
     return _sites.looks_like_a_path(_ctx(repo), token)
 
 
-def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
-    """A branch named in the newest entry that git has never heard of.
+# The unknown-branch rule is extant/rules/branch.py now.
+from extant.rules import branch as _rule_branch
 
-    Newest entry only, for the same reason live claims are: older entries name
-    branches that were correct when written. Deletion after merge is normal and
-    is never reported, because the merge commit still names the branch.
-    """
-    # Claims inside code are examples, not promises. See _prose.
-    text = _prose(text)
-    findings: list[Finding] = []
-    _, segments, _ = split_entries(text)
-    cursor = 0
-    newest_checked = False
-    for kind, entry in segments:
-        start = text.index(entry, cursor)
-        cursor = start + len(entry)
-        if kind != "phase" or newest_checked:
-            continue
-        newest_checked = True
-        for match in _BRANCH_TOKEN.finditer(entry):
-            branch = match.group(1)
-            if _looks_like_a_path(repo, branch):
-                continue  # a file reference caught by a path-shaped pattern
-            if _branch_exists(repo, branch) or _named_in_merge_history(repo, branch):
-                continue
-            line = text.count("\n", 0, start + match.start()) + 1
-            findings.append(Finding(
-                line, "unknown-branch",
-                f"names `{branch}`, which does not exist and appears in no "
-                f"merge commit (a typo, or work that was never integrated)",
-                subject=branch,
-            ))
-    return findings
+
+def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
+    """A branch named in the newest entry that git has never heard of."""
+    return _rule_branch.check(_ctx(repo), text)
 
 
 def validate_release_tags(repo: Path, text: str) -> list[Finding]:
@@ -2159,8 +2133,8 @@ def _probe_branch_in_newest(repo: Path, text: str) -> str | None:
     """Point the first branch token of the newest entry at a name git never saw.
 
     See extant.probes.branch_in_newest. It moved there because BOTH branch
-    rules probe this way and the live-claim probe below called this one
-    directly, which is a rule reaching into a rule.
+    rules probe this way and the live-claim probe called this one directly,
+    which is a rule reaching into a rule.
     """
     return _probes.branch_in_newest(_ctx(repo), text)
 
@@ -2207,16 +2181,6 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     # example output. An overstated denominator is the worst of the three
     # numbers available: it is the one that reassures.
     prose = _prose(text)
-    _, segments, _ = split_entries(prose)
-    newest = next((s for kind, s in segments if kind == "phase"), "")
-    # Counts what the rules actually inspect, not what the pattern matched.
-    # Path-shaped tokens are skipped by both branch rules, so counting them here
-    # would overstate the denominator - and a denominator that overstates is
-    # worse than none, because it reports coverage that does not exist.
-    branches_in_newest = sum(
-        1 for token in (_BRANCH_TOKEN.findall(newest) if newest else [])
-        if not _looks_like_a_path(repo, token)
-    )
     links = [raw for line in _strip_code(text).splitlines()
              for raw in _MD_LINK.findall(line)]
     return {
@@ -2224,7 +2188,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         # only place that can count them over the same population.
         "dead-sha": _rule_sha.examined(_ctx(repo), text),
         "stale-live-claim": _rule_live.examined(_ctx(repo), text),
-        "unknown-branch": branches_in_newest,
+        "unknown-branch": _rule_branch.examined(_ctx(repo), text),
         "false-merge-claim": _rule_merge.examined(_ctx(repo), text),
         "dead-release-tag": len(_RELEASE_TAG.findall(prose)),
         "dead-path-pointer": _rule_pointer.examined(_ctx(repo), text),

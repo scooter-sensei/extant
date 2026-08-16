@@ -266,7 +266,7 @@ def test_an_unmerged_feature_is_still_reported_as_open(gitflow) -> None:
     assert ec.validate_live_claims(repo, text) == []
 
 
-def test_an_integration_branch_is_not_merged_into_itself(gitflow, monkeypatch) -> None:
+def test_an_integration_branch_is_not_merged_into_itself(gitflow, reconfigure) -> None:
     """`develop` is trivially an ancestor of `develop`, so without excluding the
     branch under test every live claim about an integration branch reports as
     already merged. Reachable only with a `branch_token` that matches slashless
@@ -286,7 +286,7 @@ def test_an_integration_branch_is_not_merged_into_itself(gitflow, monkeypatch) -
 
     import extant_collect as ec
     repo, _on_main, _on_develop, _unmerged = gitflow
-    monkeypatch.setattr(ec, "_BRANCH_TOKEN", re.compile(r"`([\w.\-/]+)`"))
+    reconfigure(branch_token=re.compile(r"`([\w.\-/]+)`"))
     text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
             "Work is NOT yet merged on `develop`.\n\n## 1. Ref\n")
 
