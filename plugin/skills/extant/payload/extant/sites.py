@@ -31,11 +31,11 @@ from extant.text import ORDER_PREFIX, anchors, current_document
 __all__ = [
     "_ABSOLUTE", "_FILEISH", "_GLOBAL_ANCHOR_CONFIGS", "_PARTIAL_CONFIGS",
     "_SITE_CONFIGS", "_SITE_DIRS", "_SITE_MARKERS_IN_FILE", "_actual_case",
-    "_has_global_anchors", "_has_partial_anchors", "_listdir",
-    "_numbered_docs_scopes", "_numbered_docs_tree", "_partial_anchors",
-    "_project_anchors", "_site_dirs", "_site_scopes",
-    "_top_level", "in_site_tree", "is_generated_site",
-    "looks_like_a_path", "resolve_reference",
+    "_listdir", "_numbered_docs_scopes", "_numbered_docs_tree",
+    "_site_dirs", "_site_scopes", "_top_level",
+    "has_global_anchors", "has_partial_anchors", "in_site_tree",
+    "is_generated_site", "looks_like_a_path", "partial_anchors",
+    "project_anchors", "resolve_reference",
 ]
 
 # An absolute path, which resolves against the filesystem root rather than
@@ -221,7 +221,7 @@ _SITE_DIRS = ("", "docs", "site", "www", "website", "docs-website",
 _GLOBAL_ANCHOR_CONFIGS = ("myst.yml", "conf.py", "antora.yml")
 
 
-def _has_global_anchors(ctx: Context) -> bool:
+def has_global_anchors(ctx: Context) -> bool:
     key = str(ctx.repo)
     if key not in ctx.run.global_ns:
         # The same directory list as `is_generated_site`, deliberately. Two
@@ -251,7 +251,7 @@ def _has_global_anchors(ctx: Context) -> bool:
 _PARTIAL_CONFIGS = ("hugo.toml", "hugo.yaml", "hugo.json")
 
 
-def _has_partial_anchors(ctx: Context) -> bool:
+def has_partial_anchors(ctx: Context) -> bool:
     key = str(ctx.repo)
     if key not in ctx.run.partial_ns:
         ctx.run.partial_ns[key] = any((d / name).is_file()
@@ -260,7 +260,7 @@ def _has_partial_anchors(ctx: Context) -> bool:
     return ctx.run.partial_ns[key]
 
 
-def _partial_anchors(ctx: Context) -> set[str]:
+def partial_anchors(ctx: Context) -> set[str]:
     """Anchors from fragment files, which belong to every page that includes one."""
     key = str(ctx.repo)
     if key not in ctx.run.partial_anchors:
@@ -280,7 +280,7 @@ def _partial_anchors(ctx: Context) -> set[str]:
     return ctx.run.partial_anchors[key]
 
 
-def _project_anchors(ctx: Context) -> set[str]:
+def project_anchors(ctx: Context) -> set[str]:
     """Every anchor offered by every tracked markdown file in the project."""
     key = str(ctx.repo)
     if key not in ctx.run.project_anchors:

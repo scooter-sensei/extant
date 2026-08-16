@@ -674,112 +674,30 @@ def _probe_md_link(repo: Path, text: str) -> str | None:
     return _rule_md_link.probe(_ctx(repo), text)
 
 
-def _target_anchors(path: Path) -> set[str] | None:
+# The dead-md-anchor rule is extant/rules/md_anchor.py now, and `_rel` went
+# with it as far as extant/finding.py: the rule NAMES the other document in its
+# finding detail, and a detail string is a shipped wire format - the baseline
+# fingerprint hashes it - so the rule and the formatters below must not spell a
+# path two different ways.
+from extant.finding import rel as _rel     # noqa: F401  (re-exported under the
+#                                            old spelling; pure path arithmetic)
+
+from extant.rules import md_anchor as _rule_md_anchor
+
+
+def _target_anchors(repo: Path, path: Path) -> set[str] | None:
     """Anchors offered by another document, or None if it cannot be read."""
-    key = str(path)
-    if key not in _SCOPE.target_anchors:
-        try:
-            with open(path, encoding="utf-8", newline="") as fh:
-                _SCOPE.target_anchors[key] = _anchors(fh.read())
-        except (OSError, UnicodeDecodeError):
-            _SCOPE.target_anchors[key] = None
-    return _SCOPE.target_anchors[key]
+    return _rule_md_anchor._target_anchors(_ctx(repo), path)
 
 
 def validate_md_anchors(repo: Path, text: str) -> list[Finding]:
-    """`#fragment` links pointing at no such heading, in this file or another.
+    """`#fragment` links pointing at no such heading, in this file or another."""
+    return _rule_md_anchor.check(_ctx(repo), text)
 
-    This used to check same-document fragments only, on the reasoning that a
-    fragment on another file needs that file's renderer slug rules and so is a
-    guess rather than a fact. That reasoning was sound and applied just as
-    much to the same-document case, which shipped anyway - the asymmetry was
-    never justified, and two things have since removed most of the guess.
-    Headings are now slugged under BOTH common conventions, and a cross-file
-    fragment is only judged when its path resolves to a real markdown file
-    exactly as written.
 
-    That last condition keeps this conservative on purpose. An extensionless
-    or routed target in a generated site never resolves, so it is never judged
-    here; `dead-md-link` already declines to judge it for the same reason, and
-    a missing file is that rule's finding rather than this one's.
-
-    Measured across nine repositories: 26 cross-file anchors resolve to a real
-    file, 3 of them name a heading that does not exist, and all 3 are the same
-    rot - a heading renamed and its inbound links left behind. httpx links to
-    `#customizing-authentication` where the heading reads "Custom
-    authentication schemes".
-    """
-    own = _anchors(text)
-
-    # The ambient set is built ON DEMAND, and the demand is rare.
-    #
-    # It is consulted for one shape only - a bare `#fragment` that the document
-    # does not define itself - and most fragments resolve inside their own
-    # page. Building it eagerly meant a repository declaring a project-wide
-    # namespace read every tracked markdown file on EVERY run, including a
-    # post-commit hook, to validate a document that might contain no anchor
-    # links at all.
-    #
-    # The trigger is one file existing, and for Sphinx that file is `conf.py`,
-    # so this was the ordinary case across a large slice of Python projects
-    # rather than an exotic one. Measured before the change, on a document held
-    # identical while only the config was added: +42 ms at 100 files, +128 ms
-    # at 400, +421 ms at 1600. Flat in the document, linear in the repository.
-    #
-    # Deferring makes the cost proportional to the number of fragments that are
-    # ABOUT to be reported, which is the only time the answer can change a
-    # finding. Behaviour is unchanged: `x in own or x in ambient` is the same
-    # test as `x in (own | ambient)`.
-    ambient: set[str] | None = None
-
-    def ambient_anchors() -> set[str]:
-        nonlocal ambient
-        if ambient is None:
-            if _has_global_anchors(repo):
-                ambient = _project_anchors(repo)
-            elif _has_partial_anchors(repo):
-                ambient = _partial_anchors(repo)
-            else:
-                ambient = set()
-        return ambient
-
-    base = _DOC.link_base or repo
-    findings: list[Finding] = []
-    for number, line in enumerate(_strip_code(text).splitlines(), start=1):
-        for raw in _MD_LINK.findall(line):
-            if "#" not in raw or _EXTERNAL.match(raw):
-                continue
-            target, _, fragment = raw.partition("#")
-            fragment = fragment.lower()
-            if not fragment:
-                continue
-            if not target:
-                if fragment in own or fragment in ambient_anchors():
-                    continue
-                findings.append(Finding(
-                    number, "dead-md-anchor",
-                    f"links to `{raw}`, but this document has no such heading",
-                    subject=raw,
-                ))
-                continue
-            if target.startswith("/"):
-                resolved = repo / target.lstrip("/")
-            else:
-                resolved = base / target
-            if resolved.suffix.lower() not in (".md", ".markdown"):
-                continue
-            if not resolved.is_file():
-                continue          # dead-md-link's finding, not this rule's
-            offered = _target_anchors(resolved)
-            if offered is None or fragment in offered:
-                continue
-            findings.append(Finding(
-                number, "dead-md-anchor",
-                f"links to `{raw}`, but `{_rel(repo, resolved)}` has no such "
-                "heading",
-                subject=raw,
-            ))
-    return findings
+def _probe_md_anchor(repo: Path, text: str) -> str | None:
+    """Repoint the first fragment at a heading no document offers."""
+    return _rule_md_anchor.probe(_ctx(repo), text)
 
 
 # Where files actually are, and which markdown trees a generator compiles into
@@ -820,22 +738,22 @@ def _resolve_reference(repo: Path, base: Path, raw: str) -> tuple[bool, str | No
 
 def _has_global_anchors(repo: Path) -> bool:
     """Does this generator resolve `#label` against every document at once?"""
-    return _sites._has_global_anchors(_ctx(repo))
+    return _sites.has_global_anchors(_ctx(repo))
 
 
 def _has_partial_anchors(repo: Path) -> bool:
     """Does this generator compose fragment files into other pages?"""
-    return _sites._has_partial_anchors(_ctx(repo))
+    return _sites.has_partial_anchors(_ctx(repo))
 
 
 def _partial_anchors(repo: Path) -> set[str]:
     """Anchors from fragment files, which belong to every page that includes one."""
-    return _sites._partial_anchors(_ctx(repo))
+    return _sites.partial_anchors(_ctx(repo))
 
 
 def _project_anchors(repo: Path) -> set[str]:
     """Every anchor offered by every tracked markdown file in the project."""
-    return _sites._project_anchors(_ctx(repo))
+    return _sites.project_anchors(_ctx(repo))
 
 
 def _site_dirs(repo: Path) -> list[Path]:
@@ -885,6 +803,16 @@ from extant.rules import branch as _rule_branch
 def validate_branch_mentions(repo: Path, text: str) -> list[Finding]:
     """A branch named in the newest entry that git has never heard of."""
     return _rule_branch.check(_ctx(repo), text)
+
+
+def _probe_branch_in_newest(repo: Path, text: str) -> str | None:
+    """Point the first branch token of the newest entry at a name git never saw.
+
+    See extant.probes.branch_in_newest. It moved there because BOTH branch
+    rules probe this way and the live-claim probe called this one directly,
+    which is a rule reaching into a rule.
+    """
+    return _probes.branch_in_newest(_ctx(repo), text)
 
 
 def validate_release_tags(repo: Path, text: str) -> list[Finding]:
@@ -1978,25 +1906,6 @@ def _probe_pinned_ref(repo: Path, text: str) -> str | None:
     return "".join(lines)
 
 
-def _probe_md_anchor(repo: Path, text: str) -> str | None:
-    for match in _MD_LINK.finditer(_strip_code(text)):
-        if not match.group(1).startswith("#"):
-            continue
-        start, end = match.span(1)
-        return text[:start] + "#extant-selftest-no-such-heading" + text[end:]
-    return None
-
-
-def _probe_branch_in_newest(repo: Path, text: str) -> str | None:
-    """Point the first branch token of the newest entry at a name git never saw.
-
-    See extant.probes.branch_in_newest. It moved there because BOTH branch
-    rules probe this way and the live-claim probe called this one directly,
-    which is a rule reaching into a rule.
-    """
-    return _probes.branch_in_newest(_ctx(repo), text)
-
-
 def _probe_consistency(repo: Path, text: str) -> str | None:
     """Not probeable by corrupting text, and honest about it.
 
@@ -2051,7 +1960,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "dead-release-tag": len(_RELEASE_TAG.findall(prose)),
         "dead-path-pointer": _rule_pointer.examined(_ctx(repo), text),
         "dead-md-link": _rule_md_link.examined(_ctx(repo), text),
-        "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),
+        "dead-md-anchor": _rule_md_anchor.examined(_ctx(repo), text),
         "inconsistent-artifact": sum(
             len(sources) for sources in _consistency_for(repo).values()),
         # Counted the same way the rule finds them, so a repository with no
@@ -2462,19 +2371,6 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
 
 FORMATS = ("text", "github", "sarif")
 _TOOL_URI = "https://github.com/scooter-sensei/extant"
-
-
-def _rel(repo: Path, path: Path) -> str:
-    """Repo-relative POSIX path.
-
-    Both machine formats locate a result by path, and both want it relative to
-    the repository root with forward slashes. A Windows absolute path in a
-    SARIF upload resolves to nothing on the server, so this is not cosmetic.
-    """
-    try:
-        return path.resolve().relative_to(repo.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
 
 
 def _fingerprint(path: str, kind: str, detail: str) -> str:

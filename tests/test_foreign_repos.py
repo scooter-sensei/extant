@@ -803,14 +803,24 @@ def test_the_project_union_is_built_only_when_a_fragment_needs_it(
     # the same trap `test_the_ref_table_is_re_read_between_validate_calls`
     # records from the other side, and counting the call is the stronger form:
     # it distinguishes "not built" from "built into somewhere else".
+    # Patched on the RULE MODULE, which is the module whose global the call
+    # actually reads. `from extant.sites import project_anchors` binds the
+    # function into extant/rules/md_anchor.py at import, so swapping
+    # `extant.sites.project_anchors` - or, as this test used to, the shim's
+    # own wrapper - reaches a name nothing calls, and both halves below then
+    # measure zero builds. The first assertion would still pass. That is the
+    # shape this whole file is about: a probe that stops probing looks exactly
+    # like the property holding.
+    from extant.rules import md_anchor
+
     built: list[Path] = []
-    real = hc._project_anchors
+    real = md_anchor.project_anchors
 
-    def counted(target):
-        built.append(target)
-        return real(target)
+    def counted(ctx):
+        built.append(ctx.repo)
+        return real(ctx)
 
-    monkeypatch.setattr(hc, "_project_anchors", counted)
+    monkeypatch.setattr(md_anchor, "project_anchors", counted)
     hc._SCOPE = hc.RunScope()
 
     # Every fragment resolves against this document's own headings.

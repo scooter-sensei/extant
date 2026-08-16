@@ -292,7 +292,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted when dead-md-anchor grew to check fragments on OTHER
         # files: the fragment is now split off with partition rather than
         # sliced, and slugging moved behind _heading_text.
-        ("anchors compared case-sensitively", collect,
+        ("anchors compared case-sensitively", rules / "md_anchor.py",
          "            fragment = fragment.lower()",
          "            fragment = fragment"),
         # Retargeted when `_slug_keeping_edges` was added for emoji headings:
@@ -318,8 +318,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          text,
          '    return untrimmed if untrimmed != untrimmed.strip("-") else ""',
          "    return untrimmed"),
-        ("cross-file anchors no longer checked", collect,
-         "            offered = _target_anchors(resolved)",
+        ("cross-file anchors no longer checked", rules / "md_anchor.py",
+         "            offered = _target_anchors(ctx, resolved)",
          "            offered = None"),
         ("rename chains no longer followed", refs,
          "    while current in mapping:",
@@ -374,7 +374,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    return len(find_sha_candidates(text)) + len(find_bare_sha_candidates(text))",
          "    return 1"),
         ("denominator drops a rule entirely", collect,
-         '        "dead-md-anchor": sum(1 for raw in links if raw.startswith("#")),',
+         '        "dead-md-anchor": _rule_md_anchor.examined(_ctx(repo), text),',
          ""),
 
         # --- selftest ---------------------------------------------------------
@@ -987,7 +987,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # was populated, so the mutation is killable and the campaign is what
         # keeps that test honest. Eagerly it cost roughly 400 ms per run at
         # 1600 files, on every repository carrying a conf.py.
-        ("the project anchor union goes back to being built eagerly", collect,
+        ("the project anchor union goes back to being built eagerly",
+         rules / "md_anchor.py",
          "                if fragment in own or fragment in ambient_anchors():",
          "                if fragment in (own | ambient_anchors()):"),
         # Hugo's fragment convention, and the guard that keeps it Hugo's. Without

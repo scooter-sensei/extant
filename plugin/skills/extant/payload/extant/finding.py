@@ -2,8 +2,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
-__all__ = ["Finding", "Located"]
+__all__ = ["Finding", "Located", "rel"]
+
+
+def rel(repo: Path, path: Path) -> str:
+    """Repo-relative POSIX path.
+
+    Both machine formats locate a result by path, and both want it relative to
+    the repository root with forward slashes. A Windows absolute path in a
+    SARIF upload resolves to nothing on the server, so this is not cosmetic.
+
+    Here rather than beside the formatters, because `dead-md-anchor` names the
+    OTHER document in its finding detail and so needs the same spelling the
+    formatters use. Detail strings are a shipped wire format - the baseline
+    fingerprint hashes (path, kind, detail) - so the two must not be allowed to
+    drift into two spellings of one path.
+    """
+    try:
+        return path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 @dataclass(frozen=True)
