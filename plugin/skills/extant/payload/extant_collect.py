@@ -535,126 +535,23 @@ def tracked_markdown(repo: Path) -> list[str]:
     return _refs.tracked_markdown(_ctx(repo))
 
 
+# The false-merge-claim rule is extant/rules/merge.py now. It reads the same
+# claims extant/commits.py finds for the SHA batch, which is why that scanner
+# is a module of its own rather than either rule's property.
+from extant.rules import merge as _rule_merge
+
+from extant.rules.merge import _claimed_ref  # noqa: F401  (re-exported: pure,
+#                                              reads nothing ambient)
+
+
 def validate_merge_claims(repo: Path, text: str) -> list[Finding]:
-    """Claims that work merged to main, re-checked against git ancestry.
-
-    The inverse of the live-claim rule, and the more dangerous direction: a
-    stale "still outstanding" claim makes a reader do redundant work, whereas a
-    false "merged at X" tells the next session that work LANDED when it did
-    not - so they build on a foundation that isn't there.
-
-    Unlike live claims, this is checked WHOLE-FILE and in the archive too. A
-    live status is only meaningful for the current phase, but "merged at X" is
-    a permanent claim about the past: it should be true forever, in any entry,
-    at any age. That asymmetry is deliberate.
-
-    A claim whose SHA does not resolve is skipped, not double-reported -
-    `validate_references` already flags it as a dead reference, and "this
-    commit is not an ancestor of main" would be a confusing second finding
-    about a commit that does not exist.
-
-    THE CLAIM NAMES ITS OWN REF, and that is what gets checked. "Merged to `X`
-    at `Y`" is self-describing, so asking git whether Y is on X needs no
-    configuration and is strictly more precise than comparing against one
-    globally configured trunk. Measured on a gitflow fixture, the old form was
-    blind to half of a real project's claims in either setting: with
-    trunk=main a false "merged to develop" claim went unexamined, and with
-    trunk=develop a false "merged to main" claim did. Both are caught now, and
-    the denominator counts every claim rather than the fraction that happened
-    to name the configured branch.
-
-    A two-group pattern means (ref, sha). A one-group pattern is the older
-    contract and still means (sha), checked against trunk exactly as before, so
-    a project that customised `merge_claim` keeps working.
-    """
-    # Claims inside code are examples, not promises. See _prose.
-    text = _prose(text)
-    claims = _merge_claims(text)
-    if not claims:
-        return []
-
-    # TWO git subprocesses PER CLAIM was 98% of total validation time, measured
-    # on a 4000-line document: 17.7 of 18.0 seconds, and most of the 1.8s the
-    # post-commit hook added to every commit. `validate_references` had already
-    # solved half of this by batching existence checks, and the optimisation was
-    # simply never carried across.
-    #
-    # Existence now goes through the same batched `git cat-file --batch-check`,
-    # and ancestry is asked once per DISTINCT commit rather than once per
-    # mention - documents repeat the same SHA constantly. Deliberately scoped to
-    # this call rather than memoised across the process: git state can change
-    # between validations, and a cache that outlives the run would answer from
-    # a repository that no longer exists in that shape.
-    #
-    # The DOCUMENT's tokens, not this rule's, and only for the git question -
-    # the claims above are still this rule's own and decide every finding
-    # below. A wider batch cannot move any token's answer, and asking for the
-    # document's union is what makes the whole document cost one batch instead
-    # of one per rule. See `_document_sha_tokens`.
-    resolved = _document_shas(repo, text)
-    merged: dict[tuple[str, str], bool] = {}
-    findings: list[Finding] = []
-    for number, raw_ref, sha in claims:
-        ref, quoted = _claimed_ref(raw_ref)
-        if sha not in resolved:
-            continue
-        if _resolve_ref(repo, ref) is None:
-            # The named branch is not here NOW, which is not the same as never
-            # having been: gitflow deletes every release and feature branch on
-            # merge. Asking git for the branch by name cannot tell those apart,
-            # and neither can the merge-message rescue `unknown-branch` uses -
-            # a squash merge or a custom `-m` erases the name entirely. This
-            # probe reported a legitimately deleted `release/1.2.0` as invented.
-            #
-            # So ask the SUBSTANTIVE question instead: did this work land
-            # anywhere at all? A missing branch plus an integrated commit is a
-            # stale or misspelt name on a claim that is true in substance, and
-            # silence is right. A missing branch plus a commit on no
-            # integration branch is a claim that work landed when it did not,
-            # which is the whole point of the rule.
-            #
-            # This also keeps the rule from being defeated by a typo. Evading
-            # it requires the commit to be genuinely integrated, at which point
-            # there is no false claim left to hide.
-            if not quoted:
-                continue        # a bare word, likelier prose than a ref
-            if not _integration_refs(repo):
-                continue        # no integration branch here to have taken it
-            if not _integrated_by(repo, sha):
-                findings.append(Finding(
-                    number, "false-merge-claim",
-                    f"claims work merged to `{ref}` at `{sha}`, but this "
-                    f"repository has no such branch and that commit is on no "
-                    f"integration branch either",
-                    subject=sha,
-                ))
-            continue
-        key = (ref, sha)
-        if key not in merged:
-            merged[key] = _reachable_from(repo, sha, ref)
-        if not merged[key]:
-            findings.append(Finding(
-                number, "false-merge-claim",
-                f"claims work merged to {ref} at `{sha}`, but that commit "
-                f"is not an ancestor of {ref}",
-                subject=sha,
-            ))
-    return findings
+    """Claims that work merged to main, re-checked against git ancestry."""
+    return _rule_merge.check(_ctx(repo), text)
 
 
-def _claimed_ref(raw: str) -> tuple[str, bool]:
-    """The ref a merge claim names, and whether the author backticked it.
-
-    Backticks are the whole signal. `` merged to `develp` at `abc` `` is a
-    claim about a specific branch and a typo in it must be reported; "merged to
-    the branch at `abc`" is prose, and treating `the` as a missing branch would
-    be the noise that gets a validator ignored. Requiring backticks outright
-    would instead lose every project that writes the branch name bare, so the
-    pattern accepts both and the rule distinguishes them here.
-    """
-    if len(raw) >= 2 and raw.startswith("`") and raw.endswith("`"):
-        return raw[1:-1], True
-    return raw, False
+def _probe_merge(repo: Path, text: str) -> str | None:
+    """Repoint a real merge claim at a commit on no integration branch."""
+    return _rule_merge.probe(_ctx(repo), text)
 
 
 # A backticked path that is the VISIBLE TEXT of a markdown link.
@@ -2323,37 +2220,6 @@ def _probe_sha(repo: Path, text: str) -> str | None:
     return _rule_sha.probe(_ctx(repo), text)
 
 
-def _probe_merge(repo: Path, text: str) -> str | None:
-    """Repoint a real merge claim at a commit that is on NO integration branch.
-
-    A nonexistent SHA will not do. The rule deliberately skips claims whose
-    commit does not resolve, leaving those to `dead-sha`, so probing with zeros
-    proves nothing and reports a working rule as broken. Found by running the
-    selftest and watching this rule stay silent, which is the entire point of
-    having one.
-
-    The SHA moved to group 2 when claims became self-describing, and this probe
-    kept corrupting group 1 - which is now the branch NAME. It replaced
-    `develop` with a commit hash, the pattern stopped matching, and the rule
-    went quiet. The selftest reported `false-merge-claim DID NOT FIRE` against
-    a rule that was working perfectly, which is the failure a selftest is
-    supposed to make impossible rather than cause. The group index is derived
-    from the pattern now, so a one-group custom pattern still probes correctly.
-
-    Excluding every integration ref rather than only trunk, because a commit
-    merged to `develop` is a true claim there and would prove nothing.
-    """
-    excluded = _integration_refs(repo)
-    try:
-        out = _GIT.run(repo, "rev-list", "--all", "--not", *excluded, "-n", "1")
-    except (subprocess.CalledProcessError, OSError):
-        return None
-    other = out.strip().splitlines()
-    if not other:
-        return None  # nothing off-trunk exists here to probe with
-    return _sub_group(text, _MERGE_CLAIM, _MERGE_CLAIM.groups, other[0])
-
-
 def _probe_pointer(repo: Path, text: str) -> str | None:
     return _sub_group(text, _PATH_POINTER, 1, _MISSING_PATH)
 
@@ -2483,7 +2349,7 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
         "dead-sha": _rule_sha.examined(_ctx(repo), text),
         "stale-live-claim": branches_in_newest,
         "unknown-branch": branches_in_newest,
-        "false-merge-claim": len(_MERGE_CLAIM.findall(prose)),
+        "false-merge-claim": _rule_merge.examined(_ctx(repo), text),
         "dead-release-tag": len(_RELEASE_TAG.findall(prose)),
         "dead-path-pointer": len(_PATH_POINTER.findall(prose)),
         "dead-md-link": sum(1 for raw in links

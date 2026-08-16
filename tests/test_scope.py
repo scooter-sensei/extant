@@ -126,11 +126,14 @@ PACKAGE_DIRECT_SUBPROCESS_SITES = 1
 # rather than a target. It was 12 when Task 7 wrote this test and every rule
 # still lived in extant_collect.py; Task 8 took the nine git-history helpers
 # into extant/refs.py and left four (`_own_remote`, `validate_pinned_refs`,
-# `_probe_merge`, `_changed_between`). Tasks 9 and 10 take those too, at which
-# point this number reaches zero and the assertion below has to be deleted
-# rather than set to 0 - a floor of zero is satisfied by an empty file, which
-# is the shape of broken check this file exists to refuse.
-SHIM_ROUTED_FLOOR = 4
+# `_probe_merge`, `_changed_between`). Task 9 took three of those four with
+# their rules - the first two to extant/rules/pinned_ref.py, the third to
+# extant/rules/merge.py - leaving `_changed_between`, which belongs to
+# `--deleted-since` rather than to any rule and goes in Task 10. At that point
+# this number reaches zero and the assertion below has to be DELETED rather
+# than set to 0 - a floor of zero is satisfied by an empty file, which is the
+# shape of broken check this file exists to refuse.
+SHIM_ROUTED_FLOOR = 1
 
 
 def test_a_nested_run_scope_does_not_disturb_the_outer_one() -> None:

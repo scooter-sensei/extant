@@ -65,7 +65,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # noticed. Mutations rot alongside the code they point at.
         # Retargeted a second time when claims became self-describing and the
         # ancestry map became keyed by (ref, sha) rather than by sha alone.
-        ("merge-claim never fires", collect,
+        ("merge-claim never fires", rules / "merge.py",
          "        if not merged[key]:\n            findings.append(Finding(",
          "        if False:\n            findings.append(Finding("),
         # Retargeted when ancestry became per-ref: the index is keyed by
@@ -94,10 +94,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    for name in sorted(present):\n"
          "        if name not in refs:\n"
          "            refs.append(name)"),
-        ("merge claims stop checking the ref the claim names", collect,
-         "            merged[key] = _reachable_from(repo, sha, ref)",
-         "            merged[key] = _reachable_from(repo, sha, TRUNK)"),
-        ("a bare word after the merge verb is treated as a branch", collect,
+        ("merge claims stop checking the ref the claim names", rules / "merge.py",
+         "            merged[key] = reachable_from(ctx, sha, ref)",
+         "            merged[key] = reachable_from(ctx, sha, ctx.config.trunk)"),
+        ("a bare word after the merge verb is treated as a branch", rules / "merge.py",
          "            if not quoted:\n"
          "                continue        # a bare word, likelier prose than a ref",
          "            if False:\n"
