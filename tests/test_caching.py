@@ -569,14 +569,21 @@ def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
     repo, commit = git_repo
     commit("a.py", "a\nb\nc\nd\ne\n", "chore: a")
 
+    # Patched on the RULE MODULE, which is the module whose global the memo
+    # and its reader both live in. The shim's same-named wrapper is a
+    # different object and swapping it reaches nothing - both halves below
+    # would then count zero scans, and only the first assertion here would
+    # notice. That is why it asserts a count rather than "not rescanned".
+    from extant.rules import line_pointer
+
     calls: list[str] = []
-    real = hc._line_pointer_sites_uncached
+    real = line_pointer._line_pointer_sites_uncached
 
-    def counted(target, text):
+    def counted(ctx, text):
         calls.append(text)
-        return real(target, text)
+        return real(ctx, text)
 
-    monkeypatch.setattr(hc, "_line_pointer_sites_uncached", counted)
+    monkeypatch.setattr(line_pointer, "_line_pointer_sites_uncached", counted)
 
     # The SAME string object throughout: that is what the memo keys on, so
     # passing an equal-but-distinct string would make both halves pass for the
