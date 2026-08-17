@@ -28,8 +28,16 @@ false claim this project keeps paying for.
 
 `_STRIPPED` stays a module-level memo here for the reason extant/scope.py gives
 for leaving it out of RunScope: it is keyed on the IDENTITY of the text passed
-in and reads nothing else, so it is a pure memo that self-invalidates and has
-no lifetime to state.
+in. That key is INCOMPLETE, not absent, and extant/scope.py now says so
+directly rather than claiming otherwise. `_blank_uncached` below also reads
+`doc.doc_format` - markdown and reStructuredText strip code differently - so
+the cached VALUE depends on the format as well as the text, while the cache
+key does not. A known latent bug, recorded but not fixed here: a caller that
+validates the same text object twice under two different formats - once with
+`doc_format="markdown"`, once with `"rst"` - gets back whichever result was
+computed first, both times. `--sweep` is the mode that changes `doc_format`
+per document within one run, which is what makes the condition real rather
+than theoretical.
 """
 from __future__ import annotations
 

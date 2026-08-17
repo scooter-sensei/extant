@@ -10,10 +10,22 @@ is a different object.
 Four of the twenty-six did not become fields here, and the reasons are the
 interesting part of the inventory rather than an exception list:
 
-* `_STRIPPED` and `_BARE_SHAS` are keyed on the IDENTITY of the text passed in
-  and read nothing else about the repository. They are pure memos that miss the
-  moment a different string arrives, so they have no lifetime to state and
-  stayed module-level in extant_collect.py.
+* `_BARE_SHAS` is keyed on the IDENTITY of the text passed in and reads
+  nothing else about the repository - `find_bare_sha_candidates` (commits.py)
+  takes only `text`. It is a pure memo that misses the moment a different
+  string arrives, so it has no lifetime to state and stayed module-level in
+  extant_collect.py.
+* `_STRIPPED` is keyed the same way, on identity alone, and used to be
+  described here as equally pure. It is not: the value it caches also depends
+  on `doc.doc_format`, because `_blank_uncached` (extant/text.py) strips
+  markdown and reStructuredText differently, and the key carries only the
+  text. A known latent bug, recorded but not fixed: a caller that validates
+  the same text OBJECT twice under two different formats - once as markdown,
+  once as reStructuredText - gets back whichever result was computed first,
+  both times. `--sweep` is the one mode that changes `doc_format` between
+  calls sharing a run, which is what makes the condition real rather than
+  theoretical. Still module-level, same as `_BARE_SHAS`, but for a narrower
+  reason than "pure": see extant/text.py for the rest of this.
 * `_POINTER_SITES` is not pure - it reads the filesystem through `_line_count`
   and so has to be dropped when that is - but its consumer, `count_examined`,
   runs AFTER validate() returns. A value tied to the call's scope would be

@@ -484,6 +484,17 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
     print(f"\nexamined {examined} changed document(s) since {ref}: "
           f"{len(gone)} claim(s) removed while still false, "
           f"{skipped} skipped for carrying no subject", file=out)
+    # Beside the denominator, for the reason `report_rule_errors` (session.py)
+    # gives: a rule that crashed reports no findings, which is what a clean
+    # run looks like here too, since this mode has no findings at all when it
+    # is healthy. `deleted_claims` calls `session.validate()` once per changed
+    # document and every raise it catches lands in RULE_ERRORS - Task 9's
+    # isolation runs here exactly as it does for `--validate` and `--sweep` -
+    # but nothing downstream of it ever named the rule until now. Reporting
+    # does NOT gate this mode; see the docstring above for why intent is not
+    # this tool's to judge. A rule that failed to look is still worth saying
+    # out loud even when nothing here would have failed the build anyway.
+    session.report_rule_errors(lambda line: print(line, file=out))
     if skipped:
         print("  a skipped finding belongs to a rule that does not yet record "
               "which token it is about, so this mode cannot look for it",

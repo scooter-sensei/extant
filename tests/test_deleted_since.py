@@ -120,6 +120,53 @@ def test_the_mode_never_gates(git_repo, capsys) -> None:
     assert "examined" in printed.out + printed.err, "the denominator must print"
 
 
+def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
+        git_repo, capsys, monkeypatch) -> None:
+    """The gap `run_sweep` and `--validate` already closed, missing here.
+
+    `deleted_claims` calls `session.validate()` once per changed document, the
+    same call `cli.main()` makes for `--validate` and `run_sweep` makes per
+    swept file - and both of those name a crashed rule in their output, beside
+    the denominator, per registry.py's RULE_ERRORS contract. This mode never
+    reported it: `session.validate()` still records the failure in
+    RULE_ERRORS, but nothing here ever called `session.report_rule_errors`, so
+    a rule that failed to look printed no differently from a rule that looked
+    and found nothing.
+
+    Non-gating is correct and deliberate here - see the module docstring - so
+    this does NOT assert a non-zero exit, unlike the equivalent test in
+    test_rule_contract.py. It only asserts the failure is SAID.
+    """
+    from extant import session as hc
+    from extant import sweep
+
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
+    commit("NEXT_SESSION.md", ENTRY.format("Gone."), "docs: remove")
+
+    def explode(ctx, text):
+        raise RuntimeError("deliberate")
+
+    import dataclasses
+
+    broken = dataclasses.replace(hc.RULES[0], check=explode)
+    monkeypatch.setattr(hc, "RULES", (broken,) + hc.RULES[1:])
+
+    code = sweep.run_deleted_since(repo, "HEAD~1", "text")
+    printed = capsys.readouterr()
+    combined = printed.out + printed.err
+
+    assert code == 0, (
+        "this mode must never gate, crashed rule or not - see the module "
+        "docstring on why intent is not this tool's to judge")
+    assert "ERRORED" in combined and broken.kind in combined, (
+        f"the crashed rule was not named in the output, so its silence is "
+        f"indistinguishable from a clean run finding nothing to report:\n"
+        f"{combined}")
+    assert "RuntimeError: deliberate" in combined, (
+        f"the exception was recorded without saying what it was:\n{combined}")
+
+
 def test_a_missing_ref_is_reported_not_crashed(git_repo, capsys) -> None:
     from extant import session as hc
     from extant import sweep
