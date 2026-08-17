@@ -76,6 +76,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="unknown-branch",
+    sequence=3,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="newest-entry",
     in_archive=False,

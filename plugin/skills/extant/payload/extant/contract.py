@@ -53,6 +53,17 @@ class Rule:
     """
 
     kind: str          # the finding kind it emits, for cross-checking
+    # Where this rule's denominator sits in the `examined:` line and the
+    # sweep's NOTE line. REQUIRED, and deliberately not left as import order:
+    # the registry used to assemble RULES by importing rule modules sorted by
+    # module NAME, which is a filename accident, not a chosen order - and it
+    # fired on the first run after the rules became modules, reshuffling a
+    # denominator line that used to be a hand-written dict literal with its
+    # own keying. `sequence` puts the ordering back on the rule that owns it,
+    # rather than on a second list somewhere that can drift from RULES;
+    # registry._load_rules sorts by it and asserts every value is distinct, so
+    # two rules cannot silently share one and reintroduce an arbitrary order.
+    sequence: int
     check: object      # (ctx, text) -> list[Finding]
     scope: str         # "whole-file" | "newest-entry"
     in_archive: bool   # does it still hold once an entry is retired?

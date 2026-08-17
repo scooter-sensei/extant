@@ -76,16 +76,23 @@ def count_examined(ctx: object, text: str) -> dict[str, int]:
 
 
 def _load_rules() -> tuple[Rule, ...]:
-    """Import every rule module and collect its declaration.
+    """Import every rule module and collect its declaration, ordered by `sequence`.
 
     Eager, and it must stay eager. A lazily imported rule is a rule missing
     from RULES, and everything that iterates RULES - count_examined, the sweep
     denominators, --selftest, the docs test - would report a SMALLER
     denominator that looks exactly like a clean result.
 
-    Sorted by module name, so the order of every denominator line is the same
-    on every platform; `pkgutil.iter_modules` follows directory order
-    otherwise, and the sweep prints that order to a human.
+    IMPORTED in module-name order, so that part is the same on every
+    platform; `pkgutil.iter_modules` follows directory order otherwise, which
+    a reader cannot predict from the source. That only governs which order
+    modules are LOADED in, though - it stopped being what RULES is ORDERED BY
+    the moment a rule's `sequence` field existed, because module-name order is
+    exactly what reshuffled the printed `examined:` line the day this registry
+    started assembling RULES from modules instead of from one hand-written
+    tuple. Sorting by `sequence` here, on values each rule declares itself,
+    reproduces the order every previous reader of a sweep or a `--verify`
+    run has always seen.
     """
     import importlib
     import pkgutil
@@ -102,6 +109,18 @@ def _load_rules() -> tuple[Rule, ...]:
         # that globbed one level deep - would otherwise build an empty registry,
         # and every mode would then report a clean run having checked nothing.
         raise RuntimeError("no rule modules were found; the registry is empty")
+    found.sort(key=lambda rule: rule.sequence)
+    sequences = [rule.sequence for rule in found]
+    if len(set(sequences)) != len(sequences):
+        # A tie would otherwise sort by Python's stable-sort tiebreak, which is
+        # the position `found` already had - import order again, by the back
+        # door, and silently: nothing else here would notice two rules had
+        # agreed on a number. That is precisely the arbitrary, undeclared
+        # ordering `sequence` exists to replace, so a collision fails the
+        # import loudly instead of ordering itself by accident.
+        raise RuntimeError(
+            f"two or more rules share a `sequence` value: {sorted(sequences)}; "
+            "give each rule module's RULE.sequence a distinct integer")
     return tuple(found)
 
 

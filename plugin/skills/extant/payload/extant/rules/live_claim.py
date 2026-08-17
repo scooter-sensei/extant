@@ -117,6 +117,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="stale-live-claim",
+    sequence=2,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="newest-entry",
     in_archive=False,

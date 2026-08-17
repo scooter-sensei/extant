@@ -171,8 +171,25 @@ def test_a_resolved_sha_is_re_read_between_validate_calls(
                    capture_output=True)
     subprocess.run(["git", "commit", "-m", "feat: a"], cwd=donor, check=True,
                    capture_output=True)
-    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=donor, check=True,
-                         capture_output=True, text=True).stdout.strip()[:9]
+    full_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=donor, check=True,
+                              capture_output=True, text=True).stdout.strip()
+    # `looks_like_sha` (extant/commits.py) refuses a token with no digit or no
+    # letter, so a bare `full_sha[:9]` made this test about 1.5% flaky: a
+    # random 9-hex-char slice of a real commit hash is all-digit about 0.6% of
+    # the time, and all-letter on top of that - either way the token is never
+    # even recognised as a SHA candidate, so the "before" assertion below
+    # fails for a reason that has nothing to do with the cache this test
+    # exists to pin. Widening the prefix - never SUBSTITUTING characters,
+    # which would stop it matching the real commit once fetched - makes the
+    # token satisfy the shape rule by construction instead of by chance.
+    # DO NOT simplify this back to a bare slice.
+    sha = full_sha[:9]
+    while not (any(ch.isdigit() for ch in sha) and any(ch.isalpha() for ch in sha)):
+        sha = full_sha[:len(sha) + 1]
+        assert len(sha) <= len(full_sha), (
+            f"full commit SHA {full_sha!r} has no digit/letter mix at any "
+            "prefix length, which should be practically impossible for a "
+            "real git hash")
 
     doc = f"Landed at `{sha}`.\n"
     before = [f.kind for f in hc.validate(repo, doc, has_entries=False)]

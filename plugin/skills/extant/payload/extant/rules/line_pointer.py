@@ -204,6 +204,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="dead-line-pointer",
+    sequence=13,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="whole-file",
     in_archive=True,

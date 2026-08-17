@@ -98,8 +98,9 @@ def test_a_rule_that_states_no_denominator_refuses_rather_than_answering_zero(
     from extant.contract import Rule
     from extant.registry import RULE_ERRORS, count_examined
 
-    forgetful = Rule(kind="made-up", check=lambda _c, _t: [], scope="whole-file",
-                     in_archive=True, falsifiable="does it?", probe=lambda _c, _t: None)
+    forgetful = Rule(kind="made-up", sequence=0, check=lambda _c, _t: [],
+                     scope="whole-file", in_archive=True, falsifiable="does it?",
+                     probe=lambda _c, _t: None)
     try:
         forgetful.examined(None, "")
     except NotImplementedError:

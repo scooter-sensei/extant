@@ -229,6 +229,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="raw-lfs-blob",
+    sequence=11,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="repository",
     in_archive=False,

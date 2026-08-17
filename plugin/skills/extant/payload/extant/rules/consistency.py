@@ -235,6 +235,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="inconsistent-artifact",
+    sequence=9,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="repository",
     in_archive=False,

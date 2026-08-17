@@ -310,6 +310,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="manifest-floor-mismatch",
+    sequence=12,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="whole-file",
     # Whole-file, so never archive-exempt: the exemption tracks scope

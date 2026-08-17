@@ -156,6 +156,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="dead-release-tag",
+    sequence=5,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="whole-file",
     in_archive=True,

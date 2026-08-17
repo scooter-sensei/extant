@@ -210,6 +210,7 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
 
 RULE = Rule(
     kind="dead-sha",
+    sequence=1,   # first in the pre-refactor examined: dict literal
     check=check,
     scope="whole-file",
     in_archive=True,

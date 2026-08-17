@@ -188,6 +188,7 @@ def probe(ctx: Context, text: str) -> str | None:
 
 RULE = Rule(
     kind="false-merge-claim",
+    sequence=4,   # matches the pre-refactor examined: dict literal's order
     check=check,
     scope="whole-file",
     in_archive=True,
