@@ -41,17 +41,21 @@ ignored. Every rule must be falsifiable against git or the filesystem.
 
 ## Adding a rule
 
-Rules live in a registry in `extant_collect.py`. Each declares what it emits,
-its scope, whether it survives archiving, and - required - the exact yes/no
-question it asks of git or the filesystem:
+Rules live in `extant/rules/`, one module per rule, collected into a registry
+by `extant/registry.py`. Each declares what it emits, its scope, whether it
+survives archiving, and - required - the exact yes/no question it asks of git
+or the filesystem:
 
 ```python
-Rule(
+RULE = Rule(
     kind="false-merge-claim",
-    check=validate_merge_claims,
+    sequence=4,
+    check=check,
     scope="whole-file",
     in_archive=True,
     falsifiable="is the claimed commit an ancestor of the ref the claim names?",
+    probe=probe,
+    examined=examined,
 )
 ```
 
