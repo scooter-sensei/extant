@@ -26,20 +26,26 @@ sys.path.insert(0, str(PAYLOAD))
 #
 #   22  became RunScope fields (the list in scope.py, in this order)
 #    3  stayed MODULE-LEVEL rather than becoming scope fields: _STRIPPED,
-#       _BARE_SHAS and _POINTER_SITES. The first two are keyed on the IDENTITY
-#       of the text passed in and read nothing else about the repository, so
-#       they are pure memos that self-invalidate; giving them a scope would be
-#       a lifetime they do not have. _POINTER_SITES is not pure - it reads the
-#       filesystem through _line_count - but its consumer, count_examined,
-#       runs AFTER validate() returns, so a value tied to the call's scope
-#       would be discarded exactly when it is needed. See the comment beside
-#       it.
+#       _BARE_SHAS and _POINTER_SITES. _BARE_SHAS is keyed on the IDENTITY of
+#       the text passed in and reads nothing else about the repository, so it
+#       is a pure memo that self-invalidates; giving it a scope would be a
+#       lifetime it does not have. _STRIPPED is keyed the same way but is NOT
+#       equally pure: _blank_uncached (extant/text.py) also reads
+#       doc.doc_format, so the cached value depends on the format while the
+#       key does not - a known latent bug, recorded but not fixed, that only
+#       bites a caller validating the same text object under two formats in
+#       one run, which is what --sweep does. _POINTER_SITES is not pure
+#       either - it reads the filesystem through _line_count - but its
+#       consumer, count_examined, runs AFTER validate() returns, so a value
+#       tied to the call's scope would be discarded exactly when it is
+#       needed. See the comment beside it.
 #
 #       Module-level, not necessarily in extant_collect.py, and that stopped
 #       being the same statement in Task 8: _STRIPPED moved to extant/text.py
 #       with the stripping functions that own it. Still a module-level memo,
-#       still no lifetime to state, one file over. Task 9 moved the other two
-#       the same way - _BARE_SHAS to extant/commits.py with the SHA scanners,
+#       still no RunScope field, one file over - see extant/text.py for what
+#       it does and does not guarantee. Task 9 moved the other two the same
+#       way - _BARE_SHAS to extant/commits.py with the SHA scanners,
 #       _POINTER_SITES to extant/rules/line_pointer.py with the rule and the
 #       denominator that share it - and neither gained a lifetime by moving.
 #    1  was deleted: _TAGS has been dead since 6c5c29c rewired _tags() through

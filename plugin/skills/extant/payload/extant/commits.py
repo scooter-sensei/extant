@@ -221,9 +221,12 @@ def find_sha_candidates(text: str) -> list[tuple[int, str]]:
     return out
 
 
-# Same idiom and same reasoning as `_STRIPPED` in text.py: keyed on object
-# IDENTITY, so a different string simply misses and no lifecycle is needed. Added
-# when the sweep began reporting a per-rule denominator, which made
+# Same idiom as `_STRIPPED` in text.py: keyed on object IDENTITY, so a
+# different string simply misses and no lifecycle is needed. Unqualified here
+# - `find_bare_sha_candidates` takes only `text`, so unlike `_STRIPPED`, which
+# also reads `doc.doc_format` without keying on it (a known latent bug
+# recorded in extant/text.py), this cache has nothing else it could miss.
+# Added when the sweep began reporting a per-rule denominator, which made
 # `count_examined` (session.py's wrapper over extant.registry.count_examined)
 # a second caller for the same document - this function and `_line_pointer_sites`
 # in extant/rules/line_pointer.py were then the two most expensive things in a

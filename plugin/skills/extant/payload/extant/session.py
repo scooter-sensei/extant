@@ -294,7 +294,7 @@ def report_rule_errors(emit, mark: int = 0) -> int:
     return len(RULE_ERRORS)
 
 
-def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
+def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
     """Corrupt one real claim per rule and confirm the rule notices.
 
     The question this answers is the one --verify cannot: not "is the document
@@ -306,9 +306,17 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
     is exercised is this project's configuration against this project's writing.
     A synthetic probe written in the default vocabulary would only ever prove
     that the defaults match the defaults.
+
+    Four outcomes, not three: FIRED, NO PROBE, DID NOT FIRE and ERRORED. A rule
+    whose `check` raises against a probe it just built is none of the first
+    three - it did not fire, it is not "no probe" because a probe WAS built,
+    and it did not "stay silent" either, which describes a rule that answered
+    and found nothing. It never got to answer at all, so it is counted and
+    printed as its own, fourth outcome rather than forced into one of the other
+    three and misreported as one of them.
     """
     lines: list[str] = []
-    fired = unprobeable = 0
+    fired = unprobeable = errored = 0
     ctx = context(repo)
     for rule in RULES:
         probed = rule.probe(ctx, text)  # type: ignore[operator]
@@ -318,15 +326,30 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int]:
                          f"(no such claim here, or the repository offers "
                          f"nothing to corrupt it with)")
             continue
-        findings = [f for f in rule.check(ctx, probed)  # type: ignore[operator]
-                    if f.kind == rule.kind]
+        try:
+            findings = [f for f in rule.check(ctx, probed)  # type: ignore[operator]
+                        if f.kind == rule.kind]
+        except Exception as exc:                            # noqa: BLE001
+            # Deliberately broad, and deliberately not silent - the same
+            # contract every other caller of a rule's check()/examined()
+            # honours; see RULE_ERRORS above. --selftest is the mode whose
+            # entire job is proving a rule CAN be exercised, so a rule dying
+            # mid-probe is the one place a broken rule is most likely to
+            # surface and the one place a traceback helps nobody: it took the
+            # whole run down instead of naming the one rule that failed.
+            errored += 1
+            RULE_ERRORS.append(
+                (rule.kind, f"{exc.__class__.__name__}: {exc}"))
+            lines.append(f"  {rule.kind:<20} ERRORED        the probe could "
+                         f"not be run: {exc.__class__.__name__}: {exc}")
+            continue
         if findings:
             fired += 1
             lines.append(f"  {rule.kind:<20} FIRED")
         else:
             lines.append(f"  {rule.kind:<20} DID NOT FIRE   corrupted a real "
                          f"match and the rule stayed silent")
-    return lines, fired, unprobeable
+    return lines, fired, unprobeable, errored
 
 
 def rule_applies(rule: Rule, in_archive: bool, has_entries: bool) -> bool:

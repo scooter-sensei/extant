@@ -439,9 +439,10 @@ def test_selftest_fires_every_probeable_rule(git_repo) -> None:
         "See [plan](docs/plan.md) and [layout](#1-layout).\n\n## 1. Layout\n"
     )
 
-    lines, fired, unprobeable = selftest(repo, text)
+    lines, fired, unprobeable, errored = selftest(repo, text)
 
-    silent = len(lines) - fired - unprobeable
+    silent = len(lines) - fired - unprobeable - errored
+    assert errored == 0, "a probeable rule raised:\n" + "\n".join(lines)
     assert silent == 0, "a rule stayed silent after its probe:\n" + "\n".join(lines)
     assert fired >= 7, f"only {fired} rules could be exercised:\n" + "\n".join(lines)
 
@@ -493,11 +494,66 @@ def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> Non
         real, check=lambda _ctx, _text: [])   # corrupt anything; notice nothing
     monkeypatch.setattr(hc, "RULES", (blind,))
 
-    lines, fired, unprobeable = hc.selftest(repo, "Shipped at `abc1234567890`.\n")
+    lines, fired, unprobeable, errored = hc.selftest(repo, "Shipped at `abc1234567890`.\n")
 
     assert fired == 0, "a blind rule must not be counted as firing"
     assert unprobeable == 0, "the probe had a real SHA to corrupt"
+    assert errored == 0, "a rule that returns [] must not be counted as errored"
     assert "DID NOT FIRE" in lines[0]
+
+
+def test_selftest_reports_a_rule_that_raises_instead_of_crashing(
+        git_repo, capsys, monkeypatch) -> None:
+    """The gap `--validate` and `--deleted-since` already closed, missing here
+    and worse.
+
+    `session.selftest()` called `rule.check()` uncaught, so a raising rule took
+    the whole mode down with a traceback - the one place that matters most,
+    since --selftest's entire job is proving a rule CAN fire. Written against
+    `cli.main()`, like the --validate version of this test in
+    test_rule_contract.py, because the interesting behaviour - the fourth
+    outcome and the exit code - is decided partly by session.selftest() and
+    partly by the --selftest branch of cli.py's main(), so calling
+    session.selftest() alone would miss half of it.
+    """
+    from extant import cli
+    from extant import session as hc
+
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "Shipped at `abc1234567890`.\n", "docs: status")
+
+    def explode(ctx, text):
+        raise RuntimeError("deliberate")
+
+    import dataclasses
+
+    # The same real "dead-sha" rule and fixture text
+    # test_selftest_reports_a_rule_that_stays_silent uses above, for the same
+    # reason: its probe is the one the registry carries, and this text is
+    # proven to give it something to corrupt, so `check` is reached at all.
+    real = next(r for r in hc.RULES if r.kind == "dead-sha")
+    broken = dataclasses.replace(real, check=explode)
+    monkeypatch.setattr(hc, "RULES", (broken,))
+
+    code = cli.main(["--selftest", "--repo", str(repo)])
+    printed = capsys.readouterr()
+    combined = printed.out + printed.err
+
+    assert "Traceback" not in combined, combined
+    assert "ERRORED" in combined and broken.kind in combined, (
+        f"the crashed rule was not named in the output, so its silence reads "
+        f"no differently from a rule nobody exercised:\n{combined}")
+    assert "RuntimeError: deliberate" in combined, (
+        f"the exception was recorded without saying what it was:\n{combined}")
+    assert "FIRED" not in combined, (
+        f"a rule that raised must not be counted as having fired:\n{combined}")
+    assert "DID NOT FIRE" not in combined, (
+        f"a rule that raised never got a chance to answer, so it is not the "
+        f"same outcome as one that answered and stayed silent:\n{combined}")
+    assert code != 0, (
+        "a rule that could not be run is not known to work, so --selftest "
+        "must not exit 0 as if every rule had been proven")
+    hc.RULE_ERRORS.clear()
 
 
 def test_extra_docs_are_validated(git_repo) -> None:

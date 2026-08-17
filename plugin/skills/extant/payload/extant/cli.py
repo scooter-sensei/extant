@@ -385,22 +385,25 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 1
         session.set_document(link_base=target.parent)
-        lines, fired, unprobeable = session.selftest(repo, text)
+        lines, fired, unprobeable, errored = session.selftest(repo, text)
         print(f"selftest: probing {len(session.RULES)} rules against "
               f"{session.PRIMARY_DOC}\n")
         for line in lines:
             print(line)
-        silent = len(session.RULES) - fired - unprobeable
+        silent = len(session.RULES) - fired - unprobeable - errored
         print(f"\n  {fired} fired, {unprobeable} had nothing to corrupt, "
-              f"{silent} stayed silent")
+              f"{errored} could not be run, {silent} stayed silent")
         if silent:
             print("  A rule that stays silent after a real match is corrupted is "
                   "not working. Check its pattern against this document.")
+        if errored:
+            print("  A rule that could not be run has not been shown to work "
+                  "either - see the ERRORED line(s) above for what it raised.")
         if unprobeable:
             print("  'No probe' is not a failure by itself, but a rule that "
                   "cannot be exercised is also not known to work.")
         session.set_document(link_base=None)
-        return 1 if silent else 0
+        return 1 if (silent or errored) else 0
     if args.collect:
         bundle = collect(repo, args.suite_json,
                          session.context(repo).config, status)

@@ -80,9 +80,12 @@ def _line_count(ctx: Context, relative: str) -> int | None:
 
 # Identity-keyed like `_STRIPPED` and `_BARE_SHAS`, and for the same reason: the
 # rule and the denominator ask for the same document's sites in the same pass.
-# The repo and the format are compared as well, because unlike those two this
-# reads both - a cache that ignored them would answer a question it was never
-# asked. Measured on pytest's 308 documents: 617 calls, 1.19s.
+# The repo and the format are compared as well, because unlike `_BARE_SHAS`
+# this reads both - a cache that ignored them would answer a question it was
+# never asked. `_STRIPPED` (extant/text.py) reads the format too, through
+# _blank_uncached, but does not compare it - a known latent bug recorded
+# there; this cache's format comparison is exactly what that one is missing.
+# Measured on pytest's 308 documents: 617 calls, 1.19s.
 _POINTER_SITES: "tuple[str, Path, str, list[tuple[int, str, int, int]]] | None" = None
 
 
