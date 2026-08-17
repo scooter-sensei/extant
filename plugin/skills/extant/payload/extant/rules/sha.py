@@ -3,16 +3,21 @@
 The scanning half - which tokens in a document are SHA-shaped, and which of
 them git has - is extant/commits.py, because `false-merge-claim` reads the same
 tokens and one batch has to serve both. What is here is this rule's own: which
-of those candidates is worth a finding, how many it looked at, how to make it
-fire, and the `--sha-map` rewriter that repairs what it reports.
+of those candidates is worth a finding, how many it looked at, and how to
+make it fire.
+
+The `--sha-map` rewriter went to extant/commits.py in Task 10. It repairs
+exactly what this rule reports, which is why it must stay beside the scanners
+both halves read - but it is a command-line feature that rewrites documents,
+not a question this rule asks, and a rule module owning one made this the only
+rule the CLI imported directly.
 """
 from __future__ import annotations
 
 import re
 
 from extant.commits import (
-    BACKTICKED, BARE_SHA_TOKEN, document_shas, find_bare_sha_candidates,
-    find_sha_candidates, looks_like_bare_sha, looks_like_sha, spans_overlap,
+    document_shas, find_bare_sha_candidates, find_sha_candidates,
 )
 from extant.contract import Rule
 from extant.finding import Finding
@@ -20,8 +25,7 @@ from extant.probes import sub_group
 from extant.scope import Context
 from extant.text import prose
 
-__all__ = ["RULE", "check", "examined", "load_sha_map", "probe",
-           "translate_shas"]
+__all__ = ["RULE", "check", "examined", "probe"]
 
 # A changesets release note. The id is minted by the tool, not by git.
 #
@@ -106,106 +110,6 @@ _DEAD_SHA = "dead" + "0" * 36
 
 def probe(ctx: Context, text: str) -> str | None:
     return sub_group(text, re.compile(r"`([0-9a-f]{7,40})`"), 1, _DEAD_SHA)
-
-
-def load_sha_map(path: str) -> dict[str, str]:
-    """Parse a git-filter-repo commit-map (old SHA, whitespace, new SHA)."""
-    mapping: dict[str, str] = {}
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            parts = line.split()
-            if len(parts) == 2:
-                mapping[parts[0]] = parts[1]
-    return mapping
-
-
-def _translated_value(token: str, mapping: dict[str, str]) -> str | None:
-    """New value for `token` via prefix match, or None if it must stay put.
-
-    GA-6: an AMBIGUOUS prefix - two old SHAs sharing it - is left untranslated
-    rather than resolved by dict order. Picking a winner silently would rewrite
-    a reference to point at the wrong commit, and a wrong SHA is worse than a
-    dead one: the dead one is visibly broken, the wrong one reads as correct.
-    Shared by both the backticked and bare translation paths below, so both
-    apply the same ambiguity rule.
-    """
-    hits = [new for old, new in mapping.items() if old.startswith(token)]
-    return hits[0][: len(token)] if len(hits) == 1 else None
-
-
-def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
-    """Rewrite dead SHAs - backticked AND bare (I-1c) - to their post-rewrite
-    values, matched by prefix.
-
-    Ambiguous prefixes are left alone; see `_translated_value`. Ambiguous or
-    otherwise unresolved tokens stay dead and get reported by `check`.
-
-    Tokenizes per line, exactly like find_sha_candidates and
-    find_bare_sha_candidates. `BACKTICKED`'s `[^`]+` matches newlines, so
-    subbing over the whole text at once pairs backticks ACROSS line
-    boundaries - an odd number of backticks on an earlier line shifts every
-    pairing after it out of phase with the per-line scan find_sha_candidates
-    (and `check`) rely on, making some backticked SHAs invisible
-    here even though they are reported as findings elsewhere. Scanning line
-    by line keeps the two in agreement by construction.
-    `splitlines(keepends=True)` + `"".join(...)` preserves line endings
-    byte-for-byte, so a no-op translation is a no-op on disk.
-
-    I-1(c): a bare token is repaired in place, at its original length, and
-    stays bare - this rewrites the SHA, it does not add styling the author
-    never wrote. This half is not optional: adding `bare-dead-sha` findings
-    (I-1b) without also extending translation to reach them would recreate
-    EX-8 - a class of reference the validator reports that --sha-map is
-    structurally unable to fix. The backtick substitution runs first on each
-    line; it preserves length and leaves the backtick characters themselves
-    untouched, so the backtick spans re-scanned afterwards for the bare pass
-    land at the same offsets either way.
-
-    Not a rule function, and it is here rather than beside the CLI because it
-    is the repair for exactly what `check` reports: the two read the same
-    tokens through the same scanners, and separating them is how a class of
-    finding ends up unfixable.
-    """
-    count = 0
-
-    def replace_backticked(match: "re.Match[str]") -> str:
-        nonlocal count
-        token = match.group(1)
-        if not looks_like_sha(token):
-            return match.group(0)
-        new = _translated_value(token, mapping)
-        if new is None:
-            return match.group(0)
-        count += 1
-        return f"`{new}`"
-
-    def replace_bare(line: str) -> str:
-        nonlocal count
-        backticked_spans = [m.span() for m in BACKTICKED.finditer(line)]
-        pieces: list[str] = []
-        cursor = 0
-        for match in BARE_SHA_TOKEN.finditer(line):
-            if spans_overlap(match.span(), backticked_spans):
-                continue
-            token = match.group(0)
-            if not looks_like_bare_sha(token):
-                continue
-            new = _translated_value(token, mapping)
-            if new is None:
-                continue
-            pieces.append(line[cursor: match.start()])
-            pieces.append(new)
-            cursor = match.end()
-            count += 1
-        pieces.append(line[cursor:])
-        return "".join(pieces)
-
-    lines = []
-    for line in text.splitlines(keepends=True):
-        line = BACKTICKED.sub(replace_backticked, line)
-        line = replace_bare(line)
-        lines.append(line)
-    return "".join(lines), count
 
 
 RULE = Rule(

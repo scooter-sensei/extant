@@ -391,9 +391,12 @@ from extant.finding import Finding, Located  # noqa: F401
 # the suite and the RULES tuple further down already use.
 from extant.rules import sha as _rule_sha
 
-from extant.rules.sha import load_sha_map, translate_shas  # noqa: F401
-#                            ^ re-exported unchanged: neither reads ambient
-#                              state, and `main()` calls both by these names.
+from extant.commits import load_sha_map, translate_shas  # noqa: F401
+#                          ^ re-exported unchanged: neither reads ambient
+#                            state, and `main()` calls both by these names.
+#                            They moved out of the rule in Task 10 - a rule
+#                            module must not own a CLI feature - and sit with
+#                            the scanners they have to agree with.
 
 
 def _merge_claims(prose: str) -> list[tuple[int, str, str]]:
