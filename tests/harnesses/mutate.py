@@ -56,6 +56,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     rules = collect.parent / "extant/rules"
     text = collect.parent / "extant/text.py"
     sites = collect.parent / "extant/sites.py"
+    # Task 10 emptied the shim. The formatters, the ambient run state and the
+    # three modes each got a module, so an anchor that used to name
+    # extant_collect.py now names the file the code lives in - the same
+    # follow-the-code rule the two notes above describe. Eight anchors needed
+    # `report`, and one of those eight also needed its TEXT rewritten:
+    # `_fingerprint` lost its underscore when extant/cli.py, a different module
+    # now, became a caller across the boundary.
+    report = collect.parent / "extant/report.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -391,10 +399,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        probed = None"),
 
         # --- output formats ---------------------------------------------------
-        ("github property escaping removed", collect,
+        ("github property escaping removed", report,
          '        out = out.replace(":", "%3A").replace(",", "%2C")',
          "        pass"),
-        ("github message escaping removed", collect,
+        ("github message escaping removed", report,
          '    out = value.replace("%", "%25").replace("\\r", "%0D").replace("\\n", "%0A")',
          "    out = value"),
         # Retargeted when --suggest-fixes made stdout a patch channel too, so
@@ -407,27 +415,27 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("suggested patch shares stdout with the findings", collect,
          '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
          '        stream = (sys.stderr if (args.format == "sarif" or False)'),
-        ("fingerprint folds in the line number", collect,
-         '                "statusClaim/v1": _fingerprint(\n'
+        ("fingerprint folds in the line number", report,
+         '                "statusClaim/v1": fingerprint(\n'
          "                    item.path, item.finding.kind, item.finding.detail),",
-         '                "statusClaim/v1": _fingerprint(\n'
+         '                "statusClaim/v1": fingerprint(\n'
          "                    item.path, item.finding.kind,\n"
          '                    f"{item.finding.detail}:{item.finding.line}"),'),
-        ("sarif drops partialFingerprints", collect,
+        ("sarif drops partialFingerprints", report,
          '            "partialFingerprints": {',
          '            "_dropped": {'),
         # Retargeted when the region gained a snippet and columns, which moved
         # its construction out of the literal and above the result dict.
-        ("sarif region loses startLine", collect,
+        ("sarif region loses startLine", report,
          '        region: dict[str, object] = {"startLine": max(1, item.finding.line)}',
          '        region: dict[str, object] = {}'),
         # The severity mapping is the reason `Located.gating` exists. Publishing
         # every finding as an error contradicted a sweep's own exit code.
-        ("sarif calls every finding an error again", collect,
+        ("sarif calls every finding an error again", report,
          '            "level": "error" if item.gating else "note",',
          '            "level": "error",'),
         # The denominator, which no machine consumer could see before.
-        ("sarif stops reporting what was examined", collect,
+        ("sarif stops reporting what was examined", report,
          '    if examined is not None:',
          '    if False:'),
 
@@ -690,7 +698,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("baseline stops stating how much it is hiding", collect,
          '            diag(f"{len(located)} new finding(s), {suppressed} suppressed by "',
          '            diag("" or f"{len(located)} new finding(s), {suppressed} hidden by "'),
-        ("a missing baseline becomes an empty one", collect,
+        ("a missing baseline becomes an empty one", report,
          "    if not path.is_file():\n        raise ValueError(",
          "    if not path.is_file():\n        return {}\n    if False:\n        raise ValueError("),
         ("re-recording honours the active baseline and shrinks the file", collect,
