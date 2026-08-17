@@ -90,7 +90,7 @@ def test_the_shim_derives_one_global_per_config_field() -> None:
     one and not the other fails the count; an `_apply_config` that rebinds
     CONFIG without rebuilding `_ACTIVE` fails the comparison.
     """
-    import extant_collect as hc
+    from extant import session as hc
     from extant.config import Config
 
     fields = dataclasses.fields(Config)

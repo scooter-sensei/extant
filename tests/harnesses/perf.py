@@ -197,14 +197,14 @@ def per_rule() -> None:
     script = f'''
 import sys, time, pathlib
 sys.path.insert(0, r"{repo / 'tools'}")
-import extant_collect as h
+from extant import session as h
 repo = pathlib.Path(r"{repo}")
 text = pathlib.Path(r"{repo / 'NEXT_SESSION.md'}").read_text(encoding="utf-8")
-h._set_document(link_base=repo)
+h.set_document(link_base=repo)
 rows = []
 for rule in h.RULES:
     start = time.perf_counter()
-    found = rule.check(repo, text)
+    found = rule.check(h.context(repo), text)
     rows.append((rule.kind, time.perf_counter() - start, len(found)))
 total = sum(r[1] for r in rows)
 for kind, secs, n in sorted(rows, key=lambda r: -r[1]):

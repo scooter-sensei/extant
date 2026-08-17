@@ -17,7 +17,7 @@ def test_defaults_reproduce_this_projects_behaviour(tmp_path):
     directory on the machine running it.
     """
     from extant.config import load_config
-    import extant_collect as h
+    from extant import session as h
     (tmp_path / ".git").mkdir()
     cfg = load_config(tmp_path)
     assert cfg.source == "defaults"

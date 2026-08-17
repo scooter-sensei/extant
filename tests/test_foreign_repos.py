@@ -28,12 +28,12 @@ sys.path.insert(0, str(PAYLOAD))
 
 
 def _findings(repo: Path, text: str) -> list[str]:
-    import extant_collect as hc
+    from extant import session as hc
     return [f"{f.kind}:{f.detail}" for f in hc.validate(repo, text, has_entries=False)]
 
 
 def _kinds(repo: Path, text: str) -> list[str]:
-    import extant_collect as hc
+    from extant import session as hc
     return [f.kind for f in hc.validate(repo, text, has_entries=False)]
 
 
@@ -183,7 +183,8 @@ def test_the_sweep_reads_the_commit_not_the_index(git_repo) -> None:
     This project already fixed exactly this once, for raw-lfs-blob reading the
     index instead of HEAD's tree. It came back in a new rule.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
 
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "chore: plan")
@@ -198,7 +199,7 @@ def test_the_sweep_reads_the_commit_not_the_index(git_repo) -> None:
         "the index was not emptied, so this test proves nothing"
     )
 
-    found = hc.tracked_markdown(repo)
+    found = refs.tracked_markdown(hc.context(repo))
 
     assert sorted(found) == ["README.md", "docs/plan.md"], (
         f"HEAD's tree holds both files; got {found}"
@@ -221,7 +222,7 @@ def test_a_fragment_on_another_file_is_checked(git_repo) -> None:
     commit("docs/index.md", "x\n", "chore: index")
     text = "See [auth](auth.md#customizing-authentication).\n"
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, text, has_entries=False, base=repo / "docs")]
     assert "dead-md-anchor" in kinds, kinds
@@ -234,7 +235,7 @@ def test_a_fragment_that_does_exist_elsewhere_is_left_alone(git_repo) -> None:
     commit("docs/index.md", "x\n", "chore: index")
     text = "See [auth](auth.md#custom-authentication-schemes).\n"
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, text, has_entries=False, base=repo / "docs")]
     assert "dead-md-anchor" not in kinds, kinds
@@ -247,7 +248,7 @@ def test_a_fragment_on_a_file_that_is_missing_is_not_this_rules_finding(git_repo
     commit("docs/index.md", "x\n", "chore: index")
     text = "See [gone](nowhere.md#whatever).\n"
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, text, has_entries=False, base=repo / "docs")]
     assert "dead-md-link" in kinds, kinds
@@ -292,7 +293,7 @@ def test_a_percent_encoded_path_resolves(git_repo) -> None:
     commit("docs/operator[].md", "# op\n", "chore: op")
     commit("docs/index.md", "x\n", "chore: index")
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, "See [op](operator%5B%5D.md).\n", has_entries=False,
         base=repo / "docs")]
@@ -322,7 +323,7 @@ def test_a_generator_configured_inside_another_file_is_detected(git_repo) -> Non
            "chore: mix")
     commit("guides/a.md", "x\n", "chore: guide")
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, "See [gen](Mix.Tasks.Phx.Gen.Auth.html).\n", has_entries=False,
         base=repo / "guides")]
@@ -357,7 +358,7 @@ def test_a_flattened_guide_resolves_by_unique_basename(git_repo) -> None:
     commit("guides/data_modelling/contexts.md", "# Contexts\n", "chore: contexts")
     commit("guides/authn_authz/auth.md", "x\n", "chore: auth")
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, "See [contexts](contexts.md).\n", has_entries=False,
         base=repo / "guides" / "authn_authz")]
@@ -373,7 +374,7 @@ def test_an_ambiguous_basename_is_not_guessed(git_repo) -> None:
     commit("guides/b/index.md", "# two\n", "chore: two")
     commit("guides/c/page.md", "x\n", "chore: page")
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, "See [it](index.md).\n", has_entries=False,
         base=repo / "guides" / "c")]
@@ -456,7 +457,7 @@ def test_a_site_config_in_a_subdirectory_is_found(git_repo) -> None:
     commit("docs/_config.yml", "title: docs\n", "chore: jekyll")
     commit("docs/index.md", "x\n", "chore: index")
 
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     kinds = [f.kind for f in hc.validate(
         repo, "See [posts](/docs/posts/).\n", has_entries=False,
@@ -541,7 +542,7 @@ def test_an_astro_site_links_by_route(git_repo) -> None:
     commit("docs/astro.config.mjs", "export default {}\n", "chore: astro")
     commit("docs/src/content/docs/index.md", "x\n", "chore: docs")
 
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     kinds = [f.kind for f in hc.validate(
         repo, "See [config](/de/reference/configuration/).\n", has_entries=False,
@@ -571,7 +572,7 @@ def test_myst_resolves_a_label_defined_in_another_file(git_repo) -> None:
     commit("docs/site-options.md", "(site-options)=\n## Site options\n", "chore: opts")
     commit("docs/analytics.md", "x\n", "chore: analytics")
 
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     kinds = [f.kind for f in hc.validate(
         repo, "See [opts](#site-options).\n", has_entries=False,
@@ -591,7 +592,7 @@ def test_a_per_page_generator_keeps_its_anchors_local(git_repo) -> None:
     commit("docs/other.md", "## Routing\n", "chore: other")
     commit("docs/proxies.md", "x\n", "chore: proxies")
 
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     kinds = [f.kind for f in hc.validate(
         repo, "## Proxy mechanisms\n\nSee [Routing](#routing).\n",
@@ -645,7 +646,8 @@ def test_a_raw_asset_under_an_lfs_filter_is_reported(git_repo) -> None:
     PNG through `git add` converts it to a 129-byte pointer, and a first
     attempt did precisely that and looked like the rule failing.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = git_repo
     commit(".gitattributes", "*.png filter=lfs diff=lfs merge=lfs -text\n", "chore: lfs")
 
@@ -658,7 +660,7 @@ def test_a_raw_asset_under_an_lfs_filter_is_reported(git_repo) -> None:
     subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
                     "commit", "-qm", "art"], cwd=repo, check=True, capture_output=True)
 
-    findings = hc.validate_lfs_storage(repo, "")
+    findings = rule_lfs.check(hc.context(repo), "")
 
     assert [f.kind for f in findings] == ["raw-lfs-blob"], findings
     assert "art/raw.png" in findings[0].detail, findings[0].detail
@@ -670,12 +672,13 @@ def test_mdx_files_are_swept(git_repo) -> None:
     """Docusaurus keeps 1,378 `.mdx` against 238 `.md`, so the majority of its
     documentation was invisible. MDX is markdown with JSX; the claims in it rot
     identically."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
     repo, commit = git_repo
     commit("docs/page.mdx", "# P\n", "chore: mdx")
     commit("README.md", "# R\n", "chore: md")
 
-    assert sorted(hc.tracked_markdown(repo)) == ["README.md", "docs/page.mdx"]
+    assert sorted(refs.tracked_markdown(hc.context(repo))) == ["README.md", "docs/page.mdx"]
 
 
 def test_a_jsx_comment_declares_a_heading_id(git_repo) -> None:
@@ -720,7 +723,7 @@ def test_hugo_partials_are_anchors_on_the_pages_that_include_them(git_repo) -> N
            "chore: partial")
     commit("content/all.md", "x\n", "chore: page")
 
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     kinds = [f.kind for f in hc.validate(
         repo, "See [locale](#locale).\n", has_entries=False)]
@@ -739,7 +742,7 @@ def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
     commit("_posts/2020-01-01-hello.md", "## Some heading\n", "chore: post")
     commit("index.md", "x\n", "chore: index")
 
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     kinds = [f.kind for f in hc.validate(
         repo, "See [it](#some-heading).\n", has_entries=False)]
@@ -765,7 +768,7 @@ def test_inside_hugo_only_underscore_directories_are_ambient(git_repo) -> None:
     commit("content/guides/setup.md", "## Some Heading\n", "chore: ordinary page")
     commit("content/all.md", "x\n", "chore: page")
 
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     kinds = [f.kind for f in hc.validate(
         repo, "See [it](#some-heading).\n", has_entries=False)]
@@ -790,7 +793,7 @@ def test_the_project_union_is_built_only_when_a_fragment_needs_it(
     this asserts, in both directions - because "never built" would pass the
     first half while breaking cross-file resolution entirely.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("conf.py", "project = 'x'\n", "chore: sphinx")
     commit("docs/other.md", "# Other\n\n## Site Options\n\nx\n", "chore: other")
@@ -883,7 +886,7 @@ def test_a_root_relative_route_resolves_to_its_document(git_repo) -> None:
     commit("api/ux-guidelines/views.md", "# Views\n", "chore: views")
     commit("api/index.md", "x\n", "chore: index")
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, "See [views](/api/ux-guidelines/views).\n", has_entries=False,
         base=repo / "api")]
@@ -897,7 +900,7 @@ def test_a_route_to_no_document_is_still_reported(git_repo) -> None:
     repo, commit = git_repo
     commit("api/index.md", "x\n", "chore: index")
 
-    import extant_collect as hc
+    from extant import session as hc
     kinds = [f.kind for f in hc.validate(
         repo, "See [gone](/api/references/vscode-api).\n", has_entries=False,
         base=repo / "api")]

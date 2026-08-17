@@ -409,7 +409,8 @@ def p_library_link_base() -> None:
     commit(repo, "init")
     script = (
         "import sys; sys.path.insert(0, r'%s')\n"
-        "import extant_collect as h, pathlib\n"
+        "import pathlib\n"
+        "from extant import session as h\n"
         "repo = pathlib.Path(r'%s')\n"
         "doc = pathlib.Path(r'%s')\n"
         "text = doc.read_text(encoding='utf-8')\n"

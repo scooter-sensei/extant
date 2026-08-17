@@ -101,7 +101,7 @@ def test_a_configured_consistency_timeout_reaches_the_global(tmp_path) -> None:
     done = subprocess.run(
         [sys.executable, "-c",
          "import sys; sys.path.insert(0, 'tools');"
-         " import extant_collect as hc;"
+         " from extant import session as hc;"
          " print(hc.CONFIG.consistency_timeout_seconds, hc._CONSISTENCY_TIMEOUT)"],
         cwd=repo, capture_output=True, text=True)
     assert done.stdout.split() == ["5.0", "5.0"], (

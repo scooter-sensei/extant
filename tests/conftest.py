@@ -59,8 +59,8 @@ def _install_into(repo: Path) -> Path:
 def neutral_config(tmp_path: Path):
     """Run every in-process test against DEFAULT settings.
 
-    Configuration is read once at import, relative to the payload file, and the
-    upward search then finds THIS repository's own `.extant.toml`. Tests that
+    Configuration is read once at import, relative to extant/session.py, and
+    the upward search then finds THIS repository's own `.extant.toml`. Tests that
     call `main()` or `validate()` in process therefore inherit whatever this
     project happens to configure for itself, which has nothing to do with the
     behaviour under test.
@@ -78,7 +78,7 @@ def neutral_config(tmp_path: Path):
     process reads the target repository's config, which is the real install
     shape and is tested separately.
     """
-    import extant_collect as hc
+    from extant import session as hc
 
     # A directory with a `.git` in it and no config: the upward search stops
     # there, so this cannot pick up a stray file from anywhere above tmp_path.
@@ -129,11 +129,11 @@ def neutral_config(tmp_path: Path):
 def reconfigure(monkeypatch):
     """Change a configured value so that BOTH readers see it.
 
-    Setting `hc._BRANCH_TOKEN` (or any of the twenty-one names in
+    Setting `session._BRANCH_TOKEN` (or any of the twenty-one names in
     `_CONFIG_DERIVED`) used to be enough, because the rules read those globals.
     From Task 9 the rules are package modules that read `ctx.config`, which is
-    the built `Config` on `hc._ACTIVE` - so a plain attribute patch reaches the
-    shim's own leftovers and NOT the rule under test. The rule then matches
+    the built `Config` on `session._ACTIVE` - so a plain attribute patch
+    reaches the derived globals and NOT the rule under test. The rule then matches
     nothing and the test reports no findings, which is indistinguishable from
     the rule working and the document being clean. Two tests failed exactly
     that way when their rules moved; the danger is the ones that would have
@@ -150,7 +150,7 @@ def reconfigure(monkeypatch):
     """
     import dataclasses
 
-    import extant_collect as hc
+    from extant import session as hc
 
     def apply(**changes: object):
         monkeypatch.setattr(hc, "_ACTIVE",

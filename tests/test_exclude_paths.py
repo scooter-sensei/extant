@@ -35,8 +35,9 @@ PATHS = [
 
 
 def _split(patterns):
-    import extant_collect as hc
-    return hc.excluded_documents(list(PATHS), tuple(patterns))
+    from extant import session as hc
+    from extant import sweep
+    return sweep.excluded_documents(list(PATHS), tuple(patterns))
 
 
 # --------------------------------------------------------------------------
@@ -99,7 +100,7 @@ def test_nothing_is_excluded_by_default() -> None:
     """A skip-list that ships with entries is a skip-list nobody audits, and
     this project already shipped a lint whose defaults excluded every file it
     was meant to scan."""
-    import extant_collect as hc
+    from extant import session as hc
     assert hc.CONFIG.exclude_paths == ()
     kept, counts = _split([])
     assert kept == PATHS and counts == {}
@@ -149,12 +150,13 @@ def test_the_unusable_pattern_guard_is_a_contract() -> None:
     survived every behavioural test. That is the signal to state the contract
     instead of hunting for a document that would notice.
     """
-    import extant_collect as hc
-    assert hc._exclusion_regex("") is None
-    assert hc._exclusion_regex("   ") is None
-    assert hc._exclusion_regex("# a comment") is None
+    from extant import session as hc
+    from extant import sweep
+    assert sweep._exclusion_regex("") is None
+    assert sweep._exclusion_regex("   ") is None
+    assert sweep._exclusion_regex("# a comment") is None
     # And the guard has not swallowed a legitimate pattern on its way past.
-    assert hc._exclusion_regex("testdata") is not None
+    assert sweep._exclusion_regex("testdata") is not None
 
 
 def test_an_unusable_pattern_excludes_nothing_rather_than_everything() -> None:

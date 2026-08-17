@@ -72,12 +72,13 @@ def test_a_binary_stored_raw_under_an_lfs_filter_is_reported(lfs_repo) -> None:
     history forever. A wrong implementation that only checks whether the file
     exists, or that trusts `.gitattributes` to have been applied, says nothing.
     """
-    from extant_collect import validate_lfs_storage
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, _commit = lfs_repo
     commit_raw(repo, "Assets/raw.wav", "RIFF" + "wavdata" * 600,
                "sfx: added from a clone without LFS")
 
-    findings = validate_lfs_storage(repo, "")
+    findings = rule_lfs.check(hc.context(repo), "")
 
     assert [f.kind for f in findings] == ["raw-lfs-blob"], findings
     assert "Assets/raw.wav" in findings[0].detail
@@ -85,20 +86,22 @@ def test_a_binary_stored_raw_under_an_lfs_filter_is_reported(lfs_repo) -> None:
 
 def test_a_proper_pointer_is_silent(lfs_repo) -> None:
     """The direction that stops the rule flagging every asset in the project."""
-    from extant_collect import validate_lfs_storage
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = lfs_repo
     commit("Assets/good.png", POINTER, "art: stored through LFS")
 
-    assert validate_lfs_storage(repo, "") == []
+    assert rule_lfs.check(hc.context(repo), "") == []
 
 
 def test_a_file_outside_every_lfs_pattern_is_ignored(lfs_repo) -> None:
     """`.gitattributes` claims nothing about a .cs file, so neither does this."""
-    from extant_collect import validate_lfs_storage
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = lfs_repo
     commit("Assets/Script.cs", "class X {}\n", "feat: a script")
 
-    assert validate_lfs_storage(repo, "") == []
+    assert rule_lfs.check(hc.context(repo), "") == []
 
 
 def test_a_repository_without_lfs_is_silent_and_cheap(git_repo) -> None:
@@ -107,12 +110,13 @@ def test_a_repository_without_lfs_is_silent_and_cheap(git_repo) -> None:
     Measured at 0 ms against this repository, against 262 ms for a 7802-file
     Godot project that does use it. The gate is one file read.
     """
-    from extant_collect import validate_lfs_storage, _lfs_governed
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
-    assert validate_lfs_storage(repo, "") == []
-    assert _lfs_governed(repo) == []
+    assert rule_lfs.check(hc.context(repo), "") == []
+    assert rule_lfs._lfs_governed(hc.context(repo)) == []
 
 
 def test_the_denominator_counts_every_governed_path(lfs_repo) -> None:
@@ -125,12 +129,13 @@ def test_the_denominator_counts_every_governed_path(lfs_repo) -> None:
     passed its own test. Had the bad file sorted first it would have printed a
     clean result over an examined count of zero.
     """
-    from extant_collect import _lfs_governed
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = lfs_repo
     for name in ("a.png", "b.png", "c.wav", "d.wav"):
         commit(f"Assets/{name}", POINTER, f"art: {name}")
 
-    governed = {path for path, _sha in _lfs_governed(repo)}
+    governed = {path for path, _sha in rule_lfs._lfs_governed(hc.context(repo))}
 
     assert governed == {"Assets/a.png", "Assets/b.png",
                         "Assets/c.wav", "Assets/d.wav"}, governed
@@ -140,25 +145,27 @@ def test_a_path_with_a_space_is_still_examined(lfs_repo) -> None:
     """Git QUOTES paths containing spaces or non-ASCII unless asked for `-z`,
     and game projects are full of both. A line-and-colon parse skips exactly
     those assets, silently."""
-    from extant_collect import _lfs_governed, validate_lfs_storage
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, _commit = lfs_repo
     commit_raw(repo, "Assets/Boss Room/hero art.png", "RAWBYTES" * 200,
                "art: spaced path")
 
-    governed = {path for path, _sha in _lfs_governed(repo)}
+    governed = {path for path, _sha in rule_lfs._lfs_governed(hc.context(repo))}
     assert "Assets/Boss Room/hero art.png" in governed, governed
-    assert [f.kind for f in validate_lfs_storage(repo, "")] == ["raw-lfs-blob"]
+    assert [f.kind for f in rule_lfs.check(hc.context(repo), "")] == ["raw-lfs-blob"]
 
 
 def test_a_large_raw_binary_is_judged_without_reading_it(lfs_repo) -> None:
     """A blob larger than any pointer is settled by its size alone. That is
     what keeps the rule affordable on a repository of real assets, so it must
     still be REPORTED rather than skipped as unreadable."""
-    from extant_collect import validate_lfs_storage
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, _commit = lfs_repo
     commit_raw(repo, "Assets/big.png", "X" * 40000, "art: a real binary, raw")
 
-    findings = validate_lfs_storage(repo, "")
+    findings = rule_lfs.check(hc.context(repo), "")
 
     assert [f.kind for f in findings] == ["raw-lfs-blob"], findings
     assert "40000-byte" in findings[0].detail
@@ -169,14 +176,15 @@ def test_the_rule_reads_the_committed_tree_not_the_index(lfs_repo) -> None:
     whose checkout had not completed, while .gitattributes sat there declaring
     47 LFS patterns. It runs after a commit, so the committed tree is the thing
     being judged."""
-    from extant_collect import _lfs_governed
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = lfs_repo
     commit("Assets/tracked.png", POINTER, "art: committed")
     subprocess.run(["git", "rm", "--cached", "-q", "-r", "."], cwd=repo,
                    capture_output=True, check=True)
 
     assert not git(repo, "ls-files").strip(), "the index should now be empty"
-    assert {p for p, _s in _lfs_governed(repo)} == {"Assets/tracked.png"}
+    assert {p for p, _s in rule_lfs._lfs_governed(hc.context(repo))} == {"Assets/tracked.png"}
 
 
 # --------------------------------------------------------------- the presets
@@ -271,7 +279,8 @@ def test_an_empty_file_under_a_filter_is_not_a_violation(git_repo) -> None:
     files: 44 of its 45 findings were empty test fixtures, and the only true
     one was an asset planted to prove the rule still fires.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = git_repo
     commit(".gitattributes", "*.bnk filter=lfs diff=lfs merge=lfs -text\n", "chore: lfs")
 
@@ -284,14 +293,15 @@ def test_an_empty_file_under_a_filter_is_not_a_violation(git_repo) -> None:
     subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
                     "commit", "-qm", "empty"], cwd=repo, check=True, capture_output=True)
 
-    assert hc.validate_lfs_storage(repo, "") == [], (
+    assert rule_lfs.check(hc.context(repo), "") == [], (
         "an empty file under an LFS filter is correct storage, not a violation"
     )
 
 
 def test_a_non_empty_raw_blob_is_still_a_violation(git_repo) -> None:
     """The other half. Skipping by size must not become skipping the rule."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import lfs as rule_lfs
     repo, commit = git_repo
     commit(".gitattributes", "*.bnk filter=lfs diff=lfs merge=lfs -text\n", "chore: lfs")
 
@@ -304,7 +314,7 @@ def test_a_non_empty_raw_blob_is_still_a_violation(git_repo) -> None:
     subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
                     "commit", "-qm", "loud"], cwd=repo, check=True, capture_output=True)
 
-    findings = hc.validate_lfs_storage(repo, "")
+    findings = rule_lfs.check(hc.context(repo), "")
 
     assert [f.kind for f in findings] == ["raw-lfs-blob"], findings
     assert "sounds/loud.bnk" in findings[0].detail

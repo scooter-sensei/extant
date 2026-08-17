@@ -59,7 +59,8 @@ VALUE = re.compile(r'"v": "([^"]+)"')
 
 def test_a_timeout_turns_a_hang_into_a_finding(
         git_repo, monkeypatch, reconfigure) -> None:
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.txt", FEEDS, "chore: a")
@@ -81,7 +82,7 @@ def test_a_timeout_turns_a_hang_into_a_finding(
     # bound and this test would run until the whole suite was killed, which
     # reports as an infrastructure problem rather than as this bug.
     started = time.perf_counter()
-    findings = _with_deadline(lambda: hc.validate_consistency(repo, ""),
+    findings = _with_deadline(lambda: rule_consistency.check(hc.context(repo), ""),
                               seconds=60)
     elapsed = time.perf_counter() - started
 
@@ -96,7 +97,8 @@ def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
     pattern for a problem almost none of them have - 200 of them in this
     project's own stress case.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.json", '{"v": "1"}\n', "chore: a")
@@ -108,15 +110,19 @@ def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
     reconfigure(consistency_timeout=None)
 
     spawned: list[object] = []
-    real_run = hc.subprocess.run
+    # The rule's OWN subprocess module, not one re-exported by whatever the
+    # test imported the tool under. `hc.subprocess` worked only because the
+    # shim happened to `import subprocess` itself, so the patch was landing on
+    # a module object the rule reached by coincidence rather than by call.
+    real_run = rule.subprocess.run
 
     def watched(*args, **kwargs):
         spawned.append(args)
         return real_run(*args, **kwargs)
 
-    monkeypatch.setattr(hc.subprocess, "run", watched)
+    monkeypatch.setattr(rule.subprocess, "run", watched)
 
-    findings = hc.validate_consistency(repo, "")
+    findings = rule_consistency.check(hc.context(repo), "")
     assert any("disagree" in f.detail for f in findings), [f.detail for f in findings]
     assert not spawned, f"the default spawned {len(spawned)} process(es)"
 
@@ -125,7 +131,8 @@ def test_a_bounded_search_still_returns_the_captured_value(
         git_repo, monkeypatch, reconfigure) -> None:
     """The other control. A timeout that broke normal matching would make every
     consistency check report a disagreement between a value and nothing."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     from extant.rules import consistency as rule
     repo, commit = git_repo
     commit("a.json", '{"v": "1.2.3"}\n', "chore: a")
@@ -136,7 +143,7 @@ def test_a_bounded_search_still_returns_the_captured_value(
     })
     reconfigure(consistency_timeout=10.0)
 
-    findings = hc.validate_consistency(repo, "")
+    findings = rule_consistency.check(hc.context(repo), "")
     assert not findings, (
         "two files agreeing under a bounded search must produce nothing: "
         + str([f.detail for f in findings])

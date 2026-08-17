@@ -32,10 +32,10 @@ FLAG = re.compile(r"--[a-z][a-z0-9-]+")
 
 def _parser_flags() -> set[str]:
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    from extant_collect import build_parser
+    from extant import cli
 
     flags: set[str] = set()
-    for action in build_parser()._actions:
+    for action in cli.build_parser()._actions:
         flags.update(opt for opt in action.option_strings if opt.startswith("--"))
     return flags
 
@@ -81,7 +81,7 @@ def test_every_rule_is_documented() -> None:
     documentation.
     """
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    from extant_collect import RULES
+    from extant.session import RULES
 
     kinds = [rule.kind for rule in RULES]
     assert len(kinds) > 5, f"only {len(kinds)} rules found; the import is wrong"
@@ -106,7 +106,7 @@ def test_no_document_invents_a_rule() -> None:
     behind visibly rather than silently.
     """
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    from extant_collect import RULES
+    from extant.session import RULES
 
     real = {rule.kind for rule in RULES} | {"missing-document", "bare-dead-sha"}
     # Rule names are backticked, lowercase and hyphenated: `dead-md-anchor`.

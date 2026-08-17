@@ -32,7 +32,8 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     400 documents, that was 11.3 seconds of a 16.2 second sweep - 70 percent of
     the run spent spawning `git remote get-url` to receive the same string.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import pinned_ref as rule_pinned_ref
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -51,9 +52,9 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     # memoises into is whatever scope the module is holding.
     hc._SCOPE = hc.RunScope()
     try:
-        first = hc._own_remote(repo)
+        first = rule_pinned_ref._own_remote(hc.context(repo))
         for _ in range(20):
-            hc._own_remote(repo)
+            rule_pinned_ref._own_remote(hc.context(repo))
     finally:
         hc._SCOPE = hc.RunScope()
 
@@ -65,7 +66,7 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     # A second repository must still be asked about separately, or the cache is
     # answering for the wrong project - which would be a correctness bug and
     # the reason this is keyed by path rather than being a single value.
-    assert first == hc._own_remote(repo)
+    assert first == rule_pinned_ref._own_remote(hc.context(repo))
 
 
 def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) -> None:
@@ -75,7 +76,8 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     time and cache nothing, on precisely the repositories where the pinned-ref
     rule does the least useful work.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import pinned_ref as rule_pinned_ref
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -84,9 +86,9 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     calls = counter.calls
     hc._SCOPE = hc.RunScope()
     try:
-        assert hc._own_remote(repo) is None, "the fixture has no origin"
+        assert rule_pinned_ref._own_remote(hc.context(repo)) is None, "the fixture has no origin"
         for _ in range(10):
-            hc._own_remote(repo)
+            rule_pinned_ref._own_remote(hc.context(repo))
     finally:
         hc._SCOPE = hc.RunScope()
 
@@ -109,7 +111,7 @@ def test_the_remote_is_re_read_between_validate_calls(git_repo) -> None:
     Found by CodeRabbit reviewing the change that introduced it.
     """
     import subprocess
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
     subprocess.run(["git", "tag", "v1.0"], cwd=repo, check=True,
@@ -155,7 +157,7 @@ def test_a_resolved_sha_is_re_read_between_validate_calls(
     document before the commit that produces it exists.
     """
     import subprocess
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -215,7 +217,8 @@ def test_a_sweep_still_shares_the_remote_across_documents(
     what reconciles the two, so both halves are asserted - re-read between
     calls, shared within a survey.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import sweep
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
     commit("docs/a.md", "# A\n", "chore: a")
@@ -227,7 +230,7 @@ def test_a_sweep_still_shares_the_remote_across_documents(
     # anyway.
     counter = hc.CountingGit(hc.SubprocessGit())
     monkeypatch.setattr(hc, "_GIT", counter)
-    hc.run_sweep(repo, "text")
+    sweep.run_sweep(repo, "text")
 
     remote_calls = [c for c in counter.calls if c[:1] == ("remote",)]
     assert len(remote_calls) <= 1, (
@@ -250,7 +253,8 @@ def test_a_sweep_holds_one_cache_scope_and_gives_it_back(git_repo) -> None:
     duration - and must hand that promise back afterwards, or every later
     caller in the process silently inherits a cache with no owner.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import sweep
     repo, commit = git_repo
     commit("docs/a.md", "# A\n\nSee [x](gone-a.md).\n", "chore: a")
     commit("docs/b.md", "# B\n\nSee [y](gone-b.md).\n", "chore: b")
@@ -258,7 +262,7 @@ def test_a_sweep_holds_one_cache_scope_and_gives_it_back(git_repo) -> None:
     assert hc._SCOPE.stable is False, "the default must be off"
     assert hc._SCOPE.dircache is None, "caching is off outside a declared scope"
 
-    hc.run_sweep(repo, "text")
+    sweep.run_sweep(repo, "text")
 
     assert hc._SCOPE.stable is False, (
         "the sweep kept the repository marked stable after finishing, so every "
@@ -276,7 +280,8 @@ def test_the_scope_is_released_even_when_a_document_explodes(
     This is the half a `try/finally` exists for, and the half that is easy to
     write without and never notice, because the happy path restores it anyway.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import sweep
     repo, commit = git_repo
     commit("docs/a.md", "# A\n", "chore: a")
 
@@ -285,7 +290,7 @@ def test_the_scope_is_released_even_when_a_document_explodes(
 
     monkeypatch.setattr(hc, "validate", exploding)
     try:
-        hc.run_sweep(repo, "text")
+        sweep.run_sweep(repo, "text")
     except RuntimeError:
         pass
     else:                                                   # pragma: no cover
@@ -313,11 +318,12 @@ def test_validate_outside_a_sweep_still_gets_fresh_answers(git_repo) -> None:
     That is why caching is off by default, and it is the property the sweep
     scope borrows - so it has to be demonstrably intact after one has run.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import sweep
     repo, commit = git_repo
     commit("README.md", "# R\n\nSee [x](docs/later.md).\n", "chore: init")
 
-    hc.run_sweep(repo, "text")          # opens and closes a scope
+    sweep.run_sweep(repo, "text")          # opens and closes a scope
 
     text = "# R\n\nSee [x](docs/later.md).\n"
     before = [f.kind for f in hc.validate(repo, text, has_entries=False)]
@@ -355,7 +361,7 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     one being loosened to cover them.
     """
     import subprocess
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
 
     def git(*args):
@@ -392,7 +398,7 @@ def test_tags_are_re_read_between_validate_calls(git_repo, reconfigure) -> None:
     A release cut between two validations is the ordinary way that happens.
     """
     import subprocess
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
     subprocess.run(["git", "tag", "v1.0.0"], cwd=repo, check=True,
@@ -429,7 +435,7 @@ def test_integration_refs_are_asked_for_once_not_once_per_claim(
     A cost contract, so no ordinary test can see it: reverting the cache gives
     identical findings and only a tool that got slower between releases.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
     import subprocess
@@ -469,7 +475,9 @@ def test_one_ref_scan_answers_branches_tags_and_lookups(git_repo, monkeypatch) -
     findings and only a tool that got slower between releases.
     """
     import subprocess as sp
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
+    from extant.rules import release_tag as rule_release_tag
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
     for n in range(3):
@@ -486,10 +494,10 @@ def test_one_ref_scan_answers_branches_tags_and_lookups(git_repo, monkeypatch) -
 
     monkeypatch.setattr(sp, "run", counted)
     hc._SCOPE = hc.RunScope()
-    hc._tags(repo)
-    hc._integration_refs(repo)
-    hc._resolve_ref(repo, "main")
-    hc._resolve_ref(repo, "v1.1.0")
+    rule_release_tag._tags(hc.context(repo))
+    refs.integration_refs(hc.context(repo))
+    refs.resolve_ref(hc.context(repo), "main")
+    refs.resolve_ref(hc.context(repo), "v1.1.0")
 
     scans = [c for c in calls if c.startswith("for-each-ref")]
     assert len(scans) == 1, (
@@ -510,7 +518,8 @@ def test_a_bare_name_resolves_the_way_git_resolves_it(git_repo) -> None:
     merge claim reported false.
     """
     import subprocess as sp
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "chore: a")
     sp.run(["git", "checkout", "-q", "-b", "clash"], cwd=repo, check=True,
@@ -523,7 +532,7 @@ def test_a_bare_name_resolves_the_way_git_resolves_it(git_repo) -> None:
            capture_output=True)
 
     hc._SCOPE = hc.RunScope()
-    ours = hc._resolve_ref(repo, "clash")
+    ours = refs.resolve_ref(hc.context(repo), "clash")
     theirs = sp.run(["git", "rev-parse", "--verify", "--quiet", "clash^{commit}"],
                     cwd=repo, capture_output=True, text=True).stdout.strip()
     assert ours == theirs, (
@@ -537,7 +546,7 @@ def test_the_ref_table_is_re_read_between_validate_calls(git_repo) -> None:
     between two validations must be seen, or the table is a correctness bug
     wearing a performance costume."""
     import subprocess as sp
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -582,7 +591,7 @@ def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
     checkout that moved on. Identity keying alone cannot see that, which is why
     it is invalidated whenever a fresh scope opens rather than left pure.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a\nb\nc\nd\ne\n", "chore: a")
 

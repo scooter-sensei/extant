@@ -25,7 +25,7 @@ PYPROJECT = '[project]\nname = "x"\nrequires-python = ">=3.10"\n'
 
 def _prepare(git_repo, manifest: str = PYPROJECT):
     """A repository carrying a manifest, and a clean rule cache."""
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("pyproject.toml", manifest, "chore: manifest")
     # A fresh scope and a fresh document, rather than the two names this
@@ -37,23 +37,25 @@ def _prepare(git_repo, manifest: str = PYPROJECT):
 
 def _check(repo, text: str, doc: str = "README.md"):
     """Findings from the rule alone, for a document at `doc`."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import manifest_floor as rule_manifest_floor
     hc._SCOPE.manifest_floors = {}
-    hc._set_document(doc_path=doc)
+    hc.set_document(doc_path=doc)
     try:
-        return hc.validate_manifest_floors(repo, text)
+        return rule_manifest_floor.check(hc.context(repo), text)
     finally:
-        hc._set_document(doc_path=None)
+        hc.set_document(doc_path=None)
 
 
 def _examined(repo, text: str, doc: str = "README.md") -> int:
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import manifest_floor as rule_manifest_floor
     hc._SCOPE.manifest_floors = {}
-    hc._set_document(doc_path=doc)
+    hc.set_document(doc_path=doc)
     try:
-        return len(hc._floor_claims(repo, text))
+        return len(rule_manifest_floor._floor_claims(hc.context(repo), text))
     finally:
-        hc._set_document(doc_path=None)
+        hc.set_document(doc_path=None)
 
 
 # --- the contradiction itself ------------------------------------------
@@ -156,11 +158,12 @@ def test_a_document_with_no_path_is_not_guessed_at(git_repo) -> None:
     Catches a rule that treats "unknown" as "entry point" and therefore fires
     on any text handed to it by a library caller.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import manifest_floor as rule_manifest_floor
     repo = _prepare(git_repo)
     hc._SCOPE.manifest_floors = {}
-    hc._set_document(doc_path=None)
-    assert hc.validate_manifest_floors(repo, "Requires Python 3.8+.\n") == []
+    hc.set_document(doc_path=None)
+    assert rule_manifest_floor.check(hc.context(repo), "Requires Python 3.8+.\n") == []
 
 
 # --- what makes a sentence operative -----------------------------------
@@ -314,13 +317,13 @@ def test_a_site_the_rule_cannot_decide_is_not_counted_as_examined(git_repo) -> N
 
 def test_count_examined_exposes_the_rule(git_repo) -> None:
     """The registry's denominator must reach the reported one."""
-    import extant_collect as hc
+    from extant import session as hc
     repo = _prepare(git_repo)
-    hc._set_document(doc_path="README.md")
+    hc.set_document(doc_path="README.md")
     try:
         counts = hc.count_examined(repo, "This requires Python 3.10+.\n")
     finally:
-        hc._set_document(doc_path=None)
+        hc.set_document(doc_path=None)
     assert counts["manifest-floor-mismatch"] == 1
 
 
@@ -333,7 +336,7 @@ def test_validate_passes_the_document_path_through(git_repo) -> None:
     from the sweep, which would leave the rule permanently silent while every
     unit test above still passed.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo = _prepare(git_repo)
     findings = hc.validate(repo, "Requires Python 3.8+.\n",
                            has_entries=False, doc="README.md")
@@ -425,43 +428,45 @@ def test_verify_reaches_the_rule_for_the_primary_document(git_repo) -> None:
 
 def test_the_document_path_is_restored_after_validate(git_repo) -> None:
     """A leaked global makes the NEXT document be judged as this one."""
-    import extant_collect as hc
+    from extant import session as hc
     repo = _prepare(git_repo)
-    hc._set_document(doc_path="sentinel.md")
+    hc.set_document(doc_path="sentinel.md")
     try:
         hc.validate(repo, "Requires Python 3.8+.\n", has_entries=False,
                     doc="README.md")
         assert hc._DOC.doc_path == "sentinel.md"
     finally:
-        hc._set_document(doc_path=None)
+        hc.set_document(doc_path=None)
 
 
 def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
     """A rule that cannot state how to make itself fire cannot be shown to
     work. Catches a probe that corrupts a mention rather than the claim."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import manifest_floor as rule_manifest_floor
     repo = _prepare(git_repo)
     text = "This requires Python 3.10+.\n"
-    hc._set_document(doc_path="README.md")
+    hc.set_document(doc_path="README.md")
     try:
         assert _check(repo, text) == []
         hc._SCOPE.manifest_floors = {}
-        hc._set_document(doc_path="README.md")
-        probed = hc._probe_manifest_floor(repo, text)
+        hc.set_document(doc_path="README.md")
+        probed = rule_manifest_floor.probe(hc.context(repo), text)
         assert probed is not None
         hc._SCOPE.manifest_floors = {}
-        assert len(hc.validate_manifest_floors(repo, probed)) == 1
+        assert len(rule_manifest_floor.check(hc.context(repo), probed)) == 1
     finally:
-        hc._set_document(doc_path=None)
+        hc.set_document(doc_path=None)
 
 
 def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
     """None is the honest answer for a document stating no floor, and
     `--selftest` reports it as NO PROBE rather than as a pass."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import manifest_floor as rule_manifest_floor
     repo = _prepare(git_repo)
-    hc._set_document(doc_path="README.md")
+    hc.set_document(doc_path="README.md")
     try:
-        assert hc._probe_manifest_floor(repo, "Nothing here.\n") is None
+        assert rule_manifest_floor.probe(hc.context(repo), "Nothing here.\n") is None
     finally:
-        hc._set_document(doc_path=None)
+        hc.set_document(doc_path=None)

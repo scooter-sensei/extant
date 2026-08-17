@@ -20,8 +20,9 @@ SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 
 def located(path: str, line: int, kind: str, detail: str, primary: bool = True,
             gating: bool = True, subject: str | None = None):
-    from extant_collect import Finding, Located
-    return Located(path, Finding(line, kind, detail, subject), primary, gating)
+    from extant.session import Finding
+    from extant import finding
+    return finding.Located(path, Finding(line, kind, detail, subject), primary, gating)
 
 
 # --- GitHub annotations ------------------------------------------------------
@@ -29,9 +30,9 @@ def located(path: str, line: int, kind: str, detail: str, primary: bool = True,
 def test_github_annotation_carries_file_line_and_rule() -> None:
     """Catches an annotation missing its location, which GitHub renders as a
     bare log line instead of attaching it to the diff."""
-    from extant_collect import format_github
+    from extant import report
 
-    lines = format_github([located("NEXT_SESSION.md", 6, "dead-sha", "`abc` is gone")])
+    lines = report.format_github([located("NEXT_SESSION.md", 6, "dead-sha", "`abc` is gone")])
 
     assert lines == [
         "::error file=NEXT_SESSION.md,line=6,title=dead-sha::`abc` is gone"
@@ -45,9 +46,9 @@ def test_github_escapes_commas_and_colons_in_properties() -> None:
     the property list early and the annotation lands on the wrong line, or
     nowhere. Silent, and invisible unless you read the rendered PR.
     """
-    from extant_collect import format_github
+    from extant import report
 
-    line = format_github([located("docs/a,b:c.md", 2, "dead-sha", "x")])[0]
+    line = report.format_github([located("docs/a,b:c.md", 2, "dead-sha", "x")])[0]
 
     assert "file=docs/a%2Cb%3Ac.md" in line
     # The separator between properties and message must still be the only
@@ -58,9 +59,9 @@ def test_github_escapes_commas_and_colons_in_properties() -> None:
 def test_github_escapes_newlines_in_the_message() -> None:
     """A newline in a detail would end the workflow command early, turning the
     rest of the message into an unrelated log line."""
-    from extant_collect import format_github
+    from extant import report
 
-    line = format_github([located("a.md", 1, "k", "first\nsecond")])[0]
+    line = report.format_github([located("a.md", 1, "k", "first\nsecond")])[0]
 
     assert "%0A" in line
     assert line.count("\n") == 0
@@ -69,8 +70,8 @@ def test_github_escapes_newlines_in_the_message() -> None:
 # --- SARIF -------------------------------------------------------------------
 
 def sarif_of(items) -> dict:
-    from extant_collect import format_sarif
-    return json.loads(format_sarif(items))
+    from extant import report
+    return json.loads(report.format_sarif(items))
 
 
 def test_sarif_has_every_field_github_requires() -> None:
@@ -102,7 +103,7 @@ def test_sarif_rule_descriptions_come_from_the_registry() -> None:
     apart silently. The admission test already forces every rule to state its
     question; this makes that statement the thing users read.
     """
-    from extant_collect import RULES
+    from extant.session import RULES
 
     doc = sarif_of([located("a.md", 1, "dead-sha", "x")])
     descriptor = doc["runs"][0]["tool"]["driver"]["rules"][0]
@@ -119,13 +120,13 @@ def test_fingerprint_helper_distinguishes_what_it_should() -> None:
     in before calling, which is the mutation that actually matters. The test
     below covers that; this one only pins the helper.
     """
-    from extant_collect import _fingerprint
+    from extant import report
 
-    baseline = _fingerprint("a.md", "dead-sha", "`abc` is gone")
-    assert baseline == _fingerprint("a.md", "dead-sha", "`abc` is gone")
-    assert baseline != _fingerprint("b.md", "dead-sha", "`abc` is gone")
-    assert baseline != _fingerprint("a.md", "dead-md-link", "`abc` is gone")
-    assert baseline != _fingerprint("a.md", "dead-sha", "`xyz` is gone")
+    baseline = report.fingerprint("a.md", "dead-sha", "`abc` is gone")
+    assert baseline == report.fingerprint("a.md", "dead-sha", "`abc` is gone")
+    assert baseline != report.fingerprint("b.md", "dead-sha", "`abc` is gone")
+    assert baseline != report.fingerprint("a.md", "dead-md-link", "`abc` is gone")
+    assert baseline != report.fingerprint("a.md", "dead-sha", "`xyz` is gone")
 
 
 def test_the_same_finding_on_a_different_line_keeps_its_fingerprint() -> None:
@@ -190,9 +191,9 @@ def test_sarif_carries_the_denominator(tmp_path) -> None:
     from a run that checked nothing - the conflation this project exists to
     remove, in its own machine-readable output.
     """
-    from extant_collect import format_sarif
+    from extant import report
 
-    doc = json.loads(format_sarif([], examined={"dead-sha": 12, "raw-lfs-blob": 0}))
+    doc = json.loads(report.format_sarif([], examined={"dead-sha": 12, "raw-lfs-blob": 0}))
     run = doc["runs"][0]
 
     assert run["properties"]["examined"]["dead-sha"] == 12
@@ -210,12 +211,12 @@ def test_sarif_points_at_the_claim_not_just_the_line(tmp_path) -> None:
     The snippet is what a code-scanning UI renders, and the columns underline
     the token the claim is about, which `Finding.subject` already carries.
     """
-    from extant_collect import format_sarif
+    from extant import report
 
     (tmp_path / "a.md").write_text(
         "# Doc\n\nShipped in `abc1234` last week.\n", encoding="utf-8")
 
-    doc = json.loads(format_sarif(
+    doc = json.loads(report.format_sarif(
         [located("a.md", 3, "dead-sha", "`abc1234` is gone", subject="abc1234")],
         tmp_path))
     region = doc["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
@@ -229,9 +230,9 @@ def test_sarif_points_at_the_claim_not_just_the_line(tmp_path) -> None:
 def test_a_missing_file_costs_the_snippet_and_nothing_else(tmp_path) -> None:
     """Presentation degrades; correctness does not. A wrong snippet would
     misreport where a finding is, so anything unreadable is omitted."""
-    from extant_collect import format_sarif
+    from extant import report
 
-    doc = json.loads(format_sarif(
+    doc = json.loads(report.format_sarif(
         [located("gone.md", 3, "dead-sha", "x")], tmp_path))
     region = doc["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
 
@@ -248,11 +249,11 @@ def test_a_very_long_line_cannot_bloat_the_upload(tmp_path) -> None:
     it. Columns are dropped when the token sits past the cap rather than
     pointing outside the text a reader can see.
     """
-    from extant_collect import format_sarif
+    from extant import report
 
     (tmp_path / "a.md").write_text("x" * 120_000 + " `abc1234`\n", encoding="utf-8")
 
-    doc = json.loads(format_sarif(
+    doc = json.loads(report.format_sarif(
         [located("a.md", 1, "dead-sha", "gone", subject="abc1234")], tmp_path))
     region = doc["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
 
@@ -261,7 +262,7 @@ def test_a_very_long_line_cannot_bloat_the_upload(tmp_path) -> None:
     # The control: a short line keeps its columns, so the cap has not simply
     # disabled the feature.
     (tmp_path / "b.md").write_text("Shipped in `abc1234`.\n", encoding="utf-8")
-    short = json.loads(format_sarif(
+    short = json.loads(report.format_sarif(
         [located("b.md", 1, "dead-sha", "gone", subject="abc1234")], tmp_path))
     assert short["runs"][0]["results"][0]["locations"][0][
         "physicalLocation"]["region"]["startColumn"] == 13
@@ -275,10 +276,10 @@ def test_an_annotation_that_cannot_fail_the_build_is_not_an_error() -> None:
     already decided could not fail it. Fixed in SARIF first and missed here for
     one commit.
     """
-    from extant_collect import format_github
+    from extant import report
 
-    survey = format_github([located("a.md", 1, "dead-sha", "x", gating=False)])[0]
-    gate = format_github([located("a.md", 1, "dead-sha", "x", gating=True)])[0]
+    survey = report.format_github([located("a.md", 1, "dead-sha", "x", gating=False)])[0]
+    gate = report.format_github([located("a.md", 1, "dead-sha", "x", gating=True)])[0]
 
     assert survey.startswith("::notice file=a.md,"), survey
     # The control, and the reason this is not simply a downgrade: a gating
@@ -294,25 +295,25 @@ def test_columns_are_utf16_code_units_as_the_document_declares() -> None:
     corpus carries 156 of them across 47 markdown files, so this is a real
     off-by-N rather than a theoretical one.
     """
-    from extant_collect import _utf16_len
+    from extant import report
 
-    assert _utf16_len("abc") == 3
-    assert _utf16_len("a" + chr(0x1F600) + "b") == 4, "the emoji counts twice"
+    assert report._utf16_len("abc") == 3
+    assert report._utf16_len("a" + chr(0x1F600) + "b") == 4, "the emoji counts twice"
     # A BMP character stays one unit - the fix must not inflate ordinary text.
     # Written as escapes because this repository is ASCII-only, including its
     # tests, and the guard that enforces it caught this line.
-    assert _utf16_len("caf\u00e9") == 4
-    assert _utf16_len("\u4e2d\u6587") == 2
+    assert report._utf16_len("caf\u00e9") == 4
+    assert report._utf16_len("\u4e2d\u6587") == 2
 
 
 def test_a_snippet_with_an_emoji_points_at_the_right_column(tmp_path) -> None:
     """End to end, because `_utf16_len` being right does not prove it is used."""
-    from extant_collect import format_sarif
+    from extant import report
 
     (tmp_path / "a.md").write_text(
         "Hi " + chr(0x1F600) + " see `abc1234` now\n", encoding="utf-8")
 
-    doc = json.loads(format_sarif(
+    doc = json.loads(report.format_sarif(
         [located("a.md", 1, "dead-sha", "gone", subject="abc1234")], tmp_path))
     region = doc["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]
 
@@ -325,10 +326,10 @@ def test_a_snippet_with_an_emoji_points_at_the_right_column(tmp_path) -> None:
 def test_a_sweep_and_a_verify_upload_do_not_replace_each_other() -> None:
     """Code scanning keys runs by `automationDetails.id`. Without one, the
     second upload of the day silently supersedes the first."""
-    from extant_collect import format_sarif
+    from extant import report
 
-    sweep = json.loads(format_sarif([], run_kind="sweep"))
-    verify = json.loads(format_sarif([]))
+    sweep = json.loads(report.format_sarif([], run_kind="sweep"))
+    verify = json.loads(report.format_sarif([]))
 
     assert sweep["runs"][0]["automationDetails"]["id"] == "extant/sweep"
     assert verify["runs"][0]["automationDetails"]["id"] == "extant/verify"

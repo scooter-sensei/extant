@@ -38,7 +38,7 @@ def _configure(**changes):
     """
     import dataclasses
 
-    import extant_collect as hc
+    from extant import session as hc
 
     hc._ACTIVE = dataclasses.replace(hc._ACTIVE, **changes)
     for name, build in hc._CONFIG_DERIVED.items():
@@ -46,7 +46,7 @@ def _configure(**changes):
 
 
 def _reset():
-    import extant_collect as hc
+    from extant import session as hc
     # One fresh scope, not a list of cache names to keep in step with the
     # code. The list form went stale silently: `_TAGS` stayed in it for four
     # commits after `_tags()` stopped reading it.
@@ -59,9 +59,10 @@ def _reset():
 
 
 def _tags(repo, text):
-    from extant_collect import validate_release_tags
+    from extant import session as hc
+    from extant.rules import release_tag as rule_release_tag
     _reset()
-    return [f.kind for f in validate_release_tags(repo, text)]
+    return [f.kind for f in rule_release_tag.check(hc.context(repo), text)]
 
 
 # --- the prefix a project puts before its version ----------------------------
@@ -137,7 +138,7 @@ def test_a_pattern_capturing_the_whole_tag_name_still_resolves(git_repo) -> None
     of them could have caught it. The scenario harness did.
     """
     import re
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "-a", "release-1.2.3", "-m", "release")
@@ -168,7 +169,7 @@ def test_a_literal_tag_name_beginning_with_v_is_not_mangled(git_repo) -> None:
     - a tag starting with a digit already derives `""` as its prefix.
     """
     import re
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "-a", "vendor-1.0", "-m", "vendored")
@@ -215,10 +216,11 @@ def test_a_tag_on_no_branch_is_still_reported_when_a_trunk_exists(git_repo) -> N
 # --- how a pin is written ----------------------------------------------------
 
 def _pins(repo, text):
-    from extant_collect import validate_pinned_refs
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import pinned_ref as rule_pinned_ref
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
-    return [f.kind for f in validate_pinned_refs(repo, text)]
+    return [f.kind for f in rule_pinned_ref.check(hc.context(repo), text)]
 
 
 def test_an_empty_rev_is_a_placeholder_not_a_broken_pin(git_repo) -> None:
@@ -270,10 +272,11 @@ def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo) -> None:
 # --- how a merge claim writes its commit ------------------------------------
 
 def _merge(repo, text):
-    from extant_collect import validate_merge_claims
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import merge as rule_merge
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
-    return [f.kind for f in validate_merge_claims(repo, text)]
+    return [f.kind for f in rule_merge.check(hc.context(repo), text)]
 
 
 def test_a_merge_claim_may_write_its_commit_without_backticks(git_repo) -> None:
@@ -305,7 +308,7 @@ def test_a_longer_hex_run_is_not_truncated_into_a_commit(git_repo) -> None:
     Without a trailing guard, `at 0123...` of 46 hex characters matches its
     first 40 and the rule reports a commit nobody wrote.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
@@ -330,15 +333,16 @@ def test_a_claimed_release_that_was_never_tagged_is_silent_by_default(git_repo) 
     positives sit inside the repository's own tag range - so this is opt-in
     rather than narrowed.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import release_tag as rule_release_tag
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "v1.0.0")
 
     _reset()
     _configure(release_claims_are_ours=False)   # the shipped default
-    from extant_collect import validate_release_tags
-    kinds = [f.kind for f in validate_release_tags(repo, "Released in v9.9.9.\n")]
+    from extant import session as hc
+    kinds = [f.kind for f in rule_release_tag.check(hc.context(repo), "Released in v9.9.9.\n")]
     assert "dead-release-tag" not in kinds, kinds
 
 
@@ -346,7 +350,8 @@ def test_the_settleable_half_is_checked_whatever_the_setting(git_repo) -> None:
     """The half that needs no assertion: the tag IS here, and it shipped on
     nothing. That was right 7 times out of 7 on the same corpus, so it is
     always checked - turning the setting off must not disable the rule."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import release_tag as rule_release_tag
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "checkout", "-q", "-b", "abandoned")
@@ -356,8 +361,8 @@ def test_the_settleable_half_is_checked_whatever_the_setting(git_repo) -> None:
 
     _reset()
     _configure(release_claims_are_ours=False)
-    from extant_collect import validate_release_tags
-    kinds = [f.kind for f in validate_release_tags(repo, "Released in v2.1.0.\n")]
+    from extant import session as hc
+    kinds = [f.kind for f in rule_release_tag.check(hc.context(repo), "Released in v2.1.0.\n")]
     assert "dead-release-tag" in kinds, kinds
 
 
@@ -374,14 +379,15 @@ def test_an_annotated_tag_resolves_to_the_commit_it_tags(git_repo) -> None:
     Found as a mutation SURVIVOR: nothing in the suite had noticed, because
     every other fixture here uses lightweight tags.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "-a", "v3.0.0", "-m", "annotated release")
 
     hc._SCOPE = hc.RunScope()
-    resolved = hc._resolve_ref(repo, "v3.0.0")
-    head = hc._resolve_ref(repo, "main")
+    resolved = refs.resolve_ref(hc.context(repo), "v3.0.0")
+    head = refs.resolve_ref(hc.context(repo), "main")
     assert resolved == head, (
         f"the annotated tag resolved to {resolved}, not to the commit it tags "
         f"({head}) - so it is an ancestor of nothing"

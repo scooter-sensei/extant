@@ -19,15 +19,17 @@ sys.path.insert(0, str(PAYLOAD))
 
 
 def _kinds(repo, text):
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     hc._SCOPE = hc.RunScope()
-    return [f.kind for f in hc.validate_md_links(repo, text)]
+    return [f.kind for f in rule_md_link.check(hc.context(repo), text)]
 
 
 def _anchor_kinds(repo, text):
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import md_anchor as rule_md_anchor
     hc._SCOPE = hc.RunScope()
-    return [f.kind for f in hc.validate_md_anchors(repo, text)]
+    return [f.kind for f in rule_md_anchor.check(hc.context(repo), text)]
 
 
 def test_a_html_target_is_never_judged(git_repo) -> None:

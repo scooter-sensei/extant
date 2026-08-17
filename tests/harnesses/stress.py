@@ -298,10 +298,10 @@ def case_memory() -> None:
     script = f'''
 import sys, tracemalloc, pathlib
 sys.path.insert(0, r"{repo / 'tools'}")
-import extant_collect as h
+from extant import session as h
 repo = pathlib.Path(r"{repo}")
 text = pathlib.Path(r"{doc}").read_text(encoding="utf-8")
-h._set_document(link_base=repo)
+h.set_document(link_base=repo)
 tracemalloc.start()
 h.validate(repo, text)
 current, peak = tracemalloc.get_traced_memory()

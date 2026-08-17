@@ -31,32 +31,36 @@ def _clear() -> None:
     test happened to leave behind. It also had to special-case `_DIRCACHE`,
     which is None until a caller switches caching on and so has no `.clear`.
     """
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
 
 
 def _links(repo, text) -> list[str]:
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     _clear()
-    return [f.subject for f in hc.validate_md_links(repo, text)]
+    return [f.subject for f in rule_md_link.check(hc.context(repo), text)]
 
 
 def _shas(repo, text) -> list[str]:
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import sha as rule_sha
     _clear()
-    return [f.subject for f in hc.validate_references(repo, text)]
+    return [f.subject for f in rule_sha.check(hc.context(repo), text)]
 
 
 def _anchors(repo, text) -> list[str]:
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import md_anchor as rule_md_anchor
     _clear()
-    return [f.subject for f in hc.validate_md_anchors(repo, text)]
+    return [f.subject for f in rule_md_anchor.check(hc.context(repo), text)]
 
 
 def _pointers(repo, text) -> list[str]:
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import path_pointer as rule_path_pointer
     _clear()
-    return [f.subject for f in hc.validate_path_pointers(repo, text)]
+    return [f.subject for f in rule_path_pointer.check(hc.context(repo), text)]
 
 
 # --------------------------------------------------------------------------
@@ -132,7 +136,7 @@ def test_a_bare_name_does_not_resolve_across_translation_trees(
 
     Counting within the citing document's own language tree restores them.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/en/mkdocs.yml", "site_name: x\n", "seed")
     commit("docs/en/docs/newsletter.md", "# News\n", "en")
@@ -148,7 +152,7 @@ def test_a_bare_name_still_resolves_inside_its_own_tree(
         git_repo, monkeypatch) -> None:
     """The English page linking to the English file is fine, and the
     suppression this narrows must still work where it was right."""
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/en/mkdocs.yml", "site_name: x\n", "seed")
     commit("docs/en/guides/newsletter.md", "# News\n", "en")
@@ -165,7 +169,7 @@ def test_a_lone_language_shaped_directory_is_not_a_tree(
     "id" directory, and treating it as a language would split a namespace
     that a flat-namespace generator really does resolve across.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/mkdocs.yml", "site_name: x\n", "seed")
     commit("docs/id/contexts.md", "# Contexts\n", "one")
@@ -192,7 +196,7 @@ def test_a_readme_outside_the_site_tree_is_still_judged(
     directory that does not exist, and llama_index's integration READMEs link
     to a `LICENSE` that is not beside them.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/mkdocs.yml", "site_name: x\n", "seed")
     # Exactly ONE `guide.md` in the repository. A second copy makes the
@@ -210,7 +214,7 @@ def test_a_page_inside_the_site_tree_is_still_suppressed(
         git_repo, monkeypatch) -> None:
     """The other side of the same scoping, so it cannot become a blanket
     re-enable."""
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/mkdocs.yml", "site_name: x\n", "seed")
     commit("docs/reference/guide.md", "# Guide\n", "docs")
@@ -228,7 +232,7 @@ def test_a_numbered_fixture_deep_in_a_package_is_not_a_site(git_repo) -> None:
     `packages/` a documentation site, and route suppression then hid three
     real defects in `packages/astro/src/core/render/README.md`.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     for name in ("1-one", "2-two", "3-three"):
         commit(f"packages/app/test/fixtures/content/{name}.md", "# x\n", name)
@@ -404,23 +408,25 @@ def test_the_asset_pattern_is_not_quadratic() -> None:
     catastrophic backtracking, not a benchmark.
     """
     import time
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import commits
     worst = 0.0
     for line in ("a" * 120000,
                  "abc/def." * 15000,
                  "![x](data:image/png;base64," + "A" * 120000 + ")",
                  "0123456789abcdef" * 7500):
         started = time.perf_counter()
-        hc._ASSET_PATH.findall(line)
+        commits._ASSET_PATH.findall(line)
         worst = max(worst, time.perf_counter() - started)
     assert worst < 1.0, f"slowest line took {worst:.1f}s; the bound is gone"
 
 
 def test_the_asset_pattern_still_matches_a_real_asset() -> None:
     """The speed fix must not have been achieved by matching nothing."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import commits
     line = '<ClickableImage src="/img/83f686b-Pipeline_1_1.png" alt="x" />'
-    assert hc._ASSET_PATH.findall(line) == ["/img/83f686b-Pipeline_1_1.png"]
+    assert commits._ASSET_PATH.findall(line) == ["/img/83f686b-Pipeline_1_1.png"]
 
 
 # --------------------------------------------------------------------------
@@ -498,7 +504,7 @@ def test_a_pointer_resolves_relative_to_its_own_document(git_repo, monkeypatch) 
     `validate_md_links` had resolved relative to the document all along; the
     inconsistency between the two rules was the bug.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("skills/imagegen/references/cli.md", "# CLI\n", "seed")
     monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo / "skills" / "imagegen"))
@@ -507,7 +513,7 @@ def test_a_pointer_resolves_relative_to_its_own_document(git_repo, monkeypatch) 
 
 def test_a_pointer_to_nothing_still_fires(git_repo, monkeypatch) -> None:
     """Neither the root nor the document's directory has it."""
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("skills/imagegen/SKILL.md", "x\n", "seed")
     monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo / "skills" / "imagegen"))
@@ -523,7 +529,7 @@ def test_a_pointer_that_is_link_text_defers_to_its_url(git_repo, monkeypatch) ->
     works. The link beside it is the authority, exactly as `_LINKED_SHA`
     treats a SHA that is link text.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit(".github/PULL_REQUEST_TEMPLATE.md", "# PR\n", "seed")
     monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo))
@@ -538,7 +544,7 @@ def test_link_text_still_fires_when_the_url_is_dead_too(git_repo, monkeypatch) -
     Roo-Code cites an `ADDING-EVALS.md` that is absent both as text and as
     URL, and that one is still a real defect.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
     monkeypatch.setattr(hc, "_DOC", hc.DocScope(link_base=repo))
@@ -594,14 +600,15 @@ def test_the_untrimmed_slug_contributes_only_what_trimming_loses() -> None:
     A check that another check silently covers is a check nobody is running,
     and the only way to hold this one is to state the contract.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import text
     # Nothing for trimming to lose, so it contributes nothing and cannot
     # substitute for `_slug`.
-    assert hc._slug_keeping_edges("build.target") == ""
-    assert hc._slug_keeping_edges("Plain heading") == ""
+    assert text._slug_keeping_edges("build.target") == ""
+    assert text._slug_keeping_edges("Plain heading") == ""
     # An emoji is dropped and the space after it still becomes a dash, which
     # trimming would remove. That spelling is this function's whole purpose.
-    assert hc._slug_keeping_edges("\N{BRICK} Component structure") == (
+    assert text._slug_keeping_edges("\N{BRICK} Component structure") == (
         "-component-structure")
 
 

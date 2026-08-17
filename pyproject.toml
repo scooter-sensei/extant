@@ -50,8 +50,14 @@ classifiers = [
 Homepage = "https://github.com/scooter-sensei/extant"
 Changelog = "https://github.com/scooter-sensei/extant/blob/main/CHANGELOG.md"
 
+# The package, not the shim. `extant_collect.py` is still shipped and still
+# invocable by path - the git hook, the README and the /extant command all name
+# it that way - but it holds nothing except a version handshake and this import,
+# so pointing the console script through it would add a module to the chain for
+# no reason. Nobody notices the change: consumers of the packaged path run
+# `extant`, which is this name.
 [project.scripts]
-extant = "extant_collect:cli"
+extant = "extant.cli:cli"
 
 [tool.setuptools]
 package-dir = {"" = "plugin/skills/extant/payload"}

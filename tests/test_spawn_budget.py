@@ -144,7 +144,7 @@ def _repo_with_a_document(git_repo):
 
 def test_a_single_validation_stays_within_its_spawn_budget(
         monkeypatch, git_repo) -> None:
-    import extant_collect as hc
+    from extant import session as hc
 
     repo, text = _repo_with_a_document(git_repo)
     spawns: list[str] = []
@@ -185,7 +185,7 @@ def test_the_same_question_is_not_asked_twice(monkeypatch, git_repo) -> None:
     backticks as a phrase, so it is not a backticked token and not a bare one
     either.
     """
-    import extant_collect as hc
+    from extant import session as hc
 
     repo, text = _repo_with_a_document(git_repo)
     spawns: list[str] = []
@@ -242,7 +242,8 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     before neutralising and unconditionally puts that back, not whatever was
     live when the test ended - so nothing leaks to the next test.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import cli
 
     hc.reload_config(hc.REPO_ROOT)
 
@@ -256,7 +257,7 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", counted)
 
-    exit_code = hc.main(["--verify", "--repo", "."])
+    exit_code = cli.main(["--verify", "--repo", "."])
 
     assert spawns, "no git processes were spawned; this test would pass vacuously"
     print(f"checked hc.main(['--verify', '--repo', '.']): {len(spawns)} git "

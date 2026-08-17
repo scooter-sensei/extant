@@ -19,22 +19,23 @@ sys.path.insert(0, str(PAYLOAD))
 
 
 def _kinds(repo, text, fmt="rst"):
-    import extant_collect as hc
-    hc._set_document(doc_format=fmt)
+    from extant import session as hc
+    hc.set_document(doc_format=fmt)
     try:
         return [f.kind for f in hc.validate(repo, text, has_entries=False)]
     finally:
-        hc._set_document(doc_format="markdown")
+        hc.set_document(doc_format="markdown")
 
 
 def test_rst_is_swept(git_repo) -> None:
     """numpy is 555 rst against 14 md. A markdown-only glob sees 14."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
     repo, commit = git_repo
     commit("doc/guide.rst", "Guide\n=====\n", "chore: rst")
     commit("README.md", "# R\n", "chore: md")
 
-    assert sorted(hc.tracked_markdown(repo)) == ["README.md", "doc/guide.rst"]
+    assert sorted(refs.tracked_markdown(hc.context(repo))) == ["README.md", "doc/guide.rst"]
 
 
 def test_markdown_link_syntax_is_not_applied_to_rst(git_repo) -> None:
@@ -101,12 +102,13 @@ def test_the_filename_decides_the_format() -> None:
     stayed green: the rules were correct for a format nothing would ever
     select, which is a feature that works in tests and not in the product.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import text
 
-    assert hc._format_for("docs/guide.rst") == "rst"
-    assert hc._format_for("docs/GUIDE.RST") == "rst", "the suffix is case-folded"
+    assert text.format_for("docs/guide.rst") == "rst"
+    assert text.format_for("docs/GUIDE.RST") == "rst", "the suffix is case-folded"
     for markdown in ("README.md", "docs/a.markdown", "docs/b.mdx", "Makefile"):
-        assert hc._format_for(markdown) == "markdown", markdown
+        assert text.format_for(markdown) == "markdown", markdown
 
 
 def test_the_markdown_link_rule_is_gated_by_format_not_only_by_literals(

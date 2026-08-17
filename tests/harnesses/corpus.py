@@ -92,14 +92,15 @@ def toolchain(repo: Path) -> str:
     if str(payload) not in sys.path:
         sys.path.insert(0, str(payload))
     try:
-        import extant_collect as ec
+        from extant import session as ec
+        from extant import sites
     except ImportError as exc:                                  # pragma: no cover
         return f"unknown ({exc.__class__.__name__})"
-    if not ec._is_generated_site(repo):
+    if not sites.is_generated_site(ec.context(repo)):
         return "none"
-    if ec._has_global_anchors(repo):
+    if sites.has_global_anchors(ec.context(repo)):
         return "site/project-ns"
-    if ec._has_partial_anchors(repo):
+    if sites.has_partial_anchors(ec.context(repo)):
         return "site/partials"
     return "site/page-ns"
 
@@ -155,12 +156,14 @@ def examined(repo: Path) -> dict[str, int]:
     Without this column that survey would have shipped them as harmless.
     """
     sys.path.insert(0, str(COLLECTOR.parent))
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
+    from extant import text
 
     totals: dict[str, int] = {}
     previous_format = hc._DOC.doc_format
     try:
-        for relative in hc.tracked_markdown(repo):
+        for relative in refs.tracked_markdown(ec.context(repo)):
             try:
                 text = (repo / relative).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
@@ -171,11 +174,11 @@ def examined(repo: Path) -> dict[str, int]:
             # `.rst` file was stripped as though it were markdown, and numpy
             # alone carries 555 of them. The counts were wrong in the column
             # this harness exists to provide.
-            hc._set_document(doc_format=hc._format_for(relative))
+            hc.set_document(doc_format=text.format_for(relative))
             for kind, count in hc.count_examined(repo, text).items():
                 totals[kind] = totals.get(kind, 0) + count
     finally:
-        hc._set_document(doc_format=previous_format)
+        hc.set_document(doc_format=previous_format)
     return totals
 
 

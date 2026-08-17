@@ -157,7 +157,7 @@ def test_this_repositorys_own_config_is_kept_out_of_tests() -> None:
     resets that to defaults, and an autouse fixture that quietly stops working
     looks exactly like one that is working.
     """
-    import extant_collect as hc
+    from extant import session as hc
     from extant.config import load_config
 
     own = load_config(PACKAGE_ROOT)
@@ -411,7 +411,7 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    import extant_collect as hc
+    from extant import session as hc
 
     sources = [SKILL_ROOT / "payload" / "extant_collect.py"]
     sources += sorted((SKILL_ROOT / "payload" / "extant").rglob("*.py"))
@@ -421,10 +421,11 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
     print(f"checked {len(sources)} module(s) for stray CONFIG readers")
 
     # NOTE: this loop deliberately parses into `module_tree`, not `tree`. `tree`
-    # is reused below (unchanged) to mean specifically the SHIM's AST, for the
-    # "_apply_config is called at import" and "reload_config calls it" checks -
-    # a loop variable named `tree` here would silently rebind it to whichever
-    # package module sorts last and break those checks against the wrong file.
+    # is reused below (unchanged) to mean specifically extant/session.py's AST,
+    # for the "_apply_config is called at import" and "reload_config calls it"
+    # checks - a loop variable named `tree` here would silently rebind it to
+    # whichever package module sorts last and break those checks against the
+    # wrong file.
     strays = []
     for source_path in sources:
         module_tree = ast.parse(source_path.read_text(encoding="utf-8"))
@@ -455,7 +456,17 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
             if any(isinstance(s, ast.Name) and s.id == "CONFIG"
                    for s in ast.walk(value)):
                 strays.append(f"{source_path.name}:{name} (line {node.lineno})")
-    tree = ast.parse(sources[0].read_text(encoding="utf-8"))  # the shim; used below
+    # extant/session.py, not the shim: Task 10 moved the settings and every
+    # value derived from them there, and the shim now holds a version handshake
+    # and one import. Named rather than indexed out of `sources`, and asserted
+    # to exist, because a path that had gone stale would make `next(...)` below
+    # raise StopIteration - which reads as a broken test rather than as the
+    # missing writer this is here to catch.
+    settings_module = SKILL_ROOT / "payload" / "extant" / "session.py"
+    assert settings_module.is_file(), (
+        f"no {settings_module}; the single-writer checks below have nothing to "
+        f"read and would fail for the wrong reason")
+    tree = ast.parse(settings_module.read_text(encoding="utf-8"))
 
     assert hc._CONFIG_DERIVED, "the derived table is empty; this proves nothing"
     assert all(callable(v) for v in hc._CONFIG_DERIVED.values()), (
@@ -478,7 +489,8 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
         and isinstance(n.value.func, ast.Name) and n.value.func.id == "_apply_config"
         for n in tree.body
     )
-    assert called_at_import, "_apply_config is never called at import"
+    assert called_at_import, (
+        "_apply_config is never called at import by extant/session.py")
 
     reload_fn = next(n for n in tree.body
                      if isinstance(n, ast.FunctionDef) and n.name == "reload_config")
@@ -509,7 +521,7 @@ def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> Non
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    import extant_collect as hc
+    from extant import session as hc
 
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text(
@@ -546,7 +558,7 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    import extant_collect as hc
+    from extant import session as hc
 
     # Snapshot and restore the exact prior state. The cleanup used to call
     # reload_config(PACKAGE_ROOT), which reloads THIS repository's own config
@@ -753,7 +765,7 @@ def _module_state(payload_dir, repo, reload_to=None):
     script = textwrap.dedent(f"""
         import dataclasses, json, re, sys
         sys.path.insert(0, {str(payload_dir)!r})
-        import extant_collect as ec
+        from extant import session as ec
         reload_to = {target}
         if reload_to:
             import pathlib
@@ -887,16 +899,17 @@ def test_the_console_entry_point_accepts_every_mode(tmp_path) -> None:
     Asserted against the parser's own mode group, so a mode added later is
     covered without anyone remembering to come back here.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import cli
 
-    parser = hc.build_parser()
+    parser = cli.build_parser()
     declared = {opt
                 for group in parser._mutually_exclusive_groups
                 for action in group._group_actions
                 for opt in action.option_strings}
 
     assert "--sweep" in declared, "the mode group no longer holds --sweep"
-    assert declared == hc._mode_flags(), (
+    assert declared == cli._mode_flags(), (
         f"the entry point disagrees with the parser: "
-        f"{declared ^ hc._mode_flags()}"
+        f"{declared ^ cli._mode_flags()}"
     )

@@ -47,7 +47,7 @@ def test_a_tag_created_between_two_calls_is_seen_by_the_second(git_repo, reconfi
     One process, two calls, a tag created in between. Anything that caches the
     tag list across the boundary reports the second claim dead.
     """
-    import extant_collect as hc
+    from extant import session as hc
     reconfigure(release_claims_are_ours=True)
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")

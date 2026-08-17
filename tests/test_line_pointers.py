@@ -23,21 +23,23 @@ sys.path.insert(0, str(PAYLOAD))
 
 
 def _reset():
-    import extant_collect as hc
+    from extant import session as hc
     hc._SCOPE = hc.RunScope()
     hc._DOC = hc.DocScope()
 
 
 def _check(repo, text: str):
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import line_pointer as rule_line_pointer
     _reset()
-    return hc.validate_line_pointers(repo, text)
+    return rule_line_pointer.check(hc.context(repo), text)
 
 
 def _examined(repo, text: str) -> int:
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import line_pointer as rule_line_pointer
     _reset()
-    return len(hc._line_pointer_sites(repo, text))
+    return len(rule_line_pointer._line_pointer_sites(hc.context(repo), text))
 
 
 # --- the claim itself --------------------------------------------------
@@ -105,18 +107,19 @@ def test_a_pointer_inside_an_rst_literal_block_is_not_read(git_repo) -> None:
     finding; the real rule did not, because `_prose` is format aware. Catches
     a rule that assumes every code block is fenced.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import line_pointer as rule_line_pointer
     repo, commit = git_repo
     commit("conftest.py", "a\nb\nc\nd\n", "feat: conftest")
     text = ("then you will see this:\n\n"
             ".. code-block:: pytest\n\n"
             "    SKIPPED [2] conftest.py:13: cannot run on platform linux\n")
     _reset()
-    hc._set_document(doc_format="rst")
+    hc.set_document(doc_format="rst")
     try:
-        assert hc.validate_line_pointers(repo, text) == []
+        assert rule_line_pointer.check(hc.context(repo), text) == []
     finally:
-        hc._set_document(doc_format="markdown")
+        hc.set_document(doc_format="markdown")
 
 
 def test_a_path_the_repository_does_not_track_is_not_judged(git_repo) -> None:
@@ -274,7 +277,7 @@ def test_an_undecidable_pointer_is_not_counted_as_examined(git_repo) -> None:
 
 def test_count_examined_exposes_the_rule(git_repo) -> None:
     """The registry's denominator must reach the reported one."""
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("src/app.py", "a\nb\n", "feat: app")
     _reset()
@@ -286,22 +289,24 @@ def test_count_examined_exposes_the_rule(git_repo) -> None:
 
 def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
     """A rule that cannot say how to make itself fire cannot be shown to work."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import line_pointer as rule_line_pointer
     repo, commit = git_repo
     commit("src/app.py", "a\nb\nc\n", "feat: app")
     text = "See `src/app.py:2` for the detail.\n"
     assert _check(repo, text) == []
     _reset()
-    probed = hc._probe_line_pointer(repo, text)
+    probed = rule_line_pointer.probe(hc.context(repo), text)
     assert probed is not None
     _reset()
-    assert len(hc.validate_line_pointers(repo, probed)) == 1
+    assert len(rule_line_pointer.check(hc.context(repo), probed)) == 1
 
 
 def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
     """None is the honest answer, and `--selftest` reports it as NO PROBE."""
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import line_pointer as rule_line_pointer
     repo, commit = git_repo
     commit("README.md", "# x\n", "docs: readme")
     _reset()
-    assert hc._probe_line_pointer(repo, "Nothing cited here.\n") is None
+    assert rule_line_pointer.probe(hc.context(repo), "Nothing cited here.\n") is None

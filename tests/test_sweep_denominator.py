@@ -98,7 +98,7 @@ def test_every_rule_reports_a_denominator(three_documents) -> None:
     Imported from RULES rather than written out, so a fourteenth rule that
     forgets its denominator fails here instead of shipping silent.
     """
-    import extant_collect as hc
+    from extant import session as hc
 
     reported = counts(sweep(three_documents))
     missing = sorted({rule.kind for rule in hc.RULES} - set(reported))

@@ -40,11 +40,12 @@ def test_md_link_to_a_missing_file_is_flagged(git_repo) -> None:
     """Catches the gap that motivated this rule: a plain markdown link was
     invisible, because the path rule only sees backticked paths after an
     operative marker."""
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
-    findings = validate_md_links(repo, "See [the plan](docs/gone.md) for detail.\n")
+    findings = rule_md_link.check(hc.context(repo), "See [the plan](docs/gone.md) for detail.\n")
 
     assert [f.kind for f in findings] == ["dead-md-link"]
     assert "docs/gone.md" in findings[0].detail
@@ -53,11 +54,12 @@ def test_md_link_to_a_missing_file_is_flagged(git_repo) -> None:
 def test_md_link_to_an_existing_file_is_silent(git_repo) -> None:
     """The false-positive guard. A rule that flags working links is worse than
     no rule, because it trains people to ignore the output."""
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
 
-    assert validate_md_links(repo, "See [the plan](docs/plan.md).\n") == []
+    assert rule_md_link.check(hc.context(repo), "See [the plan](docs/plan.md).\n") == []
 
 
 def test_external_links_are_never_checked(git_repo) -> None:
@@ -66,13 +68,14 @@ def test_external_links_are_never_checked(git_repo) -> None:
     Checking external links would make a green run depend on someone else's
     uptime and rate limits, turning a deterministic check into a coin flip.
     """
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = ("[docs](https://example.invalid/nope)\n"
             "[mail](mailto:nobody@example.invalid)\n")
 
-    assert validate_md_links(repo, text) == []
+    assert rule_md_link.check(hc.context(repo), text) == []
 
 
 def test_example_links_in_inline_code_are_ignored(git_repo) -> None:
@@ -83,12 +86,13 @@ def test_example_links_in_inline_code_are_ignored(git_repo) -> None:
     example links live, so this is the predictable case rather than an exotic
     one, and it was found by running the rule against our own front page.
     """
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = "| `[a link](to/a/file.md)` whose file is gone | checks it |\n"
 
-    assert validate_md_links(repo, text) == []
+    assert rule_md_link.check(hc.context(repo), text) == []
 
 
 def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
@@ -97,12 +101,13 @@ def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
     Without this, the fix above could be 'ignore any line containing a
     backtick', which would blind the rule wherever prose mixes the two.
     """
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = "Example `[x](never-real.md)` but see [the plan](docs/gone.md).\n"
 
-    findings = validate_md_links(repo, text)
+    findings = rule_md_link.check(hc.context(repo), text)
 
     assert len(findings) == 1, [f.detail for f in findings]
     assert "docs/gone.md" in findings[0].detail
@@ -112,12 +117,13 @@ def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
 def test_links_inside_code_fences_are_ignored(git_repo) -> None:
     """A README demonstrating link syntax is showing an example, not making a
     promise. Catches a scanner that reads fenced blocks as prose."""
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = "Example:\n\n```markdown\n[label](docs/not-real.md)\n```\n"
 
-    assert validate_md_links(repo, text) == []
+    assert rule_md_link.check(hc.context(repo), text) == []
 
 
 # --- anchors -----------------------------------------------------------------
@@ -128,11 +134,12 @@ def test_anchor_matching_a_heading_is_silent(git_repo) -> None:
     Punctuation and backticks are dropped and spaces become hyphens, so
     "## 1. Layout `here`" has to resolve for `#1-layout-here`.
     """
-    from extant_collect import validate_md_anchors
+    from extant import session as hc
+    from extant.rules import md_anchor as rule_md_anchor
     repo, _ = git_repo
 
     text = "## 1. Layout `here`\n\nJump to [it](#1-layout-here).\n"
-    assert validate_md_anchors(repo, text) == []
+    assert rule_md_anchor.check(hc.context(repo), text) == []
 
 
 def test_anchor_matching_is_case_insensitive(git_repo) -> None:
@@ -143,19 +150,21 @@ def test_anchor_matching_is_case_insensitive(git_repo) -> None:
     A reader who writes `#Setup-Guide` for `## Setup Guide` would have been told
     their working link was dead.
     """
-    from extant_collect import validate_md_anchors
+    from extant import session as hc
+    from extant.rules import md_anchor as rule_md_anchor
     repo, _ = git_repo
 
     text = "## Setup Guide\n\nJump to [it](#Setup-Guide).\n"
 
-    assert validate_md_anchors(repo, text) == []
+    assert rule_md_anchor.check(hc.context(repo), text) == []
 
 
 def test_anchor_with_no_matching_heading_is_flagged(git_repo) -> None:
-    from extant_collect import validate_md_anchors
+    from extant import session as hc
+    from extant.rules import md_anchor as rule_md_anchor
     repo, _ = git_repo
 
-    findings = validate_md_anchors(repo, "## Layout\n\nSee [x](#nonexistent).\n")
+    findings = rule_md_anchor.check(hc.context(repo), "## Layout\n\nSee [x](#nonexistent).\n")
 
     assert [f.kind for f in findings] == ["dead-md-anchor"]
 
@@ -170,18 +179,19 @@ def test_a_release_claim_ending_a_sentence_is_not_broken_by_the_full_stop(git_re
     until the tool read its own status document and accused it. A wrong
     implementation that restores the greedy tail fails here.
     """
-    from extant_collect import validate_release_tags
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import release_tag as rule_release_tag
+    from extant import session as hc
     reconfigure(release_claims_are_ours=True)   # these claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "v2.1")
 
-    assert validate_release_tags(repo, "Released in v2.1.\n") == []
-    assert validate_release_tags(repo, "Released in v2.1, and then more.\n") == []
+    assert rule_release_tag.check(hc.context(repo), "Released in v2.1.\n") == []
+    assert rule_release_tag.check(hc.context(repo), "Released in v2.1, and then more.\n") == []
     # The other direction: a genuinely absent tag must still be reported, and
     # the trailing period must not become part of the name it reports.
-    findings = validate_release_tags(repo, "Released in v9.9.\n")
+    findings = rule_release_tag.check(hc.context(repo), "Released in v9.9.\n")
     assert [f.kind for f in findings] == ["dead-release-tag"], findings
     assert "`v9.9`" in findings[0].detail, findings[0].detail
 
@@ -200,7 +210,8 @@ def test_merged_then_deleted_branch_is_not_flagged(git_repo) -> None:
     "does this branch exist" would have produced four findings, all wrong, on
     its first run. Deleting a merged branch is ordinary hygiene.
     """
-    from extant_collect import validate_branch_mentions
+    from extant import session as hc
+    from extant.rules import branch as rule_branch
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "checkout", "-q", "-b", "feature/done")
@@ -210,17 +221,18 @@ def test_merged_then_deleted_branch_is_not_flagged(git_repo) -> None:
         "Merge branch 'feature/done'")
     git(repo, "branch", "-qD", "feature/done")
 
-    assert validate_branch_mentions(repo, _entry("Shipped on `feature/done`.")) == []
+    assert rule_branch.check(hc.context(repo), _entry("Shipped on `feature/done`.")) == []
 
 
 def test_branch_git_never_saw_is_flagged(git_repo) -> None:
     """The positive case: a name that exists in neither refs nor merge history
     is a typo or work that was never integrated."""
-    from extant_collect import validate_branch_mentions
+    from extant import session as hc
+    from extant.rules import branch as rule_branch
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
-    findings = validate_branch_mentions(repo, _entry("Work is on `feature/never`."))
+    findings = rule_branch.check(hc.context(repo), _entry("Work is on `feature/never`."))
 
     assert [f.kind for f in findings] == ["unknown-branch"]
 
@@ -238,13 +250,14 @@ def test_a_file_path_is_not_reported_as_a_branch(git_repo, reconfigure) -> None:
     Reproduced here with the real fallback pattern, not a contrived one.
     """
     import re
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import branch as rule_branch
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     reconfigure(branch_token=re.compile(r"`([\w.-]+/[^`]+)`"))
 
-    findings = hc.validate_branch_mentions(
-        repo, _entry("**Design:** `docs/arch.md`"))
+    findings = rule_branch.check(
+        hc.context(repo), _entry("**Design:** `docs/arch.md`"))
 
     assert findings == [], (
         "a file path was reported as a branch: " + str([f.detail for f in findings])
@@ -262,13 +275,14 @@ def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(
     of two call sites is the kind of half-repair that looks complete in a diff.
     """
     import re
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import live_claim as rule_live_claim
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     reconfigure(branch_token=re.compile(r"`([\w.-]+/[^`]+)`"))
 
-    findings = hc.validate_live_claims(
-        repo, _entry("Work is NOT yet merged. **Design:** `docs/arch.md`"))
+    findings = rule_live_claim.check(
+        hc.context(repo), _entry("Work is NOT yet merged. **Design:** `docs/arch.md`"))
 
     assert findings == [], (
         "a file path was reported as an unmerged branch: "
@@ -284,13 +298,14 @@ def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, reconfigure)
     naming convention.
     """
     import re
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import branch as rule_branch
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     reconfigure(branch_token=re.compile(r"`([\w.-]+/[^`]+)`"))
 
-    findings = hc.validate_branch_mentions(
-        repo, _entry("Work is on `release/v1.2`."))
+    findings = rule_branch.check(
+        hc.context(repo), _entry("Work is on `release/v1.2`."))
 
     assert [f.kind for f in findings] == ["unknown-branch"]
 
@@ -298,25 +313,27 @@ def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, reconfigure)
 def test_branch_rule_ignores_older_entries(git_repo) -> None:
     """Scoped to the newest entry, like live claims. Older entries name branches
     that were correct when written, and flagging them is noise."""
-    from extant_collect import validate_branch_mentions
+    from extant import session as hc
+    from extant.rules import branch as rule_branch
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = ("# Status\n\n## Phase 2 - now (in progress, 2026-02-01)\n\nNothing.\n\n"
             "## Phase 1 - then (shipped, 2026-01-01)\n\nWas on `feature/never`.\n")
 
-    assert validate_branch_mentions(repo, text) == []
+    assert rule_branch.check(hc.context(repo), text) == []
 
 
 # --- release tags ------------------------------------------------------------
 
 def test_missing_release_tag_is_flagged(git_repo, reconfigure) -> None:
-    from extant_collect import validate_release_tags
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import release_tag as rule_release_tag
+    from extant import session as hc
     reconfigure(release_claims_are_ours=True)   # these claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
-    findings = validate_release_tags(repo, "Released in v9.9.9 last week.\n")
+    findings = rule_release_tag.check(hc.context(repo), "Released in v9.9.9 last week.\n")
 
     assert [f.kind for f in findings] == ["dead-release-tag"]
 
@@ -329,8 +346,9 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo, reconfigur
     release never happened, which is the more misleading of the two failures.
     Dropping the ancestry check left every other test in this file green.
     """
-    from extant_collect import validate_release_tags
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import release_tag as rule_release_tag
+    from extant import session as hc
     reconfigure(release_claims_are_ours=True)   # these claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
@@ -339,7 +357,7 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo, reconfigur
     git(repo, "tag", "v2.0")
     git(repo, "checkout", "-q", "main")
 
-    findings = validate_release_tags(repo, "Released in v2.0 last week.\n")
+    findings = rule_release_tag.check(hc.context(repo), "Released in v2.0 last week.\n")
 
     assert [f.kind for f in findings] == ["dead-release-tag"]
     # `abandoned` is slashless, and an earlier version of the integration-ref
@@ -351,14 +369,15 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo, reconfigur
 def test_existing_tag_on_trunk_is_silent(git_repo, reconfigure) -> None:
     """Catches a rule that flags real releases, which would make it unusable for
     the CHANGELOG-keeping projects it exists to serve."""
-    from extant_collect import validate_release_tags
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import release_tag as rule_release_tag
+    from extant import session as hc
     reconfigure(release_claims_are_ours=True)   # these claims are local
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     git(repo, "tag", "v1.0")
 
-    assert validate_release_tags(repo, "Released in v1.0 last week.\n") == []
+    assert rule_release_tag.check(hc.context(repo), "Released in v1.0 last week.\n") == []
 
 
 # --- rename hints ------------------------------------------------------------
@@ -370,15 +389,15 @@ def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
     detection has run, so the first version looked correct and silently found
     nothing. Dropping the pathspec is what makes it work.
     """
-    import extant_collect
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("docs/old.md", "# old\n", "docs: add")
     git(repo, "mv", "docs/old.md", "docs/new.md")
     git(repo, "commit", "-qm", "docs: rename")
-    extant_collect._SCOPE = extant_collect.RunScope()
+    hc._SCOPE = hc.RunScope()
 
-    findings = validate_md_links(repo, "See [it](docs/old.md).\n")
+    findings = rule_md_link.check(hc.context(repo), "See [it](docs/old.md).\n")
 
     assert len(findings) == 1
     assert "renamed to `docs/new.md`" in findings[0].detail
@@ -392,7 +411,7 @@ def test_every_rule_declares_a_probe() -> None:
     The same reasoning as the existing `falsifiable` requirement: declaring it
     in the registry is what stops a rule being added that nothing can exercise.
     """
-    from extant_collect import RULES
+    from extant.session import RULES
 
     assert RULES, "the registry is empty; this test would pass vacuously"
     missing = [r.kind for r in RULES if not callable(r.probe)]
@@ -406,7 +425,7 @@ def test_selftest_fires_every_probeable_rule(git_repo) -> None:
     SHA with zeros, but the rule skips claims whose commit does not resolve, so
     a working rule was reported as silent.
     """
-    from extant_collect import selftest
+    from extant.session import selftest
     repo, commit = git_repo
     base = commit("docs/plan.md", "# plan\n", "feat: base").strip()[:9]
     git(repo, "checkout", "-q", "-b", "feature/open")
@@ -435,7 +454,7 @@ def test_entry_scoped_rules_are_skipped_for_documents_with_no_entries(git_repo) 
     mutation: ignoring the flag entirely left the suite green, because every
     other extra_docs test used a document with no branch tokens in it.
     """
-    from extant_collect import validate
+    from extant.session import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = _entry("Work is on `feature/never`.")
@@ -457,7 +476,7 @@ def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> Non
     That assertion is satisfied trivially by a selftest that can never report
     silence, which makes it exactly the shape of test this project warns about.
     """
-    import extant_collect as hc
+    from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     # Built from the REAL rule rather than by hand, so its probe is the one
@@ -520,7 +539,9 @@ def test_claims_inside_a_code_fence_are_not_checked(git_repo) -> None:
     test, and it is the same false-positive class as the backticked example
     link fixed earlier.
     """
-    from extant_collect import validate_references, validate_path_pointers
+    from extant import session as hc
+    from extant.rules import path_pointer as rule_path_pointer
+    from extant.rules import sha as rule_sha
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     text = ("Example of the format:\n\n```\n"
@@ -528,8 +549,8 @@ def test_claims_inside_a_code_fence_are_not_checked(git_repo) -> None:
             "**Design:** `docs/example-not-real.md`\n"
             "```\n")
 
-    assert validate_references(repo, text) == []
-    assert validate_path_pointers(repo, text) == []
+    assert rule_sha.check(hc.context(repo), text) == []
+    assert rule_path_pointer.check(hc.context(repo), text) == []
 
 
 def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
@@ -539,14 +560,15 @@ def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
     way the link rules do would delete exactly what these rules check. Applying
     that stripping wholesale turned eight tests red at once.
     """
-    from extant_collect import validate_references
+    from extant import session as hc
+    from extant.rules import sha as rule_sha
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
 
     # A letter, because an all-digit run now reads as a number rather than a
     # commit: forty zeroes is not a SHA-shaped token any more.
-    findings = validate_references(
-        repo, "Shipped at `dead000000000000000000000000000000000000`.\n")
+    findings = rule_sha.check(
+        hc.context(repo), "Shipped at `dead000000000000000000000000000000000000`.\n")
 
     assert [f.kind for f in findings] == ["dead-sha"]
 
@@ -558,11 +580,12 @@ def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_r
     passes in CI while misleading every Linux reader. The check compares against
     the real directory entry so the answer is the same everywhere.
     """
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
 
-    findings = validate_md_links(repo, "See [plan](docs/PLAN.md).\n")
+    findings = rule_md_link.check(hc.context(repo), "See [plan](docs/PLAN.md).\n")
 
     assert [f.kind for f in findings] == ["dead-md-link"]
     assert "case differs" in findings[0].detail
@@ -571,11 +594,12 @@ def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_r
 
 def test_correct_case_path_stays_silent(git_repo) -> None:
     """The guard against a case check that flags everything."""
-    from extant_collect import validate_md_links
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
 
-    assert validate_md_links(repo, "See [plan](docs/plan.md).\n") == []
+    assert rule_md_link.check(hc.context(repo), "See [plan](docs/plan.md).\n") == []
 
 
 def test_collect_survives_a_repository_with_no_commits(git_repo, tmp_path) -> None:
@@ -584,11 +608,12 @@ def test_collect_survives_a_repository_with_no_commits(git_repo, tmp_path) -> No
     A freshly initialised repository is a legitimate state for someone just
     starting, not an error deserving a traceback.
     """
-    from extant_collect import commits_since, find_boundary
+    from extant import session as hc
+    from extant import collect
     repo, _ = git_repo  # created, never committed to
 
-    assert find_boundary(repo) == ""
-    assert commits_since(repo, "") == []
+    assert collect.find_boundary(repo, hc._ACTIVE) == ""
+    assert collect.commits_since(repo, "", hc._ACTIVE) == []
 
 
 def test_a_document_that_is_not_utf8_is_reported_not_crashed(git_repo) -> None:
@@ -613,7 +638,7 @@ def test_library_callers_can_resolve_links_against_the_document(git_repo) -> Non
     was reported dead through the API and fine through the CLI. Found by an
     adversarial probe calling validate() the way a downstream tool would.
     """
-    from extant_collect import validate
+    from extant.session import validate
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     text = "See [plan](plan.md).\n"
@@ -639,7 +664,8 @@ def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypat
     Counts invocations rather than seconds: a wall-clock assertion would be
     flaky on a loaded machine and would not say WHY it got slow.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import merge as rule_merge
     repo, commit = git_repo
     sha = commit("a.py", "a = 1\n", "feat: a").strip()[:9]
 
@@ -652,7 +678,7 @@ def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypat
     # Twenty mentions of the same commit, which is how documents really read.
     text = "".join(f"Line {n}: merged to `main` at `{sha}`.\n" for n in range(20))
 
-    findings = hc.validate_merge_claims(repo, text)
+    findings = rule_merge.check(hc.context(repo), text)
 
     assert findings == [], f"the setup is wrong, {sha} is on trunk: {findings}"
     # Existence is a `cat-file --batch-check` that runs through subprocess
@@ -681,7 +707,8 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
     The first verification run had this hole - the fixture happened to contain
     no off-trunk commits, so it compared 60 commits and proved one direction.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import refs
     repo, commit = git_repo
     on_trunk = [commit(f"a{n}.py", f"a = {n}\n", f"feat: on trunk {n}")[:9]
                 for n in range(3)]
@@ -690,7 +717,7 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
                  for n in range(3)]
     git(repo, "checkout", "-q", "main")
 
-    index = hc._ancestor_index(repo, "main")
+    index = refs._ancestor_index(hc.context(repo), "main")
     assert index, "no ancestor index built; the rest would prove nothing"
 
     def batched(sha: str) -> bool:
@@ -711,14 +738,15 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
 def test_a_false_merge_claim_is_still_reported_through_the_batch(git_repo) -> None:
     """End to end, because the two halves above could both be right while the
     rule that consumes them is wired wrong."""
-    from extant_collect import validate_merge_claims
+    from extant import session as hc
+    from extant.rules import merge as rule_merge
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: base")
     git(repo, "checkout", "-q", "-b", "abandoned")
     stray = commit("b.py", "b = 1\n", "feat: never merged")[:9]
     git(repo, "checkout", "-q", "main")
 
-    findings = validate_merge_claims(repo, f"Merged to `main` at `{stray}`.\n")
+    findings = rule_merge.check(hc.context(repo), f"Merged to `main` at `{stray}`.\n")
 
     assert [f.kind for f in findings] == ["false-merge-claim"]
 
@@ -732,18 +760,19 @@ def test_directory_listings_are_not_cached_outside_validate(git_repo) -> None:
     checks must see the new answer. The cache is therefore None unless validate()
     has scoped it, and correctness is what happens when nobody asked for speed.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     text = "See [later](docs/later.md).\n"
 
     assert hc._SCOPE.dircache is None, "caching must be off by default"
-    first = hc.validate_md_links(repo, text)
+    first = rule_md_link.check(hc.context(repo), text)
     assert [f.kind for f in first] == ["dead-md-link"]
 
     (repo / "docs" / "later.md").write_text("# later\n", encoding="utf-8")
 
-    assert hc.validate_md_links(repo, text) == [], (
+    assert rule_md_link.check(hc.context(repo), text) == [], (
         "a file created between two direct calls was not seen; a stale "
         "directory listing outlived its owner"
     )
@@ -757,19 +786,20 @@ def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
     Keying on equality would be faster and would silently return the wrong
     stripped text if a caller mutated a document between calls.
     """
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import text
     repo, _ = git_repo
     original = "Text with `code` in it.\n"
     duplicate = "".join(original)  # equal content, distinct object
 
     assert original == duplicate and original is not duplicate
 
-    first = hc._prose(original)
-    hc._prose(duplicate)
-    cached_for, _cached_value = hc._STRIPPED[False]
+    first = text.prose(hc.document(), original)
+    text.prose(hc.document(), duplicate)
+    cached_for, _cached_value = text._STRIPPED[False]
 
     assert cached_for is duplicate, "the later call should own the cache entry"
-    assert hc._prose(original) == first, "content must round-trip either way"
+    assert text.prose(hc.document(), original) == first, "content must round-trip either way"
 
 
 # --- cross-artifact consistency ----------------------------------------------
@@ -785,28 +815,30 @@ def test_files_that_agree_are_silent(git_repo) -> None:
     """The false-positive guard, and the one that decides whether this rule is
     usable at all. A consistency check that fires on a correct repository would
     be the first rule here to cry wolf."""
-    from extant_collect import validate_consistency
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     repo, commit = git_repo
     (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "a.json").write_text('{"version": "2.1.0"}\n', encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
 
-    assert validate_consistency(repo, "") == []
+    assert rule_consistency.check(hc.context(repo), "") == []
 
 
 def test_files_that_disagree_are_reported_with_both_values(git_repo) -> None:
     """THE bug this rule exists for: three manifests said 0.1.0 while the
     CHANGELOG said 0.3.0, and nothing could catch it because no rule inspects
     numbers. Comparing files to EACH OTHER is a different question."""
-    from extant_collect import validate_consistency
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     repo, commit = git_repo
     (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "a.json").write_text('{"version": "0.1.0"}\n', encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
 
-    findings = validate_consistency(repo, "")
+    findings = rule_consistency.check(hc.context(repo), "")
 
     assert [f.kind for f in findings] == ["inconsistent-artifact"]
     detail = findings[0].detail
@@ -818,27 +850,29 @@ def test_a_pattern_that_matches_nothing_is_reported(git_repo) -> None:
     """Silence here would be the worst outcome: the check would compare one
     value against itself and pass forever, which is the exact failure the
     denominator was introduced to make visible."""
-    from extant_collect import validate_consistency
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     repo, commit = git_repo
     (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "a.json").write_text('{"release": "2.1.0"}\n', encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
 
-    findings = validate_consistency(repo, "")
+    findings = rule_consistency.check(hc.context(repo), "")
 
     assert len(findings) == 1
     assert "matches nothing" in findings[0].detail
 
 
 def test_a_missing_file_is_reported(git_repo) -> None:
-    from extant_collect import validate_consistency
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     repo, commit = git_repo
     (repo / ".extant.toml").write_text(CONSISTENCY_CFG, encoding="utf-8")
     (repo / "CHANGELOG.md").write_text("# Changelog\n\n## 2.1.0 (2026-01-01)\n",
                                        encoding="utf-8")
 
-    findings = validate_consistency(repo, "")
+    findings = rule_consistency.check(hc.context(repo), "")
 
     assert any("does not exist" in f.detail for f in findings), findings
 
@@ -846,10 +880,11 @@ def test_a_missing_file_is_reported(git_repo) -> None:
 def test_no_consistency_config_means_no_findings(git_repo) -> None:
     """Off unless configured. The files and patterns are per-project, and a
     guessed default would accuse an innocent repository."""
-    from extant_collect import validate_consistency
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     repo, commit = git_repo
 
-    assert validate_consistency(repo, "") == []
+    assert rule_consistency.check(hc.context(repo), "") == []
 
 
 def test_the_rule_reads_the_repo_under_test_not_the_installed_one(git_repo) -> None:
@@ -860,11 +895,12 @@ def test_the_rule_reads_the_repo_under_test_not_the_installed_one(git_repo) -> N
     repository in this suite inherited the real project's version block and was
     told four files were missing.
     """
-    from extant_collect import validate_consistency
+    from extant import session as hc
+    from extant.rules import consistency as rule_consistency
     repo, commit = git_repo
     commit("README.md", "# x\n", "init")
 
-    assert validate_consistency(repo, "") == [], (
+    assert rule_consistency.check(hc.context(repo), "") == [], (
         "a repo with no consistency config produced findings, so the rule is "
         "reading someone else's configuration"
     )
@@ -917,7 +953,7 @@ def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
     problem is that entries MOVE from one to the other, and the person looking
     does not know which side of that move they are on.
     """
-    from extant_collect import search_entries
+    from extant import cli
     repo, commit = git_repo
     commit("NEXT_SESSION.md",
            "# S\n\n## Phase 2 - now (in progress, 2026-02-01)\n\n"
@@ -927,7 +963,7 @@ def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
         "# Archive\n\n## Phase 1 - checkout (shipped, 2026-01-01)\n\n"
         "We chose the queue approach for checkout.\n\n", encoding="utf-8")
 
-    results = search_entries(repo, "queue approach")
+    results = cli.search_entries(repo, "queue approach")
 
     assert len(results) == 1
     document, header, body = results[0]
@@ -937,7 +973,7 @@ def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
 
 
 def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
-    from extant_collect import search_entries
+    from extant import cli
     repo, commit = git_repo
     commit("NEXT_SESSION.md",
            "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
@@ -946,9 +982,9 @@ def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
     # The QUERY must carry mixed case, not just the document. Lowercasing an
     # already-lowercase query is a no-op, so the original version of this test
     # passed against a case-sensitive implementation - found by mutation.
-    assert len(search_entries(repo, "ChEcKoUt ReWrItE")) == 1
-    assert len(search_entries(repo, "checkout rewrite")) == 1
-    assert search_entries(repo, "kubernetes") == []
+    assert len(cli.search_entries(repo, "ChEcKoUt ReWrItE")) == 1
+    assert len(cli.search_entries(repo, "checkout rewrite")) == 1
+    assert cli.search_entries(repo, "kubernetes") == []
 
 
 def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
@@ -959,8 +995,9 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     left to catch that. A patch keeps the boundary: reviewable, one command to
     apply, and the decision stays with whoever owns the document.
     """
-    from extant_collect import suggest_renames
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import cli
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     text = "See [plan](docs/plan.md).\n"
@@ -970,7 +1007,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     git(repo, "commit", "-qm", "docs: rename")
     hc._SCOPE = hc.RunScope()
 
-    patch = suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+    patch = cli.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
 
     assert patch, "a recorded rename produced no suggestion"
     assert "-See [plan](docs/plan.md)." in patch
@@ -983,13 +1020,14 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
 def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
     """Only renames GIT RECORDED are offered. Guessing where a file went is
     exactly the authoring this refuses to do."""
-    from extant_collect import suggest_renames
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import cli
+    from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     hc._SCOPE = hc.RunScope()
 
-    assert suggest_renames(repo, repo, "See [x](docs/never-existed.md).\n",
+    assert cli.suggest_renames(repo, repo, "See [x](docs/never-existed.md).\n",
                            "NEXT_SESSION.md") == ""
 
 
@@ -999,8 +1037,9 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     A bare find-and-replace would also rewrite the sentence explaining the move,
     which is frequently the one sentence a reader most needs intact.
     """
-    from extant_collect import suggest_renames
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import cli
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     git(repo, "mv", "docs/plan.md", "docs/design.md")
@@ -1008,7 +1047,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
     text = "See [plan](docs/plan.md).\nWe renamed docs/plan.md last week.\n"
 
-    patch = suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+    patch = cli.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
 
     assert "+See [plan](docs/design.md)." in patch
     # The prose line must not appear as a changed line at all.
@@ -1125,8 +1164,9 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     feature makes is that it emits a patch and touches the working tree not at
     all, and that is what has to be pinned.
     """
-    from extant_collect import suggest_renames
-    import extant_collect as hc
+    from extant import session as hc
+    from extant import cli
+    from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
     git(repo, "mv", "docs/plan.md", "docs/design.md")
@@ -1134,7 +1174,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
     before = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
 
-    patch = suggest_renames(repo, repo, "See [plan](docs/plan.md).\n", "DOC.md")
+    patch = cli.suggest_renames(repo, repo, "See [plan](docs/plan.md).\n", "DOC.md")
 
     after = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
     assert patch, "the setup produced no patch, so this proves nothing"
