@@ -610,20 +610,22 @@ def _probe_live_claim(repo: Path, text: str) -> str | None:
 from extant.text import (            # noqa: F401  (re-exported as they are:
     _ATTR_ANCHOR, _DIRECTIVE_LABEL,  # patterns and pure functions, no state)
     _EXPLICIT_ANCHOR, _FENCE, _INLINE_CODE, _LANGUAGE_DIR,
-    _MARKDOWN_ONLY, _MYST_TARGET, _NESTED_HEADING, _ROUTE_DEPTH,
+    _MYST_TARGET, _NESTED_HEADING, _ROUTE_DEPTH,
     _RST_DIRECTIVE, _RST_DOCTEST, _RST_INLINE, _RST_LITERAL_INTRO,
     _SETEXT_RULE, _STRIPPED, _blank_rst, _definition_terms, _disambiguated,
-    _format_for, _heading_text, _route_name,
+    _heading_text, _route_name,
     _setext_headings, _slug, _slug_keeping_edges, _slug_punctuation_to_dash,
     _without_tags,
 )
 from extant.text import (            # noqa: F401  (promoted for a sibling
     EXTERNAL as _EXTERNAL,           # that calls them - sites.py for the first
-    HEADING as _HEADING,             # three, a rule module for the rest - and
-    MD_LINK as _MD_LINK,
+    HEADING as _HEADING,             # three, a rule module for the next two,
+    MARKDOWN_ONLY as _MARKDOWN_ONLY,               # and extant/session.py plus
+    MD_LINK as _MD_LINK,             # extant/sweep.py for the last two - and
     ORDER_PREFIX as _ORDER_PREFIX,   # re-exported here under the old spelling)
     anchors as _anchors,             # (the three that take ambient state are
-    percent_decoded as _percent_decoded,   # wrapped below, not aliased here)
+    format_for as _format_for,       # wrapped below, not aliased here)
+    percent_decoded as _percent_decoded,
 )
 
 # The MODULE as well, so the wrappers below look each function up at call time

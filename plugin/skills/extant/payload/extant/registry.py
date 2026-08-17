@@ -12,8 +12,36 @@ file for the circular import it removes.
 from __future__ import annotations
 
 from extant.contract import Rule
+from extant.rules import line_pointer as _rule_line
 
-__all__ = ["RULES", "RULE_ERRORS", "Rule", "count_examined"]
+__all__ = ["RULES", "RULE_ERRORS", "Rule", "count_examined", "forget_memos"]
+
+
+def forget_memos() -> None:
+    """Drop every memo a rule keeps OUTSIDE a RunScope.
+
+    Exactly one exists: `_POINTER_SITES` in extant/rules/line_pointer.py. Every
+    other memoised answer became a RunScope field, and is therefore dropped by
+    the scope object going out of scope rather than by anyone remembering to
+    call something. That one could not, and extant/scope.py states why at
+    length: its consumer, `count_examined`, runs immediately AFTER validate()
+    returns, so a value tied to the call's scope would be thrown away exactly
+    when it is needed. It is invalidated when a fresh scope OPENS instead.
+
+    Here rather than in extant/session.py, which is the caller, because this
+    module is the only one allowed to import a rule - `test_rules_are_leaves`
+    enforces that, and session.py reaching into extant/rules/line_pointer.py
+    directly is precisely the shape that gate exists to refuse.
+
+    NAMED, not discovered. A loop over the rule modules calling an optional
+    `forget()` hook would also work and would pick up a second such memo for
+    free, and that is exactly why it is not used: a hook nobody implements
+    makes this function a no-op that looks like it is doing something, which is
+    the zero-denominator failure this project keeps paying for. A rule that
+    grows a memo outside its scope has to be added here, and the ImportError or
+    AttributeError from getting that wrong is loud.
+    """
+    _rule_line._forget_sites()
 
 
 # Rules that RAISED during this run, as (kind, "ExceptionType: message").

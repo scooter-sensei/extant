@@ -1089,8 +1089,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    return "rst" if suffix == "rst" else "markdown"',
          '    return "markdown"'),
         ("markdown-only rules stop being markdown-only", text,
-         '_MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}',
-         "_MARKDOWN_ONLY = set()"),
+         'MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}',
+         "MARKDOWN_ONLY = set()"),
     ]
 
 

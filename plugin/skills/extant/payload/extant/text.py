@@ -69,14 +69,15 @@ from extant.scope import Context, DocScope
 __all__ = [
     "ORDER_PREFIX", "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
     "_FENCE", "_INLINE_CODE", "_LANGUAGE_DIR",
-    "_MARKDOWN_ONLY", "_MYST_TARGET", "_NESTED_HEADING",
+    "_MYST_TARGET", "_NESTED_HEADING",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_SETEXT_RULE", "_STRIPPED", "_blank", "_blank_rst",
-    "_blank_uncached", "_definition_terms", "_disambiguated", "_format_for",
+    "_blank_uncached", "_definition_terms", "_disambiguated",
     "_heading_text",
     "_route_name", "_setext_headings", "_slug", "_slug_keeping_edges",
     "_slug_punctuation_to_dash", "_translation_tree",
-    "_without_tags", "EXTERNAL", "HEADING", "MD_LINK", "anchors",
+    "_without_tags", "EXTERNAL", "HEADING", "MARKDOWN_ONLY", "MD_LINK",
+    "anchors", "format_for",
     "current_document", "numbered_document", "percent_decoded",
     "prose", "strip_code", "unique_basename",
 ]
@@ -160,10 +161,18 @@ def current_document(doc: DocScope) -> str | None:
 # Rules whose syntax is markdown's alone. Skipped outside it rather than
 # tuned, because there is no version of a markdown link regex that is correct
 # on a language which has no markdown links.
-_MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}
+#
+# Public since Task 10, for the reason `current_document` above gives: the
+# caller that reads it, `rule_applies` in extant/session.py, is a sibling
+# module, and a leading underscore on a name another module reaches for is a
+# false claim about the boundary.
+MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}
 
 
-def _format_for(path: str) -> str:
+# Public for the same reason, and with two siblings rather than one:
+# extant/sweep.py sets the format per file it surveys and extant/cli.py does
+# the same around `--deleted-since`.
+def format_for(path: str) -> str:
     """Which markup language a filename is written in."""
     suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     return "rst" if suffix == "rst" else "markdown"
