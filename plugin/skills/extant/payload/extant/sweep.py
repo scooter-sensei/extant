@@ -277,10 +277,11 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # against 30 repositories where six of them had a denominator of zero.
     print("  examined: " + ", ".join(f"{kind} {n}"
                                      for kind, n in examined.items()), file=out)
-    # Beside the denominators, for the reason `_report_rule_errors` gives: a
-    # rule that crashed reports no findings, which is what a clean survey looks
-    # like. A sweep is where that matters most - hundreds of documents, one
-    # malformed input - and it is exactly why isolation was worth adding here.
+    # Beside the denominators, for the reason `report_rule_errors` (session.py)
+    # gives: a rule that crashed reports no findings, which is what a clean
+    # survey looks like. A sweep is where that matters most - hundreds of
+    # documents, one malformed input - and it is exactly why isolation was
+    # worth adding here.
     session.report_rule_errors(lambda line: print(line, file=out))
     # Zero counts are REPORTED rather than filtered, and named again here. A
     # rule examining nothing across a WHOLE repository is a far stronger signal
@@ -317,10 +318,10 @@ def _document_at(repo: Path, ref: str, relative: str) -> str | None:
     than either: every rule would then run against silently corrupted text and
     report findings about bytes that are not there.
     """
-    # BYTES, then decoded here. `_git` passes text=True, which makes
-    # subprocess decode inside a reader THREAD - so invalid UTF-8 raises where
-    # no caller can catch it. The observed result was the worst of both: a
-    # UnicodeDecodeError traceback printed from the thread, the process
+    # BYTES, then decoded here. `_git` in extant/git.py passes text=True,
+    # which makes subprocess decode inside a reader THREAD - so invalid UTF-8
+    # raises where no caller can catch it. The observed result was the worst
+    # of both: a UnicodeDecodeError traceback printed from the thread, the process
     # continuing, and the document silently counted as examining nothing.
     #
     # Decoding strictly, and letting the error reach the caller, is what makes

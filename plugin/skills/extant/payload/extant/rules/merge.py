@@ -76,7 +76,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
     # the claims above are still this rule's own and decide every finding
     # below. A wider batch cannot move any token's answer, and asking for the
     # document's union is what makes the whole document cost one batch instead
-    # of one per rule. See `_document_sha_tokens`.
+    # of one per rule. See `_document_sha_tokens` in extant/commits.py.
     resolved = document_shas(ctx, text)
     merged: dict[tuple[str, str], bool] = {}
     findings: list[Finding] = []

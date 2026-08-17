@@ -224,10 +224,11 @@ def find_sha_candidates(text: str) -> list[tuple[int, str]]:
 # Same idiom and same reasoning as `_STRIPPED` in text.py: keyed on object
 # IDENTITY, so a different string simply misses and no lifecycle is needed. Added
 # when the sweep began reporting a per-rule denominator, which made
-# `count_examined` a second caller for the same document - this function and
-# `_line_pointer_sites` were then the two most expensive things in a sweep, each
-# computed twice over identical bytes. Measured on pytest's 308 documents: 617
-# calls, 1.20s.
+# `count_examined` (session.py's wrapper over extant.registry.count_examined)
+# a second caller for the same document - this function and `_line_pointer_sites`
+# in extant/rules/line_pointer.py were then the two most expensive things in a
+# sweep, each computed twice over identical bytes. Measured on pytest's 308
+# documents: 617 calls, 1.20s.
 _BARE_SHAS: tuple[str, list[tuple[int, str]]] | None = None
 
 
@@ -274,10 +275,11 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
 def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     """(line, ref, sha) for every merge claim, ref as written.
 
-    Split out of `validate_merge_claims` so `_document_sha_tokens` can see the
-    commits a claim names without reimplementing how a claim is found. One
-    reader of `merge_claim`, so a project that customises the pattern cannot
-    end up with the batch and the rule disagreeing about what a claim is.
+    Split out of what is now `extant.rules.merge.check` so `_document_sha_tokens`
+    can see the commits a claim names without reimplementing how a claim is
+    found. One reader of `merge_claim`, so a project that customises the
+    pattern cannot end up with the batch and the rule disagreeing about what a
+    claim is.
 
     A two-group pattern means (ref, sha). A one-group pattern is the older
     contract and still means (sha), checked against trunk exactly as before.
@@ -293,7 +295,8 @@ def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
         for match in pattern.finditer(line):
             if named:
                 # The pattern keeps any backticks so the rule can tell a
-                # deliberate ref from a word of prose. See _claimed_ref.
+                # deliberate ref from a word of prose. See `_claimed_ref` in
+                # extant/rules/merge.py.
                 claims.append((number, match.group(1), match.group(2)))
             else:
                 claims.append((number, config.trunk, match.group(1)))

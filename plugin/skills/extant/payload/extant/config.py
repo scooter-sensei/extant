@@ -88,8 +88,9 @@ DEFAULTS: dict[str, object] = {
     "retain_entries": 3,
     # None leaves user-supplied consistency patterns unbounded, which is the
     # historical behaviour. A positive number bounds each search, at the cost
-    # of a process spawn per pattern. See _search_with_limit for why there is
-    # no cheaper mechanism that actually works.
+    # of a process spawn per pattern. See `_search_with_limit` in
+    # extant/rules/consistency.py for why there is no cheaper mechanism that
+    # actually works.
     "consistency_timeout_seconds": None,
     # Does a release claim in these documents name a tag of THIS repository?
     #
@@ -131,8 +132,9 @@ DEFAULTS: dict[str, object] = {
     #
     # The backticks are kept INSIDE group 1 on purpose. They are what separates
     # a deliberate ref (report a typo in it) from a word of prose (say
-    # nothing); see `_claimed_ref`. Writing `` `([^`]+)` `` instead would drop
-    # every project that spells the branch name bare.
+    # nothing); see `_claimed_ref` in extant/rules/merge.py. Writing
+    # `` `([^`]+)` `` instead would drop every project that spells the branch
+    # name bare.
     #
     # A one-group pattern remains supported and keeps the old meaning, checked
     # against trunk, so a customised `merge_claim` does not break.
@@ -145,7 +147,7 @@ DEFAULTS: dict[str, object] = {
     # no findings at all - every one of the 32 is true, and all five distinct
     # commits resolve, so ancestry was really checked rather than skipped.
     #
-    # Safe by construction as well as by measurement: `validate_merge_claims`
+    # Safe by construction as well as by measurement: `extant.rules.merge.check`
     # skips any claim whose SHA does not resolve, so a hex-looking token that
     # is not a commit produces silence rather than a finding.
     #

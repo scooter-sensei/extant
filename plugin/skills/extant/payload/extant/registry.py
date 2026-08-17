@@ -56,11 +56,11 @@ def forget_memos() -> None:
 # the rule had candidates and failed on them. Nothing may catch a rule's
 # exception without appending here.
 #
-# MUTATED, never rebound. The shim's `validate()` and `count_examined` below
-# both append to it and `main()` clears it at the start of a run; an assignment
-# anywhere would hand one caller a different list and the other's entries would
-# silently stop being read - which is the same class of failure the list exists
-# to report.
+# MUTATED, never rebound. `session.validate()` and `count_examined` below
+# both append to it and `main()` (extant/cli.py) clears it at the start of a
+# run; an assignment anywhere would hand one caller a different list and the
+# other's entries would silently stop being read - which is the same class of
+# failure the list exists to report.
 RULE_ERRORS: list[tuple[str, str]] = []
 
 

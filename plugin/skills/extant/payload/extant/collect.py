@@ -30,13 +30,14 @@ from pathlib import Path
 # not - it moved. `find_boundary`, `commits_since`, `changed_files` and
 # `collect()` all read THIS module's own `_GIT` (declared below), so a test
 # has to swap `extant.collect._GIT` specifically to intercept any of them.
-# The shim (`extant_collect.py`) installs a SEPARATE `_GIT` under the same
-# name: `hc._GIT is extant.collect._GIT` is False. Patching the shim's `_GIT`
-# and calling `find_boundary` or `changed_files` records zero calls; patching
-# this module's `_GIT` records them. Sharing a name and a `CountingGit` class
-# makes the two objects look interchangeable - they are not, and a test
-# written against the shim's copy would exercise the real function here and
-# pass while testing nothing, exactly as before this file had a seam.
+# extant/session.py installs a SEPARATE `_GIT` under the same name - tests
+# import it as `hc`, so `hc._GIT is extant.collect._GIT` is False. Patching
+# `hc._GIT` (session.py's) and calling `find_boundary` or `changed_files`
+# records zero calls; patching this module's `_GIT` records them. Sharing a
+# name and a `CountingGit` class makes the two objects look interchangeable -
+# they are not, and a test written against session.py's copy would exercise
+# the real function here and pass while testing nothing, exactly as before
+# this file had a seam.
 from extant.git import CountingGit, Git, SubprocessGit    # noqa: F401
 #                      ^ re-exported so a test can install one here.
 
@@ -46,10 +47,10 @@ from extant.git import CountingGit, Git, SubprocessGit    # noqa: F401
 # by the four functions below that read a value nothing was ever derived from
 # (`suite_command`, `venv_python`, `plans_dir`, the three `suite_*` patterns).
 #
-# A module-level import is safe here where it was not for the shim's CONFIG:
+# A module-level import is safe here where it was not for session.py's CONFIG:
 # these are classes, fixed for the life of the process, not a name that
-# `reload_config` rebinds. extant/config.py imports nothing from this package,
-# so there is no cycle either.
+# extant/session.py's `reload_config` rebinds. extant/config.py imports
+# nothing from this package, so there is no cycle either.
 from extant.config import Config, StatusConfig
 
 # Installed, not imported at each call site, so a test can replace it. See the

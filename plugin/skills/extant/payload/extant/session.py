@@ -451,8 +451,9 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     scope = outer_scope if outer_scope.stable else RunScope()
     # Only what the caller actually SAID is overridden. `doc_format` is never a
     # parameter and is inherited unchanged, because `deleted_claims` and
-    # `run_sweep` set it around the call rather than through it - deriving it
-    # from `doc` here would silently re-read a `.rst` document as markdown.
+    # `run_sweep` (both in extant/sweep.py) set it around the call rather than
+    # through it - deriving it from `doc` here would silently re-read a `.rst`
+    # document as markdown.
     doc_scope = DocScope(
         link_base=base if base is not None else outer_doc.link_base,
         doc_format=outer_doc.doc_format,

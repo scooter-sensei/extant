@@ -59,13 +59,16 @@ class CountingGit(Git):
     wrongly, the first time. Here the delegation happens inside SubprocessGit,
     BELOW the interface, so it cannot be seen twice.
 
-    Not a spawn count, and must not be read as one. Six git invocations in the
-    shim do not fit `run(repo, *args)` - three `cat-file` batches fed on stdin,
-    a `-z` listing paired with `check-attr --stdin`, and a `git show` that must
-    return bytes - so they call subprocess directly and are invisible here.
-    tests/test_spawn_budget.py counts at the subprocess boundary for exactly
-    that reason, and tests/test_scope.py prints both populations so the gap is
-    a number somebody chose rather than one nobody noticed.
+    Not a spawn count, and must not be read as one. Six git invocations across
+    this package do not fit `run(repo, *args)` - three `cat-file` batches fed
+    on stdin (two in extant/rules/lfs.py, one in extant/refs.py's
+    `_batch_shas`), a `-z` listing paired with `check-attr --stdin` (both in
+    extant/rules/lfs.py), and a `git show` that must return bytes
+    (extant/sweep.py's `_document_at`) - so they call subprocess directly and
+    are invisible here. tests/test_spawn_budget.py counts at the subprocess
+    boundary for exactly that reason, and tests/test_scope.py prints both
+    populations so the gap is a number somebody chose rather than one nobody
+    noticed.
     """
 
     def __init__(self, inner: Git) -> None:

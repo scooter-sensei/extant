@@ -89,17 +89,17 @@ def check(ctx: Context, text: str) -> list[Finding]:
                 # `docs-website/`, llama_index declares MkDocs in
                 # `docs/api_reference/`, and svelte numbers its documents for
                 # a site built from another repository. `_SITE_DIRS`,
-                # `_site_dirs` and `_numbered_docs_tree` were widened to see
-                # all three, which removes the findings without removing the
-                # rule.
+                # `_site_dirs` and `_numbered_docs_tree` (all in
+                # extant/sites.py) were widened to see all three, which
+                # removes the findings without removing the rule.
             exists, actual_case = resolve_reference(ctx, base, target)
             if exists:
                 continue
             # In a compiled docs tree the remaining shapes are site routes
             # rather than files: an extensionless target, a `.html` target, or
             # an absolute path from the site root. None can be settled by the
-            # filesystem, so none is judged. See _SITE_CONFIGS for the
-            # measurement.
+            # filesystem, so none is judged. See `_SITE_CONFIGS` in
+            # extant/sites.py for the measurement.
             # A `.html` target is a rendered page, in every repository and
             # not only in a detected one. MEASURED across 20 repositories in
             # two corpora: 407 markdown links point at a `.html` target and

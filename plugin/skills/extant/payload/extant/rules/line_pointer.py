@@ -99,10 +99,12 @@ def _forget_sites() -> None:
     comment above describes: `count_examined` runs immediately after validate()
     returns and needs exactly this entry.
 
-    Private, and reached by the shim as `_line_pointer._forget_sites()`. No
-    sibling module calls it, so promoting it would be a claim about this
-    package's boundaries that is not true; Task 10 brings `validate()` into the
-    package, at which point it becomes an ordinary sibling call.
+    Private. Before Task 10 the shim reached it directly as
+    `_line_pointer._forget_sites()`, bypassing every sibling boundary; now
+    `validate()` lives in the package too, and extant/registry.py's own
+    `forget_memos` is the sibling call that reaches it - registry.py is the
+    one module allowed to import a rule's private surface, for the reason its
+    own docstring gives.
     """
     global _POINTER_SITES
     _POINTER_SITES = None

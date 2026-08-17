@@ -49,23 +49,24 @@ from extant.scope import Context, DocScope
 # hard failure of test_no_module_reaches_past_another_modules_surface, so the
 # choice there is between promoting them and lying about the boundary.
 #
-# The other thirty-eight are read by extant_collect.py and by nothing else.
-# The shim is deliberately NOT counted as a sibling here - that gate's own
-# comment says so, because extant_collect.py sits outside the package - and it
-# is deleted outright in Task 10. Promoting a name for a caller that is about
-# to disappear is churn with a rename at both ends.
+# The other thirty-eight were read by extant_collect.py and by nothing else,
+# before the split. The shim was deliberately NOT counted as a sibling - that
+# gate's own comment says so, because extant_collect.py sits outside the
+# package - and Task 10 deleted its direct reads of this module outright, so
+# today none of the thirty-eight has an external caller at all.
 #
 # Task 9 settled the rest by measurement rather than by taste: when a shim rule
 # became extant/rules/*.py, whatever it reached for here became a genuine
 # sibling call and was promoted in the commit that created the caller. `prose`
 # was the largest of those, with eight rule modules reading it; the eleven shim
-# consumers it also had are wrappers that Task 10 deletes.
+# consumers it also had were wrappers that Task 10 deleted.
 #
 # The private names are listed in `__all__` anyway, following
 # extant/collect.py, which keeps `_CHECKED` and `_VENV_LAYOUTS` in its own:
-# the shim re-exports them under their historical spellings for the suite and
-# the mutation harness, so they are part of what this module hands out even
-# though no sibling should be calling them.
+# the shim used to re-export them under their historical spellings for the
+# suite and the mutation harness. Task 10 removed that path and neither reads
+# them by name today, so the list stands as a record of what this module owns
+# rather than a promise to an outside caller.
 __all__ = [
     "ORDER_PREFIX", "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
     "_FENCE", "_INLINE_CODE", "_LANGUAGE_DIR",

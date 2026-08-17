@@ -150,10 +150,11 @@ class RunScope:
     # checkout and writes nothing while doing so; validate() then leaves this
     # scope alone instead of opening a fresh one per document.
     #
-    # `--sweep` is the whole reason it exists. It validates every tracked file
-    # in turn, and each call was re-listing the same directories: profiled over
-    # 1600 documents in 20 directories, `_listdir` built 128,000 Path objects to
-    # answer 20 distinct questions.
+    # `run_sweep` (extant/sweep.py) is the whole reason it exists. It validates
+    # every tracked file in turn, and each call was re-listing the same
+    # directories: profiled over 1600 documents in 20 directories,
+    # `_listdir` (extant/sites.py) built 128,000 Path objects to answer 20
+    # distinct questions.
     #
     # The narrowness is the safety argument. The default stays False, so the
     # promise `dircache` makes above - a caller that creates a file between two
@@ -193,9 +194,10 @@ class DocScope:
     # construction, not by accident. Twenty-three of numpy's findings and all
     # ten of Sphinx's were exactly that.
     #
-    # "markdown", not "md". `_rule_applies` skips the markdown-only rules
-    # whenever this is anything else, so a plausible misspelling switches off
-    # `dead-md-link` and `dead-md-anchor` for every caller that never sets one.
+    # "markdown", not "md". `rule_applies` in extant/session.py skips the
+    # markdown-only rules whenever this is anything else, so a plausible
+    # misspelling switches off `dead-md-link` and `dead-md-anchor` for every
+    # caller that never sets one.
     doc_format: str = "markdown"
 
     # The repository-relative path. A rule that keys on WHICH document it is

@@ -58,8 +58,8 @@ def check(ctx: Context, text: str) -> list[Finding]:
     bare = find_bare_sha_candidates(text)
     # The document's tokens rather than only this rule's two lists, so the
     # whole document costs one batch. Only `backticked` and `bare` decide
-    # anything below; see `_document_sha_tokens` for why a wider batch cannot
-    # move a finding.
+    # anything below; see `_document_sha_tokens` in extant/commits.py for why
+    # a wider batch cannot move a finding.
     alive = document_shas(ctx, text)
     for number, token in backticked:
         if token not in alive:
