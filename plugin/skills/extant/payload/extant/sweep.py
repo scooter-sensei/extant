@@ -25,10 +25,15 @@ import sys
 from pathlib import Path
 
 from extant import refs, session
+# ALIASED, because `text` is what every function here calls the document
+# it is reading. Imported under its own name the module was shadowed by
+# the first local assignment in `run_sweep`, and the failure was an
+# AttributeError on a str several lines later rather than anything
+# naming the import.
+from extant import text as markup
 from extant.finding import Located
 from extant.registry import RULE_ERRORS
 from extant.report import format_text, render_findings
-from extant.text import format_for, prose
 
 __all__ = [
     "deleted_claims", "excluded_documents", "partition_documents",
@@ -143,7 +148,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
                         unreadable.append(f"{relative} ({exc.__class__.__name__})")
                         continue
                     session.set_document(link_base=path.parent,
-                                         doc_format=format_for(relative))
+                                         doc_format=markup.format_for(relative))
                     findings = session.validate(repo, text,
                                         has_entries=(relative == primary),
                                         doc=relative)
@@ -373,7 +378,7 @@ def _live_prose(repo: Path, documents: list[str]) -> str:
     for relative in documents:
         try:
             with open(repo / relative, encoding="utf-8", newline="") as handle:
-                parts.append(prose(session.document(), handle.read()))
+                parts.append(markup.prose(session.document(), handle.read()))
         except (OSError, UnicodeDecodeError):
             continue
     return "\n".join(parts)
@@ -417,7 +422,7 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
         # because a rule raising part-way would otherwise leave the process
         # reading every later document in the wrong markup language.
         previous_format = session.document().doc_format
-        session.set_document(doc_format=format_for(relative))
+        session.set_document(doc_format=markup.format_for(relative))
         try:
             was = session.validate(
                 repo, previous, base=(repo / relative).parent,

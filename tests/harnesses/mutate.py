@@ -64,6 +64,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # `_fingerprint` lost its underscore when extant/cli.py, a different module
     # now, became a caller across the boundary.
     report = collect.parent / "extant/report.py"
+    session = collect.parent / "extant/session.py"
+    sweep = collect.parent / "extant/sweep.py"
+    cli = collect.parent / "extant/cli.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -341,9 +344,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '                          "--format=", "-n", "200")',
          '        out = ctx.git.run(ctx.repo, "log", "--diff-filter=R", "--name-status",\n'
          '                          "--format=", "-n", "200", "--", "nonexistent-path")'),
-        ("claim rules stop ignoring fenced code", collect,
-         "def _prose(text: str) -> str:",
-         "def _prose(text: str) -> str:\n    return text"),
+        ("claim rules stop ignoring fenced code", text,
+         "def prose(doc: DocScope, text: str) -> str:",
+         "def prose(doc: DocScope, text: str) -> str:\n    return text"),
         ("case check accepts any spelling", sites,
          "    return (True, None) if actual == normalised else (False, actual)",
          "    return True, None"),
@@ -362,7 +365,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # nothing and the suite stays green; `--check-only` in CI is what caught
         # it. Third time for this pair, which is the argument for that mode
         # existing at all.
-        ("archive exemption ignored", collect,
+        ("archive exemption ignored", session,
          "    if (in_archive or not has_entries) and not rule.in_archive:\n"
          "        return False",
          "    if False:\n        return False"),
@@ -370,7 +373,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # that followed, and the rst work inserted a format check between the
         # two, so the pair stopped matching while the behaviour it probes was
         # untouched. A mutation should name the smallest thing it is about.
-        ("has_entries ignored (entry rules run on extra docs)", collect,
+        ("has_entries ignored (entry rules run on extra docs)", session,
          "    if (in_archive or not has_entries) and not rule.in_archive:\n"
          "        return False",
          "    if in_archive and not rule.in_archive:\n"
@@ -391,11 +394,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    for rule in RULES[1:]:"),
 
         # --- selftest ---------------------------------------------------------
-        ("selftest reports FIRED unconditionally", collect,
+        ("selftest reports FIRED unconditionally", session,
          "        if findings:\n            fired += 1",
          "        if True:\n            fired += 1"),
-        ("every probe returns None", collect,
-         "        probed = rule.probe(context, text)  # type: ignore[operator]",
+        ("every probe returns None", session,
+         "        probed = rule.probe(ctx, text)  # type: ignore[operator]",
          "        probed = None"),
 
         # --- output formats ---------------------------------------------------
@@ -408,11 +411,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted when --suggest-fixes made stdout a patch channel too, so
         # the condition gained a second clause. Caught by --check-only at the
         # commit that moved it, which is the whole reason that mode exists.
-        ("sarif diagnostics leak onto stdout", collect,
+        ("sarif diagnostics leak onto stdout", cli,
          '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)\n'
          "                  else sys.stdout)",
          "        stream = sys.stdout"),
-        ("suggested patch shares stdout with the findings", collect,
+        ("suggested patch shares stdout with the findings", cli,
          '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
          '        stream = (sys.stderr if (args.format == "sarif" or False)'),
         ("fingerprint folds in the line number", report,
@@ -516,20 +519,20 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The haystack is PROSE, not raw text. Built from raw text, a claim
         # moved into a code fence stays findable and this mode goes as blind to
         # it as every claim rule already is.
-        ("the deletion haystack stops blanking fenced code", collect,
-         "            parts.append(_prose(handle.read()))",
-         "            parts.append(handle.read())"),
+        ("the deletion haystack stops blanking fenced code", sweep,
+         "                parts.append(markup.prose(session.document(), handle.read()))",
+         "                parts.append(handle.read())"),
         # And the other direction. `_strip_code` also blanks INLINE backticks,
         # which is where a claim is normally written - so this would empty the
         # haystack and report every claim in the document as deleted.
-        ("the deletion haystack also blanks inline code", collect,
-         "            parts.append(_prose(handle.read()))",
-         "            parts.append(_strip_code(handle.read()))"),
-        ("deletion checks only the primary document, not the archive", collect,
-         "    return [d for d in (CONFIG.primary_doc, CONFIG.archive_doc,\n"
-         "                        *CONFIG.extra_docs) if d]",
-         "    return [d for d in (CONFIG.primary_doc,) if d]"),
-        ("deletion re-reads documents that did not change", collect,
+        ("the deletion haystack also blanks inline code", sweep,
+         "                parts.append(markup.prose(session.document(), handle.read()))",
+         "                parts.append(markup.strip_code(session.document(), handle.read()))"),
+        ("deletion checks only the primary document, not the archive", sweep,
+         "    return [d for d in (session.CONFIG.primary_doc, session.CONFIG.archive_doc,\n"
+         "                        *session.CONFIG.extra_docs) if d]",
+         "    return [d for d in (session.CONFIG.primary_doc,) if d]"),
+        ("deletion re-reads documents that did not change", sweep,
          "    for relative in _changed_between(repo, ref, documents):",
          "    for relative in documents:"),
         # The subject a claim is about. A rule that stops recording one is
@@ -544,48 +547,48 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # SARIF's contract is that stdout is one valid document, always. Zero
         # bytes fails a CI upload rather than reading as "no results", so a
         # clean run looks exactly like a broken one.
-        ("the deletion mode emits nothing when it has nothing to report", collect,
+        ("the deletion mode emits nothing when it has nothing to report", sweep,
          "    else:\n"
          "        # ALWAYS, even with nothing to report.",
          "    elif gone:\n"
          "        # ALWAYS, even with nothing to report."),
-        ("the deletion mode starts gating", collect,
+        ("the deletion mode starts gating", sweep,
          '              "why it never fails a run.", file=out)\n    return 0',
          '              "why it never fails a run.", file=out)\n'
          "    return 1 if gone else 0"),
 
         # --- search --------------------------------------------------------------
-        ("search only looks at the live document", collect,
-         "    for relative in (PRIMARY_DOC, ARCHIVE_DOC):\n"
+        ("search only looks at the live document", cli,
+         "    for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
          "        with open(path, encoding=\"utf-8\", newline=\"\") as fh:",
-         "    for relative in (PRIMARY_DOC,):\n"
+         "    for relative in (session.PRIMARY_DOC,):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
          "        with open(path, encoding=\"utf-8\", newline=\"\") as fh:"),
-        ("search becomes case-sensitive", collect,
+        ("search becomes case-sensitive", cli,
          "    needle = query.lower()",
          "    needle = query"),
-        ("search matches every entry regardless of content", collect,
+        ("search matches every entry regardless of content", cli,
          '            if kind != "phase" or needle not in entry.lower():',
          '            if kind != "phase":'),
 
         # --- suggested fixes ------------------------------------------------------
-        ("suggest-fixes offers a guess for a merely missing file", collect,
-         "        moved = _renamed_to(repo, target)\n"
+        ("suggest-fixes offers a guess for a merely missing file", cli,
+         "        moved = renamed_to(ctx, target)\n"
          "        if moved:\n"
          "            replacements.append((target, moved))",
-         "        moved = _renamed_to(repo, target) or target + \".guess\"\n"
+         "        moved = renamed_to(ctx, target) or target + \".guess\"\n"
          "        if moved:\n"
          "            replacements.append((target, moved))"),
-        ("suggest-fixes rewrites prose as well as references", collect,
+        ("suggest-fixes rewrites prose as well as references", cli,
          '        updated = updated.replace(f"]({old})", f"]({new})")\n'
          '        updated = updated.replace(f"`{old}`", f"`{new}`")',
          "        updated = updated.replace(old, new)"),
-        ("suggest-fixes writes the file instead of emitting a patch", collect,
+        ("suggest-fixes writes the file instead of emitting a patch", cli,
          "    if not replacements:\n        return \"\"",
          "    if not replacements:\n        return \"\"\n"
          "    (base / 'SIDE_EFFECT.txt').write_text('written', encoding='utf-8')"),
@@ -692,19 +695,19 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # every mutation here breaks a CONSTRAINT rather than the suppression.
         # Suppression working is easy; suppression that cannot quietly grow to
         # cover everything is the whole design.
-        ("baseline suppresses by kind, so every future finding is forgiven", collect,
-         "                if fingerprint in baselined:",
+        ("baseline suppresses by kind, so every future finding is forgiven", cli,
+         "                if mark in baselined:",
          "                if any(e[\"kind\"] == finding.kind for e in baselined.values()):"),
-        ("baseline stops stating how much it is hiding", collect,
+        ("baseline stops stating how much it is hiding", cli,
          '            diag(f"{len(located)} new finding(s), {suppressed} suppressed by "',
          '            diag("" or f"{len(located)} new finding(s), {suppressed} hidden by "'),
         ("a missing baseline becomes an empty one", report,
          "    if not path.is_file():\n        raise ValueError(",
          "    if not path.is_file():\n        return {}\n    if False:\n        raise ValueError("),
-        ("re-recording honours the active baseline and shrinks the file", collect,
+        ("re-recording honours the active baseline and shrinks the file", cli,
          "        if (args.baseline or args.baseline_check) and not args.write_baseline:",
          "        if args.baseline or args.baseline_check:"),
-        ("baseline-check stops reporting entries that no longer occur", collect,
+        ("baseline-check stops reporting entries that no longer occur", cli,
          "            stale = [entry for fingerprint, entry in sorted(baselined.items())\n"
          "                     if fingerprint not in matched]",
          "            stale = []"),
@@ -823,13 +826,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # way. Gating on everything turns 18 measured false positives on this
         # repository into build failures; gating on nothing makes `--sweep`
         # incapable of ever failing, which reads identically to a clean run.
-        ("the sweep gates on unreviewed documents too", collect,
+        ("the sweep gates on unreviewed documents too", sweep,
          '    return 1 if (results["vetted"] or RULE_ERRORS) else 0',
          '    return 1 if (results["unvetted"] or RULE_ERRORS) else 0'),
-        ("the sweep gates on nothing at all", collect,
+        ("the sweep gates on nothing at all", sweep,
          '    return 1 if (results["vetted"] or RULE_ERRORS) else 0',
          "    return 0"),
-        ("everything is vetted, so nothing is surveyed separately", collect,
+        ("everything is vetted, so nothing is surveyed separately", sweep,
          "    vetted = [p for p in paths if p in normalised]\n"
          "    return vetted, [p for p in paths if p not in normalised]",
          "    return list(paths), []"),
@@ -837,16 +840,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # drops it on the floor exactly the way a bare `continue` would, which
         # is how the sweep would quietly under-report on any repository holding
         # a latin-1 document.
-        ("unreadable files are skipped silently rather than counted", collect,
+        ("unreadable files are skipped silently rather than counted", sweep,
          '                unreadable.append(f"{relative} ({exc.__class__.__name__})")',
          "                pass"),
-        ("the sweep denominator counts only what it gated on", collect,
+        ("the sweep denominator counts only what it gated on", sweep,
          '    print(f"\\nswept {len(paths)} markdown file(s): "',
          '    print(f"\\nswept {len(vetted)} markdown file(s): "'),
         # An empty repository must SAY it swept nothing. Returning 0 without the
         # diagnostic is the project's signature failure: the reassuring silence
         # of a run that examined zero files.
-        ("a repository with no markdown reports nothing at all", collect,
+        ("a repository with no markdown reports nothing at all", sweep,
          '        print("swept 0 markdown files: git tracks none in this repository",\n'
          "              file=sys.stderr)",
          "        pass"),
@@ -857,32 +860,32 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # skip-list fails silently in BOTH directions and this project has
         # already shipped one whose defaults excluded every file it was meant
         # to scan.
-        ("a star crosses a separator, so docs/* takes the whole tree", collect,
+        ("a star crosses a separator, so docs/* takes the whole tree", sweep,
          '            out.append("[^/]*")',
          '            out.append(".*")'),
-        ("a bare pattern anchors at the root instead of any segment", collect,
+        ("a bare pattern anchors at the root instead of any segment", sweep,
          '        source = rf"^(?:.*/)?{core}(?:/.*)?$"',
          '        source = rf"^{core}(?:/.*)?$"'),
-        ("a bare pattern matches half a segment", collect,
+        ("a bare pattern matches half a segment", sweep,
          '        source = rf"^(?:.*/)?{core}(?:/.*)?$"',
          '        source = rf".*{core}.*"'),
         ("an unusable pattern compiles to one that matches everything",
-         collect,
+         sweep,
          '    if not pattern or pattern.startswith("#"):\n        return None',
          '    if False:\n        return None'),
-        ("a path is counted against every pattern it matches", collect,
+        ("a path is counted against every pattern it matches", sweep,
          "                hit = pattern\n                break",
          "                hit = pattern"),
-        ("the per-pattern counts stop being reported", collect,
+        ("the per-pattern counts stop being reported", sweep,
          "        for pattern, count in sorted(excluded_counts.items()):",
          "        for pattern, count in []:"),
-        ("a pattern that matched nothing is no longer named", collect,
+        ("a pattern that matched nothing is no longer named", sweep,
          "        idle = sorted(p for p, n in excluded_counts.items() if not n)",
          "        idle = []"),
-        ("excluding a configured document stops being refused", collect,
+        ("excluding a configured document stops being refused", sweep,
          "        conflicting = sorted((configured & present) - kept - {\"\"})",
          "        conflicting = []"),
-        ("the conflict check keys on configured-but-missing again", collect,
+        ("the conflict check keys on configured-but-missing again", sweep,
          "        conflicting = sorted((configured & present) - kept - {\"\"})",
          "        conflicting = sorted(configured - kept - {\"\"})"),
 
@@ -1060,10 +1063,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # to reset by asking if it opened its own scope rather than by reading a
         # separate boolean - so both old anchors named lines that no longer
         # exist, and would have reported NOT APPLIED rather than a result.
-        ("the sweep never gives its cache scope back", collect,
+        ("the sweep never gives its cache scope back", session,
          "        _SCOPE = previous_scope",
          "        _released = previous_scope"),
-        ("validate stops resetting its per-call caches", collect,
+        ("validate stops resetting its per-call caches", session,
          "    if scope is not outer_scope:",
          "    if False:"),
         # There is deliberately NO mutation for dropping the run-scope half of
