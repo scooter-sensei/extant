@@ -319,7 +319,22 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
     fired = unprobeable = errored = 0
     ctx = context(repo)
     for rule in RULES:
-        probed = rule.probe(ctx, text)  # type: ignore[operator]
+        try:
+            probed = rule.probe(ctx, text)  # type: ignore[operator]
+        except Exception as exc:                            # noqa: BLE001
+            # The probe half of the same contract the check below honours.
+            # Left uncaught, a probe that raises takes the whole mode down
+            # with a traceback, which is the failure this block was added to
+            # remove one line further on - fixing one half and not the other
+            # would have been arbitrary. No probe raises today; that is a
+            # property of the current thirteen, not a guarantee about the
+            # fourteenth.
+            errored += 1
+            RULE_ERRORS.append(
+                (rule.kind, f"{exc.__class__.__name__}: {exc}"))
+            lines.append(f"  {rule.kind:<20} ERRORED        the probe itself "
+                         f"raised: {exc.__class__.__name__}: {exc}")
+            continue
         if probed is None:
             unprobeable += 1
             lines.append(f"  {rule.kind:<20} NO PROBE       nothing to corrupt "
