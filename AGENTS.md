@@ -108,7 +108,9 @@ only the author knows which two strings name one fact.
 
 | Path | What |
 |:---|:---|
-| `plugin/skills/extant/payload/extant_collect.py` | the validator and every rule |
+| `plugin/skills/extant/payload/extant/` | the validator: settings, scopes, the git seam, the three output formats, the modes |
+| `plugin/skills/extant/payload/extant/rules/` | one module per rule |
+| `plugin/skills/extant/payload/extant_collect.py` | the entry point the hook invokes by path; a version handshake and one import |
 | `plugin/skills/extant/install.py` | the installer, detection and presets |
 | `plugin/skills/extant/references/design.md` | why each rule works as it does |
 | `tests/harnesses/` | five audits pytest cannot perform, run by hand |

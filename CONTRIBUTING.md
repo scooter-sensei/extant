@@ -30,14 +30,17 @@ apart from reading this repository's own status document.
 
 ## Adding a validation rule
 
-Rules live in a registry in `plugin/skills/extant/payload/extant_collect.py`. Each one declares its
-scope, whether it survives archiving, and, required, the exact yes-or-no
-question it asks:
+One rule is one module under `plugin/skills/extant/payload/extant/rules/`, and
+adding a file there is the whole of adding a rule - the registry imports every
+module in that directory and there is no second place to forget. Each module
+declares a `RULE` naming its scope, whether it survives archiving, its print
+order, and, required, the exact yes-or-no question it asks:
 
 ```python
-Rule(
+RULE = Rule(
     kind="false-merge-claim",
-    check=validate_merge_claims,
+    sequence=4,
+    check=check,
     scope="whole-file",
     in_archive=True,
     falsifiable="is the claimed commit an ancestor of the ref the claim names?",
