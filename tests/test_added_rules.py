@@ -987,6 +987,87 @@ def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
     assert cli.search_entries(repo, "kubernetes") == []
 
 
+# --- search MODE, through the real CLI, not the bare function ----------------
+#
+# Every test above calls cli.search_entries() directly, which is the half of
+# --search that was never broken. cli.main()'s search branch does more than
+# call it: after printing results, it counts phase entries for the
+# denominator line through its OWN call into split_entries() - and that
+# second call passed session.CONFIG, the raw StatusConfig, where split_entries
+# needs the derived Config for its `section_header` field. StatusConfig has no
+# such field, so every --search invocation that reached the denominator line
+# raised `AttributeError: 'StatusConfig' object has no attribute
+# 'section_header'`, regardless of query. 641 tests, a byte-identical --verify
+# comparison and ten task reviews missed it because nothing here went through
+# argparse and main() the way a real invocation does; only the smoke harness,
+# run as a real subprocess, reached this branch at all. These three go through
+# run_tool() - a real subprocess against the shipped entry point - for the
+# same reason.
+
+def test_cli_search_mode_matches_a_plain_text_query(git_repo) -> None:
+    """A plain query that matches one entry, through the real CLI."""
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md",
+           "# Status\n\n## Phase 1 - checkout (shipped, 2026-01-01)\n\n"
+           "We chose the queue approach for checkout.\n", "docs: status")
+
+    result = run_tool(repo, "--search", "queue approach")
+
+    combined = result.stdout + result.stderr
+    assert "Traceback" not in combined, combined
+    assert result.returncode == 0, combined
+    assert "queue approach" in result.stdout
+    assert "1 match(es) in 1 entries across 1 document(s)" in result.stdout
+
+
+def test_cli_search_mode_reports_zero_matches_without_crashing(git_repo) -> None:
+    """A query present in no entry.
+
+    The denominator must still count the entry that WAS searched, so "found
+    nothing" (this test) and "searched nothing" (an empty or unconfigured
+    repository) print differently - the distinction the denominator note
+    exists to draw, checked from the other side by asserting the note is
+    ABSENT here.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md",
+           "# Status\n\n## Phase 1 - checkout (shipped, 2026-01-01)\n\n"
+           "We chose the queue approach for checkout.\n", "docs: status")
+
+    result = run_tool(repo, "--search", "kubernetes")
+
+    combined = result.stdout + result.stderr
+    assert "Traceback" not in combined, combined
+    assert result.returncode == 0, combined
+    assert "0 match(es) in 1 entries across 1 document(s)" in result.stdout
+    assert "no entries were found to search" not in result.stdout, (
+        "1 entry WAS searched; this note claiming otherwise is the other "
+        "failure the denominator exists to distinguish"
+    )
+
+
+def test_cli_search_mode_survives_a_regex_shaped_query(git_repo) -> None:
+    """The exact shape of the shipped crash: `--search '.*'`.
+
+    ".*" is not treated as a regex anywhere in search_entries() - matching is
+    a plain substring test - but it is the literal query the bug was reported
+    against, so it is used here rather than a different string that would
+    exercise the same code path just as well.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md",
+           "# Status\n\n## Phase 1 - pattern work (shipped, 2026-01-01)\n\n"
+           "The pattern `.*` must not crash the search.\n", "docs: status")
+
+    result = run_tool(repo, "--search", ".*")
+
+    combined = result.stdout + result.stderr
+    assert "Traceback" not in combined, combined
+    assert "AttributeError" not in combined, combined
+    assert result.returncode == 0, combined
+    assert "1 match(es) in 1 entries across 1 document(s)" in result.stdout
+
+
 def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     """The boundary this tool's authority rests on.
 

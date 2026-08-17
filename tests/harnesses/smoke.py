@@ -93,11 +93,18 @@ def ok(probe: str, detail: str = "") -> None:
     print(f"  ok       {probe}" + (f"  ({detail})" if detail else ""))
 
 
-def _operational_source(source: str) -> tuple[str, int]:
+def _operational_source(sources: list[str]) -> tuple[str, int]:
     """Strip prose from Python source, keeping every operational literal.
 
-    Returns the surviving code and the number of `_git(...)` call sites, so a
-    scan over it can state what it examined.
+    Takes one string per FILE, not one big concatenated string, and parses
+    each separately. Concatenating raw source first and parsing once breaks
+    the moment two files both open with `from __future__ import annotations` -
+    which every file in this package does - because that import is only legal
+    as a module's first statement; a second copy of it after another file's
+    code is a SyntaxError, not two harmless imports.
+
+    Returns the surviving code, joined, and the number of git call sites
+    across every file, so a scan over it can state what it examined.
 
     Comments and docstrings have to go, because they discuss the very things a
     scan looks for: a sentence reading "a commit made from a clone" is prose
@@ -108,23 +115,44 @@ def _operational_source(source: str) -> tuple[str, int]:
     only ever as one - `_git(repo, "fetch", ...)`. Stripping all strings would
     leave a scan that is permanently clean and therefore permanently useless,
     which is the same failure wearing the opposite mask.
+
+    The call-site pattern matches `.run(`/`.soft(` attribute calls as well as
+    bare `_git`/`_git_soft` names. A modularisation gave every git operation a
+    seam - extant/git.py's Git/SubprocessGit/CountingGit - and calls now read
+    `_GIT.run(repo, ...)` or `ctx.git.soft(...)` throughout the package rather
+    than a bare `_git(...)` the old pattern looked for; that pattern alone
+    found the two calls still inside git.py itself and nothing else, which
+    read as "almost nothing" beside the 30-odd real call sites the scan is
+    meant to be counting. The wider pattern also happens to catch the direct
+    `subprocess.run(...)` calls documented in CountingGit's docstring as
+    bypassing the Git interface entirely (extant/rules/lfs.py, extant/refs.py,
+    extant/sweep.py) - a truthful bonus, since those are exactly the kind of
+    call this probe exists to notice, not a deliberate second target.
     """
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                                 ast.AsyncFunctionDef)):
-            continue
-        first = node.body[0] if node.body else None
-        if (isinstance(first, ast.Expr)
-                and isinstance(first.value, ast.Constant)
-                and isinstance(first.value.value, str)):
-            node.body[0] = ast.Pass()
-    call_sites = sum(
-        1 for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name) and node.func.id == "_git"
-    )
-    return ast.unparse(ast.fix_missing_locations(tree)), call_sites
+    codes: list[str] = []
+    call_sites = 0
+    for source in sources:
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                     ast.AsyncFunctionDef)):
+                continue
+            first = node.body[0] if node.body else None
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                node.body[0] = ast.Pass()
+        call_sites += sum(
+            1 for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and (
+                (isinstance(node.func, ast.Name)
+                 and node.func.id in ("_git", "_git_soft"))
+                or (isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("run", "soft"))
+            )
+        )
+        codes.append(ast.unparse(ast.fix_missing_locations(tree)))
+    return "\n".join(codes), call_sites
 
 
 def sh(cwd: Path, *args: str, check: bool = False, timeout: int = 120):
@@ -804,16 +832,25 @@ def p_offline() -> None:
     the network happened to be reachable.
     """
     print("\n[network] does anything phone home?")
-    source = (PKG / "plugin/skills/extant/payload/extant_collect.py").read_text(
-        encoding="utf-8")
-    code, call_sites = _operational_source(source)
+    # The SHIM plus the PACKAGE, not the shim alone. The shim used to hold
+    # every git call directly; a modularisation moved them all behind
+    # extant/git.py's Git/SubprocessGit seam, so the shim shrank to 68 lines
+    # of version-check-then-import with no git call left in it to find. A scan
+    # reading only the shim after that refactor was examining the right file
+    # for an era that ended - not wrong about what it saw, silent about where
+    # the thing it was looking for had gone.
+    payload = PKG / "plugin/skills/extant/payload"
+    scanned = [payload / "extant_collect.py",
+              *sorted((payload / "extant").rglob("*.py"))]
+    code, call_sites = _operational_source(
+        [p.read_text(encoding="utf-8") for p in scanned])
     remote_ops = ("ls-remote", "fetch", "clone", "urlopen", "http.client",
                   "requests.", "socket.create_connection", "git.push")
     hits = [op for op in remote_ops if op in code]
     if call_sites < 5:
         note("HARNESS", "the git call-site scan found almost nothing",
-             f"{call_sites} sites; the pattern is probably wrong, so a clean "
-             "result here means nothing")
+             f"{call_sites} sites across {len(scanned)} file(s); the pattern "
+             "is probably wrong, so a clean result here means nothing")
     elif hits:
         note("SECURITY", "a network operation appears in the validator",
              f"found {hits} across {call_sites} git call sites")

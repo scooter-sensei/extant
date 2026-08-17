@@ -290,19 +290,27 @@ def main(argv: list[str] | None = None) -> int:
     # applies to its own diagnostics too.
     ignored_config = repo / ".extant.toml"
     # Read once, here: `reload_config` may not have run, and every reader
-    # below wants the SAME settings object rather than one re-read per
-    # line.
-    config = session.CONFIG
+    # below wants the SAME settings object rather than one re-read per line.
+    #
+    # Named `status`, not `config` - matching extant/collect.py's convention
+    # of `config: Config` vs `status: StatusConfig` - because this IS a
+    # StatusConfig (session.CONFIG, the raw parsed settings), not the derived
+    # Config that split_entries/archive/rules need. A `config` local here once
+    # shadowed that distinction closely enough that the search-mode
+    # denominator below passed this straight into split_entries(), which
+    # crashed on the first field only Config carries. See entries.py's
+    # split_entries for what the two types are for.
+    status = session.CONFIG
     # Compared as resolved paths, not as strings. The upward search means the
     # config found from the script's own location is very often the same file
     # this names, and a string comparison called them different over a
     # separator - producing a warning that said the file it had just read was
     # not read.
-    same_file = (ignored_config.is_file() and config.source != "defaults"
-                 and ignored_config.resolve() == Path(config.source).resolve())
+    same_file = (ignored_config.is_file() and status.source != "defaults"
+                 and ignored_config.resolve() == Path(status.source).resolve())
     if (repo.resolve() != session.REPO_ROOT.resolve()
             and ignored_config.is_file() and not same_file):
-        print(f"NOTE: settings came from {config.source}, so {ignored_config} was "
+        print(f"NOTE: settings came from {status.source}, so {ignored_config} was "
               f"NOT read. Configuration loads relative to this script; install it "
               f"into that repository as tools/ for its own settings to apply.",
               file=sys.stderr)
@@ -329,13 +337,19 @@ def main(argv: list[str] | None = None) -> int:
         searched = sum(1 for relative in (session.PRIMARY_DOC,
                                           session.ARCHIVE_DOC)
                        if (repo / relative).is_file())
+        # split_entries needs the DERIVED Config (section_header, phase_prefix),
+        # the same object search_entries() above already built for itself -
+        # not `status`, which is the raw StatusConfig read further up. Passing
+        # `status` here is the exact mistake that used to crash this mode.
+        built_config = session.context(repo).config
         total = 0
         for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):
             path = repo / relative
             if path.is_file():
                 with open(path, encoding="utf-8", newline="") as fh:
                     total += sum(
-                        1 for kind, _ in split_entries(fh.read(), config)[1]
+                        1 for kind, _ in split_entries(fh.read(),
+                                                       built_config)[1]
                         if kind == "phase")
         print(f"{len(results)} match(es) in {total} entries "
               f"across {searched} document(s)")
@@ -355,8 +369,8 @@ def main(argv: list[str] | None = None) -> int:
             # message. The reason for not using `print` to stdout stands:
             # in SARIF mode stdout carries nothing but JSON.
             print(f"no such document: {target}", file=sys.stderr)
-            print(f"  primary_doc is '{config.primary_doc}', from "
-                  f"{config.source}", file=sys.stderr)
+            print(f"  primary_doc is '{status.primary_doc}', from "
+                  f"{status.source}", file=sys.stderr)
             return 1
         try:
             with open(target, encoding="utf-8", newline="") as fh:
@@ -389,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if silent else 0
     if args.collect:
         bundle = collect(repo, args.suite_json,
-                         session.context(repo).config, config)
+                         session.context(repo).config, status)
         out = Path(args.out) if args.out else repo / "status_bundle.json"
         with open(out, "w", encoding="utf-8", newline="") as fh:
             json.dump(bundle, fh, indent=2)
@@ -449,8 +463,8 @@ def main(argv: list[str] | None = None) -> int:
             # document lives elsewhere in this project, or the config points at
             # the wrong name. Say which file was expected and where it came from.
             diag(f"no such document: {target}")
-            diag(f"  primary_doc is '{config.primary_doc}', from "
-                 f"{config.source}")
+            diag(f"  primary_doc is '{status.primary_doc}', from "
+                 f"{status.source}")
             diag("  set primary_doc in .extant.toml, or pass --validate <path>")
             return 1
         try:
@@ -604,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
         # the archive. A project whose status lives in a tracker rather than a
         # document still gets these checked, which is most of the reason the
         # setting exists.
-        for relative in config.extra_docs:
+        for relative in status.extra_docs:
             extra = repo / relative
             if not extra.is_file():
                 # A configured document that is absent is itself a finding, not

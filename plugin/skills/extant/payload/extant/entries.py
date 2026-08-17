@@ -36,6 +36,21 @@ def split_entries(text: str,
     classified "other" are reference material interleaved among the phase
     entries, and archiving them as history would lose them.
     """
+    if not isinstance(config, Config):
+        # The two configuration types are structurally similar enough that
+        # passing the wrong one is a repeatable mistake, not a one-off typo:
+        # StatusConfig is the raw parsed settings, Config is the 21 values
+        # DERIVED from it (see the module docstring above and extant/config.py).
+        # Left unchecked, `config.section_header` a few lines down raises a
+        # bare AttributeError that names a field sounding like a typo of
+        # `archive_header` - which sends whoever is debugging it to the wrong
+        # place. Checked here, at the one function `archive` and every rule
+        # funnels a config through, the failure names its actual cause.
+        raise TypeError(
+            f"split_entries needs the derived Config, got "
+            f"{type(config).__name__}. Build one with Config.build(status), "
+            f"or pass ctx.config / session.context(repo).config."
+        )
     base_match = config.base_header.search(text)
     base_start = base_match.start() if base_match else len(text)
     body, base = text[:base_start], text[base_start:]
