@@ -18,15 +18,26 @@ __all__ = ["RULES", "RULE_ERRORS", "Rule", "count_examined", "forget_memos"]
 
 
 def forget_memos() -> None:
-    """Drop every memo a rule keeps OUTSIDE a RunScope.
+    """Drop every rule memo that is outside a RunScope and cannot key itself.
 
-    Exactly one exists: `_POINTER_SITES` in extant/rules/line_pointer.py. Every
-    other memoised answer became a RunScope field, and is therefore dropped by
+    Exactly one qualifies: `_POINTER_SITES` in extant/rules/line_pointer.py.
+    Most memoised answers became RunScope fields, and are therefore dropped by
     the scope object going out of scope rather than by anyone remembering to
     call something. That one could not, and extant/scope.py states why at
     length: its consumer, `count_examined`, runs immediately AFTER validate()
     returns, so a value tied to the call's scope would be thrown away exactly
     when it is needed. It is invalidated when a fresh scope OPENS instead.
+
+    It is no longer the only module-level memo a rule keeps - `_PATH_SITES` in
+    extant/rules/path_pointer.py is another - and the distinction that decides
+    membership here is not where a memo lives but whether its KEY is complete.
+    `_PATH_SITES` reads the text, the pattern and the document format, and all
+    three are in its key, so a changed input misses and nothing has to
+    remember anything. `_POINTER_SITES` reads the filesystem through
+    `_line_count`, which no key can carry, so it is dropped instead. Adding a
+    completely-keyed memo here would be harmless and pointless; adding one
+    that reads git or the disk and forgetting to is silent, which is why the
+    line is drawn on the key.
 
     Here rather than in extant/session.py, which is the caller, because this
     module is the only one allowed to import a rule - `test_rules_are_leaves`

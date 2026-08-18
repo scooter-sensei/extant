@@ -8,7 +8,9 @@ unrepresentable, because a nested call builds its own object and the outer one
 is a different object.
 
 Four of the twenty-six did not become fields here, and the reasons are the
-interesting part of the inventory rather than an exception list:
+interesting part of the inventory rather than an exception list. Memos added
+SINCE the split are listed with them, marked as such, so this stays a census of
+what is module-level now rather than of what was module-level then:
 
 * `_BARE_SHAS` is keyed on the IDENTITY of the text passed in and reads
   nothing else about the repository - `find_bare_sha_candidates` (commits.py)
@@ -31,6 +33,14 @@ interesting part of the inventory rather than an exception list:
   calls sharing a run, which is what makes the condition real rather than
   theoretical. Still module-level, same as `_BARE_SHAS`, but for a narrower
   reason than "pure": see extant/text.py for the rest of this.
+* `_PATH_SITES` (added since the split; extant/rules/path_pointer.py) came from
+  the same measurement as those two: `dead-path-pointer`'s `check` and its
+  `examined` each scanned the document for pointers, so one scan per document
+  was being bought twice. Its key carries the text, the pattern AND
+  `doc.doc_format` - the last because the scan runs over `prose()`, so it is
+  precisely the half of the key `_STRIPPED` above is missing, and copying that
+  omission is the one thing this memo had to avoid. Pure given those three, so
+  it is not in `registry.forget_memos` and has no lifetime to state.
 * `_POINTER_SITES` is not pure - it reads the filesystem through `_line_count`
   and so has to be dropped when that is - but its consumer, `count_examined`,
   runs AFTER validate() returns. A value tied to the call's scope would be

@@ -710,3 +710,177 @@ def test_a_changed_merge_pattern_is_not_answered_from_the_previous_one(
     assert commits.merge_claims(changed, text) == [], (
         "the same text object was answered from the previous pattern's memo, "
         "so a reconfigured `merge_claim` would never reach the scanner")
+
+
+def test_the_path_pointer_scan_runs_once_per_document_not_once_per_caller(
+        git_repo, monkeypatch) -> None:
+    """Two callers ask the same question about one document; one scan answers.
+
+    The redundancy `f3fb482` removed from `find_sha_candidates` and
+    `merge_claims`, left in `dead-path-pointer` because the sweep grew a
+    denominator after those were measured. `check` scanned the document line by
+    line and `examined` scanned the whole prose blob for the same pointers.
+
+    Profiled by CALLER on a 29-document sweep, which is what the previous pass
+    learned to do: `examined` ran 30 times for 0.177 s of `findall` - 5.9 ms
+    for one call per document, of which the scan is 5.09 ms and `prose()`,
+    which is separately memoised and a hit by the time `examined` runs, is
+    0.07.
+
+    Patched on the SCAN rather than on the memoised wrapper, for the reason the
+    tests above give: patching the wrapper would count zero either way.
+    """
+    from extant import session as hc
+    from extant.rules import path_pointer as rule_path_pointer
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+
+    scans: list[str] = []
+    real = rule_path_pointer._path_pointer_sites_uncached
+
+    def counted(ctx, text):
+        scans.append(text)
+        return real(ctx, text)
+
+    monkeypatch.setattr(rule_path_pointer, "_path_pointer_sites_uncached",
+                        counted)
+
+    # The SAME string object for both halves, which is what the memo keys on.
+    # An equal-but-distinct string would make this pass for the wrong reason.
+    text = "**Plan:** `docs/plan.md` and see `docs/gone.md`.\n"
+    hc.validate(repo, text, has_entries=False)
+    hc.count_examined(repo, text)
+    assert len(scans) == 1, (
+        f"the path-pointer scan ran {len(scans)} times for one document")
+
+
+def test_a_changed_path_pointer_pattern_is_not_answered_from_the_previous_one(
+        git_repo, reconfigure) -> None:
+    """The half of the key `_STRIPPED` is missing, checked on the new memo.
+
+    `_path_pointer_sites` reads the text, the PATTERN and the document FORMAT,
+    and all three are in its key. Keyed on text identity alone it would be
+    `_STRIPPED` (extant/text.py) again, whose value depends on `doc.doc_format`
+    while its key does not - a known latent bug recorded there rather than one
+    to copy.
+
+    Both halves are exercised against the same text OBJECT, which is the
+    arrangement an incomplete key cannot survive. The format half runs first,
+    because `reconfigure` holds until teardown and would otherwise leave the
+    replacement pattern in place for it.
+    """
+    import re as _re
+
+    from extant import session as hc
+    from extant import text as text_mod
+    from extant.rules import path_pointer as rule_path_pointer
+    repo, _commit = git_repo
+
+    # `Example::` opens a literal block in reStructuredText and is ordinary
+    # prose in markdown, so the indented pointer below is code in one reading
+    # of this object and a claim in the other.
+    #
+    # `_STRIPPED` is cleared between the two readings, and that is the point
+    # rather than a convenience: it is the memo whose key omits `doc_format`,
+    # so left in place it hands the markdown blanking back for the second
+    # reading and BOTH answers come out at 1 whatever this rule's key is. That
+    # is the known latent bug recorded in extant/scope.py, not this memo's, and
+    # clearing it is what isolates the key under test from it. Remove the two
+    # lines and this assertion stops discriminating.
+    both = "Example::\n\n    see `docs/plan.md` for it\n"
+    text_mod._STRIPPED.clear()
+    hc.set_document(doc_format="markdown")
+    as_markdown = rule_path_pointer.examined(hc.context(repo), both)
+    text_mod._STRIPPED.clear()
+    hc.set_document(doc_format="rst")
+    as_rst = rule_path_pointer.examined(hc.context(repo), both)
+    hc.set_document(doc_format="markdown")
+    assert (as_markdown, as_rst) == (1, 0), (
+        f"the same text object read as markdown and as reStructuredText gave "
+        f"{as_markdown} and {as_rst}; a key without the format answers the "
+        f"second reading from the first")
+
+    text = "see `docs/plan.md` for it\n"
+    first = rule_path_pointer.examined(hc.context(repo), text)
+    assert first == 1, (
+        f"the default pattern found {first} pointers in the fixture, so the "
+        f"half below would pass against any implementation at all")
+
+    # A pattern that requires a marker this line does not carry.
+    reconfigure(path_pointer=_re.compile(
+        r"(?:\*\*Blueprint:\*\*)[^`\n]{0,40}`([\w./-]+\.md)`", _re.IGNORECASE))
+    assert rule_path_pointer.examined(hc.context(repo), text) == 0, (
+        "the same text object was answered from the previous pattern's memo, "
+        "so a reconfigured `path_pointer` would never reach the scanner")
+
+
+def test_the_path_pointer_denominator_did_not_move(git_repo) -> None:
+    """The count must be what the blob scan it replaced counted.
+
+    `examined` used to run `path_pointer.findall` over the whole prose blob;
+    it now sums the per-line scan `check` reads. The two are NOT identical by
+    construction - `[^`\n]{0,40}` in the middle of the pattern excludes `\n`
+    but not the other separators `str.splitlines` breaks on, so a blob match
+    could in principle straddle one - which is why the equality is measured
+    here rather than asserted in a comment.
+
+    Measured over this repository's own documents, and over 39 documents and
+    58,067 lines from two repositories outside the suite: the same 33 pointers
+    both ways. Where they could differ the per-line number is the honest one,
+    because a pointer the line loop cannot reach is one `check` never examined.
+    This goes red if a pattern edit separates them, which is the event that
+    would otherwise move the denominator without saying so.
+
+    The sibling rule `dead-release-tag` was measured the same way and does NOT
+    agree: `release_tag` joins its two halves with `\\s+`, which matches a
+    newline, so its blob scan finds `shipped\\nas 0.27.0` in this repository's
+    CHANGELOG.md and its line loop cannot. It was left alone for that reason.
+    """
+    import subprocess
+
+    from extant import session as hc
+    from extant.rules import path_pointer as rule_path_pointer
+    from extant.text import format_for, prose
+    repo, commit = git_repo
+    commit("README.md", "# r\n", "docs: readme")
+    ctx = hc.context(repo)
+
+    # TWO pointers on ONE line, which the corpus below does not happen to
+    # contain: without this the count is one per line either way and an
+    # `examined` returning the number of matching LINES passes the whole test.
+    # Observed doing exactly that before this case was added.
+    crowded = "see `docs/a.md` and read `docs/b.md` today\n"
+    assert rule_path_pointer.examined(ctx, crowded) == 2, (
+        "the denominator counts pointers, not lines carrying one")
+
+    root = Path(__file__).resolve().parent.parent
+    listed = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True,
+                            text=True, encoding="utf-8", errors="replace",
+                            check=True)
+    documents = 0
+    lines = 0
+    total = 0
+    for relative in listed.stdout.splitlines():
+        if not relative.lower().endswith((".md", ".mdx", ".rst")):
+            continue
+        try:
+            with open(root / relative, encoding="utf-8", newline="") as fh:
+                text = fh.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        hc.set_document(doc_format=format_for(relative))
+        ctx = hc.context(repo)
+        blob = len(ctx.config.path_pointer.findall(prose(ctx.doc, text)))
+        counted = rule_path_pointer.examined(ctx, text)
+        assert counted == blob, (
+            f"{relative}: the per-line denominator counts {counted} pointers "
+            f"where the blob scan it replaced counted {blob}")
+        documents += 1
+        lines += len(text.splitlines())
+        total += blob
+    hc.set_document(doc_format="markdown")
+    print(f"compared {documents} documents, {lines} lines, "
+          f"{total} pointers counted both ways")
+    assert documents >= 5 and total >= 5, (
+        f"only {documents} documents and {total} pointers, so agreement here "
+        f"would prove nothing; the checkout or the filter is wrong")
