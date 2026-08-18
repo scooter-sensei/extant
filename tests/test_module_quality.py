@@ -19,6 +19,24 @@ PACKAGE = PAYLOAD / "extant"
 # being a ceiling nothing could ever hit.
 CEILING = 900
 
+# The module ceiling above measures FILES, and nothing measured FUNCTIONS -
+# which is exactly how `main()` reached 479 of cli.py's 749 lines while the
+# module itself stayed comfortably under 900 the whole time. `--sweep` and
+# `--deleted-since` were pulled out into their own module early, but
+# `--collect`, `--archive`, `--search`, `--selftest` and `--validate`/
+# `--verify` stayed inline as one long if-chain until run_search,
+# run_selftest, run_collect, run_archive and run_validate were split out of
+# `main()` as functions in cli.py itself - a file that never grew past the
+# ceiling above and so never tripped it.
+#
+# Set at the new high-water mark rather than a round number with headroom, so
+# it BINDS IMMEDIATELY rather than being aspirational: run_validate (303
+# lines, the 294-line body of the old `--validate` block plus its own `def`
+# and docstring) and run_sweep (266, unchanged by this split) are the two
+# functions that must come down next. A generous ceiling picked in advance
+# would have let both sit comfortably under it and watched nothing.
+FUNCTION_CEILING = 303
+
 
 def _modules() -> list[Path]:
     return sorted(p for p in PACKAGE.rglob("*.py") if "__pycache__" not in p.parts)
@@ -35,6 +53,36 @@ def test_no_module_outgrows_the_reason_for_this_package() -> None:
     assert not over, (
         f"these modules are over {CEILING} lines: {over}. Split one, or argue "
         f"here for a higher ceiling - but argue, do not raise it quietly.")
+
+
+def test_no_function_outgrows_the_reason_for_this_split() -> None:
+    """What stops `main()` reaching 479 lines a second time.
+
+    Every FunctionDef and AsyncFunctionDef, at every nesting depth: a huge
+    closure buried inside a small top-level function would be the same
+    regrowth this exists to catch, just one level down.
+    """
+    modules = _modules()
+    assert modules, "no modules found; this test would pass vacuously"
+    functions: list[tuple[int, str]] = []
+    for path in modules:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                span = node.end_lineno - node.lineno + 1
+                where = (f"{path.relative_to(PACKAGE).as_posix()}:"
+                        f"{node.name}:{node.lineno}")
+                functions.append((span, where))
+    assert functions, "no functions found; this test would pass vacuously"
+    span, where = max(functions)
+    print(f"checked {len(functions)} functions across {len(modules)} modules "
+          f"against a {FUNCTION_CEILING}-line ceiling; largest is {span} "
+          f"({where})")
+    over = [(s, w) for s, w in functions if s > FUNCTION_CEILING]
+    assert not over, (
+        f"these functions are over {FUNCTION_CEILING} lines: {over}. Split "
+        f"one, or argue here for a higher ceiling - but argue, do not raise "
+        f"it quietly.")
 
 
 def test_the_package_has_no_import_cycles() -> None:
