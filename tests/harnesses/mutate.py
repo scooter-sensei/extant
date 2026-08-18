@@ -411,13 +411,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted when --suggest-fixes made stdout a patch channel too, so
         # the condition gained a second clause. Caught by --check-only at the
         # commit that moved it, which is the whole reason that mode exists.
+        # Retargeted a second time when run_validate was pulled out of
+        # `main()` as its own function: the block dedented by one level (4
+        # spaces) with it, and a mutation anchors on exact text.
         ("sarif diagnostics leak onto stdout", cli,
-         '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)\n'
-         "                  else sys.stdout)",
-         "        stream = sys.stdout"),
+         '    stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)\n'
+         "              else sys.stdout)",
+         "    stream = sys.stdout"),
         ("suggested patch shares stdout with the findings", cli,
-         '        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
-         '        stream = (sys.stderr if (args.format == "sarif" or False)'),
+         '    stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
+         '    stream = (sys.stderr if (args.format == "sarif" or False)'),
         ("fingerprint folds in the line number", report,
          '                "statusClaim/v1": fingerprint(\n'
          "                    item.path, item.finding.kind, item.finding.detail),",
@@ -695,22 +698,25 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # every mutation here breaks a CONSTRAINT rather than the suppression.
         # Suppression working is easy; suppression that cannot quietly grow to
         # cover everything is the whole design.
+        # The four `cli` anchors in this group all dedented by one level (4
+        # spaces) when run_validate was pulled out of `main()` as its own
+        # function; see the note beside the sarif/stdout pair above.
         ("baseline suppresses by kind, so every future finding is forgiven", cli,
-         "                if mark in baselined:",
-         "                if any(e[\"kind\"] == finding.kind for e in baselined.values()):"),
+         "            if mark in baselined:",
+         "            if any(e[\"kind\"] == finding.kind for e in baselined.values()):"),
         ("baseline stops stating how much it is hiding", cli,
-         '            diag(f"{len(located)} new finding(s), {suppressed} suppressed by "',
-         '            diag("" or f"{len(located)} new finding(s), {suppressed} hidden by "'),
+         '        diag(f"{len(located)} new finding(s), {suppressed} suppressed by "',
+         '        diag("" or f"{len(located)} new finding(s), {suppressed} hidden by "'),
         ("a missing baseline becomes an empty one", report,
          "    if not path.is_file():\n        raise ValueError(",
          "    if not path.is_file():\n        return {}\n    if False:\n        raise ValueError("),
         ("re-recording honours the active baseline and shrinks the file", cli,
-         "        if (args.baseline or args.baseline_check) and not args.write_baseline:",
-         "        if args.baseline or args.baseline_check:"),
+         "    if (args.baseline or args.baseline_check) and not args.write_baseline:",
+         "    if args.baseline or args.baseline_check:"),
         ("baseline-check stops reporting entries that no longer occur", cli,
-         "            stale = [entry for fingerprint, entry in sorted(baselined.items())\n"
-         "                     if fingerprint not in matched]",
-         "            stale = []"),
+         "        stale = [entry for fingerprint, entry in sorted(baselined.items())\n"
+         "                 if fingerprint not in matched]",
+         "        stale = []"),
 
         # --- the cross-platform agent skill --------------------------------------
         # The newest code, which is where every gap starts. Setup writes agent
