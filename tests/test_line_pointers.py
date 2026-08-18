@@ -310,3 +310,103 @@ def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
     commit("README.md", "# x\n", "docs: readme")
     _reset()
     assert rule_line_pointer.probe(hc.context(repo), "Nothing cited here.\n") is None
+
+
+# --- the gate in front of the scan -------------------------------------
+
+def _sites_without_the_gate(ctx, text: str):
+    """`_line_pointer_sites_uncached` as it stood at 7c51c2f.
+
+    A deliberate second copy, with the same maintenance contract the bare-SHA
+    equivalence test in tests/test_held_out_narrowings.py carries: a change to
+    the real function has to be made here too, and this goes red until it is.
+    """
+    from extant.rules.line_pointer import _LINE_POINTER, _line_count
+    from extant.sites import resolve_reference
+    from extant.text import prose
+    sites = []
+    for number, line in enumerate(prose(ctx.doc, text).splitlines(), start=1):
+        for match in _LINE_POINTER.finditer(line):
+            raw, cited = match.group(1), int(match.group(2))
+            if cited < 1:
+                continue
+            exists, _actual = resolve_reference(ctx, ctx.repo, raw)
+            if not exists:
+                continue
+            total = _line_count(ctx, raw)
+            if total is None:
+                continue
+            sites.append((number, raw, cited, total))
+    return sites
+
+
+def test_the_colon_gate_finds_every_pointer_the_ungated_scan_finds(
+        git_repo) -> None:
+    """A line with no colon is skipped, and nothing else is.
+
+    `_LINE_POINTER` opens with a lookbehind and a nested
+    `(?:[\\w.\\-]+[/\\\\])*`, so it cannot skip ahead on a literal and every
+    line cost a full backtracking scan. Measured over 58,067 lines from two
+    repositories, 18 hold a pointer and 9.1 per cent hold a colon: 8.63 ms per
+    document became 1.26.
+
+    The gate is sound because the pattern carries a literal `:` between its
+    two groups with nothing optional around it. This checks that claim by
+    running the REAL function against a copy of the one it replaced, over a
+    document mixing genuine pointers into this repository's own prose as
+    noise, so a gate narrowed to something the pattern does not require - a
+    `.py:` prefix, say, or a colon followed by a space - shows up as sites
+    that go missing. That is how this optimisation goes wrong: silently, by
+    finding fewer pointers and reporting a clean document.
+    """
+    import subprocess
+    from extant import session as hc
+    from extant.rules import line_pointer as rule_line_pointer
+
+    _reset()
+    repo, commit = git_repo
+    commit("core/engine.py", "x\n" * 40, "seed")
+    commit("docs/plan.md", "y\n" * 12, "plan")
+    commit("a.py", "z\n", "one line")
+
+    body = [
+        "See core/engine.py:123 for the detail.",
+        "Edit docs/plan.md:4 next.",
+        "And docs\\plan.md:9 with a backslash.",
+        "A range core/engine.py:211-215 is read by its start.",
+        "A column a.py:1:34 is judged on its line.",
+        "Meeting at 10:30 in room 4.",
+        "http://localhost:8080/x is a port.",
+        "core/engine.py:40 is the last line.",
+        "core/engine.py:41 is one past it.",
+        "docs/plan.md:12 and docs/plan.md:13 on one line.",
+        "No pointer at all on this line.",
+    ]
+    # Real prose as NOISE: thousands of lines the gate must skip, carrying
+    # every colon this project happens to write, so the comparison is over
+    # something harder than eleven crafted lines.
+    root = Path(__file__).resolve().parent.parent
+    listed = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True,
+                            text=True, encoding="utf-8", errors="replace",
+                            check=True)
+    for relative in listed.stdout.splitlines():
+        if not relative.lower().endswith((".md", ".mdx", ".rst")):
+            continue
+        try:
+            with open(root / relative, encoding="utf-8", newline="") as fh:
+                body.extend(fh.read().splitlines())
+        except (OSError, UnicodeDecodeError):
+            continue
+    text = "\n".join(body) + "\n"
+
+    ctx = hc.context(repo)
+    want = _sites_without_the_gate(ctx, text)
+    got = rule_line_pointer._line_pointer_sites_uncached(ctx, text)
+    print(f"compared {len(body)} lines: {len(want)} pointer sites without the "
+          f"gate, {len(got)} with it")
+    assert len(want) >= 8, (
+        f"only {len(want)} sites in the whole document, so agreement here "
+        f"would prove nothing; the fixture or the checkout is wrong")
+    assert got == want, (
+        "the colon gate skipped a line the pattern would have matched, so the "
+        "rule finds fewer pointers and says nothing about it")

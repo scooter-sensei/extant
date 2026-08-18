@@ -135,6 +135,28 @@ def _line_pointer_sites_uncached(
         ctx: Context, text: str) -> list[tuple[int, str, int, int]]:
     sites: list[tuple[int, str, int, int]] = []
     for number, line in enumerate(prose(ctx.doc, text).splitlines(), start=1):
+        # `_LINE_POINTER` carries a literal `:` between its two groups, with no
+        # alternation and nothing optional around it, so a line without one
+        # cannot match. That is the whole safety argument and it is checkable
+        # by reading the pattern, which is why the gate is this rather than
+        # something tighter.
+        #
+        # Measured over 58,067 lines from two repositories: 18 of them - three
+        # in ten thousand - hold a pointer, 9.1 per cent hold a colon, and the
+        # pattern was being run against all 58,067. It cannot use a literal
+        # prefix to skip ahead, because it opens with a lookbehind and a nested
+        # `(?:[\w.\-]+[/\\])*`, so every line costs a full backtracking scan:
+        # 8.63 ms per document, which was the whole of this function's time.
+        # The colon gate brings that to 1.26 ms.
+        #
+        # A tighter gate on `\.[A-Za-z]\w{0,9}:\d` - the shape the pattern
+        # actually requires - measured 0.38 ms and was rejected on purpose. It
+        # buys another 0.9 ms per document, which is one per cent of a sweep,
+        # by copying a fragment of the pattern into a second place that must be
+        # edited with it. If the two ever drift the rule stops seeing pointers
+        # and says nothing, which is the failure this project is about.
+        if ":" not in line:
+            continue
         for match in _LINE_POINTER.finditer(line):
             raw, cited = match.group(1), int(match.group(2))
             if cited < 1:
