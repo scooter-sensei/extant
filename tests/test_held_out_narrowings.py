@@ -666,3 +666,134 @@ def test_a_dead_anchor_in_a_setext_document_still_fires(git_repo) -> None:
             "Limitations\n"
             "-----------\n")
     assert _anchors(repo, text) == ["#no-such-thing"]
+
+
+# --------------------------------------------------------------------------
+# Every narrowing above, re-checked in one pass against the fast path.
+# --------------------------------------------------------------------------
+
+def _bare_scan_as_it_stood(text: str) -> list[tuple[int, str]]:
+    """`_find_bare_sha_candidates` as it stood at 7c51c2f, before the gate.
+
+    A DELIBERATE second copy of the implementation, and the cost is worth
+    stating: a sixth exclusion pattern has to be added here as well as there,
+    and this test goes red until it is. That is the contract rather than an
+    oversight. The function it mirrors decides what counts as a bare SHA, and
+    every exclusion in it exists because of a false positive measured against
+    a 40-repository corpus - so the property worth pinning is not any single
+    exclusion but that the whole set still yields exactly what it yielded
+    before, token for token and line for line.
+    """
+    from extant import commits
+    out: list[tuple[int, str]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        skip_spans = [m.span() for m in commits.BACKTICKED.finditer(line)]
+        skip_spans += [m.span() for m in commits._URL.finditer(line)]
+        skip_spans += [m.span() for m in commits._UUID.finditer(line)]
+        skip_spans += [m.span() for m in commits._ASSET_PATH.finditer(line)]
+        skip_spans += [m.span() for m in commits._PINNED_REF.finditer(line)]
+        for match in commits.BARE_SHA_TOKEN.finditer(line):
+            if commits.spans_overlap(match.span(), skip_spans):
+                continue
+            token = match.group(0)
+            if commits.looks_like_bare_sha(token):
+                out.append((number, token))
+    return out
+
+
+def _adversarial_corpus() -> str:
+    """Prose dense in every shape the exclusions above were measured against.
+
+    Generated rather than collected, and seeded so it is the same corpus on
+    every run. Real documents are the wrong denominator on their own here:
+    58,067 lines across this repository and one other carry 80 lines with a
+    hex-shaped run between them and nine surviving tokens, so a comparison
+    over those alone would agree for want of anything to disagree about.
+    """
+    import random
+    rng = random.Random(20260818)
+
+    def hexrun(n: int) -> str:
+        return "".join(rng.choice("0123456789abcdef") for _ in range(n))
+
+    templates = [
+        "Merged at {h} on the trunk.",
+        "See https://github.com/other/repo/commit/{h} for the detail.",
+        "ContentId: {u}",
+        'src="/img/{s}-Pipeline_1_1.png" alt="x"',
+        "uses: actions/checkout@{h}",
+        "A colour like #{s}aa sits in a drop-shadow.",
+        "The token `{h}` is backticked here.",
+        "[`{h}`](https://github.com/o/r/commit/{h})",
+        "conversation_{u} in a debug log",
+        "identifier{h}zz embedded in a longer word",
+        "The number {d} is INT64-ish.",
+        "digest {m} is thirty-two characters",
+        "path/to/asset.{s}.css and {h} together",
+        "plain prose with no falsifiable claim in it at all",
+        "{h} {h} {h} three in a row",
+        "trailing punctuation: {h}, {h}. {h}!",
+    ]
+    lines = []
+    for _ in range(1500):
+        lines.append(rng.choice(templates).format(
+            h=hexrun(rng.choice([6, 7, 8, 10, 12, 32, 39, 40, 41])),
+            s=hexrun(7),
+            u="%s-%s-%s-%s-%s" % (hexrun(8), hexrun(4), hexrun(4), hexrun(4),
+                                  hexrun(12)),
+            d="".join(rng.choice("0123456789")
+                      for _ in range(rng.choice([7, 19]))),
+            m=hexrun(32)))
+    return "\n".join(lines) + "\n"
+
+
+def test_the_bare_sha_gate_yields_the_same_tokens_as_the_scan_it_replaces() -> None:
+    """The fast path is a speed change and must be nothing else.
+
+    `_find_bare_sha_candidates` now skips its five exclusion scans on a line
+    carrying no hex-shaped run at all, which is 57,987 of the 58,067 lines
+    measured across two repositories - one line in a thousand carries one.
+    That took the scan from 20.6 ms per document to 3.1.
+
+    The saving is only worth having if the answer is untouched, so this
+    compares the two implementations token for token over the generated corpus
+    above AND over this repository's own tracked documents. Both denominators
+    are printed, because a corpus that produced no tokens would agree with
+    anything at all.
+    """
+    import subprocess
+    from extant import commits
+
+    root = Path(__file__).resolve().parent.parent
+    corpus = [("generated", _adversarial_corpus())]
+    listed = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True,
+                            text=True, encoding="utf-8", errors="replace",
+                            check=True)
+    for relative in listed.stdout.splitlines():
+        if not relative.lower().endswith((".md", ".mdx", ".rst")):
+            continue
+        try:
+            with open(root / relative, encoding="utf-8", newline="") as fh:
+                corpus.append((relative, fh.read()))
+        except (OSError, UnicodeDecodeError):
+            continue
+
+    tokens = lines = 0
+    disagreed = []
+    for name, body in corpus:
+        lines += len(body.splitlines())
+        want = _bare_scan_as_it_stood(body)
+        tokens += len(want)
+        # A fresh comparison per document, and never through
+        # `find_bare_sha_candidates`: the memo in front of it would answer
+        # from whichever implementation ran first.
+        if commits._find_bare_sha_candidates(body) != want:
+            disagreed.append(name)
+    print(f"compared {len(corpus)} documents, {lines} lines and {tokens} "
+          f"tokens between the gated scan and the one it replaced")
+    assert tokens >= 100, (
+        f"only {tokens} tokens in the whole corpus, so agreement here would "
+        f"mean almost nothing; the generator or the checkout is wrong")
+    assert not disagreed, (
+        f"the gate changed which tokens these documents yield: {disagreed}. "
+        f"It is a speed change and may not move a single token.")

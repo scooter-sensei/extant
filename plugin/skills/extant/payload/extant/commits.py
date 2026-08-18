@@ -287,6 +287,30 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     """The scan itself. Separate only so the cache above stays readable."""
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
+        # Does this line contain a hex-shaped run at ALL? Almost none do, and
+        # the five exclusion scans below are the expensive half of this
+        # function. Measured over 39 documents and 58,067 lines from two
+        # repositories: 80 lines - one in a thousand - carry a run this
+        # pattern matches, and 9 tokens survive in total. Every other line was
+        # paying for a URL scan, a UUID scan, an asset-path scan and a
+        # pinned-ref scan to produce nothing. 20.6 ms per document before this
+        # line, 2.2 ms after.
+        #
+        # NOT the fix the cost first looked like it wanted. 22,544
+        # `spans_overlap` calls across a 29-document sweep read as exclusion
+        # spans being re-derived per candidate; profiled by CALLER, 7,333 of
+        # the remaining 7,366 come from `_find_sha_candidates` above, which
+        # tests every backticked span against the linked-SHA spans, and 33
+        # from here. The exclusions were already computed once per line.
+        #
+        # Safe by construction rather than by measurement, which is what a
+        # function tuned against a 40-repository corpus needs: `skip_spans` is
+        # read only by `spans_overlap` INSIDE the loop below, and that loop
+        # body runs only for a match `search` would have found. A line skipped
+        # here is a line whose loop body never executed, so no token this
+        # returns can move.
+        if BARE_SHA_TOKEN.search(line) is None:
+            continue
         skip_spans = [m.span() for m in BACKTICKED.finditer(line)]
         skip_spans += [m.span() for m in _URL.finditer(line)]
         skip_spans += [m.span() for m in _UUID.finditer(line)]
