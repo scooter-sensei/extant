@@ -37,8 +37,10 @@ from extant.scope import Context
 
 __all__ = [
     "BACKTICKED", "BARE_SHA_TOKEN", "_ASSET_PATH", "_BARE_SHAS", "_LINKED_SHA",
-    "_PINNED_REF", "_URL", "_UUID", "_document_sha_tokens",
-    "_find_bare_sha_candidates", "_is_digest_length", "document_shas",
+    "_MERGE_CLAIMS", "_PINNED_REF", "_SHA_CANDIDATES", "_URL", "_UUID",
+    "_document_sha_tokens", "_find_bare_sha_candidates",
+    "_find_sha_candidates", "_is_digest_length", "_merge_claims",
+    "document_shas",
     "find_bare_sha_candidates", "find_sha_candidates", "load_sha_map",
     "looks_like_bare_sha", "looks_like_sha", "merge_claims", "spans_overlap",
     "translate_shas",
@@ -207,8 +209,32 @@ _LINKED_SHA = re.compile(
     r"/(?:commit|commits|blob|tree|pull|compare)/[^)\s]*\)", re.I)
 
 
+# The same memo `_BARE_SHAS` below carries, for the same reason and with the
+# same key, and it was missing here purely because the bare scanner was the
+# expensive one when the sweep grew a denominator. Three callers ask this
+# question about one document: `extant.rules.sha.check`, its `examined`, and
+# `_document_sha_tokens` below, which builds the batched SHA resolution. Each
+# is right alone - the rule contract keeps `check` and `examined` apart so the
+# findings and the denominator describe one population, and `document_shas`
+# collapses two `cat-file` batches into one - but together they scanned every
+# document three times over identical bytes. Measured on a 29-document sweep of
+# a real repository: 89 calls, 0.18s of self time, of which two thirds bought
+# nothing.
+_SHA_CANDIDATES: tuple[str, list[tuple[int, str]]] | None = None
+
+
 def find_sha_candidates(text: str) -> list[tuple[int, str]]:
     """(line number, token) for every backticked SHA-shaped token."""
+    global _SHA_CANDIDATES
+    if _SHA_CANDIDATES is not None and _SHA_CANDIDATES[0] is text:
+        return _SHA_CANDIDATES[1]
+    result = _find_sha_candidates(text)
+    _SHA_CANDIDATES = (text, result)
+    return result
+
+
+def _find_sha_candidates(text: str) -> list[tuple[int, str]]:
+    """The scan itself. Separate only so the cache above stays readable."""
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
         qualified = [m.span(1) for m in _LINKED_SHA.finditer(line)]
@@ -275,6 +301,22 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     return out
 
 
+# The third scan of the same document, memoised like the two above and read by
+# the same three callers: `extant.rules.merge.check`, its `examined`, and
+# `_document_sha_tokens`. Measured beside them on the same 29-document sweep:
+# 89 calls, 0.21s of self time.
+#
+# The key carries the PATTERN and the TRUNK as well as the text, and that is
+# the difference between this and `_STRIPPED` in extant/text.py, which keys on
+# text identity alone while its value also depends on `doc.doc_format` - the
+# known latent bug recorded there and in extant/scope.py. This function reads
+# exactly two configured values and both are in the key, so there is no second
+# input a hit could be wrong about. `reload_config` and the `reconfigure`
+# fixture both build a fresh Config, so a changed `merge_claim` arrives as a
+# different pattern object and simply misses.
+_MERGE_CLAIMS: "tuple[str, Any, str, list[tuple[int, str, str]]] | None" = None
+
+
 def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     """(line, ref, sha) for every merge claim, ref as written.
 
@@ -291,6 +333,18 @@ def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     it reads two configured values and nothing about the repository, and a
     Context here would advertise a git seam and a checkout it never touches.
     """
+    global _MERGE_CLAIMS
+    if (_MERGE_CLAIMS is not None and _MERGE_CLAIMS[0] is prose
+            and _MERGE_CLAIMS[1] is config.merge_claim
+            and _MERGE_CLAIMS[2] == config.trunk):
+        return _MERGE_CLAIMS[3]
+    result = _merge_claims(config, prose)
+    _MERGE_CLAIMS = (prose, config.merge_claim, config.trunk, result)
+    return result
+
+
+def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
+    """The scan itself. Separate only so the cache above stays readable."""
     pattern = config.merge_claim
     named = pattern.groups >= 2
     claims: list[tuple[int, str, str]] = []

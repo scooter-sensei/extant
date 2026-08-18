@@ -14,7 +14,12 @@ interesting part of the inventory rather than an exception list:
   nothing else about the repository - `find_bare_sha_candidates` (commits.py)
   takes only `text`. It is a pure memo that misses the moment a different
   string arrives, so it has no lifetime to state and stayed module-level in
-  extant_collect.py.
+  extant_collect.py. It has since been joined by two siblings in the same
+  module for the same reason - `_SHA_CANDIDATES` and `_MERGE_CLAIMS`, which
+  memoise the other two per-document scans the SHA and merge rules each read
+  three times. Neither is in the inventory below because neither existed at
+  the split; both are listed here so this file stays the census of what is
+  module-level rather than a census of what once was.
 * `_STRIPPED` is keyed the same way, on identity alone, and used to be
   described here as equally pure. It is not: the value it caches also depends
   on `doc.doc_format`, because `_blank_uncached` (extant/text.py) strips

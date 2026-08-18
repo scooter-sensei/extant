@@ -16,6 +16,7 @@ known to be static, and released afterwards.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -628,3 +629,84 @@ def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
         f"a second validate() reused a memo built against an earlier scope "
         f"({len(calls)} scans); a checkout that changed in between would be "
         f"answered from the one before it")
+
+
+def test_the_candidate_scans_run_once_per_document_not_once_per_caller(
+        git_repo, monkeypatch) -> None:
+    """Three callers ask the same question about one document; one scan answers.
+
+    `find_sha_candidates` and `merge_claims` are each read by
+    `extant.rules.sha.check`/`extant.rules.merge.check`, by that rule's
+    `examined`, and by `_document_sha_tokens`, which builds the batched SHA
+    resolution both rules share. Each of the three is right on its own - the
+    rule contract keeps findings and denominator apart so they describe one
+    population, and one batch is what keeps a document at a single `cat-file
+    --batch-check` - and together they scanned every document three times over
+    identical bytes. Measured on a 29-document sweep before the memo: 89 calls
+    each, 0.39s of self time between them.
+
+    Patched on the SCAN rather than on the wrapper, for the reason the pointer
+    sites test above gives: patching the memoised name would count zero either
+    way and prove nothing.
+    """
+    from extant import commits
+    from extant import session as hc
+    repo, commit = git_repo
+    sha = commit("a.py", "a = 1\n", "feat: a")
+
+    sha_scans: list[str] = []
+    claim_scans: list[str] = []
+    real_sha = commits._find_sha_candidates
+    real_claims = commits._merge_claims
+
+    def counted_sha(text):
+        sha_scans.append(text)
+        return real_sha(text)
+
+    def counted_claims(config, prose):
+        claim_scans.append(prose)
+        return real_claims(config, prose)
+
+    monkeypatch.setattr(commits, "_find_sha_candidates", counted_sha)
+    monkeypatch.setattr(commits, "_merge_claims", counted_claims)
+
+    # The SAME string object for both halves, which is what the memo keys on.
+    # An equal-but-distinct string would make this pass for the wrong reason.
+    text = f"Merged to `main` at `{sha}`.\n"
+    hc.validate(repo, text, has_entries=False)
+    hc.count_examined(repo, text)
+    assert len(sha_scans) == 1, (
+        f"the backticked-SHA scan ran {len(sha_scans)} times for one document")
+    assert len(claim_scans) == 1, (
+        f"the merge-claim scan ran {len(claim_scans)} times for one document")
+
+
+def test_a_changed_merge_pattern_is_not_answered_from_the_previous_one(
+        reconfigure) -> None:
+    """The half of the key that `_STRIPPED` is missing.
+
+    `merge_claims` reads two configured values - the pattern and the trunk -
+    as well as the text, and all three are in the key. Keyed on text identity
+    alone it would be `_STRIPPED` (extant/text.py) again: that memo's value
+    also depends on `doc.doc_format` while its key does not, which is a known
+    latent bug recorded there and in extant/scope.py rather than one to copy.
+
+    The same text OBJECT is read twice under two different patterns, which is
+    the arrangement an incomplete key cannot survive: it would hand back the
+    first pattern's claims the second time and a project that reconfigured
+    `merge_claim` would keep being checked against the pattern it replaced.
+    """
+    from extant import commits
+    from extant import session as hc
+
+    text = "Merged to `main` at `abc1234`.\n"
+    first = commits.merge_claims(hc._ACTIVE, text)
+    assert [sha for _n, _ref, sha in first] == ["abc1234"], (
+        "the default pattern did not match the fixture, so the second half "
+        "below would pass against any implementation at all")
+
+    changed = reconfigure(merge_claim=re.compile(
+        r"landed on (`[^`\n]+`) at `([0-9a-f]{7,40})`", re.IGNORECASE))
+    assert commits.merge_claims(changed, text) == [], (
+        "the same text object was answered from the previous pattern's memo, "
+        "so a reconfigured `merge_claim` would never reach the scanner")
