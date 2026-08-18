@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.23.0 (2026-08-18)
+
+**One 6,249-line file became a 32-module package, and nothing else changed.**
+
+`plugin/skills/extant/payload/extant_collect.py` is now 68 lines: a version
+handshake, a config import, an entry-point import, and a `__main__` guard. It
+survives at that path because the shipped git hook invokes it, and so do the
+README and the slash command.
+
+Nothing a user can observe moved. `--verify` output is byte-identical to
+0.22.0, with one deliberate exception: `inconsistent-artifact` now examines
+seven sources rather than five, because the package version and the shim
+version are two new places a version is written and both are now compared
+against the other five. Two unguarded copies of a number that must agree is
+that rule's own subject matter.
+
+**A rule that raises is now named instead of killing the run.** The only
+declared behaviour change. Previously one rule raising took the whole run
+down; now it is reported beside the denominators, the other twelve still
+report, and the exit code is non-zero. Isolation that swallowed would be
+strictly worse than the crash it replaced, because a skipped rule prints
+exactly like a clean document - so the errored rule is named in the output
+rather than a log, the run never exits 0, and the denominator is still shown.
+
+**What the split bought.** A rule is one module owning its check, its probe,
+its denominator and its registry entry, so adding one is a file and an import
+rather than four edits in four places. Fifty-two module-level mutable names
+became three scope objects with stated lifetimes, which deleted a ninety-line
+block inside `validate()` that saved thirteen globals and restored twelve;
+every comment in it recorded a real bug, and those bugs are now
+unrepresentable rather than guarded. Git reaches the rules through one
+injectable seam, which made the first spawn budget possible: `--verify` went
+from fourteen git processes to twelve, and two questions it used to ask twice
+it now asks once.
+
+Wall-clock is flat, not faster. The saved spawns are very nearly cancelled by
+importing thirty-two modules instead of two, so `--verify` moved 928 ms to
+937 ms. The honest summary is that the split cost nothing and bought
+structure.
+
+**Evidence.** The full mutation campaign still kills every one of its 152
+mutations. 649 tests pass. 25 install scenarios and 213 assertions pass
+against a shippable extract. `--selftest` fires the same rules it did before.
+
+One bug shipped and was caught by none of that. `--search` crashed on every
+invocation, because the split separated the raw settings object from the
+derived one and the search path was handed the wrong kind. It survived 641
+tests, a byte-identical output comparison and ten reviews, because no test
+drove the mode at all. The smoke harness found it. `split_entries` now raises
+a `TypeError` naming both types, and three tests drive the mode.
+
 ## 0.22.0 (2026-08-09)
 
 **`exclude_paths`, for documents that are input to a test rather than a
