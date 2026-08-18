@@ -26,6 +26,7 @@ from pathlib import Path
 from extant import session
 from extant.collect import collect
 from extant.commits import load_sha_map, translate_shas
+from extant.config import StatusConfig
 from extant.entries import archive, split_entries
 from extant.finding import Finding, Located, rel
 from extant.refs import renamed_to
@@ -267,6 +268,435 @@ def _survivable_output() -> None:
             pass
 
 
+def run_search(repo: Path, parser: argparse.ArgumentParser,
+               args: argparse.Namespace) -> int:
+    """`--search`: print past entries mentioning TEXT, live and archived.
+
+    `search_entries()` above does the lookup; this is the excerpt/`--full`
+    formatting and the "N match(es) in M entries" denominator around it -
+    the CLI-shaped half that used to live inline in `main()`.
+    """
+    if not args.search.strip():
+        parser.error("--search needs something to look for")
+    results = search_entries(repo, args.search)
+    for relative, header, entry in results:
+        print(f"{relative}: {header}")
+        body = entry.splitlines()[1:]
+        if args.full:
+            for line in body:
+                print(f"    {line}")
+        else:
+            # A few lines of context, because the header alone rarely says
+            # what was decided. --full prints the entry when it does not.
+            excerpt = [ln for ln in body if ln.strip()][:4]
+            for line in excerpt:
+                print(f"    {line.strip()[:96]}")
+        print()
+    # The denominator again: "no matches" and "searched nothing" print the
+    # same blank otherwise, and the second happens whenever a document is
+    # missing or its entry header does not match the configured prefix.
+    searched = sum(1 for relative in (session.PRIMARY_DOC,
+                                      session.ARCHIVE_DOC)
+                   if (repo / relative).is_file())
+    # split_entries needs the DERIVED Config (section_header, phase_prefix),
+    # the same object search_entries() above already built for itself -
+    # not `status`, the raw StatusConfig `main()` reads before dispatching
+    # here. Passing `status` here is the exact mistake that used to crash
+    # this mode.
+    built_config = session.context(repo).config
+    total = 0
+    for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):
+        path = repo / relative
+        if path.is_file():
+            with open(path, encoding="utf-8", newline="") as fh:
+                total += sum(
+                    1 for kind, _ in split_entries(fh.read(),
+                                                   built_config)[1]
+                    if kind == "phase")
+    print(f"{len(results)} match(es) in {total} entries "
+          f"across {searched} document(s)")
+    if total == 0:
+        print("  NOTE: no entries were found to search. Either these "
+              "documents have none, or entry_prefix does not match their "
+              "headers.")
+    return 0
+
+
+def run_selftest(repo: Path, status: StatusConfig) -> int:
+    """`--selftest`: corrupt one real claim per rule and confirm each fires."""
+    target = repo / session.PRIMARY_DOC
+    if not target.is_file():
+        # stderr directly, NOT `diag`: that helper is local to run_validate
+        # now, a different function, so calling it here raises NameError.
+        # Before this split it raised UnboundLocalError instead, because
+        # both lived in one `main()` - and `--selftest` on any repository
+        # without the primary document ended in a traceback instead of this
+        # message. The reason for not using `print` to stdout stands: in
+        # SARIF mode stdout carries nothing but JSON.
+        print(f"no such document: {target}", file=sys.stderr)
+        print(f"  primary_doc is '{status.primary_doc}', from "
+              f"{status.source}", file=sys.stderr)
+        return 1
+    try:
+        with open(target, encoding="utf-8", newline="") as fh:
+            text = fh.read()
+    except UnicodeDecodeError as exc:
+        # A document that is not valid UTF-8 is a situation to report, not
+        # to crash on. Reading it with errors="replace" instead would let
+        # every rule run against silently corrupted text and report findings
+        # about bytes that are not there.
+        print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
+              f"{exc.start}). The status document must be a text file.",
+              file=sys.stderr)
+        return 1
+    session.set_document(link_base=target.parent)
+    lines, fired, unprobeable, errored = session.selftest(repo, text)
+    print(f"selftest: probing {len(session.RULES)} rules against "
+          f"{session.PRIMARY_DOC}\n")
+    for line in lines:
+        print(line)
+    silent = len(session.RULES) - fired - unprobeable - errored
+    print(f"\n  {fired} fired, {unprobeable} had nothing to corrupt, "
+          f"{errored} could not be run, {silent} stayed silent")
+    if silent:
+        print("  A rule that stays silent after a real match is corrupted is "
+              "not working. Check its pattern against this document.")
+    if errored:
+        print("  A rule that could not be run has not been shown to work "
+              "either - see the ERRORED line(s) above for what it raised.")
+    if unprobeable:
+        print("  'No probe' is not a failure by itself, but a rule that "
+              "cannot be exercised is also not known to work.")
+    session.set_document(link_base=None)
+    return 1 if (silent or errored) else 0
+
+
+def run_collect(repo: Path, args: argparse.Namespace,
+                status: StatusConfig) -> int:
+    """`--collect`: assemble the handoff bundle and write it to --out."""
+    bundle = collect(repo, args.suite_json,
+                     session.context(repo).config, status)
+    out = Path(args.out) if args.out else repo / "status_bundle.json"
+    with open(out, "w", encoding="utf-8", newline="") as fh:
+        json.dump(bundle, fh, indent=2)
+    if bundle["nothing_to_hand_off"]:
+        print("nothing to hand off: no commits since the last status")
+    print(out)
+    return 0
+
+
+def run_archive(repo: Path) -> int:
+    """`--archive`: split old entries out of the primary document."""
+    counts = archive(repo, None, session.context(repo).config)
+    print(f"retained={counts['retained']} archived={counts['archived']}")
+    return 0
+
+
+def run_validate(repo: Path, args: argparse.Namespace,
+                 status: StatusConfig) -> int:
+    """`--validate FILE` / `--verify`: check one document's claims and gate.
+
+    Also validates the archive and any `extra_docs`, applies `--sha-map`
+    translation, and handles baselining, `--suggest-fixes`, and every
+    machine output format. Not split further within this function: the
+    `record()` closure below shares locals - `baselined`, `matched`,
+    `used`, `stream` - across the whole pass.
+    """
+    # Human diagnostics go to stderr when stdout must be pure JSON. A SARIF
+    # document with a progress line prepended is not a SARIF document.
+    # stdout carries ONE machine-readable thing at a time. SARIF must be
+    # the only JSON there, and a patch must be the only patch there or
+    # `... | git apply` receives log lines and rejects the lot. Everything
+    # human moves to stderr in both cases.
+    stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)
+              else sys.stdout)
+
+    def diag(*parts: object) -> None:
+        print(*parts, file=stream)
+
+    target = Path(args.validate)
+    if not target.is_file():
+        # A traceback here is a poor answer to a common situation: the
+        # document lives elsewhere in this project, or the config points at
+        # the wrong name. Say which file was expected and where it came from.
+        diag(f"no such document: {target}")
+        diag(f"  primary_doc is '{status.primary_doc}', from "
+             f"{status.source}")
+        diag("  set primary_doc in .extant.toml, or pass --validate <path>")
+        return 1
+    try:
+        with open(target, encoding="utf-8", newline="") as fh:
+            text = fh.read()
+    except UnicodeDecodeError as exc:
+        # A document that is not valid UTF-8 is a situation to report, not
+        # to crash on. Reading it with errors="replace" instead would let
+        # every rule run against silently corrupted text and report findings
+        # about bytes that are not there.
+        print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
+              f"{exc.start}). The status document must be a text file.",
+              file=sys.stderr)
+        return 1
+    # Relative links resolve against the document, not the repo root.
+    session.set_document(link_base=target.parent)
+    mapping = load_sha_map(args.sha_map) if args.sha_map else None
+    if mapping is not None:
+        text, changed = translate_shas(text, mapping)
+        if changed:
+            with open(target, "w", encoding="utf-8", newline="") as fh:
+                fh.write(text)
+            diag(f"translated {changed} stale SHA reference(s) in {target}")
+    located: list[Located] = []
+    # Recording a baseline must see everything, so suppression is off while
+    # writing one. Otherwise a second --write-baseline against an existing
+    # baseline would record only what that baseline had missed, quietly
+    # shrinking it each time it was run.
+    baselined: dict[str, dict[str, str]] = {}
+    # --baseline-check implies reading one, so it does not also need
+    # --baseline. Both fall back to the conventional filename.
+    # Against the REPO, not the process cwd. A hook or a CI step runs
+    # from wherever it likes and passes --repo, and a relative baseline
+    # would then be looked for somewhere else entirely - reported as
+    # missing, or worse, silently a different file.
+    baseline_path = Path(args.baseline or BASELINE_NAME)
+    if not baseline_path.is_absolute():
+        baseline_path = repo / baseline_path
+    if (args.baseline or args.baseline_check) and not args.write_baseline:
+        try:
+            baselined = load_baseline(baseline_path)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+    matched: set[str] = set()
+    # Occurrences already forgiven, per fingerprint, for this run.
+    used: dict[str, int] = {}
+    suppressed = 0
+
+    def record(path: str, items: list[Finding], *, primary: bool) -> int:
+        """Collect for the machine formats; print inline for the human one.
+
+        Text output stays interleaved with its summaries, which is what a
+        reader following along expects and what the existing tests pin. The
+        machine formats are emitted in one block at the end instead.
+
+        Returns the count of findings that were NOT baselined, which is what
+        decides the exit code. A baselined finding is still wrong; it is
+        simply not new.
+        """
+        nonlocal suppressed
+        new = 0
+        for finding in items:
+            item = Located(path, finding, primary)
+            mark = fingerprint(path, finding.kind, finding.detail)
+            if mark in baselined:
+                # Bounded by what was recorded. An entry written before
+                # counts existed has none, and forgives one - the shape it
+                # had when it was written.
+                allowed = baselined[mark].get("count", 1)
+                try:
+                    allowed = int(allowed)
+                except (TypeError, ValueError):
+                    allowed = 1
+                if used.get(mark, 0) < max(allowed, 1):
+                    used[mark] = used.get(mark, 0) + 1
+                    matched.add(mark)
+                    suppressed += 1
+                    continue
+            new += 1
+            located.append(item)
+            if args.format == "text":
+                print(format_text([item])[0], file=stream)
+        return new
+
+    # Which document this is, for rules that key on the FILENAME. Set
+    # before validate rather than passed into it: validate restores the
+    # value it found on entry, so count_examined below still sees the
+    # document the rules just read. Without this, manifest-floor-mismatch
+    # works in --sweep and is silent in --verify, and reports 0 examined
+    # beside 0 findings - the exact conflation the denominator exists to
+    # prevent. Found by running the gate, not by any test.
+    session.set_document(doc_path=rel(repo, target))
+    # ONE run scope across both halves of examining this document. The two
+    # calls below ask the same repository the same questions - the origin
+    # remote, most visibly - and without a scope spanning them the second
+    # re-asked everything the first had already learned. Measured on this
+    # repository's own document: 7 git processes for one --verify, of which
+    # `remote get-url origin` was two.
+    #
+    # Only this pair, not the whole mode. The archive and the extra
+    # documents get their own below, because `--sha-map` REWRITES documents
+    # between them, and a stable scope promises the checkout does not
+    # change while it is held.
+    with session.run_scope():
+        findings = session.validate(repo, text)
+        exit_code = 1 if record(rel(repo, target), findings,
+                                primary=True) else 0
+
+        # The denominator. Without it a clean run and a run that checked
+        # nothing print identically - the failure that recurred five times
+        # in one day. A rule reporting 0 examined is either genuinely
+        # absent from this document or broken, and the reader has to be
+        # able to tell.
+        examined = session.count_examined(repo, text)
+    summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
+    blind = [kind for kind, n in examined.items() if n == 0]
+    diag(f"checked {Path(args.validate).name}: {summary}")
+    # Beside the denominators, because that is where a reader looks to
+    # decide whether a quiet rule was quiet or broken.
+    errors_reported = session.report_rule_errors(diag)
+    if blind:
+        diag("  NOTE: these rules matched nothing at all - either this "
+             "document makes no such claims, or the pattern is wrong: "
+             + ", ".join(blind))
+
+    # --verify/--validate used to read only their target file, so content
+    # moved into the archive by --archive escaped validation forever: a
+    # dead reference or a stale live-claim could sit there unreported
+    # indefinitely. Validate it too, whenever it exists.
+    archive_path = repo / session.ARCHIVE_DOC
+    if archive_path.exists():
+        with open(archive_path, encoding="utf-8", newline="") as fh:
+            archive_text = fh.read()
+        if mapping is not None:
+            archive_text, archive_changed = translate_shas(archive_text, mapping)
+            if archive_changed:
+                with open(archive_path, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(archive_text)
+                diag(f"translated {archive_changed} stale SHA "
+                     f"reference(s) in {session.ARCHIVE_DOC}")
+        session.set_document(doc_path=session.ARCHIVE_DOC)
+        archive_findings = session.validate(repo, archive_text,
+                                            in_archive=True)
+        if record(session.ARCHIVE_DOC, archive_findings, primary=False):
+            exit_code = 1
+
+    # Extra documents: CLAUDE.md, AGENTS.md, a README. They carry the same
+    # kinds of checkable claim and rot the same way, but have no dated
+    # entries, so the entry-scoped rules are skipped exactly as they are for
+    # the archive. A project whose status lives in a tracker rather than a
+    # document still gets these checked, which is most of the reason the
+    # setting exists.
+    for relative in status.extra_docs:
+        extra = repo / relative
+        if not extra.is_file():
+            # A configured document that is absent is itself a finding, not
+            # a log line: a machine consumer has to see it too, or a broken
+            # extra_docs entry disappears from every format but the human
+            # one. Line 1, because there is no file to point into.
+            if record(relative, [Finding(
+                1, "missing-document",
+                "listed in extra_docs but does not exist",
+            )], primary=False):
+                exit_code = 1
+            continue
+        with open(extra, encoding="utf-8", newline="") as fh:
+            extra_text = fh.read()
+        session.set_document(link_base=extra.parent, doc_path=relative)
+        # One scope per document, for the reason given at the primary
+        # document above: findings and denominator are two halves of one
+        # examination and must not re-ask git the same questions.
+        with session.run_scope():
+            extra_findings = session.validate(repo, extra_text,
+                                              has_entries=False)
+            new_extra = record(relative, extra_findings, primary=False)
+            examined_extra = session.count_examined(repo, extra_text)
+        # Repository-scoped rules do not run for an extra document, so
+        # reporting their candidate count here claims coverage that was
+        # not provided. A denominator that overstates is worse than none:
+        # it is the reassuring number, not the honest one.
+        skipped = {rule.kind for rule in session.RULES
+                   if rule.scope == "repository"}
+        # Zero counts are REPORTED, not filtered. "examined 0" and "not
+        # applicable here" are different facts, and dropping the zeros
+        # made an extra document look fully covered while a rule sat
+        # blind - the exact conflation the primary summary avoids.
+        checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
+                            if kind not in skipped)
+        diag(f"checked {relative}: {checked or 'nothing applicable'}")
+        errors_reported = session.report_rule_errors(diag, errors_reported)
+        if new_extra:
+            exit_code = 1
+    session.set_document(link_base=None)
+
+    if args.suggest_fixes:
+        # Written to stdout as a patch and never applied. In sarif mode the
+        # document must stay pure JSON, so the patch goes to stderr instead
+        # of corrupting it.
+        patch = suggest_renames(repo, target.parent, text,
+                                rel(repo, target))
+        if patch:
+            # Written as BYTES, because print() rewrites newlines on
+            # Windows. A patch for a document that uses LF then arrives
+            # with CRLF, git apply rejects the mixed endings, and a patch
+            # that cannot be applied is not a feature.
+            sys.stdout.buffer.write(patch.encode("utf-8"))
+            sys.stdout.buffer.flush()
+        else:
+            diag("no rename suggestions: nothing references a file git "
+                 "recorded as moved")
+
+    # Machine formats are emitted in one block, after every document has
+    # been read, because SARIF is a single JSON value and annotations are
+    # easier to read grouped than interleaved with progress lines.
+    if args.format != "text":
+        # `examined` is the primary document's denominator, the same figure
+        # the `checked ...` diagnostic prints. A machine consumer of the
+        # SARIF could not see it at all before.
+        for line in render_findings(located, args.format, repo,
+                                    examined=examined)[0]:
+            print(line)
+
+    if args.write_baseline:
+        # Explicit, never implicit. A baseline that rewrote itself on every
+        # verify would ratchet the wrong way: each run would forgive
+        # whatever it had just found, and the check would decay to nothing
+        # while continuing to report success.
+        path = Path(args.write_baseline)
+        # Against the REPO, not the process cwd, for the same reason the
+        # READ path resolves that way: a git hook passes --repo and runs
+        # from wherever the commit was made, so a relative path here
+        # wrote a baseline that the next --baseline could not find.
+        if not path.is_absolute():
+            path = repo / path
+        written = write_baseline(path, located)
+        diag(f"recorded {written} finding(s) in {rel(repo, path)}")
+        diag("Each is still wrong. They are excluded from future runs so "
+             "that NEW ones are visible; prune them with --baseline-check.")
+        return 0
+
+    if baselined:
+        # Stated on every run, in both directions. "no findings" and "no new
+        # findings, 40 suppressed" are different facts, and a baseline that
+        # hides its own size is the denominator failure this project exists
+        # to surface, reintroduced by one of its own features.
+        diag(f"{len(located)} new finding(s), {suppressed} suppressed by "
+             f"{rel(repo, baseline_path)}")
+
+    # Anything the archive pass raised, which happens between the two
+    # blocks above and belongs to no `checked ...` line of its own.
+    errors_reported = session.report_rule_errors(diag, errors_reported)
+    if RULE_ERRORS:
+        # An errored run NEVER exits 0. A partial answer that reports
+        # success is the failure this whole project exists to prevent, and
+        # it is the one thing that would make per-rule isolation worse than
+        # letting the traceback out.
+        exit_code = 1
+
+    if args.baseline_check:
+        stale = [entry for fingerprint, entry in sorted(baselined.items())
+                 if fingerprint not in matched]
+        diag(f"\nbaseline: {len(baselined)} entr(y/ies), {len(matched)} still "
+             f"occur, {len(stale)} do not")
+        for entry in stale:
+            diag(f"  STALE  {entry['path']}: [{entry['kind']}] {entry['detail']}")
+        if stale:
+            diag("\nThese no longer happen: the claim was fixed, or deleted. "
+                 "Remove them, or the baseline keeps forgiving something that "
+                 "is not there.")
+            exit_code = 1
+
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     _survivable_output()
     # One RUN, one list. Cleared here rather than by `validate()`, which is
@@ -315,109 +745,13 @@ def main(argv: list[str] | None = None) -> int:
               f"into that repository as tools/ for its own settings to apply.",
               file=sys.stderr)
     if args.search is not None:
-        if not args.search.strip():
-            parser.error("--search needs something to look for")
-        results = search_entries(repo, args.search)
-        for relative, header, entry in results:
-            print(f"{relative}: {header}")
-            body = entry.splitlines()[1:]
-            if args.full:
-                for line in body:
-                    print(f"    {line}")
-            else:
-                # A few lines of context, because the header alone rarely says
-                # what was decided. --full prints the entry when it does not.
-                excerpt = [ln for ln in body if ln.strip()][:4]
-                for line in excerpt:
-                    print(f"    {line.strip()[:96]}")
-            print()
-        # The denominator again: "no matches" and "searched nothing" print the
-        # same blank otherwise, and the second happens whenever a document is
-        # missing or its entry header does not match the configured prefix.
-        searched = sum(1 for relative in (session.PRIMARY_DOC,
-                                          session.ARCHIVE_DOC)
-                       if (repo / relative).is_file())
-        # split_entries needs the DERIVED Config (section_header, phase_prefix),
-        # the same object search_entries() above already built for itself -
-        # not `status`, which is the raw StatusConfig read further up. Passing
-        # `status` here is the exact mistake that used to crash this mode.
-        built_config = session.context(repo).config
-        total = 0
-        for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):
-            path = repo / relative
-            if path.is_file():
-                with open(path, encoding="utf-8", newline="") as fh:
-                    total += sum(
-                        1 for kind, _ in split_entries(fh.read(),
-                                                       built_config)[1]
-                        if kind == "phase")
-        print(f"{len(results)} match(es) in {total} entries "
-              f"across {searched} document(s)")
-        if total == 0:
-            print("  NOTE: no entries were found to search. Either these "
-                  "documents have none, or entry_prefix does not match their "
-                  "headers.")
-        return 0
-
+        return run_search(repo, parser, args)
     if args.selftest:
-        target = repo / session.PRIMARY_DOC
-        if not target.is_file():
-            # stderr directly, NOT `diag`: that helper is defined further
-            # down this same function, so calling it here raised
-            # UnboundLocalError and `--selftest` on any repository without
-            # the primary document ended in a traceback instead of this
-            # message. The reason for not using `print` to stdout stands:
-            # in SARIF mode stdout carries nothing but JSON.
-            print(f"no such document: {target}", file=sys.stderr)
-            print(f"  primary_doc is '{status.primary_doc}', from "
-                  f"{status.source}", file=sys.stderr)
-            return 1
-        try:
-            with open(target, encoding="utf-8", newline="") as fh:
-                text = fh.read()
-        except UnicodeDecodeError as exc:
-            # A document that is not valid UTF-8 is a situation to report, not
-            # to crash on. Reading it with errors="replace" instead would let
-            # every rule run against silently corrupted text and report findings
-            # about bytes that are not there.
-            print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
-                  f"{exc.start}). The status document must be a text file.",
-                  file=sys.stderr)
-            return 1
-        session.set_document(link_base=target.parent)
-        lines, fired, unprobeable, errored = session.selftest(repo, text)
-        print(f"selftest: probing {len(session.RULES)} rules against "
-              f"{session.PRIMARY_DOC}\n")
-        for line in lines:
-            print(line)
-        silent = len(session.RULES) - fired - unprobeable - errored
-        print(f"\n  {fired} fired, {unprobeable} had nothing to corrupt, "
-              f"{errored} could not be run, {silent} stayed silent")
-        if silent:
-            print("  A rule that stays silent after a real match is corrupted is "
-                  "not working. Check its pattern against this document.")
-        if errored:
-            print("  A rule that could not be run has not been shown to work "
-                  "either - see the ERRORED line(s) above for what it raised.")
-        if unprobeable:
-            print("  'No probe' is not a failure by itself, but a rule that "
-                  "cannot be exercised is also not known to work.")
-        session.set_document(link_base=None)
-        return 1 if (silent or errored) else 0
+        return run_selftest(repo, status)
     if args.collect:
-        bundle = collect(repo, args.suite_json,
-                         session.context(repo).config, status)
-        out = Path(args.out) if args.out else repo / "status_bundle.json"
-        with open(out, "w", encoding="utf-8", newline="") as fh:
-            json.dump(bundle, fh, indent=2)
-        if bundle["nothing_to_hand_off"]:
-            print("nothing to hand off: no commits since the last status")
-        print(out)
-        return 0
+        return run_collect(repo, args, status)
     if args.archive:
-        counts = archive(repo, None, session.context(repo).config)
-        print(f"retained={counts['retained']} archived={counts['archived']}")
-        return 0
+        return run_archive(repo)
     if args.deleted_since:
         return run_deleted_since(repo, args.deleted_since, args.format)
     if args.sweep:
@@ -448,299 +782,7 @@ def main(argv: list[str] | None = None) -> int:
         # nonsensical invocation.
         parser.error("--validate requires a non-empty FILE path")
     if args.validate:
-        # Human diagnostics go to stderr when stdout must be pure JSON. A SARIF
-        # document with a progress line prepended is not a SARIF document.
-        # stdout carries ONE machine-readable thing at a time. SARIF must be
-        # the only JSON there, and a patch must be the only patch there or
-        # `... | git apply` receives log lines and rejects the lot. Everything
-        # human moves to stderr in both cases.
-        stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)
-                  else sys.stdout)
-
-        def diag(*parts: object) -> None:
-            print(*parts, file=stream)
-
-        target = Path(args.validate)
-        if not target.is_file():
-            # A traceback here is a poor answer to a common situation: the
-            # document lives elsewhere in this project, or the config points at
-            # the wrong name. Say which file was expected and where it came from.
-            diag(f"no such document: {target}")
-            diag(f"  primary_doc is '{status.primary_doc}', from "
-                 f"{status.source}")
-            diag("  set primary_doc in .extant.toml, or pass --validate <path>")
-            return 1
-        try:
-            with open(target, encoding="utf-8", newline="") as fh:
-                text = fh.read()
-        except UnicodeDecodeError as exc:
-            # A document that is not valid UTF-8 is a situation to report, not
-            # to crash on. Reading it with errors="replace" instead would let
-            # every rule run against silently corrupted text and report findings
-            # about bytes that are not there.
-            print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
-                  f"{exc.start}). The status document must be a text file.",
-                  file=sys.stderr)
-            return 1
-        # Relative links resolve against the document, not the repo root.
-        session.set_document(link_base=target.parent)
-        mapping = load_sha_map(args.sha_map) if args.sha_map else None
-        if mapping is not None:
-            text, changed = translate_shas(text, mapping)
-            if changed:
-                with open(target, "w", encoding="utf-8", newline="") as fh:
-                    fh.write(text)
-                diag(f"translated {changed} stale SHA reference(s) in {target}")
-        located: list[Located] = []
-        # Recording a baseline must see everything, so suppression is off while
-        # writing one. Otherwise a second --write-baseline against an existing
-        # baseline would record only what that baseline had missed, quietly
-        # shrinking it each time it was run.
-        baselined: dict[str, dict[str, str]] = {}
-        # --baseline-check implies reading one, so it does not also need
-        # --baseline. Both fall back to the conventional filename.
-        # Against the REPO, not the process cwd. A hook or a CI step runs
-        # from wherever it likes and passes --repo, and a relative baseline
-        # would then be looked for somewhere else entirely - reported as
-        # missing, or worse, silently a different file.
-        baseline_path = Path(args.baseline or BASELINE_NAME)
-        if not baseline_path.is_absolute():
-            baseline_path = repo / baseline_path
-        if (args.baseline or args.baseline_check) and not args.write_baseline:
-            try:
-                baselined = load_baseline(baseline_path)
-            except ValueError as exc:
-                print(exc, file=sys.stderr)
-                return 2
-        matched: set[str] = set()
-        # Occurrences already forgiven, per fingerprint, for this run.
-        used: dict[str, int] = {}
-        suppressed = 0
-
-        def record(path: str, items: list[Finding], *, primary: bool) -> int:
-            """Collect for the machine formats; print inline for the human one.
-
-            Text output stays interleaved with its summaries, which is what a
-            reader following along expects and what the existing tests pin. The
-            machine formats are emitted in one block at the end instead.
-
-            Returns the count of findings that were NOT baselined, which is what
-            decides the exit code. A baselined finding is still wrong; it is
-            simply not new.
-            """
-            nonlocal suppressed
-            new = 0
-            for finding in items:
-                item = Located(path, finding, primary)
-                mark = fingerprint(path, finding.kind, finding.detail)
-                if mark in baselined:
-                    # Bounded by what was recorded. An entry written before
-                    # counts existed has none, and forgives one - the shape it
-                    # had when it was written.
-                    allowed = baselined[mark].get("count", 1)
-                    try:
-                        allowed = int(allowed)
-                    except (TypeError, ValueError):
-                        allowed = 1
-                    if used.get(mark, 0) < max(allowed, 1):
-                        used[mark] = used.get(mark, 0) + 1
-                        matched.add(mark)
-                        suppressed += 1
-                        continue
-                new += 1
-                located.append(item)
-                if args.format == "text":
-                    print(format_text([item])[0], file=stream)
-            return new
-
-        # Which document this is, for rules that key on the FILENAME. Set
-        # before validate rather than passed into it: validate restores the
-        # value it found on entry, so count_examined below still sees the
-        # document the rules just read. Without this, manifest-floor-mismatch
-        # works in --sweep and is silent in --verify, and reports 0 examined
-        # beside 0 findings - the exact conflation the denominator exists to
-        # prevent. Found by running the gate, not by any test.
-        session.set_document(doc_path=rel(repo, target))
-        # ONE run scope across both halves of examining this document. The two
-        # calls below ask the same repository the same questions - the origin
-        # remote, most visibly - and without a scope spanning them the second
-        # re-asked everything the first had already learned. Measured on this
-        # repository's own document: 7 git processes for one --verify, of which
-        # `remote get-url origin` was two.
-        #
-        # Only this pair, not the whole mode. The archive and the extra
-        # documents get their own below, because `--sha-map` REWRITES documents
-        # between them, and a stable scope promises the checkout does not
-        # change while it is held.
-        with session.run_scope():
-            findings = session.validate(repo, text)
-            exit_code = 1 if record(rel(repo, target), findings,
-                                    primary=True) else 0
-
-            # The denominator. Without it a clean run and a run that checked
-            # nothing print identically - the failure that recurred five times
-            # in one day. A rule reporting 0 examined is either genuinely
-            # absent from this document or broken, and the reader has to be
-            # able to tell.
-            examined = session.count_examined(repo, text)
-        summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
-        blind = [kind for kind, n in examined.items() if n == 0]
-        diag(f"checked {Path(args.validate).name}: {summary}")
-        # Beside the denominators, because that is where a reader looks to
-        # decide whether a quiet rule was quiet or broken.
-        errors_reported = session.report_rule_errors(diag)
-        if blind:
-            diag("  NOTE: these rules matched nothing at all - either this "
-                 "document makes no such claims, or the pattern is wrong: "
-                 + ", ".join(blind))
-
-        # --verify/--validate used to read only their target file, so content
-        # moved into the archive by --archive escaped validation forever: a
-        # dead reference or a stale live-claim could sit there unreported
-        # indefinitely. Validate it too, whenever it exists.
-        archive_path = repo / session.ARCHIVE_DOC
-        if archive_path.exists():
-            with open(archive_path, encoding="utf-8", newline="") as fh:
-                archive_text = fh.read()
-            if mapping is not None:
-                archive_text, archive_changed = translate_shas(archive_text, mapping)
-                if archive_changed:
-                    with open(archive_path, "w", encoding="utf-8", newline="") as fh:
-                        fh.write(archive_text)
-                    diag(f"translated {archive_changed} stale SHA "
-                         f"reference(s) in {session.ARCHIVE_DOC}")
-            session.set_document(doc_path=session.ARCHIVE_DOC)
-            archive_findings = session.validate(repo, archive_text,
-                                                in_archive=True)
-            if record(session.ARCHIVE_DOC, archive_findings, primary=False):
-                exit_code = 1
-
-        # Extra documents: CLAUDE.md, AGENTS.md, a README. They carry the same
-        # kinds of checkable claim and rot the same way, but have no dated
-        # entries, so the entry-scoped rules are skipped exactly as they are for
-        # the archive. A project whose status lives in a tracker rather than a
-        # document still gets these checked, which is most of the reason the
-        # setting exists.
-        for relative in status.extra_docs:
-            extra = repo / relative
-            if not extra.is_file():
-                # A configured document that is absent is itself a finding, not
-                # a log line: a machine consumer has to see it too, or a broken
-                # extra_docs entry disappears from every format but the human
-                # one. Line 1, because there is no file to point into.
-                if record(relative, [Finding(
-                    1, "missing-document",
-                    "listed in extra_docs but does not exist",
-                )], primary=False):
-                    exit_code = 1
-                continue
-            with open(extra, encoding="utf-8", newline="") as fh:
-                extra_text = fh.read()
-            session.set_document(link_base=extra.parent, doc_path=relative)
-            # One scope per document, for the reason given at the primary
-            # document above: findings and denominator are two halves of one
-            # examination and must not re-ask git the same questions.
-            with session.run_scope():
-                extra_findings = session.validate(repo, extra_text,
-                                                  has_entries=False)
-                new_extra = record(relative, extra_findings, primary=False)
-                examined_extra = session.count_examined(repo, extra_text)
-            # Repository-scoped rules do not run for an extra document, so
-            # reporting their candidate count here claims coverage that was
-            # not provided. A denominator that overstates is worse than none:
-            # it is the reassuring number, not the honest one.
-            skipped = {rule.kind for rule in session.RULES
-                       if rule.scope == "repository"}
-            # Zero counts are REPORTED, not filtered. "examined 0" and "not
-            # applicable here" are different facts, and dropping the zeros
-            # made an extra document look fully covered while a rule sat
-            # blind - the exact conflation the primary summary avoids.
-            checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
-                                if kind not in skipped)
-            diag(f"checked {relative}: {checked or 'nothing applicable'}")
-            errors_reported = session.report_rule_errors(diag, errors_reported)
-            if new_extra:
-                exit_code = 1
-        session.set_document(link_base=None)
-
-        if args.suggest_fixes:
-            # Written to stdout as a patch and never applied. In sarif mode the
-            # document must stay pure JSON, so the patch goes to stderr instead
-            # of corrupting it.
-            patch = suggest_renames(repo, target.parent, text,
-                                    rel(repo, target))
-            if patch:
-                # Written as BYTES, because print() rewrites newlines on
-                # Windows. A patch for a document that uses LF then arrives
-                # with CRLF, git apply rejects the mixed endings, and a patch
-                # that cannot be applied is not a feature.
-                sys.stdout.buffer.write(patch.encode("utf-8"))
-                sys.stdout.buffer.flush()
-            else:
-                diag("no rename suggestions: nothing references a file git "
-                     "recorded as moved")
-
-        # Machine formats are emitted in one block, after every document has
-        # been read, because SARIF is a single JSON value and annotations are
-        # easier to read grouped than interleaved with progress lines.
-        if args.format != "text":
-            # `examined` is the primary document's denominator, the same figure
-            # the `checked ...` diagnostic prints. A machine consumer of the
-            # SARIF could not see it at all before.
-            for line in render_findings(located, args.format, repo,
-                                        examined=examined)[0]:
-                print(line)
-
-        if args.write_baseline:
-            # Explicit, never implicit. A baseline that rewrote itself on every
-            # verify would ratchet the wrong way: each run would forgive
-            # whatever it had just found, and the check would decay to nothing
-            # while continuing to report success.
-            path = Path(args.write_baseline)
-            # Against the REPO, not the process cwd, for the same reason the
-            # READ path resolves that way: a git hook passes --repo and runs
-            # from wherever the commit was made, so a relative path here
-            # wrote a baseline that the next --baseline could not find.
-            if not path.is_absolute():
-                path = repo / path
-            written = write_baseline(path, located)
-            diag(f"recorded {written} finding(s) in {rel(repo, path)}")
-            diag("Each is still wrong. They are excluded from future runs so "
-                 "that NEW ones are visible; prune them with --baseline-check.")
-            return 0
-
-        if baselined:
-            # Stated on every run, in both directions. "no findings" and "no new
-            # findings, 40 suppressed" are different facts, and a baseline that
-            # hides its own size is the denominator failure this project exists
-            # to surface, reintroduced by one of its own features.
-            diag(f"{len(located)} new finding(s), {suppressed} suppressed by "
-                 f"{rel(repo, baseline_path)}")
-
-        # Anything the archive pass raised, which happens between the two
-        # blocks above and belongs to no `checked ...` line of its own.
-        errors_reported = session.report_rule_errors(diag, errors_reported)
-        if RULE_ERRORS:
-            # An errored run NEVER exits 0. A partial answer that reports
-            # success is the failure this whole project exists to prevent, and
-            # it is the one thing that would make per-rule isolation worse than
-            # letting the traceback out.
-            exit_code = 1
-
-        if args.baseline_check:
-            stale = [entry for fingerprint, entry in sorted(baselined.items())
-                     if fingerprint not in matched]
-            diag(f"\nbaseline: {len(baselined)} entr(y/ies), {len(matched)} still "
-                 f"occur, {len(stale)} do not")
-            for entry in stale:
-                diag(f"  STALE  {entry['path']}: [{entry['kind']}] {entry['detail']}")
-            if stale:
-                diag("\nThese no longer happen: the claim was fixed, or deleted. "
-                     "Remove them, or the baseline keeps forgiving something that "
-                     "is not there.")
-                exit_code = 1
-
-        return exit_code
+        return run_validate(repo, args, status)
     # M-a: unreachable. The mutually-exclusive group is required, and every
     # member (collect, archive, verify, validate-non-empty) returns above;
     # validate-empty-string calls parser.error above, which exits. No state
