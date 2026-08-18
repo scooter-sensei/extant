@@ -49,7 +49,7 @@ sys.path.insert(0, str(PAYLOAD))
 # this fixture adds one, which is the sixth spawn. Both numbers come from the
 # same place - one validate() plus one count_examined(), counted at the
 # subprocess boundary - and the before/after on the real document was 7 to 5.
-# Against the code as it stood at 4131e6d this fixture spawns 8, so both
+# Against the code as it stood at cad97bb this fixture spawns 8, so both
 # assertions below have been watched failing on real code rather than only on
 # a mutation.
 MEASURED = 6

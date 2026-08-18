@@ -120,7 +120,7 @@ def test_the_explanation_survived_the_move() -> None:
     # The second term is NOT slack. Task 5 moved `extant_config.py` into the
     # package as `extant/config.py`, and the population this walks is the
     # package plus the shim - so a file carrying 274 lines of explanation
-    # (measured at c0a3e90, its last commit outside the package) joined the
+    # (measured at 35375f5, its last commit outside the package) joined the
     # count without a single line being written. Left at 2784 the floor would
     # have gained 274 lines of margin overnight, which is a guard quietly
     # losing its grip rather than a codebase quietly improving. Raising it by

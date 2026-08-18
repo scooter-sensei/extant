@@ -9,10 +9,10 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 22 - The limit 0.21.0 could only name is now configurable (shipped, 2026-08-09)
 
 **Status.** Suite is 606 tests, all passing. Thirteen rules, eighteen presets,
-and one new setting. This work is version 0.22.0, tagged at `42cac40`.
+and one new setting. This work is version 0.22.0, tagged at `6a27497`.
 Thirty-one tags from `v0.5.0`, each carrying a GitHub release. Two changes to
 shipped content sit above the tag and are unreleased: a drifted number the gap
-audit found (`e44a511`), and the campaign's own repair (`cbfc6bd`). Everything
+audit found (`9931855b`), and the campaign's own repair (`500c6a6`). Everything
 else above the tag is this file.
 
 **What shipped.** `exclude_paths`, for documents that are input to a test
@@ -74,7 +74,7 @@ as a limit with no way to act on it.
   which made the NEXT run report a bogus "matched 0x". The copy is what kept
   that away from the working tree, and it is the reason the rule says copy.
 
-**Verification.** 606 tests. CI green at `42cac40` before the tag existed, 13
+**Verification.** 606 tests. CI green at `6a27497` before the tag existed, 13
 jobs across ten OS and Python combinations. `--verify` and `--selftest` both
 exit 0.
 
@@ -116,7 +116,7 @@ holds, but it was confirmed afterwards rather than at the time.
 
 **Status.** Suite is 589 tests, all passing. Thirteen rules, eighteen presets,
 unchanged - every fix narrows a rule that already existed. This work is
-version 0.21.0, tagged at `9cd0f74`. Thirty tags from `v0.5.0`, each carrying
+version 0.21.0, tagged at `7e844a3`. Thirty tags from `v0.5.0`, each carrying
 a GitHub release.
 
 **Why this was done.** Every rule here was designed against 92 repositories
@@ -190,7 +190,7 @@ the fixes left behind produced four more. Same corpus, one build apart:
 
 **Verification.** 589 tests. Mutation anchors 145 of 145. The nine touched
 here were run rather than only checked, and the two slug mutations were run
-again after the masking fix. CI green at `6f68e1f` and again at `9cd0f74`
+again after the masking fix. CI green at `fbfea0f` and again at `7e844a3`
 before the tag existed, all 13 jobs across ten OS and Python combinations.
 `--verify` and `--selftest` both exit 0.
 
