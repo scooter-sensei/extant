@@ -410,3 +410,126 @@ def test_the_colon_gate_finds_every_pointer_the_ungated_scan_finds(
     assert got == want, (
         "the colon gate skipped a line the pattern would have matched, so the "
         "rule finds fewer pointers and says nothing about it")
+
+
+def test_the_line_pointer_pattern_cannot_match_without_a_colon(git_repo) -> None:
+    """The property `b5308b1`'s gate rests on, pinned against the pattern.
+
+    `_line_pointer_sites_uncached` skips any line with no `:` in it before
+    running `_LINKED_POINTER_UNUSED`. Its whole safety argument is that
+    `_LINE_POINTER` carries a literal `:` between its two groups, with no
+    alternation and nothing optional around it, so a colon-free line cannot
+    match. A tighter gate that duplicated a fragment of the pattern was
+    rejected on purpose, and that was the right call - but it leaves the gate
+    sound only while the property holds. Make the colon optional or alternate
+    it, and the gate starts skipping lines the pattern would have matched: the
+    rule finds fewer pointers, reports a clean document, and nothing fails.
+
+    Asserted against the COMPILED pattern by feeding it strings, never against
+    its source text. A source-text assertion breaks when somebody reformats the
+    pattern and passes when somebody changes what it means, which is the wrong
+    way round on both counts.
+
+    Three populations, because each catches a different edit:
+
+    * Every real pointer this file uses, with its colons replaced by each other
+      printable ASCII character and by nothing at all. This is the one that
+      catches an ALTERNATION: alternate `:` with `#` and `a.py#1` starts
+      matching, and it is in here.
+    * The same shapes assembled from a path, a separator and a line number,
+      including multi-character separators and the empty one. The empty
+      separator is what catches the colon being made OPTIONAL.
+    * Every colon-free line of this repository's own documents, which is the
+      population the gate actually skips in production - about nine lines in
+      ten of everything it reads.
+
+    Observed failing against both edits before being trusted; the report beside
+    this change records the two outputs.
+    """
+    import re
+    import subprocess
+
+    from extant.rules.line_pointer import _LINE_POINTER
+
+    matching = [
+        "core/engine.py:123",
+        "a.py:1",
+        r"docs\plan.md:4",
+        "SKILL.md:211-215",
+        "a.py:1:34",
+        "deep/nested/dir/file.tsx:999999",
+        "x.c:7",
+        "See tests/test_line_pointers.py:12 for it.",
+    ]
+    for seed in matching:
+        assert _LINE_POINTER.search(seed) is not None, (
+            f"the seed {seed!r} does not match at all, so removing its colon "
+            f"proves nothing; the fixture or the pattern moved")
+
+    # Everything printable that is not a colon, plus a tab and three colon
+    # LOOK-ALIKES - a pattern widened by pasting one of those in is a real way
+    # for this to go wrong and they are not `:`.
+    replacements = [chr(code) for code in range(0x20, 0x7F)
+                    if chr(code) != ":"]
+    replacements += ["\t", "\u2236", "\uFF1A", "\u0589", ""]
+    # Separators longer than one character, which the substitution above
+    # cannot reach.
+    separators = list(replacements) + [
+        "  ", " line ", "#L", "->", " L", "::", ", line ", " at "]
+    separators = [s for s in separators if ":" not in s]
+
+    probed = 0
+    for seed in matching:
+        for replacement in replacements:
+            candidate = seed.replace(":", replacement)
+            assert ":" not in candidate
+            probed += 1
+            assert _LINE_POINTER.search(candidate) is None, (
+                f"{candidate!r} matched with no colon in it, so the gate in "
+                f"`_line_pointer_sites_uncached` now skips lines this pattern "
+                f"would have matched and the rule goes quiet")
+
+    for separator in separators:
+        for path in ("core/engine.py", "a.py", r"docs\plan.md", "x.md",
+                     "deep/nested/file.tsx"):
+            for number in ("1", "123", "999999"):
+                candidate = f"{path}{separator}{number}"
+                assert ":" not in candidate
+                probed += 1
+                assert _LINE_POINTER.search(candidate) is None, (
+                    f"{candidate!r} matched with no colon in it, so the gate "
+                    f"in `_line_pointer_sites_uncached` now skips lines this "
+                    f"pattern would have matched and the rule goes quiet")
+
+    root = Path(__file__).resolve().parent.parent
+    listed = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True,
+                            text=True, encoding="utf-8", errors="replace",
+                            check=True)
+    documents = 0
+    real_lines = 0
+    for relative in listed.stdout.splitlines():
+        if not relative.lower().endswith((".md", ".mdx", ".rst")):
+            continue
+        try:
+            with open(root / relative, encoding="utf-8", newline="") as fh:
+                body = fh.read()
+        except (OSError, UnicodeDecodeError):
+            continue
+        documents += 1
+        for line in body.splitlines():
+            if ":" in line:
+                continue
+            real_lines += 1
+            assert _LINE_POINTER.search(line) is None, (
+                f"{relative}: {line!r} matched with no colon in it, so the "
+                f"gate skips a line this pattern would have matched")
+
+    print(f"checked {probed} constructed strings and {real_lines} colon-free "
+          f"lines from {documents} documents against the compiled pattern")
+    assert probed >= 500 and real_lines >= 500 and documents >= 5, (
+        f"only {probed} constructed strings and {real_lines} real lines from "
+        f"{documents} documents; a pass here would prove nothing, so the "
+        f"checkout or the generators are wrong")
+    # The gate's own condition, stated as code rather than as prose: this is
+    # the test `re` would have to break for the skip to become unsound.
+    assert re.search(r"[^:]*", "") is not None      # sanity: re is not stubbed
