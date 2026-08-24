@@ -109,6 +109,14 @@ pattern removed and names any that matched nothing, because a skip-list fails
 silently in both directions. Excluding a document that `primary_doc` or
 `extra_docs` names is refused rather than resolved.
 
+**Reading a large sweep.** Above 100 documents the survey runs across up to
+eight worker processes and prints `surveyed across N worker process(es)`. If
+the pool cannot start it finishes in one process and says so on a `NOTE:` line;
+it never falls back silently, so an absent note means the stated path is the
+one that ran. A document dispatched to the survey that returns no result is
+named rather than skipped AND fails the run, because a file the survey lost is
+not a file with no findings. Both paths produce identical output.
+
 Never add an exclusion on a user's behalf to make a run quieter. It is the one
 setting that can make a repository look clean by not looking at it.
 

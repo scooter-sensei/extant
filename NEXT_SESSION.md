@@ -6,6 +6,135 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 24 - The survey learned to use every core, and an outside branch was mostly refused (unreleased, 2026-08-24)
+
+**Status.** Suite is 672 tests, all passing. Thirteen rules, thirty-two
+modules, and no new setting. The last release is 0.23.0 at `f6aafc34`;
+everything in this entry sits above that tag and is unreleased.
+
+**What changed.** A large `--sweep` spreads across up to eight worker
+processes above 100 documents. On a 200-document corpus across twelve cores,
+best of three: 7327 ms in one process, 2919 ms across eight. Measured against
+0.23.0 on the same corpus, which took 8626 ms, the whole stretch is about 2.9x.
+
+Beside it, a set of scans that cost nothing to narrow: the per-document
+candidate scans run once rather than three times, the bare-SHA scan skips a
+line with no hex run and the line-pointer scan skips a line with no colon, and
+`anchors()` walks each heading once rather than four times. Three answers about
+the checkout - tracked files, site directories, reference resolution - are now
+held for the length of a survey.
+
+Two rules stopped reporting things that are not wrong: a floor of `3.14`
+against a manifest saying `3.14.0` was one floor written two ways, and a link
+carrying `?plain=1` was a file plainly present resolving to nothing. A shallow
+clone now prints a caveat beside the denominators, because `dead-sha` in a
+depth-limited clone answers about the slice that was cloned.
+
+**Where most of this came from, and why most of it was refused.** An outside
+branch of 31 changed files arrived claiming 3.8x, 100% precision and a green
+suite. Seven changes were kept and eleven discarded. The four that mattered:
+
+- **A disk cache keyed on the document plus `HEAD^{tree}`.** Almost every rule
+  reads state in neither. Deleting a file a document pointed at left the false
+  claim unreported, with the documented `--no-cache` opt-out engaged, and the
+  cache was on by default. A validator that goes quiet about a false claim is
+  worse than no validator, because the silence is trusted.
+- **`--apply`, writing fixes to disk.** Added by deleting the paragraph that
+  argued extant must never write - the one saying a validator that edits prose
+  can author a falsehood itself and nothing is left to catch it. Its rewriter
+  also crashed on a path containing `\s` and injected page content through a
+  `\g<1>` in a replacement template.
+- **`--prune-baseline`.** Retained only entries seen in the current run, so
+  running it beside `--validate` deleted every amnesty belonging to every other
+  document and called them stale.
+- **A repo-root fallback for unresolved links.** Silently forgave genuinely
+  dead links, and replaced a comment recording that a blanket skip had been
+  considered and refused by name.
+
+**What was learned.**
+
+- **A claim sheet written by the author of the change is a list of things to
+  measure, not a list of findings.** Every headline number needed re-deriving.
+  The suite was red as delivered, because the branch left a 7.6 MB generated
+  corpus where this repository's own quality gate walks it; the speedup was
+  2.38x rather than 3.8x, and 1.04x at the size where it switched itself on;
+  and one optimisation was described in prose that does not match the code that
+  was actually written.
+- **Tests named after a feature can be blind to it.** Three tests called
+  `test_parallel_sweep_*` asserted only on findings, which are identical
+  whether or not a worker ever starts. They would have passed against a pool
+  that silently fell back - which is the bug the branch shipped. Instrumenting
+  the code was what established the pool ran; the tests never could have.
+- **Graceful degradation is how a feature stops working quietly.** The
+  branch's `except Exception: use_parallel = False` and its `if key not in
+  gathered: continue` are the same mistake twice: a survey that lost its
+  machinery, or lost a file, still printing the summary of a healthy run. Both
+  are now announced, and both announcements are pinned by a mutation.
+- **Reinventing on a stale base costs more than it saves.** The branch was cut
+  at the release tag and independently rewrote optimisations that already
+  existed above it - and its versions were slower: 7817 ms against 7292 ms on
+  the same corpus, for identical output.
+- **A measurement apparatus confound outlived two conclusions.** Running a
+  payload from a scratch directory changes where its configuration loads from,
+  which made an unrelated repository's findings appear and disappear and
+  briefly looked like a fixed probe. Comparing like with like - each payload
+  inside a matching checkout - erased both effects. This is the fifth stretch
+  running where the instruments were wrong before the code was.
+- **A gap audit of the accepted work found two more of the same defect, this
+  time authored here rather than inherited.** `is_shallow` read
+  `.git/worktrees/<name>/shallow` for a linked worktree, where git keeps the
+  marker in the SHARED directory that `commondir` names - so every worktree of
+  a shallow clone answered False while git answered true, and the caveat that
+  exists to prevent a silent wrong answer was itself silent. Its test passed
+  because the test invented the layout instead of asking git for one; it now
+  builds a real shallow clone and a real worktree and uses `git rev-parse
+  --is-shallow-repository` as the oracle. Separately, a survey that lost a
+  document printed the loss and still exited 0, so a hook or CI job reading
+  only the code would have seen a clean run. Both were caught by auditing what
+  had already been reviewed and accepted, which is the argument for doing it.
+
+**Verification.** 672 tests. Mutation anchors 152 of 152, with five retargeted
+after the code they named moved and every one confirmed killed. `--verify` and
+`--selftest` both exit 0, `--selftest` unchanged at 4 fired and 0 silent. Sweep
+output is byte-identical to `17a096a` on two real repositories, and the
+parallel and serial paths agree line for line over 200 documents. Every kept
+change that alters what extant reports was mutated to confirm its test fails
+against the wrong implementation: seven for seven.
+
+## Phase 23 - One 6,249-line file became a 32-module package (shipped, 2026-08-18)
+
+**Status.** This work is version 0.23.0, tagged at `f6aafc34`. Recorded here
+after the fact: the release shipped without an entry, so this file went on
+describing 0.22.0 as current. The full account is in CHANGELOG.md; this is the
+part that belongs in a session log.
+
+**What shipped.** `plugin/skills/extant/payload/extant_collect.py` is 68 lines
+- a version handshake, a config import, an entry-point import and a `__main__`
+guard - and the collector is a package of thirty-two modules. A rule is now one
+module owning its check, its probe, its denominator and its registry entry, so
+adding one is a file and an import rather than four edits in four places.
+Fifty-two module-level mutable names became three scope objects with stated
+lifetimes.
+
+`--verify` output is byte-identical to 0.22.0 with one deliberate exception:
+`inconsistent-artifact` examines seven sources rather than five, because the
+package version and the shim version are two new places a version is written.
+The one declared behaviour change is that a rule which raises is named beside
+the denominators instead of taking the run down.
+
+**What was learned.** Wall-clock was flat, not faster - twelve git processes
+instead of fourteen, very nearly cancelled by importing thirty-two modules
+instead of two, so `--verify` moved 928 ms to 937 ms. The honest summary is
+that the split cost nothing and bought structure.
+
+One bug shipped and was caught by none of the four review layers. `--search`
+crashed on every invocation, because the split separated the raw settings
+object from the derived one and the search path was handed the wrong kind. It
+survived 641 tests, a byte-identical output comparison and ten reviews, because
+no test drove the mode at all. The smoke harness found it, at the very end.
+A mode nothing exercises is a mode nobody is watching, and the module count
+does not change that.
+
 ## Phase 22 - The limit 0.21.0 could only name is now configurable (shipped, 2026-08-09)
 
 **Status.** Suite is 606 tests, all passing. Thirteen rules, eighteen presets,

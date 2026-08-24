@@ -156,6 +156,15 @@ confirm it goes red. A test that has never failed pins nothing. If a mutation
 does not reproduce the bug you meant to reproduce, the green run afterwards
 means nothing either.
 
+**A test named after a feature is not thereby a test OF it.** A contributed
+branch arrived with three tests named for the parallel sweep that asserted only
+on findings - which are identical whether or not a worker process ever starts -
+so they passed against a pool that silently fell back to serial, which was the
+bug that branch shipped with. They were replaced rather than kept. When a change adds a MECHANISM rather than an answer, the answer cannot
+pin it: assert on the mechanism, or the feature can stop working without a
+single test noticing. The same rule catches a fallback that swallows its
+reason, which is why the fallback prints one.
+
 `tests/harnesses/mutate.py` does this mechanically for the whole suite, and
 `tests/harnesses/` holds four more audits that pytest cannot perform: a scenario
 matrix over project shapes unlike this one, an adversarial smoke test, a

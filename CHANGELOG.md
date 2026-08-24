@@ -1,5 +1,68 @@
 # Changelog
 
+## Unreleased
+
+**A large `--sweep` now spreads across worker processes.** Above 100 documents
+the survey splits the per-document work across up to eight of them; below that
+it stays in one process. On a 200-document corpus across twelve cores, best of
+three: 7327 ms in one process, 2919 ms across eight. Against 0.23.0, which took
+8626 ms on the same corpus, the whole stretch is about 2.9x.
+
+The floor is measured rather than chosen. Parallelism is worth 4% at 40
+documents and 15% at 60, and only reaches 1.75x at 100; a process pool brings
+failure modes a loop does not have, and 4% does not pay for them.
+
+Both paths call one implementation of "read a document, validate it, count its
+denominator", so there is no second copy to drift. Output is identical between
+them, verified line for line over 200 documents.
+
+**The survey says which path produced its numbers,** and a pool that cannot
+start is announced rather than absorbed:
+
+```console
+swept 200 markdown file(s): 0 configured (0 finding(s)), 200 unreviewed (820 finding(s))
+  surveyed across 8 worker process(es)
+```
+
+If spawning is forbidden or a worker dies, the run finishes in one process and
+prints a `NOTE:` naming the reason. A run that quietly stopped using the
+machinery it reports using would go on printing the summary of a healthy one,
+which is the failure this tool exists to refuse. A document dispatched to the
+survey that returns no result is likewise counted and named beside the
+unreadable ones rather than skipped, and unlike an unreadable file it fails the
+run: a file that cannot be decoded is a fact about the repository, while a
+document the survey lost is a fact about this tool.
+
+**A shallow clone now says so.** `dead-sha` asks whether a commit is reachable,
+and in a depth-limited clone it answers about the slice that was cloned rather
+than about the repository, so a live SHA can read as dead. Nothing can fix that
+without the missing history; the run prints the caveat beside the denominators
+instead, which is the only honest thing available. Worktrees and submodules are
+covered, where `.git` is a file and the marker lives elsewhere.
+
+**Two rules stop reporting things that are not wrong.**
+
+- `manifest-floor-mismatch` no longer reports `3.14` against a manifest saying
+  `3.14.0`. They are one floor written two ways; the parsed tuples were being
+  compared without padding, so the shorter one differed from the longer.
+- `dead-md-link` no longer reports `[notes](notes.md?plain=1)` as dead. A query
+  string is how a forge serves a file, not part of its name, so a file plainly
+  present was resolving to nothing.
+
+**Everything else is speed, with output unchanged.** The per-document candidate
+scans run once rather than three times; the bare-SHA scan skips a line with no
+hex run in it and the line-pointer scan skips a line with no colon; the
+path-pointer scan runs once per document instead of twice; `anchors()` walks
+each heading once instead of four times, worth 1.32x on a 66-document corpus.
+Three more answers about the checkout - the tracked file list, the site
+directory list, and reference resolution - are held for the duration of a
+survey rather than rebuilt per file.
+
+`main()` is now five named functions rather than five inline modes, with a
+function-length ceiling in the suite to stop the sixth hiding inside another.
+
+Sweep and verify output are otherwise byte-identical to 0.23.0.
+
 ## 0.23.0 (2026-08-18)
 
 **One 6,249-line file became a 32-module package, and nothing else changed.**

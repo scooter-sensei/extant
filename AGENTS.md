@@ -101,7 +101,10 @@ only the author knows which two strings name one fact.
 - `from __future__ import annotations` at the top of every module. The floor is
   Python 3.9, and that import is what keeps `X | Y` annotations legal there.
 - Narrow exception handlers. Bare `except:` hides the failures this project
-  exists to surface.
+  exists to surface. A broad catch is allowed in exactly one shape: when it
+  REPORTS what it caught, so the degraded path names itself instead of printing
+  what a healthy one prints. A rule that raises and a worker pool that will not
+  start are both handled that way.
 - Never commit without being asked.
 
 ## Where things are

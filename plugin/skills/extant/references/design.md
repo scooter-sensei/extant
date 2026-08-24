@@ -793,6 +793,19 @@ The narrowness is the safety argument. `--verify` was measured for the same
 treatment and refused it: 5 ms saved out of 337, on the path that gates
 commits, in exchange for relaxing a correctness promise. Not worth it.
 
+Three later additions follow the same rule rather than widening it: the tracked
+file list, the site directory list, and reference resolution. Each answers a
+question about the CHECKOUT rather than about any document - which files git
+tracks, which directories a site is built from, whether a path resolves and in
+what spelling - so a survey asks it once instead of once per file. All three
+are read only while the static declaration is held, which is what makes them
+answers with an owner rather than a memo that outlives its truth.
+
+One of them was proposed with the git call wrapped, returning an empty list
+when `ls-tree` fails. That was refused. A repository where git fails would then
+report zero tracked documents and sweep clean, which is the silence this whole
+section is about, produced by the defensiveness meant to prevent a crash.
+
 The direction of the mistake is worth recording, because it was made. The
 origin lookup was first memoised for the whole process on the reasoning that a
 remote cannot change while one runs - true of the CLI, false of a library
@@ -801,6 +814,48 @@ validations kept answering "no origin", so `dead-pinned-ref` examined nothing
 and reported clean. A cache that outlives its scope does not produce a wrong
 answer anybody sees; it produces silence, which is this project's own failure
 mode aimed at itself.
+
+## The survey runs in one process or eight, and says which
+
+Above 100 documents `--sweep` spreads the per-document work across up to eight
+worker processes. Each worker takes a batch and holds a run scope of its own,
+so the static-checkout caches above are built once per process rather than once
+per document. Measured on a 200-document corpus across twelve cores, best of
+three: 7327 ms in one process, 2919 ms across eight.
+
+**The floor is a measurement, not a guess.** The curve leaves zero long before
+it is worth anything: 40 documents buys 4 percent, 60 buys 15, and only at 100
+does it reach 1.75x. A process pool brings failure modes a loop does not have -
+sandboxes that forbid spawning, state that will not pickle, workers the OS
+kills - and 4 percent does not pay for any of them.
+
+**One implementation, two dispatchers.** Reading a document, validating it and
+counting its denominator live in a single function that both paths call. The
+alternative - a parallel loop beside a serial one - was written first and
+rejected: two copies of the work drift, and only one of them is ever exercised
+on a given machine, so the drift is found by a user rather than by a test.
+
+**Which path ran is printed.** This is not diagnostic noise. The two paths are
+required to produce identical output, and a reader who cannot say which one
+produced theirs has no way to report a difference between them. The same
+reasoning makes the fallback loud: if the pool cannot start, the survey
+finishes in one process and names the reason, because a run that quietly
+stopped using the machinery it reports using would go on printing the summary
+of a healthy one. Silent degradation is the failure this project exists to
+refuse, and it is no more acceptable in the harness than in a rule.
+
+**A document that comes back with no result is named, and gates.** The merge
+looks each document up by path, and a missing entry is the one shape that lets
+a sweep examine nothing and say nothing. It is counted and named beside the
+unreadable ones, for the reason a file that could not be READ is counted:
+neither is a file with no findings.
+
+It differs from an unreadable file in one way that matters, and the exit code
+follows the difference. A file that cannot be decoded is a fact about the
+REPOSITORY - reported, survived, exit code untouched. A document dispatched to
+the survey that came back with nothing is a fact about this TOOL, so it exits
+non-zero. Reporting a defect in the surveyor while returning the code for a
+clean run is the same conflation one level up.
 
 ## `--deleted-since`: a report, deliberately not a rule
 

@@ -487,6 +487,14 @@ after you have started trusting it.
 This is the single most important line in the output. "Found no problems" and
 "did not look" print identically otherwise, and only one of them is good news.
 
+Anything that narrows what a count MEANS prints beside it. In a shallow clone,
+`dead-sha` describes the slice that was cloned rather than the repository, so a
+live SHA can read as dead; the run says so rather than leaving the number to
+speak for itself. A sweep also names any document it dispatched that came back
+with no result, and fails the run: a file the survey lost is not a file with no
+findings, and exiting 0 there would report a clean run for work that never
+happened. That is the one thing a sweep gates on besides a configured finding.
+
 ### It can prove its own checks fire
 
 The worry above deserves more than a warning, so there is a command:
@@ -760,6 +768,31 @@ A 16,000-line document validates in under a second. A 100,000-line document in
 about four. The rules that query git batch their questions, so a document
 naming two thousand distinct commits asks git once per commit rather than twice
 per claim.
+
+**A large `--sweep` spreads across processes.** Above 100 documents the survey
+splits the work across up to eight workers; below that it stays in one process,
+because a pool costs more than it saves on a small repository. Measured on a
+200-document corpus, twelve cores, best of three:
+
+```console
+one process     7327 ms
+eight workers   2919 ms   2.51x
+```
+
+The floor is 100 rather than the point where the curve first leaves zero: at 40
+documents parallelism is worth about 4%, which does not pay for a process
+pool's failure modes. The two paths are required to produce identical output,
+and the sweep prints which one ran:
+
+```console
+swept 200 markdown file(s): 0 configured (0 finding(s)), 200 unreviewed (820 finding(s))
+  surveyed across 8 worker process(es)
+```
+
+If the pool cannot start - a sandbox that forbids spawning, a worker the OS
+killed - the survey finishes in one process and **says so** on a `NOTE:` line.
+It never degrades quietly, because a run that silently stopped using the
+machinery it reports using would keep printing the summary of a healthy one.
 
 ---
 

@@ -280,6 +280,12 @@ is inert regardless of the exit code. Zero is not automatically a bug - a
 project may genuinely never phrase a merge claim - but you must know which it
 is, and only the denominator tells you.
 
+A `NOTE:` line also appears when something narrows what a count MEANS. In a
+shallow clone, `dead-sha` asks whether a commit is reachable and gets an answer
+about the slice that was cloned, so a live SHA can read as dead. The number is
+correct and describes a smaller repository than you think you are checking; the
+note is there so you know which.
+
 Then prove the rules fire, which `--selftest` now does for you:
 
 ```
