@@ -29,6 +29,7 @@ from extant.commits import load_sha_map, translate_shas
 from extant.config import StatusConfig
 from extant.entries import archive, split_entries
 from extant.finding import Finding, Located, rel
+from extant.git import is_shallow
 from extant.refs import renamed_to
 from extant.registry import RULE_ERRORS
 from extant.report import (
@@ -392,6 +393,38 @@ def run_archive(repo: Path) -> int:
     return 0
 
 
+def _report_denominators(diag, repo: Path, name: str,
+                         examined: dict[str, int]) -> bool:
+    """The counts, and everything that qualifies them. Returns whether any
+    rule error was reported.
+
+    Split out of `run_validate` when the shallow-clone note took that function
+    one line past the ceiling in tests/test_module_quality.py. The block was
+    always one thing - here is what was counted, and here is every reason a
+    count might not mean what it looks like - so it reads better named than it
+    did inline.
+    """
+    summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
+    blind = [kind for kind, n in examined.items() if n == 0]
+    diag(f"checked {name}: {summary}")
+    # Beside the denominators, because that is where a reader looks to
+    # decide whether a quiet rule was quiet or broken.
+    errors_reported = session.report_rule_errors(diag)
+    if blind:
+        diag("  NOTE: these rules matched nothing at all - either this "
+             "document makes no such claims, or the pattern is wrong: "
+             + ", ".join(blind))
+    # Beside the denominators for the same reason they are printed at all: a
+    # `dead-sha` count taken from a shallow clone describes the slice that was
+    # cloned rather than the repository, and a reader cannot tell those apart
+    # from the number alone.
+    if is_shallow(repo):
+        diag("  NOTE: this is a shallow clone, so commit SHAs were checked "
+             "against the history present locally rather than against the "
+             "whole repository.")
+    return errors_reported
+
+
 def run_validate(repo: Path, args: argparse.Namespace,
                  status: StatusConfig) -> int:
     """`--validate FILE` / `--verify`: check one document's claims and gate.
@@ -537,16 +570,8 @@ def run_validate(repo: Path, args: argparse.Namespace,
         # absent from this document or broken, and the reader has to be
         # able to tell.
         examined = session.count_examined(repo, text)
-    summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
-    blind = [kind for kind, n in examined.items() if n == 0]
-    diag(f"checked {Path(args.validate).name}: {summary}")
-    # Beside the denominators, because that is where a reader looks to
-    # decide whether a quiet rule was quiet or broken.
-    errors_reported = session.report_rule_errors(diag)
-    if blind:
-        diag("  NOTE: these rules matched nothing at all - either this "
-             "document makes no such claims, or the pattern is wrong: "
-             + ", ".join(blind))
+    errors_reported = _report_denominators(
+        diag, repo, Path(args.validate).name, examined)
 
     # --verify/--validate used to read only their target file, so content
     # moved into the archive by --archive escaped validation forever: a

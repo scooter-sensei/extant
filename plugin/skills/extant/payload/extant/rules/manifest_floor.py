@@ -256,7 +256,13 @@ def check(ctx: Context, text: str) -> list[Finding]:
     # this loop must agree on what "examined" means, or the two numbers
     # describe different populations.
     for number, language, stated, declared in _floor_claims(ctx, text):
-        if stated == declared:
+        # `3.14` and `3.14.0` are one floor written two ways. Comparing the
+        # tuples directly made the shorter one differ from the longer and
+        # reported a disagreement no reader would recognise, so both are
+        # padded to a common length before they are compared.
+        width = max(len(stated), len(declared))
+        if (stated + (0,) * (width - len(stated))
+                == declared + (0,) * (width - len(declared))):
             continue
         spec, filename, enforcement = floors[language]
         version = ".".join(str(part) for part in stated)

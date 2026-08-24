@@ -87,6 +87,8 @@ def check(ctx: Context, text: str) -> list[Finding]:
     base = ctx.doc.link_base or repo
     findings: list[Finding] = []
     for number, line in enumerate(strip_code(ctx.doc, text).splitlines(), start=1):
+        if "#" not in line or "[" not in line:
+            continue
         for raw in MD_LINK.findall(line):
             if "#" not in raw or EXTERNAL.match(raw):
                 continue
@@ -126,6 +128,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
 def examined(ctx: Context, text: str) -> int:
     """Every link carrying a fragment, counted from the stripped document."""
     return sum(1 for line in strip_code(ctx.doc, text).splitlines()
+               if "#" in line and "[" in line
                for raw in MD_LINK.findall(line) if raw.startswith("#"))
 
 

@@ -58,7 +58,14 @@ sys.path.insert(0, str(PAYLOAD))
 #       rules asking about overlapping tokens spawned a `cat-file
 #       --batch-check` each. It is counted as a cache field below because it is
 #       one, and it starts empty like the rest.
-CACHE_FIELDS = 23
+#
+# Plus THREE added when a sweep was profiled: `tracked_markdown`, `site_dirs`
+# and `reference_resolutions`. Each answers a question about the CHECKOUT
+# rather than about a document - which files are tracked, which directories a
+# site is built from, whether a reference resolves - so a survey asks it once
+# instead of once per file. All three are read only while `dircache` says the
+# checkout is static, exactly as the eleven before them are.
+CACHE_FIELDS = 26
 
 # Not a cache. `stable` says whether a caller has taken ownership of this
 # scope's lifetime for many documents, which is what the retired module-level

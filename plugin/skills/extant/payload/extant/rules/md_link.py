@@ -33,10 +33,16 @@ def check(ctx: Context, text: str) -> list[Finding]:
     base = ctx.doc.link_base or repo
     findings: list[Finding] = []
     for number, line in enumerate(strip_code(ctx.doc, text).splitlines(), start=1):
+        if "[" not in line or "(" not in line:
+            continue
         for raw in MD_LINK.findall(line):
             if EXTERNAL.match(raw) or raw.startswith("#"):
                 continue
-            target = raw.split("#", 1)[0]
+            # The query string is not part of the filename. `?raw=1` and
+            # `?plain=1` are how GitHub serves a file, and leaving them on the
+            # target made every such link resolve to nothing and report a file
+            # that is plainly there as missing.
+            target = raw.split("#", 1)[0].split("?", 1)[0]
             if not target:
                 continue
             # `@` opens a generator macro, not a path. Documenter.jl writes
@@ -174,6 +180,7 @@ def examined(ctx: Context, text: str) -> int:
     as dead before inline spans were stripped.
     """
     return sum(1 for line in strip_code(ctx.doc, text).splitlines()
+               if "[" in line and "(" in line
                for raw in MD_LINK.findall(line)
                if not EXTERNAL.match(raw) and not raw.startswith("#"))
 

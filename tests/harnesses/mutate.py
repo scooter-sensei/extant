@@ -299,9 +299,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # --- markdown --------------------------------------------------------
         ("external links get checked (needs the network)", rules / "md_link.py",
          '            if EXTERNAL.match(raw) or raw.startswith("#"):\n'
-         '                continue\n            target = raw.split("#", 1)[0]',
+         '                continue',
          '            if raw.startswith("#"):\n'
-         '                continue\n            target = raw.split("#", 1)[0]'),
+         '                continue'),
         # Retargeted when dead-md-anchor grew to check fragments on OTHER
         # files: the fragment is now split off with partition rather than
         # sliced, and slugging moved behind _heading_text.
@@ -348,8 +348,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "def prose(doc: DocScope, text: str) -> str:",
          "def prose(doc: DocScope, text: str) -> str:\n    return text"),
         ("case check accepts any spelling", sites,
-         "    return (True, None) if actual == normalised else (False, actual)",
-         "    return True, None"),
+         "            result = (True, None) if actual == normalised else (False, actual)",
+         "            result = (True, None)"),
 
         # --- scoping / registry ----------------------------------------------
         # Indentation is written out in full rather than trimmed. A shorter
@@ -833,10 +833,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # repository into build failures; gating on nothing makes `--sweep`
         # incapable of ever failing, which reads identically to a clean run.
         ("the sweep gates on unreviewed documents too", sweep,
-         '    return 1 if (results["vetted"] or RULE_ERRORS) else 0',
-         '    return 1 if (results["unvetted"] or RULE_ERRORS) else 0'),
+         '    return 1 if (results["vetted"] or RULE_ERRORS or unreturned) else 0',
+         '    return 1 if (results["unvetted"] or RULE_ERRORS or unreturned) else 0'),
         ("the sweep gates on nothing at all", sweep,
-         '    return 1 if (results["vetted"] or RULE_ERRORS) else 0',
+         '    return 1 if (results["vetted"] or RULE_ERRORS or unreturned) else 0',
          "    return 0"),
         ("everything is vetted, so nothing is surveyed separately", sweep,
          "    vetted = [p for p in paths if p in normalised]\n"
@@ -847,8 +847,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # is how the sweep would quietly under-report on any repository holding
         # a latin-1 document.
         ("unreadable files are skipped silently rather than counted", sweep,
-         '                unreadable.append(f"{relative} ({exc.__class__.__name__})")',
-         "                pass"),
+         '        return (relative, [], f"{relative} ({exc.__class__.__name__})", {}, [])',
+         "        return (relative, [], None, {}, [])"),
         ("the sweep denominator counts only what it gated on", sweep,
          '    print(f"\\nswept {len(paths)} markdown file(s): "',
          '    print(f"\\nswept {len(vetted)} markdown file(s): "'),

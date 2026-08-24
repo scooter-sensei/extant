@@ -172,6 +172,15 @@ class RunScope:
     global_ns: dict[Any, Any] = field(default_factory=dict)
     language_siblings: dict[Any, Any] = field(default_factory=dict)
 
+    # Three more of the same kind, added after profiling a sweep: the tracked
+    # file list, the site directories, and reference resolution. Each is a
+    # question about the CHECKOUT rather than about any document, so a survey
+    # asks it once instead of once per file. Scoped exactly as the eleven
+    # above are, and read only while `dircache` says the checkout is static.
+    tracked_markdown: dict[Any, Any] = field(default_factory=dict)
+    site_dirs: dict[Any, Any] = field(default_factory=dict)
+    reference_resolutions: dict[Any, Any] = field(default_factory=dict)
+
     # NOT a cache, and the one field a fresh scope is asked about rather than
     # read from. True only while a caller reads many documents from one static
     # checkout and writes nothing while doing so; validate() then leaves this

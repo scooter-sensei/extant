@@ -13,7 +13,7 @@ from pathlib import Path
 # declared here transitionally, because the shim re-exported them by name and
 # five test sites wrapped them to count calls; both are back to being private
 # implementation, called by SubprocessGit and named nowhere outside this file.
-__all__ = ["Git", "SubprocessGit", "CountingGit"]
+__all__ = ["Git", "SubprocessGit", "CountingGit", "is_shallow"]
 
 
 class Git:
@@ -101,6 +101,57 @@ def _git_soft(repo: Path, *args: str) -> str:
         return _git(repo, *args)
     except (subprocess.CalledProcessError, OSError):
         return ""
+
+
+def is_shallow(repo: Path) -> bool:
+    """True when this checkout is depth-limited.
+
+    It matters because `dead-sha` asks whether a commit is REACHABLE, and a
+    shallow clone answers that question about the slice it was given rather
+    than about the repository. A SHA that is perfectly alive upstream reads as
+    dead here, and the run reports it with the same confidence as a real one.
+    Nothing about this can be fixed without the missing history, so the only
+    honest thing available is to say which kind of answer the reader is
+    holding - the same reason every mode prints its denominator.
+
+    Read from the marker file rather than by shelling out, because it is one
+    stat, and because a `git rev-parse --is-shallow-repository` that fails
+    would have to be interpreted, and the interpretation of a failure here is
+    exactly the ambiguity this is trying to remove.
+    """
+    if (repo / ".git" / "shallow").is_file():
+        return True
+    # A worktree or a submodule keeps `.git` as a FILE pointing elsewhere, and
+    # the marker lives at the real git directory rather than beside the file.
+    pointer = repo / ".git"
+    if pointer.is_file():
+        try:
+            content = pointer.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            return False
+        if content.startswith("gitdir:"):
+            gitdir = Path(content.split(":", 1)[1].strip())
+            if not gitdir.is_absolute():
+                gitdir = repo / gitdir
+            if (gitdir / "shallow").is_file():
+                return True
+            # A LINKED WORKTREE has a git dir of its own but shares the object
+            # store, and `shallow` lives in the shared one - `.git/shallow` of
+            # the original clone, not `.git/worktrees/<name>/shallow`. Checking
+            # only the former returned False for every worktree of a shallow
+            # clone while git itself said true, which is the silent wrong
+            # answer this function exists to prevent. `commondir` is how git
+            # records where the shared directory is.
+            common = gitdir / "commondir"
+            if common.is_file():
+                try:
+                    shared = Path(common.read_text(encoding="utf-8").strip())
+                except (OSError, UnicodeDecodeError):
+                    return False
+                if not shared.is_absolute():
+                    shared = gitdir / shared
+                return (shared / "shallow").is_file()
+    return False
 
 
 def _git(repo: Path, *args: str) -> str:

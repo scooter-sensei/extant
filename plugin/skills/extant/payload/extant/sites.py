@@ -116,14 +116,29 @@ def _actual_case(ctx: Context, base: Path, relative: str) -> str | None:
 
 def resolve_reference(ctx: Context, base: Path,
                        raw: str) -> tuple[bool, str | None]:
-    """(exists_portably, on_disk_spelling_if_it_differs)."""
+    """(exists_portably, on_disk_spelling_if_it_differs).
+
+    Memoised per (base, raw). `_actual_case` reads nothing but those two and
+    `_listdir`, which is itself run-scoped, so the answer cannot depend on
+    which document asked. Held only while `dircache` says the checkout is
+    static, for the same reason every other scope cache is.
+    """
+    cache = ctx.run.reference_resolutions if ctx.run.dircache is not None else None
+    key = (str(base), raw)
+    if cache is not None and key in cache:
+        return cache[key]
     if _ABSOLUTE.match(raw):
-        return Path(raw).exists(), None
-    actual = _actual_case(ctx, base, raw)
-    if actual is None:
-        return False, None
-    normalised = Path(raw).as_posix()
-    return (True, None) if actual == normalised else (False, actual)
+        result = (Path(raw).exists(), None)
+    else:
+        actual = _actual_case(ctx, base, raw)
+        if actual is None:
+            result = (False, None)
+        else:
+            normalised = Path(raw).as_posix()
+            result = (True, None) if actual == normalised else (False, actual)
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 # Configs that mean "this markdown tree is compiled into a website".
@@ -313,6 +328,9 @@ def _site_dirs(ctx: Context) -> list[Path]:
     question asked on every run, and a config found ten levels down is likelier
     to be a fixture or a vendored copy than this project's site.
     """
+    key = str(ctx.repo)
+    if ctx.run.dircache is not None and key in ctx.run.site_dirs:
+        return ctx.run.site_dirs[key]
     dirs = [ctx.repo / d for d in _SITE_DIRS]
     for name in _SITE_DIRS:
         if name:
@@ -324,6 +342,8 @@ def _site_dirs(ctx: Context) -> list[Path]:
             # Still bounded to one level, and still to the same names, so
             # `a/b/c/website/` stays out of reach.
             dirs.extend(d for d in (ctx.repo / name).glob("*") if d.is_dir())
+    if ctx.run.dircache is not None:
+        ctx.run.site_dirs[key] = dirs
     return dirs
 
 

@@ -438,6 +438,15 @@ def tracked_markdown(ctx: Context) -> list[str]:
     checked. Files listed here but absent from the working tree are counted and
     named as unreadable by the caller rather than passed over.
     """
+    key = str(ctx.repo)
+    if ctx.run.dircache is not None and key in ctx.run.tracked_markdown:
+        return ctx.run.tracked_markdown[key]
+    # Deliberately unguarded. An `ls-tree` that fails must raise here: the
+    # paragraph above is about a silent all-clear on a repository nobody
+    # checked, and returning [] on error is precisely how one is produced.
     out = ctx.git.run(ctx.repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
-    return sorted(p for p in out.split("\0")
-                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))
+    files = sorted(p for p in out.split("\0")
+                   if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))
+    if ctx.run.dircache is not None:
+        ctx.run.tracked_markdown[key] = files
+    return files
