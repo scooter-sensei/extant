@@ -92,6 +92,19 @@ suite. Seven changes were kept and eleven discarded. The four that mattered:
   document printed the loss and still exited 0, so a hook or CI job reading
   only the code would have seen a clean run. Both were caught by auditing what
   had already been reviewed and accepted, which is the argument for doing it.
+- **A probe cannot tell a message from a call, and should not have to.** The
+  smoke harness scans this package's operational source for the shapes a
+  network call takes, keeping string literals because a git subcommand only
+  ever appears as one. A `NOTE:` line reading "this is a shallow clone" put the
+  word `clone` there and read exactly like `_git(repo, "clone", ...)`, so the
+  adversarial pass reported a SECURITY finding against a tool that opens no
+  sockets. The message now says "shallow repository", which is what `git
+  rev-parse --is-shallow-repository` calls it and is truer anyway, since a
+  linked worktree of a shallow clone is not itself one.
+
+  It was caught only by CI, after a push, because the harness is a separate
+  slow job. The same source scan now also runs in the suite in under a second,
+  so the next one is caught before the push instead of after it.
 
 **Verification.** 672 tests. Mutation anchors 152 of 152, with five retargeted
 after the code they named moved and every one confirmed killed. `--verify` and

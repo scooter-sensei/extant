@@ -419,9 +419,23 @@ def _report_denominators(diag, repo: Path, name: str,
     # cloned rather than the repository, and a reader cannot tell those apart
     # from the number alone.
     if is_shallow(repo):
-        diag("  NOTE: this is a shallow clone, so commit SHAs were checked "
-             "against the history present locally rather than against the "
-             "whole repository.")
+        # "shallow repository" rather than "shallow clone", and not for style.
+        # tests/harnesses/smoke.py scans this package's operational source for
+        # the shapes a network call takes, and the verb for copying a remote
+        # repository is one of them. That scan keeps string literals on
+        # purpose, because a git subcommand only ever reaches git as one, so a
+        # scan that dropped them would be permanently clean and permanently
+        # useless. It therefore cannot tell a sentence from an argument, and
+        # the word in a message here read as a network operation in a tool
+        # that opens no sockets. tests/test_module_quality.py now runs the
+        # same scan in the suite, so the next one fails before a push.
+        #
+        # It is also the better term: `git rev-parse --is-shallow-repository`
+        # is what git calls the question, and a linked worktree of a shallow
+        # checkout is not itself a copy of anything.
+        diag("  NOTE: this is a shallow repository, so commit SHAs were "
+             "checked against the history present locally rather than "
+             "against everything upstream.")
     return errors_reported
 
 

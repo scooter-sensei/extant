@@ -282,3 +282,63 @@ def test_rules_are_leaves() -> None:
     assert len(rules) == 13, f"found {len(rules)} rule modules, expected 13"
     print(f"checked {len(_modules())} modules; {len(rules)} of them are rules")
     assert not offenders, offenders
+
+
+# The shapes tests/harnesses/smoke.py scans this package's source for, kept in
+# step with the list there. Duplicated deliberately: the harness is the deeper
+# check - it also runs the tool behind a black-hole proxy - but it is slow, run
+# by hand, and lives in a separate CI job. This is the same source scan in
+# under a second, so the failure it catches is caught before a push rather than
+# after one.
+REMOTE_SHAPES = ("ls-remote", "fetch", "clone", "urlopen", "http.client",
+                 "requests.", "socket.create_connection", "git.push")
+
+
+def _without_prose(source: str) -> str:
+    """Source with docstrings dropped and every other literal kept.
+
+    The same trade the harness makes. Comments and docstrings go because they
+    DISCUSS git and would flag a tool that opens no sockets; ordinary string
+    literals stay because a git subcommand only ever appears as one, and a scan
+    that dropped them would be permanently clean and permanently useless.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            body = node.body
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree)
+
+
+def test_no_network_shape_appears_in_the_operational_source() -> None:
+    """The deterministic-local guarantee, checked in the source.
+
+    Nothing here may reach the network: it is why external links are skipped
+    and why a green run does not depend on anyone's uptime. The harness caught
+    a violation of this that no other gate could - and only in CI, after a
+    push, because it is a separate slow job.
+
+    The violation was a MESSAGE, not a call: a `NOTE:` line reading "this is a
+    shallow clone" put the word `clone` in the operational source, which reads
+    exactly like `_git(repo, "clone", ...)` to a scan that cannot afford to
+    drop string literals. Catches both the real thing and its lookalike, and
+    the answer to either is the same - do not put the word there.
+    """
+    files = [PAYLOAD / "extant_collect.py",
+             *sorted(p for p in (PAYLOAD / "extant").rglob("*.py")
+                     if "__pycache__" not in p.parts)]
+    hits = []
+    for path in files:
+        code = _without_prose(path.read_text(encoding="utf-8"))
+        for shape in REMOTE_SHAPES:
+            if shape in code:
+                hits.append(f"{path.name}: {shape}")
+    # The denominator. Scanning zero files prints what a clean scan prints.
+    assert len(files) >= 30, f"scanned only {len(files)} files; the glob is wrong"
+    assert not hits, (
+        f"checked {len(files)} files for {len(REMOTE_SHAPES)} shapes; "
+        f"found {hits}")

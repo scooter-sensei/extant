@@ -176,13 +176,13 @@ def test_validate_says_so_when_the_clone_is_shallow(git_repo) -> None:
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         hc.main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
-    assert "shallow clone" not in out.getvalue() + err.getvalue()
+    assert "shallow repository" not in out.getvalue() + err.getvalue()
 
     (repo / ".git" / "shallow").write_text("abc\n", encoding="utf-8")
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         hc.main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
-    assert "shallow clone" in out.getvalue() + err.getvalue()
+    assert "shallow repository" in out.getvalue() + err.getvalue()
 
 
 # --- a survey says which machinery produced its numbers -----------------

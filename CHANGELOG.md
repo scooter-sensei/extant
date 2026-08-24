@@ -49,6 +49,12 @@ covered, where `.git` is a file and the marker lives elsewhere.
   string is how a forge serves a file, not part of its name, so a file plainly
   present was resolving to nothing.
 
+The wording of that notice is "shallow repository" rather than "shallow
+clone", and the suite now enforces it. The adversarial harness scans the
+package's source for the shapes a network call takes and keeps string literals,
+because a git subcommand only ever appears as one - so the word `clone` in a
+message read as a network operation in a tool that opens no sockets.
+
 **Everything else is speed, with output unchanged.** The per-document candidate
 scans run once rather than three times; the bare-SHA scan skips a line with no
 hex run in it and the line-pointer scan skips a line with no colon; the
