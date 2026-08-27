@@ -381,6 +381,61 @@ a SHORT path. The fifth then stayed genuinely green, because it linked to
 controlled. Site mode suppresses ROUTES, so the probe had been aimed slightly
 beside its target and passed against the very bug it was written to catch.
 
+## `fuzz.py` - what about the cases nobody thought of?
+
+```sh
+python tests/harnesses/fuzz.py <extracted-package> <scratch-dir> [--seed N] [--repos N]
+```
+
+Every other harness here checks a case somebody wrote down. This one generates
+them: hostile repositories combining awkward Unicode paths, symlinks,
+submodules, odd ref and tag names, undecodable documents, backtracking-bait
+config, unclosed fences, and the git states a checkout can be in - attached,
+detached, a linked worktree, a shallow copy, and no commits at all.
+
+**It has no oracle, so it checks properties instead.** A generated repository
+has no known right answer, but these hold whatever the answer is: no traceback,
+an answer inside the budget, a documented exit code, findings never exceeding
+the denominator for their rule, two runs of an unchanged repository printing
+the same thing, and SARIF parsing and agreeing with the text output on the
+count. The last two are metamorphic - extant compared against ITSELF under a
+change that must not matter - and they are what let a fuzzer find wrong answers
+rather than only crashes.
+
+**Coverage is walked, not drawn.** The five git states times the seven modes
+are thirty-five pairs, and the harness covers each once before spending any
+remaining budget at random. That is not tidiness. The first genuine finding
+here was an empty SARIF document from a repository with no tracked markdown,
+and while selection was random the fixed CI seed never drew that state together
+with that format - so re-running it against the unfixed code reported zero
+violations. A gate that cannot reach the bug it already found is not evidence.
+The pair count is printed for the same reason every other number here is.
+
+**"Could not build" is its own column.** Symlinks need a privilege Windows
+withholds and submodules need a transport some sandboxes refuse. When a shape
+will not construct, the case was NOT TESTED and the harness says so rather than
+counting it as a pass. The CI job runs on Linux, where both build, so that job
+is the only place that coverage is actually held.
+
+**A refusal is not a fault.** A run that declines to start - an unreadable
+config, or one excluding the document it is told to gate on - produces no
+result, and emitting a report there would assert a scan that never happened.
+Those are counted and printed separately rather than exempted quietly.
+
+**Findings do not stay here.** Each is reduced to a case in
+`tests/test_fuzz_findings.py`, which the suite runs on every commit rather than
+waiting for a seed to come up again. This harness discovers; that file
+remembers, and it is meant to grow.
+
+What it found on its first run: a sweep of a repository git tracked no markdown
+in emitted zero bytes of SARIF and exited 0. Empty stdout also describes a tool
+that crashed or an upload pointed at the wrong path, and GitHub rejects an
+empty SARIF file, so a project whose glob matched nothing got a failed upload
+instead of a report reading zero. Six other reports that run produced were the
+harness being wrong, each one sharpening a property: exit 2 is a documented
+code, a path may contain spaces, a finding in the primary document prints
+without its path, and a refusal is not a result.
+
 ## `corpus.py` - what does it say about somebody else's repository?
 
 ```sh

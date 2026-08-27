@@ -856,9 +856,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # diagnostic is the project's signature failure: the reassuring silence
         # of a run that examined zero files.
         ("a repository with no markdown reports nothing at all", sweep,
-         '        print("swept 0 markdown files: git tracks none in this repository",\n'
-         "              file=sys.stderr)",
-         "        pass"),
+         '    print("swept 0 markdown files: git tracks none in this repository",\n'
+         "          file=sys.stderr)",
+         "    pass"),
+        # The same silence one level up, in the WIRE format. An empty
+        # stdout also describes a tool that crashed or an upload aimed
+        # at the wrong path, and GitHub rejects an empty SARIF file, so
+        # a project whose glob matched nothing got a failed upload
+        # rather than a report reading zero. Found by
+        # tests/harnesses/fuzz.py, pinned by tests/test_fuzz_findings.py.
+        ("an empty survey emits no machine document", sweep,
+         '    if fmt != "text":',
+         "    if False:"),
 
         # --- exclude_paths ---------------------------------------------------
         # The one setting that can make a repository look clean by not looking

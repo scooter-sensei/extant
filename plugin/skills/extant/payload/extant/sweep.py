@@ -168,6 +168,43 @@ def _survey(repo: Path,
     return gathered, workers, None
 
 
+def _report_empty_survey(repo: Path, fmt: str) -> int:
+    """A survey of a repository git tracks no markdown in.
+
+    The diagnostic goes to stderr in every format. What matters is that a
+    MACHINE format still emits its document.
+
+    An empty stdout and a report saying "I examined nothing" are different
+    facts, and a consumer cannot tell them apart: the first also describes a
+    tool that crashed, an upload step pointed at the wrong path, or a binary
+    that was never installed. GitHub rejects an empty SARIF file outright, so a
+    project whose glob matched nothing got a failed upload rather than a report
+    reading zero. That is this module's own subject aimed at itself, one level
+    up in the wire format.
+
+    A REFUSAL is the opposite case and stays silent: a run that declined to
+    start produced no result, and emitting a document there would assert a
+    clean scan that never happened. This branch ran and concluded, so it
+    reports.
+
+    `examined` is all zeros because that is true - with no document to read, no
+    rule ran. The keys come from the registry rather than from
+    `count_examined`, which would ask git questions an unborn HEAD cannot
+    answer, and an unborn HEAD is exactly what reaches here.
+
+    Found by tests/harnesses/fuzz.py on its first run.
+    """
+    if fmt != "text":
+        for line in render_findings([], fmt, repo,
+                                    examined={rule.kind: 0
+                                              for rule in session.RULES},
+                                    run_kind="sweep")[0]:
+            print(line)
+    print("swept 0 markdown files: git tracks none in this repository",
+          file=sys.stderr)
+    return 0
+
+
 def run_sweep(repo: Path, fmt: str) -> int:
     """Survey every tracked markdown file. Returns the exit code.
 
@@ -195,9 +232,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
         # repository with no markdown gets.
         paths = []
     if not paths:
-        print("swept 0 markdown files: git tracks none in this repository",
-              file=sys.stderr)
-        return 0
+        return _report_empty_survey(repo, fmt)
 
     tracked_total = len(paths)
     excluded_counts: dict[str, int] = {}

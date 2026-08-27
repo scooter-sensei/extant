@@ -25,8 +25,8 @@ afterwards is yours rather than inherited.
 ## Before you push
 
 The suite is not the whole gate, and treating it as one is how this repository
-gets a red `main`. Two of the audits under `tests/harnesses/` run as their own
-CI jobs precisely because pytest structurally cannot perform them:
+gets a red `main`. Three of the audits under `tests/harnesses/` run as their
+own CI jobs precisely because pytest structurally cannot perform them:
 
 ```sh
 PKG=$(mktemp -d); ARENA=$(mktemp -d)
@@ -35,6 +35,7 @@ python tests/harnesses/mutate.py --check-only
 git archive HEAD | tar -x -C "$PKG"
 python tests/harnesses/smoke.py "$PKG" "$ARENA"
 python tests/harnesses/scenarios.py "$PKG" "$ARENA"
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --seed 20260824 --repos 35
 python plugin/skills/extant/payload/extant_collect.py --verify --repo .
 python plugin/skills/extant/payload/extant_collect.py --selftest --repo .
 ```

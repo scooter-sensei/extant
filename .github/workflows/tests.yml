@@ -116,6 +116,55 @@ jobs:
       - name: Try to break the tool
         run: python tests/harnesses/smoke.py /tmp/pkg /tmp/arena
 
+  fuzz:
+    # Hostile repositories built at random, checked against properties that
+    # hold whatever the right answer is: no crash, no hang, a documented exit
+    # code, findings never exceeding the denominator, two runs agreeing, and
+    # SARIF parsing and matching the text count.
+    #
+    # HERE rather than only by hand, because Linux is where the shapes build.
+    # Windows withholds the privilege symlinks need and some sandboxes refuse
+    # the submodule transport, so a developer run reports those as "could not
+    # build" - which the harness prints as its own count rather than as a
+    # pass. This job is the only place that coverage is actually held.
+    #
+    # A FIXED seed, deliberately. A random seed per commit would fail `main`
+    # for reasons unrelated to the commit that ran it, and a gate that cries
+    # wolf gets switched off. Discovery is a hand-run with a fresh seed; what
+    # belongs in CI is the part that is reproducible. Findings do not stay in
+    # this harness either way - they are reduced to cases in
+    # tests/test_fuzz_findings.py, which the suite runs on every commit.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build a shippable extract
+        run: |
+          mkdir -p /tmp/fuzzpkg
+          git archive HEAD | tar -x -C /tmp/fuzzpkg
+
+      # Exits 1 on a property violation and 2 when the generator reached no
+      # rules at all, which is the harness reporting itself broken rather
+      # than reporting the tool clean.
+      - name: Build hostile repositories
+        run: >
+          python tests/harnesses/fuzz.py /tmp/fuzzpkg /tmp/fuzzarena
+          --seed 20260824 --repos 35 --save /tmp/fuzzfail
+
+      - name: Keep the recipe of anything that failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures
+          path: /tmp/fuzzfail
+          if-no-files-found: ignore
+
   self-check:
     # The tool validating its own status document. fetch-depth 0 because a
     # shallow clone cannot answer "is this commit an ancestor of trunk" at all
