@@ -22,6 +22,35 @@ python plugin/skills/extant/payload/extant_collect.py --verify --repo .
 The suite must be green and `--verify` must exit 0 before you edit, so a failure
 afterwards is yours rather than inherited.
 
+## Before you push
+
+The suite is not the whole gate, and treating it as one is how this repository
+gets a red `main`. Two of the audits under `tests/harnesses/` run as their own
+CI jobs precisely because pytest structurally cannot perform them:
+
+```sh
+PKG=$(mktemp -d); ARENA=$(mktemp -d)
+python -m pytest
+python tests/harnesses/mutate.py --check-only
+git archive HEAD | tar -x -C "$PKG"
+python tests/harnesses/smoke.py "$PKG" "$ARENA"
+python tests/harnesses/scenarios.py "$PKG" "$ARENA"
+python plugin/skills/extant/payload/extant_collect.py --verify --repo .
+python plugin/skills/extant/payload/extant_collect.py --selftest --repo .
+```
+
+On Windows use a native path for those two directories rather than `mktemp -d`,
+whose MSYS-style result Python cannot open - it reports an empty run, which
+reads exactly like a clean one.
+
+Measured, not hypothetical. A `NOTE:` line worded "this is a shallow clone" put
+a word the smoke scan treats as a network operation into the package's
+operational source. The suite, `--verify`, `--selftest` and all 152 mutation
+anchors were green; smoke was the only thing that saw it, and because it is a
+separate slow job it saw it after the push rather than before. The cheap half
+of that probe now runs in the suite, which does not make the rest of this list
+optional - it makes one failure mode cheaper to catch.
+
 ## Four rules that are not style preferences
 
 **Every check must report its denominator.** "0 findings" and "0 examined" print

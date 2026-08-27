@@ -171,6 +171,11 @@ matrix over project shapes unlike this one, an adversarial smoke test, a
 performance run, and a load test aimed at the known weak points rather than the
 comfortable ones. They are slow and run by hand. See `tests/harnesses/README.md`.
 
+**Two of them are gates, not extras.** `smoke.py` and `scenarios.py` are their
+own CI jobs, so skipping them locally does not skip them - it moves the failure
+to after the push. AGENTS.md carries the full pre-push list and the run that
+proved it was needed.
+
 **Run this before committing any change to `payload/` or `install.py`:**
 
     python tests/harnesses/mutate.py --check-only
