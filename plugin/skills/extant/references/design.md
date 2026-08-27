@@ -919,7 +919,7 @@ an explicit act and it shows up in the diff, which is what a baseline is for.
 
 ## Examined and declined
 
-Recorded so a later reader does not mistake either for an oversight.
+Recorded so a later reader does not mistake any of these for an oversight.
 
 **Entry-scope burial.** `stale-live-claim` reads the newest entry only, so
 moving a live claim into an older entry silences it. Not closed: older entries
@@ -932,6 +932,26 @@ statuses, never quote them - is the mitigation.
 only the small ones changes cost and never a verdict, so it is not a loophole.
 It is also why that shortcut has no mutation in `mutate.py`: a mutation nothing
 can kill survives every campaign and reads as a gap the tests do not have.
+
+**Symbol-aware line pointers.** `dead-line-pointer` asks whether a cited file
+has that many lines, never whether the line still holds the symbol named beside
+it. The wider question has been measured and rejected twice, and the full
+figures sit in the comment above the pattern in `line_pointer.py`.
+
+The short version: across 39 libraries, 21 applications and 3 heavily
+agent-written projects, the citation form barely occurs, and where it does a
+symbol sharing a line with a path is not a claim about that path. The 39-repo
+pass flagged 10 and none was real. The agent-written pass - the population the
+first rejection named as the last hope, since those documents cite code by line
+constantly - produced about 16 flagged claims for at most one real finding, and
+15 of its 23 pointer sites sat in completed plans, so the rule would have
+mostly reported history.
+
+Two things are worth keeping from it. An AST was built rather than assumed
+away, and it changed nothing: the document supplies the symbol NAME, so the
+check reduces to a string search and never needed a parser. And every narrowing
+that removed the false positives also emptied the denominator, which is the
+signature of a rule with no population rather than one with bad keying.
 
 ## A correct rule can be low-yield, and that is the world rather than the keying
 

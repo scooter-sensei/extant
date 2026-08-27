@@ -23,6 +23,41 @@ __all__ = ["RULE", "check", "examined", "probe"]
 # holds what the document says, which would be judging content and is the
 # question no rule here may ask. It asks whether the file has that many lines.
 #
+# The wider claim - "does line 123 still hold the symbol named beside it" -
+# has been measured twice and rejected twice. Do not propose it a third time
+# without reading this paragraph first.
+#
+#   2026-08-04, 39 repositories: 69 (path, symbol) pairs on one line, 36 of
+#   them decidable, 10 flagged, 0 true positives. Every narrowing tried
+#   either kept the false positives or emptied the denominator.
+#
+#   2026-08-05, 21 deployable applications: 0 citations of the strict
+#   `path:symbol` form. Applications document symbols six times less densely
+#   than libraries, so they are the wrong place to look, not the right one.
+#
+#   2026-08-24, 3 heavily agent-written projects whose house rules instruct
+#   the agent to cite code by line - the population the first rejection named
+#   as the last place worth looking. 49 documents, 65,760 lines: 23 pointer
+#   sites, 12 resolving, 8 paired with a symbol, about 16 claims flagged for
+#   at most 1 real finding, and that one in a plan carried out months
+#   earlier. 15 of the 23 sit in archived plans and specs, so the rule would
+#   mostly report history. Requiring call parens, or an operative
+#   preposition, or both, each took the denominator to 0.
+#
+# An AST was built for the third pass rather than assumed away, and it
+# changed nothing: it answers its question exactly, and the failure is
+# upstream of parsing. The document supplies the symbol NAME, so the check
+# never needed a parser in the first place - it reduces to asking whether the
+# file contains that identifier. What defeats it is that the citation form
+# barely occurs, and that a symbol sharing a line with a path is not thereby
+# a claim about that path. The correct attribution is grammatical, and no
+# proximity window recovers it.
+#
+# One adjacent variant was measured at the same time because it would have
+# fitted the guarantee - "does the cited line hold ANYTHING", which is
+# decidable without judging content. Across the same corpus: 0 blank lines
+# cited, 0 past the end. It could not fire either.
+#
 # The 6,474 pointers naming something this repository does not track are left
 # alone. They are pasted stack traces, third-party paths and example output,
 # and whether a path exists is already `dead-path-pointer`'s question - asking
