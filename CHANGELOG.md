@@ -69,6 +69,36 @@ function-length ceiling in the suite to stop the sixth hiding inside another.
 
 Sweep and verify output are otherwise byte-identical to 0.23.0.
 
+**`--archive` and `--search` are now driven end to end by the suite.** Neither
+mode had a test that went through argparse and the config load: every archive
+test called `entries.archive()` directly with an explicit `retain`, so the
+`retain=None` fallback to the configured value had never run, and `--full` had
+no test at all. That is the shape `--search` shipped broken in - a mode nothing
+drove end to end, handing the raw `StatusConfig` where the derived `Config` was
+needed - and `--archive` reaches the same funnel.
+
+Eleven tests, each watched failing before being trusted: the archive mode's
+counts and the relocation those counts claim, asserted separately because a
+mode printing `archived=2` while writing nothing would satisfy the first alone;
+the stale-pointer removal, across two real runs with an entry staged between
+them; the `retain=None` fallback; the guard that refuses the wrong config type;
+and for search, the excerpt against `--full`, the 96-character cap, the refusal
+of an empty query, both directions of the nothing-to-search note, both
+documents with the live one first, and the reference sections that are skipped
+while still counting toward the denominator.
+
+The first version of the pointer test was worthless and the mutation run said
+so: it ran `--archive` twice over an unchanged document, which returns early at
+`phase_count <= retain`, so it passed against a build with the stale-pointer
+removal deleted. Staging a sixth entry between the runs is what puts the
+pointer path back in the run.
+
+**The harness list no longer carries a count of itself.** `fuzz.py` was missing
+from the table in `tests/harnesses/README.md` while having a section below it,
+`AGENTS.md` said "five audits ... run by hand" when there are seven and three
+are CI jobs, and `CONTRIBUTING.md` said "four more audits" while naming the
+pre-fuzz set. No rule here can catch that, because no rule inspects a number.
+
 ## 0.23.0 (2026-08-18)
 
 **One 6,249-line file became a 32-module package, and nothing else changed.**

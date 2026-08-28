@@ -13,14 +13,21 @@ table below is the list; a numeral in front of it is a second copy that rots.)
 | `mutate.py` | does the suite pin anything? | `--check-only` |
 | `scenarios.py` | does it work on projects unlike this one? | yes |
 | `smoke.py` | what happens when someone abuses it? | yes |
+| `fuzz.py` | what about the cases nobody thought of? | yes, fixed seed |
 | `corpus.py` | what does it say about somebody else's repository? | no, needs clones |
 | `perf.py` | is it fast enough to leave installed? | no, by design |
 | `stress.py` | where does it fall over? | no, by design |
 
 The last column is a real distinction, not a backlog. A harness belongs in CI
-when its result is a VERDICT: `scenarios.py` and `smoke.py` each answer a
-yes-or-no question about behaviour, so a change of answer is a regression and
-the job can fail on it. `perf.py` and `stress.py` answer with NUMBERS, and a
+when its result is a VERDICT: `scenarios.py`, `smoke.py` and `fuzz.py` each
+answer a yes-or-no question about behaviour, so a change of answer is a
+regression and the job can fail on it. `fuzz.py` qualifies despite having no
+oracle because the properties it checks are yes-or-no whatever the right answer
+turns out to be - and it runs on a FIXED seed there, so a failure belongs to
+the commit that caused it rather than to whichever corpus the day drew.
+Discovery is a hand-run with a fresh seed.
+
+`perf.py` and `stress.py` answer with NUMBERS, and a
 number needs a threshold before it can fail a build. Every threshold loose
 enough to survive a noisy shared runner is too loose to catch the regressions
 worth catching, and every threshold tight enough to catch them flakes - after

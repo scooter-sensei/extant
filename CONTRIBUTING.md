@@ -166,15 +166,23 @@ single test noticing. The same rule catches a fallback that swallows its
 reason, which is why the fallback prints one.
 
 `tests/harnesses/mutate.py` does this mechanically for the whole suite, and
-`tests/harnesses/` holds four more audits that pytest cannot perform: a scenario
-matrix over project shapes unlike this one, an adversarial smoke test, a
-performance run, and a load test aimed at the known weak points rather than the
-comfortable ones. They are slow and run by hand. See `tests/harnesses/README.md`.
+`tests/harnesses/` holds the other audits that pytest cannot perform: a scenario
+matrix over project shapes unlike this one, an adversarial smoke test, a fuzzer
+that builds hostile repositories at random and checks the properties that hold
+whatever the right answer is, a reconnaissance sweep over real third-party
+repositories, a performance run, and a load test aimed at the known weak points
+rather than the comfortable ones.
 
-**Two of them are gates, not extras.** `smoke.py` and `scenarios.py` are their
-own CI jobs, so skipping them locally does not skip them - it moves the failure
-to after the push. AGENTS.md carries the full pre-push list and the run that
-proved it was needed.
+See `tests/harnesses/README.md` for the list; this sentence deliberately
+carries no count of it. It read "four more audits" for as long as it took the
+next two to arrive - the same drift the README records against its own opening
+line, and the kind no rule here can catch, because no rule inspects a number.
+
+**Three of them are gates, not extras.** `smoke.py`, `scenarios.py` and
+`fuzz.py` are their own CI jobs, so skipping them locally does not skip them -
+it moves the failure to after the push. `fuzz.py` runs there on a fixed seed, so
+a red job names the commit that caused it rather than the corpus the day drew.
+AGENTS.md carries the full pre-push list and the run that proved it was needed.
 
 **Run this before committing any change to `payload/` or `install.py`:**
 

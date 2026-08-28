@@ -146,7 +146,7 @@ only the author knows which two strings name one fact.
 | `plugin/skills/extant/payload/extant_collect.py` | the entry point the hook invokes by path; a version handshake and one import |
 | `plugin/skills/extant/install.py` | the installer, detection and presets |
 | `plugin/skills/extant/references/design.md` | why each rule works as it does |
-| `tests/harnesses/` | five audits pytest cannot perform, run by hand |
+| `tests/harnesses/` | the audits pytest cannot perform. `scenarios.py`, `smoke.py` and `fuzz.py` are their own CI jobs; `mutate.py` runs there as `--check-only`; `corpus.py`, `perf.py` and `stress.py` are hand-run |
 | `CONTRIBUTING.md` | the same rules, aimed at people |
 
 Read `plugin/skills/extant/references/design.md` before changing a rule. It
