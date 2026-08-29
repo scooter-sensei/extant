@@ -8,8 +8,18 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 25 - The two modes nothing was driving, and the probe that proved nothing (shipped, 2026-08-28)
 
-**Status.** Suite is 705 tests, all passing. This work is merged to `main`
-at `aa005a5`.
+**Status.** Suite is 705 tests, all passing. This work shipped in 0.24.0, from
+the commit `d60b822`, and is merged to `main` at `aa005a5`. Phase 24 shipped in
+the same release. The version is recorded here only now, after the tag exists:
+`release_claims_name_our_tags` is on, so writing it beforehand would have been
+a dead release tag in the CI run the release had to wait for.
+
+The wording is "shipped in 0.24.0" and not "is version 0.24.0" for a reason
+worth keeping. `release_tag` matches a version only after `released`, `shipped`
+or `tagged` followed by `in`, `as` or `at`, so the second phrasing states a
+version that no rule reads - a claim that looks checked and is not, which is
+the shape this whole file exists to refuse. Phase 23 below carries exactly that
+wording and is unchecked today.
 
 **What changed.** `--archive` and `--search` are now driven end to end by the
 suite. Neither mode had a test that went through argparse and the config load:

@@ -264,23 +264,31 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
           f"spawn(s), exit code {exit_code}")
     for cmd in spawns:
         print(f"    git {cmd}")
-    # 12, with no spare margin, for the same measured reason CEILING carries
+    # 13, with no spare margin, for the same measured reason CEILING carries
     # none above: with a spare, this exact regression - a `with run_scope():`
     # quietly deleted from main() - left the budget green. If this grows
     # because of a genuine new question, raise the number here and say why in
     # the commit; if it grows because a run_scope() was removed, that is the
     # regression this test exists to catch.
     #
-    # It went to 13 for one commit, when Phase 25 named the branch the work was
-    # written on and `unknown-branch` answered with a `rev-parse --verify
-    # <branch>`. That claim was true only in the checkout that wrote it and
-    # `--verify` failed on CI, so the claim came out and the spawn with it.
-    # Recorded because the raise was correct at the time and is the shape a
-    # legitimate one takes: a document asking a new question, with the ref
-    # table, rev-list and tag lookups still appearing exactly twice.
-    assert len(spawns) <= 12, (
+    # 13 since 0.24.0: the Phase 25 entry records the release it shipped in,
+    # so `dead-release-tag` resolves one tag - `rev-parse --verify --quiet
+    # refs/tags/v0.24.0^{commit}`. A question the document did not ask before,
+    # and a durable one, unlike the case below.
+    #
+    # It went to 13 once before and came back down. Phase 25 also named the
+    # branch the work was written on, `unknown-branch` answered with a
+    # `rev-parse --verify <branch>`, and that claim was true only in the
+    # checkout that wrote it - `--verify` failed on CI against a clone, so the
+    # claim came out and its spawn with it. Both raises are the shape a
+    # legitimate one takes and neither is the shape of the regression: the ref
+    # table, the rev-list and the remote lookups still appear exactly TWICE,
+    # once per validate() + count_examined() pair. A deleted `with run_scope():`
+    # duplicates those instead, which is what to look for before raising this
+    # number again.
+    assert len(spawns) <= 13, (
         f"{len(spawns)} git processes for --verify on this repository, above "
-        f"the 12 measured with run_scope() wrapping main()'s own validate() "
+        f"the 13 measured with run_scope() wrapping main()'s own validate() "
         f"+ count_examined() pairs. If this is a genuine new question, raise "
         f"the number here and say why in the commit; if a `with run_scope():` "
         f"was removed from main(), that is the regression this test exists "
