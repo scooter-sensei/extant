@@ -79,6 +79,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("merge-claim never fires", rules / "merge.py",
          "        if not merged[key]:\n            findings.append(Finding(",
          "        if False:\n            findings.append(Finding("),
+        # The claim scanner reads the whole document so a claim wrapped at the
+        # margin is seen at all, and this is the guard that stops the same
+        # `\s+` walking across a paragraph break or through the spaces prose()
+        # leaves where a fence was. Removing it invents claims nobody wrote,
+        # which is the direction that gets a validator switched off - and it is
+        # invisible to every document whose claims happen to fit on one line,
+        # which is most of them.
+        ("a merge claim may span a paragraph break", commits,
+         '        if match.group(0).count("\\n") > 1:\n            continue',
+         "        if False:\n            continue"),
         # Retargeted when ancestry became per-ref: the index is keyed by
         # (repo, ref) now and the prefix lookup moved into reachable_from.
         ("batched ancestry always answers yes", refs,

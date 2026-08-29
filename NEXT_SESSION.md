@@ -49,7 +49,7 @@ from the table in `tests/harnesses/README.md` while having a section below it,
 are CI jobs, and `CONTRIBUTING.md` said "four more audits" while naming the
 pre-fuzz set. No rule here can catch that, because no rule inspects a number.
 
-**Two defects the new claims exposed, one now fixed.** Both were invisible
+**Two defects the new claims exposed, both now fixed.** Both were invisible
 until this document made a claim the rule could read, which is the argument for
 the paragraph below.
 
@@ -69,16 +69,31 @@ the paragraph below.
   through verbatim, the loss on this file is 0, and the contract has tests of
   its own plus a mutation aimed at the CRLF branch, so the next attempt to
   simplify it back fails on the platform the defect reaches.
-- **`false-merge-claim` cannot see a claim split across a newline.** With the
-  ref, `at` and the SHA on one line the rule fires; with the SHA wrapped onto
-  the next line it stays silent, while `merge_claim` and the rule's own probe
-  both still match. Two matchers disagreeing about one claim. Found by
+- **`false-merge-claim` could not see a claim split across a newline. FIXED.**
+  `merge_claim` separates its parts with `\s+`, which matches a newline, and
+  the rule's probe searches the whole document - so a wrapped claim was found
+  there. The scanner the rule actually reads fed the pattern one line at a
+  time, so the pattern was never given the chance its own `\s+` describes. Two
+  matchers for one claim, and the rule was the blind one. The failure is the
+  quiet direction: a false claim went unexamined rather than judged and found
+  true, counted by the denominator as absent rather than as passing. Found by
   accident, because the first draft of the status line above wrapped.
 
-The second is still open, deliberately. Changing what a rule matches is the
-thing that has to be measured against a corpus first; repairing a stated
-contract is not, which is why the offset one went first and was fixed where the
-promise is made rather than by moving either probe.
+Both are fixed. The second widens what a scan matches, which is the change this
+project refuses to make on reasoning alone, so it was measured first: across
+263 markdown files in four checkouts the widened scanner found **2 claims the
+line-based one missed and lost none, with no false positives**. Both recovered
+claims are the same real one, in a document nobody here wrote - `MERGED to` at
+the end of a line and `main at` a SHA on the next.
+
+Scanning whole text also lets that `\s+` cross anything whitespace-shaped,
+including the spaces `prose()` leaves where a fenced block was, so a claim may
+now wrap exactly one line break and no more. Without that guard a sentence
+ending in a branch name can adopt a SHA from the paragraph after it, or reach
+through a blanked fence to one the fence existed to mark as an example. Both
+shapes were built, watched being invented, and are refused - inventing a claim
+nobody wrote is worse than missing one, because a false positive is what gets a
+validator switched off.
 
 **Why this entry carries the claims it does, said out loud.** `--selftest`
 probes a rule by corrupting a real claim, so a rule this document makes no

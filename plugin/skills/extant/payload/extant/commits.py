@@ -372,15 +372,31 @@ def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     pattern = config.merge_claim
     named = pattern.groups >= 2
     claims: list[tuple[int, str, str]] = []
-    for number, line in enumerate(prose.splitlines(), start=1):
-        for match in pattern.finditer(line):
-            if named:
-                # The pattern keeps any backticks so the rule can tell a
-                # deliberate ref from a word of prose. See `_claimed_ref` in
-                # extant/rules/merge.py.
-                claims.append((number, match.group(1), match.group(2)))
-            else:
-                claims.append((number, config.trunk, match.group(1)))
+    for match in pattern.finditer(prose):
+        # ONE line break, no more. `merge_claim` separates its parts with
+        # `\s+`, so scanning the whole document - which is what lets a claim
+        # wrapped at the margin be seen at all - also lets that `\s+` cross
+        # anything whitespace-shaped. Two shapes were measured and both are
+        # refused here: a sentence ending in a branch name adopting a SHA from
+        # the paragraph AFTER it, and a claim reaching through the run of
+        # spaces `prose()` leaves where a fenced block used to be, to a SHA the
+        # fence existed to mark as an example. Neither is a claim anybody
+        # wrote, and inventing one is worse than missing one.
+        #
+        # A blank line needs two newlines and a blanked fence needs more, so
+        # this single count refuses both. Line-based scanning could not join
+        # anything and needed no such guard, which is why the tests for it are
+        # written against the widened scan rather than kept from before it.
+        if match.group(0).count("\n") > 1:
+            continue
+        number = prose.count("\n", 0, match.start()) + 1
+        if named:
+            # The pattern keeps any backticks so the rule can tell a
+            # deliberate ref from a word of prose. See `_claimed_ref` in
+            # extant/rules/merge.py.
+            claims.append((number, match.group(1), match.group(2)))
+        else:
+            claims.append((number, config.trunk, match.group(1)))
     return claims
 
 
