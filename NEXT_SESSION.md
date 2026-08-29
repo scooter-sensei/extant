@@ -6,6 +6,84 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 25 - The two modes nothing was driving, and the probe that proved nothing (unreleased, 2026-08-28)
+
+**Status.** Suite is 688 tests, all passing; unreleased, and the last release
+is still 0.23.0. This work is merged to `main` at `aa005a5`, from the branch
+`claude/claude-md-outside-repo-64824e`.
+
+**What changed.** `--archive` and `--search` are now driven end to end by the
+suite. Neither mode had a test that went through argparse and the config load:
+every archive test called `entries.archive()` directly with an explicit
+`retain`, so the `retain=None` fallback to the configured value had never run,
+and `--full` had no test at all. That is the shape `--search` shipped broken in
+- a mode nothing drove end to end, handing the raw `StatusConfig` where the
+derived `Config` was needed - and `--archive` reaches the same funnel.
+
+Eleven tests, in [tests/test_archive_mode.py](tests/test_archive_mode.py) and
+[tests/test_search_mode.py](tests/test_search_mode.py), each watched failing
+before being trusted: the archive mode's counts and the relocation those counts
+claim, asserted separately because a mode printing `archived=2` while writing
+nothing would satisfy the first alone; the stale-pointer removal; the
+`retain=None` fallback; the guard that refuses the wrong config type; and for
+search, the excerpt against `--full`, the 96-character cap, the refusal of an
+empty query, both directions of the nothing-to-search note, both documents with
+the live one first, and the reference sections skipped while still counting
+toward the denominator.
+
+**The probe that proved nothing.** The first version of the pointer test ran
+`--archive` twice over an unchanged document. That returns early at
+`phase_count <= retain`, so the second run wrote nothing and the test passed
+against a build with the stale-pointer removal deliberately deleted. Staging a
+sixth entry between the runs is what puts the pointer path back in the run. A
+mutation run said so; nothing else in the suite could have.
+
+**One defect found and left unfixed.** `--archive` against a repository with no
+status document dies with an unhandled `FileNotFoundError` raised at
+`plugin/skills/extant/payload/extant/entries.py:89`. `run_selftest` handles the
+same case by naming `primary_doc` and its source and returning 1; `run_archive`
+has no such guard.
+
+**The harness list stopped carrying a count of itself.** `fuzz.py` was missing
+from the table in `tests/harnesses/README.md` while having a section below it,
+`AGENTS.md` said "five audits ... run by hand" when there are seven and three
+are CI jobs, and `CONTRIBUTING.md` said "four more audits" while naming the
+pre-fuzz set. No rule here can catch that, because no rule inspects a number.
+
+**Two defects the new claims exposed, neither fixed.** Both were invisible
+until this document made a claim the rule could read, which is the argument for
+the paragraph below.
+
+- **`strip_code` does not preserve offsets on CRLF, and its docstring says it
+  does.** It blanks code with spaces precisely so "every character offset
+  survive", but it normalises line endings on the way, losing one character per
+  line - 1627 on this file. `md_link` and `md_anchor` build their probes by
+  taking a span from the stripped text and splicing it into the original, so on
+  a CRLF checkout the splice lands somewhere else entirely. The probe reports
+  that it corrupted a real match and the rule then correctly sees nothing. The
+  rules themselves are fine: both find a hand-made dead link on CRLF. The
+  consequence is that `--selftest` exits 1 on Windows and 0 on Linux for this
+  same commit, so CI cannot catch it.
+- **`false-merge-claim` cannot see a claim split across a newline.** With the
+  ref, `at` and the SHA on one line the rule fires; with the SHA wrapped onto
+  the next line it stays silent, while `merge_claim` and the rule's own probe
+  both still match. Two matchers disagreeing about one claim. Found by
+  accident, because the first draft of the status line above wrapped.
+
+Neither is fixed here. Changing what a rule matches is the thing that has to be
+measured against a corpus first, and a probe that mis-splices is repaired by
+fixing the offset contract rather than by moving the probe.
+
+**Why this entry carries the claims it does, said out loud.** `--selftest`
+probes a rule by corrupting a real claim, so a rule this document makes no
+claim for reports `NO PROBE` and is not shown to work - 3 of 13 fired before
+this entry. The merge claim, the branch, the two links, the line pointer and
+the anchor in this sentence are every one of them true, and they are here so
+the rules that read them have something to corrupt. Stating that is the point:
+a document arranged to satisfy a check, without saying so, is the same move as
+deleting a claim to pass one. See [1. Layout](#1-layout) for where these files
+sit.
+
 ## Phase 24 - The survey learned to use every core, and an outside branch was mostly refused (unreleased, 2026-08-24)
 
 **Status.** Suite is 672 tests, all passing. Thirteen rules, thirty-two
