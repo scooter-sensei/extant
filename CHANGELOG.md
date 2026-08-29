@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.24.0 (2026-08-29)
 
 **A large `--sweep` now spreads across worker processes.** Above 100 documents
 the survey splits the per-document work across up to eight of them; below that
@@ -67,7 +67,35 @@ survey rather than rebuilt per file.
 `main()` is now five named functions rather than five inline modes, with a
 function-length ceiling in the suite to stop the sixth hiding inside another.
 
-Sweep and verify output are otherwise byte-identical to 0.23.0.
+That performance work leaves sweep and verify output byte-identical to 0.23.0.
+The rule fix below deliberately does not, and says so.
+
+**`false-merge-claim` now sees a claim that wraps a line, so you may get
+findings you did not get before.** They are claims that were always false and
+were never examined: `merge_claim` separates its parts with `\s+`, which matches
+a newline, but the scanner fed the pattern one line at a time, so a claim
+wrapped at the margin was invisible to the rule while the rule's own probe found
+it perfectly well. Two matchers for one claim. The denominator counted such a
+claim as absent rather than as passing, which is the quiet direction: a false
+"merged at X" told the next reader that work landed when it had not.
+
+Measured before shipping, because this widens what a scan matches. Across 263
+markdown files, 0 unreadable: 48 claims found by the old scan and 50 by the new
+one, 0 lost and no false positives. A claim may now wrap ONE line break and no
+more - whole-text scanning lets that `\s+` cross anything whitespace-shaped,
+including the spaces a blanked code fence leaves behind, and without that bound
+a sentence ending in a branch name adopts a SHA from the paragraph after it.
+
+**`strip_code` kept its offset promise on CRLF.** Both blanking paths read
+`splitlines()` and rejoined with a bare newline, so every `\r\n` lost a
+character and a trailing newline went even on LF - 1627 characters on this
+project's own status document. The docstrings promise that "every character
+offset survive" precisely so a caller may take a span from the stripped text and
+use it against the original, which the `dead-md-link` and `dead-md-anchor`
+probes do. On a Windows checkout those probes spliced into the wrong place, so
+`--selftest` reported both rules as not firing while they worked correctly on
+every real document. It exited 1 on Windows and 0 on Linux for the same commit.
+The rules themselves were never affected; no finding changes because of this.
 
 **`--archive` and `--search` are now driven end to end by the suite.** Neither
 mode had a test that went through argparse and the config load: every archive

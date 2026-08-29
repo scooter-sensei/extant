@@ -6,4 +6,4 @@ would become a cycle through the package root.
 """
 from __future__ import annotations
 
-__version__ = "0.23.0"
+__version__ = "0.24.0"

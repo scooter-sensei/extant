@@ -6,10 +6,10 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 25 - The two modes nothing was driving, and the probe that proved nothing (unreleased, 2026-08-28)
+## Phase 25 - The two modes nothing was driving, and the probe that proved nothing (shipped, 2026-08-28)
 
-**Status.** Suite is 688 tests, all passing; unreleased, and the last release
-is still 0.23.0. This work is merged to `main` at `aa005a5`.
+**Status.** Suite is 705 tests, all passing. This work is merged to `main`
+at `aa005a5`.
 
 **What changed.** `--archive` and `--search` are now driven end to end by the
 suite. Neither mode had a test that went through argparse and the config load:
@@ -115,7 +115,7 @@ pushing an ephemeral branch, which would hand the same failure to whoever
 deletes it later. `unknown-branch` goes back to having nothing to corrupt, and
 that is the honest price.
 
-## Phase 24 - The survey learned to use every core, and an outside branch was mostly refused (unreleased, 2026-08-24)
+## Phase 24 - The survey learned to use every core, and an outside branch was mostly refused (shipped, 2026-08-24)
 
 **Status.** Suite is 672 tests, all passing. Thirteen rules, thirty-two
 modules, and no new setting. The last release is 0.23.0 at `f6aafc34`;
