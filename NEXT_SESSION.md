@@ -235,7 +235,7 @@ against the wrong implementation: seven for seven.
 
 ## Phase 23 - One 6,249-line file became a 32-module package (shipped, 2026-08-18)
 
-**Status.** This work is version 0.23.0, tagged at `f6aafc34`. Recorded here
+**Status.** This work shipped in 0.23.0, tagged at `f6aafc34`. Recorded here
 after the fact: the release shipped without an entry, so this file went on
 describing 0.22.0 as current. The full account is in CHANGELOG.md; this is the
 part that belongs in a session log.
