@@ -49,29 +49,36 @@ from the table in `tests/harnesses/README.md` while having a section below it,
 are CI jobs, and `CONTRIBUTING.md` said "four more audits" while naming the
 pre-fuzz set. No rule here can catch that, because no rule inspects a number.
 
-**Two defects the new claims exposed, neither fixed.** Both were invisible
+**Two defects the new claims exposed, one now fixed.** Both were invisible
 until this document made a claim the rule could read, which is the argument for
 the paragraph below.
 
-- **`strip_code` does not preserve offsets on CRLF, and its docstring says it
-  does.** It blanks code with spaces precisely so "every character offset
-  survive", but it normalises line endings on the way, losing one character per
-  line - 1627 on this file. `md_link` and `md_anchor` build their probes by
-  taking a span from the stripped text and splicing it into the original, so on
-  a CRLF checkout the splice lands somewhere else entirely. The probe reports
-  that it corrupted a real match and the rule then correctly sees nothing. The
-  rules themselves are fine: both find a hand-made dead link on CRLF. The
-  consequence is that `--selftest` exits 1 on Windows and 0 on Linux for this
-  same commit, so CI cannot catch it.
+- **`strip_code` did not preserve offsets on CRLF, and its docstring said it
+  did. FIXED.** It blanks code with spaces precisely so "every character offset
+  survive", but both blanking loops read `splitlines()` and rejoined with a
+  bare newline, which decides the terminator instead of carrying it through:
+  every `\r\n` lost a character - 1627 on this file - and a trailing newline
+  went even on LF. `md_link` and `md_anchor` build their probes by taking a
+  span from the stripped text and splicing it into the original, so on a CRLF
+  checkout the splice landed one character earlier per preceding line. The
+  probe reported corrupting a real match while the rule read an untouched claim
+  and correctly found nothing, which looked like two broken rules and was
+  neither. `--selftest` exited 1 on Windows and 0 on Linux for the same commit,
+  so CI structurally could not see it - the runners check out LF, where the
+  only casualty is the final newline. Both loops now carry the terminator
+  through verbatim, the loss on this file is 0, and the contract has tests of
+  its own plus a mutation aimed at the CRLF branch, so the next attempt to
+  simplify it back fails on the platform the defect reaches.
 - **`false-merge-claim` cannot see a claim split across a newline.** With the
   ref, `at` and the SHA on one line the rule fires; with the SHA wrapped onto
   the next line it stays silent, while `merge_claim` and the rule's own probe
   both still match. Two matchers disagreeing about one claim. Found by
   accident, because the first draft of the status line above wrapped.
 
-Neither is fixed here. Changing what a rule matches is the thing that has to be
-measured against a corpus first, and a probe that mis-splices is repaired by
-fixing the offset contract rather than by moving the probe.
+The second is still open, deliberately. Changing what a rule matches is the
+thing that has to be measured against a corpus first; repairing a stated
+contract is not, which is why the offset one went first and was fixed where the
+promise is made rather than by moving either probe.
 
 **Why this entry carries the claims it does, said out loud.** `--selftest`
 probes a rule by corrupting a real claim, so a rule this document makes no

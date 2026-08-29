@@ -229,23 +229,55 @@ def _blank(doc: DocScope, text: str, *, inline: bool) -> str:
     return result
 
 
+def _line_and_terminator(raw: str) -> tuple[str, str]:
+    """Split a kept-ends line into its content and its EXACT terminator.
+
+    The terminator is carried through verbatim rather than rebuilt, and that is
+    the whole of the repair here. Both blanking loops used to read
+    `text.splitlines()` and rejoin with `"\\n"`, which decides the terminator
+    instead of preserving it: every `\\r\\n` came back as `\\n` and a trailing
+    newline vanished, so the blanked copy was shorter than the document it is
+    supposed to align with - 1627 characters shorter on this repository's own
+    status document.
+
+    That broke the promise both public functions make, and two callers rely on:
+    the `dead-md-link` and `dead-md-anchor` probes take `match.span()` from the
+    stripped text and splice it into the ORIGINAL. On a CRLF checkout the
+    splice landed one character earlier per preceding line, so the probe
+    reported corrupting a real match while the rule read an untouched claim and
+    correctly found nothing. It looked like two broken rules and was neither.
+
+    A terminator this does not recognise is left as content, which keeps the
+    length right: `splitlines()` also breaks on form feed and the Unicode line
+    separators, and blanking one of those to a space inside a fence costs a
+    character's identity but never an offset.
+    """
+    if raw.endswith("\r\n"):
+        return raw[:-2], "\r\n"
+    if raw.endswith(("\n", "\r")):
+        return raw[:-1], raw[-1]
+    return raw, ""
+
+
 def _blank_uncached(doc: DocScope, text: str, *, inline: bool) -> str:
     if doc.doc_format == "rst":
         return _blank_rst(text, inline=inline)
     out: list[str] = []
     inside = False
-    for line in text.splitlines():
+    for raw in text.splitlines(keepends=True):
+        line, end = _line_and_terminator(raw)
         if _FENCE.match(line):
             inside = not inside
-            out.append(" " * len(line))
+            out.append(" " * len(line) + end)
             continue
         if inside:
-            out.append(" " * len(line))
+            out.append(" " * len(line) + end)
         elif inline and "`" in line:
-            out.append(_INLINE_CODE.sub(lambda m: " " * len(m.group(0)), line))
+            out.append(_INLINE_CODE.sub(
+                lambda m: " " * len(m.group(0)), line) + end)
         else:
-            out.append(line)
-    return "\n".join(out)
+            out.append(line + end)
+    return "".join(out)
 
 
 # reStructuredText marks code three ways, and none of them is a fence.
@@ -269,29 +301,29 @@ def _blank_rst(text: str, *, inline: bool) -> str:
     Blanked with spaces like the markdown path, so line numbers and offsets
     survive for every rule that shares this.
     """
-    lines = text.splitlines()
     out: list[str] = []
     block_indent: int | None = None
-    for line in lines:
+    for raw in text.splitlines(keepends=True):
+        line, end = _line_and_terminator(raw)
         stripped = line.strip()
         indent = len(line) - len(line.lstrip())
         if block_indent is not None:
             # A blank line does not end a literal block; a return to the
             # opening indentation does.
             if not stripped or indent > block_indent:
-                out.append(" " * len(line))
+                out.append(" " * len(line) + end)
                 continue
             block_indent = None
         if _RST_DOCTEST.match(line):
-            out.append(" " * len(line))
+            out.append(" " * len(line) + end)
             continue
         if _RST_DIRECTIVE.match(line) or _RST_LITERAL_INTRO.search(line):
             block_indent = indent
-            out.append(" " * len(line))
+            out.append(" " * len(line) + end)
             continue
-        out.append(_RST_INLINE.sub(lambda m: " " * len(m.group(0)), line)
-                   if inline else line)
-    return "\n".join(out)
+        out.append((_RST_INLINE.sub(lambda m: " " * len(m.group(0)), line)
+                    if inline else line) + end)
+    return "".join(out)
 
 
 def prose(doc: DocScope, text: str) -> str:

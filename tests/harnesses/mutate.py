@@ -1111,6 +1111,17 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # rules over rst does not degrade, it invents: 23 of numpy's findings
         # and all ten of Sphinx's came from reading `.rst` as though it were
         # markdown, and every one was false.
+        # The blanking loops promise that a span taken from the stripped text
+        # lands on the same characters in the original, and two probes splice
+        # on exactly that. Rebuilding the terminator instead of carrying it
+        # through breaks the promise on CRLF only - 1627 characters on this
+        # repository's own document - which is why the suite never saw it and
+        # CI structurally could not: the runners check out LF, where the sole
+        # casualty is the final newline. Aimed at the CRLF branch itself, so
+        # this fails on the platform the defect actually reaches.
+        ("stripped text stops preserving CRLF terminators", text,
+         '    if raw.endswith("\\r\\n"):\n        return raw[:-2], "\\r\\n"',
+         '    if raw.endswith("\\r\\n"):\n        return raw[:-2], "\\n"'),
         ("rst files are read as markdown", text,
          '    return "rst" if suffix == "rst" else "markdown"',
          '    return "markdown"'),
