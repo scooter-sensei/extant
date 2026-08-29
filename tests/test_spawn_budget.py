@@ -264,24 +264,23 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
           f"spawn(s), exit code {exit_code}")
     for cmd in spawns:
         print(f"    git {cmd}")
-    # 13, with no spare margin, for the same measured reason CEILING carries
+    # 12, with no spare margin, for the same measured reason CEILING carries
     # none above: with a spare, this exact regression - a `with run_scope():`
     # quietly deleted from main() - left the budget green. If this grows
     # because of a genuine new question, raise the number here and say why in
     # the commit; if it grows because a run_scope() was removed, that is the
     # regression this test exists to catch.
     #
-    # Was 12. Phase 25 gave NEXT_SESSION.md a branch claim - the entry names
-    # the branch the work was done on - and `unknown-branch` answers that with
-    # one `rev-parse --verify <branch>`. That is a question this document did
-    # not previously ask, not a scope that stopped being held: the other twelve
-    # are unchanged, and the ref table, rev-list and tag lookups still appear
-    # exactly twice, once per validate() + count_examined() pair. A removed
-    # run_scope() would have duplicated those instead, which is the difference
-    # this comment exists to record.
-    assert len(spawns) <= 13, (
+    # It went to 13 for one commit, when Phase 25 named the branch the work was
+    # written on and `unknown-branch` answered with a `rev-parse --verify
+    # <branch>`. That claim was true only in the checkout that wrote it and
+    # `--verify` failed on CI, so the claim came out and the spawn with it.
+    # Recorded because the raise was correct at the time and is the shape a
+    # legitimate one takes: a document asking a new question, with the ref
+    # table, rev-list and tag lookups still appearing exactly twice.
+    assert len(spawns) <= 12, (
         f"{len(spawns)} git processes for --verify on this repository, above "
-        f"the 13 measured with run_scope() wrapping main()'s own validate() "
+        f"the 12 measured with run_scope() wrapping main()'s own validate() "
         f"+ count_examined() pairs. If this is a genuine new question, raise "
         f"the number here and say why in the commit; if a `with run_scope():` "
         f"was removed from main(), that is the regression this test exists "

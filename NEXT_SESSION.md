@@ -9,8 +9,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 ## Phase 25 - The two modes nothing was driving, and the probe that proved nothing (unreleased, 2026-08-28)
 
 **Status.** Suite is 688 tests, all passing; unreleased, and the last release
-is still 0.23.0. This work is merged to `main` at `aa005a5`, from the branch
-`claude/claude-md-outside-repo-64824e`.
+is still 0.23.0. This work is merged to `main` at `aa005a5`.
 
 **What changed.** `--archive` and `--search` are now driven end to end by the
 suite. Neither mode had a test that went through argparse and the config load:
@@ -77,12 +76,22 @@ fixing the offset contract rather than by moving the probe.
 **Why this entry carries the claims it does, said out loud.** `--selftest`
 probes a rule by corrupting a real claim, so a rule this document makes no
 claim for reports `NO PROBE` and is not shown to work - 3 of 13 fired before
-this entry. The merge claim, the branch, the two links, the line pointer and
-the anchor in this sentence are every one of them true, and they are here so
-the rules that read them have something to corrupt. Stating that is the point:
-a document arranged to satisfy a check, without saying so, is the same move as
-deleting a claim to pass one. See [1. Layout](#1-layout) for where these files
-sit.
+this entry. The merge claim, the two links, the line pointer and the anchor in
+this sentence are every one of them true, and they are here so the rules that
+read them have something to corrupt. Stating that is the point: a document
+arranged to satisfy a check, without saying so, is the same move as deleting a
+claim to pass one. See [1. Layout](#1-layout) for where these files sit.
+
+**A branch claim was here too, and the tool was right to kill it.** The entry
+named the worktree branch this work was written on. That branch exists in one
+local checkout and was never pushed, so `--verify` passed here and
+`unknown-branch` fired the moment CI ran it against a clone. The claim was
+verified against the machine that wrote it rather than against the repository,
+which is the same mistake as a check that passes because it examined nothing -
+"true where I am standing" is not true. It is removed rather than repaired by
+pushing an ephemeral branch, which would hand the same failure to whoever
+deletes it later. `unknown-branch` goes back to having nothing to corrupt, and
+that is the honest price.
 
 ## Phase 24 - The survey learned to use every core, and an outside branch was mostly refused (unreleased, 2026-08-24)
 
