@@ -120,6 +120,36 @@ shapes were built, watched being invented, and are refused - inventing a claim
 nobody wrote is worse than missing one, because a false positive is what gets a
 validator switched off.
 
+**A fourth, from a review rather than from a claim, and it named a third of
+itself.** A CodeRabbit run over these commits reported one finding: the
+merge-claim bound counts `"\n"`, which is right for LF and for CRLF - `\r\n`
+contains one - and silently wrong for a bare `\r`, which contains none. Checked
+against the code before being acted on, and true: the bound never tripped on
+such a document, so the guard against a claim borrowing a SHA from the next
+paragraph was not a guard, and every claim reported line 1.
+
+It named `commits.py`. The release scanner had the identical defect and was not
+named, and `entries.py` had a worse relative of it that nobody named: `^` in a
+MULTILINE pattern follows a newline and `\r` is not one, so a CR-only status
+document is a single line to every entry-header pattern. Nothing splits,
+nothing moves, and `--archive` reports a document with no entries in it rather
+than failing - the reassuring zero, in the only operation here that writes
+irreversibly. Its terminator default would also have rewritten every line
+ending in the file as a side effect of retiring two sections.
+
+All three fixed against one `LINE_BREAK` that counts every spelling a line
+ending has. Seventeen tests; the corpus is unchanged at 263 files, 50 merge
+claims and 60 release claims, because for LF and CRLF this changes nothing. The
+archive write-back test PASSED before the fix - the archive was a no-op, so
+nothing was rewritten and the file was trivially intact - so `entries.py` was
+repaired in two stages to watch that test go red in between. Acting on a review
+literally would have fixed one site of three and shipped a test that asserted
+nothing.
+
+CR-only line endings are close to extinct, and that is deliberately not the
+argument. A bound that does not bind is the failure this package is built to
+refuse.
+
 **Why this entry carries the claims it does, said out loud.** `--selftest`
 probes a rule by corrupting a real claim, so a rule this document makes no
 claim for reports `NO PROBE` and is not shown to work - 3 of 13 fired before

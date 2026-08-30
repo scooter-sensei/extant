@@ -88,8 +88,26 @@ def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:
     doc = repo / config.primary_doc
     with open(doc, encoding="utf-8", newline="") as fh:
         original = fh.read()
-    newline = "\r\n" if "\r\n" in original else "\n"
-    normalised = original.replace("\r\n", "\n")
+    # The terminator this file arrived in is the one it leaves in, and a bare
+    # `\r` is one of the three. Detecting only `\r\n` and defaulting to `\n`
+    # rewrote every line ending in a CR-only document as a side effect of
+    # retiring two entries - a change to every line of a file, from an
+    # operation asked to move two sections, in the one place here that writes
+    # irreversibly.
+    #
+    # Normalising has to cover it too, and for a sharper reason: `^` in a
+    # MULTILINE pattern follows a newline, and `\r` is not one. Left as it
+    # arrived, a CR-only document is a single line to every entry-header
+    # pattern, so nothing splits, nothing moves, and `--archive` reports a
+    # document with no entries in it rather than failing - the reassuring zero
+    # this project exists to refuse, in its most expensive location.
+    if "\r\n" in original:
+        newline = "\r\n"
+    elif "\r" in original:
+        newline = "\r"
+    else:
+        newline = "\n"
+    normalised = original.replace("\r\n", "\n").replace("\r", "\n")
 
     preamble, segments, base = split_entries(normalised, config)
 

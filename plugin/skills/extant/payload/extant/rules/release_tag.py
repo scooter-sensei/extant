@@ -8,7 +8,7 @@ from extant.finding import Finding
 from extant.probes import sub_group
 from extant.refs import integrated_by, integration_refs, ref_table
 from extant.scope import Context
-from extant.text import prose
+from extant.text import line_breaks, line_number_at, prose
 
 __all__ = ["RULE", "_release_claims", "check", "examined", "probe"]
 
@@ -100,14 +100,19 @@ def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
         # a claim reaching through the run of spaces `prose()` leaves where a
         # fenced block was, to a version the fence marked as an example.
         #
-        # A blank line needs two newlines and a blanked fence needs more, so
-        # this one count refuses both. The per-line scan this replaces needed
-        # no such guard because it could not join anything - which is why the
+        # A blank line needs two breaks and a blanked fence needs more, so this
+        # one count refuses both. The per-line scan this replaces needed no
+        # such guard because it could not join anything - which is why the
         # tests for it are written against the widened scan and were watched
         # failing against the unguarded version of it.
-        if match.group(0).count("\n") > 1:
+        #
+        # Counted in every SPELLING a line ending has, not just `\n`. A bare
+        # `\r` holds no newline, so a bound counting newlines does not bind at
+        # all on such a document, and `line_number_at` would call every claim
+        # in it line 1.
+        if line_breaks(match.group(0)) > 1:
             continue
-        number = prose_text.count("\n", 0, match.start()) + 1
+        number = line_number_at(prose_text, match.start())
         claims.append((number, match.group(1)))
     return claims
 

@@ -34,6 +34,7 @@ from typing import Any
 
 from extant.refs import SHA_SHAPE, resolve_shas
 from extant.scope import Context
+from extant.text import line_breaks, line_number_at
 
 __all__ = [
     "BACKTICKED", "BARE_SHA_TOKEN", "_ASSET_PATH", "_BARE_SHAS", "_LINKED_SHA",
@@ -387,9 +388,14 @@ def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
         # this single count refuses both. Line-based scanning could not join
         # anything and needed no such guard, which is why the tests for it are
         # written against the widened scan rather than kept from before it.
-        if match.group(0).count("\n") > 1:
+        # Counted in every spelling a line ending has. `\r\n` contains `\n` so
+        # counting newlines was right for CRLF and was never the question; a
+        # bare `\r` contains none, so the bound never tripped and the guard
+        # below was not one. The offset-to-line count has the same blind spot
+        # and reported every claim in such a document as line 1.
+        if line_breaks(match.group(0)) > 1:
             continue
-        number = prose.count("\n", 0, match.start()) + 1
+        number = line_number_at(prose, match.start())
         if named:
             # The pattern keeps any backticks so the rule can tell a
             # deliberate ref from a word of prose. See `_claimed_ref` in

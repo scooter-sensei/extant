@@ -86,8 +86,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # which is the direction that gets a validator switched off - and it is
         # invisible to every document whose claims happen to fit on one line,
         # which is most of them.
+        # Retargeted when the bound stopped counting `"\n"` and started
+        # counting line breaks in every spelling. The old anchor named a
+        # `.count("\\n")` that no longer exists, and both of these reported
+        # STALE rather than passing - which is the only reason the retarget
+        # happened in the commit that caused it.
         ("a merge claim may span a paragraph break", commits,
-         '        if match.group(0).count("\\n") > 1:\n            continue',
+         "        if line_breaks(match.group(0)) > 1:\n            continue",
          "        if False:\n            continue"),
         # The same bound on the release-claim scanner, which reads the whole
         # document for the same reason and can walk the same whitespace. Its
@@ -96,7 +101,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # claim was COUNTED by the denominator and never read - which prints as
         # examined-and-clean rather than as zero.
         ("a release claim may span a paragraph break", rules / "release_tag.py",
-         '        if match.group(0).count("\\n") > 1:\n            continue',
+         "        if line_breaks(match.group(0)) > 1:\n            continue",
          "        if False:\n            continue"),
         # Retargeted when ancestry became per-ref: the index is keyed by
         # (repo, ref) now and the prefix lookup moved into reachable_from.
@@ -1145,6 +1150,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("stripped text stops preserving CRLF terminators", text,
          '    if raw.endswith("\\r\\n"):\n        return raw[:-2], "\\r\\n"',
          '    if raw.endswith("\\r\\n"):\n        return raw[:-2], "\\n"'),
+        # One anchor for both claim scanners, because both bound themselves
+        # with `line_breaks`. Counting `\n` alone is right for LF and for CRLF
+        # - which contains one - and silently wrong for a bare `\r`: the bound
+        # never trips, so the guard against a claim borrowing from the next
+        # paragraph is not a guard, and every claim reports line 1. Raised by a
+        # review of the merge scanner; the release scanner had it too and was
+        # not named, which is why this aims at the shared helper.
+        ("line breaks are counted as newlines alone", text,
+         r'LINE_BREAK = re.compile(r"\r\n|[\n\r]")',
+         r'LINE_BREAK = re.compile(r"\n")'),
         ("rst files are read as markdown", text,
          '    return "rst" if suffix == "rst" else "markdown"',
          '    return "markdown"'),

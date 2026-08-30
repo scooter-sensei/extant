@@ -76,8 +76,9 @@ from extant.scope import Context, DocScope
 # them by name today, so the list stands as a record of what this module owns
 # rather than a promise to an outside caller.
 __all__ = [
-    "ORDER_PREFIX", "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
-    "_FENCE", "_INLINE_CODE", "_LANGUAGE_DIR",
+    "LINE_BREAK", "ORDER_PREFIX",
+    "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
+    "_FENCE", "_INLINE_CODE", "_LANGUAGE_DIR", "_line_and_terminator",
     "_MYST_TARGET", "_NESTED_HEADING",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_SETEXT_RULE", "_STRIPPED", "_blank", "_blank_rst",
@@ -87,7 +88,8 @@ __all__ = [
     "_slug_punctuation_to_dash", "_translation_tree",
     "_without_tags", "EXTERNAL", "HEADING", "MARKDOWN_ONLY", "MD_LINK",
     "anchors", "format_for",
-    "current_document", "numbered_document", "percent_decoded",
+    "current_document", "line_breaks", "line_number_at", "numbered_document",
+    "percent_decoded",
     "prose", "strip_code", "unique_basename",
 ]
 
@@ -227,6 +229,33 @@ def _blank(doc: DocScope, text: str, *, inline: bool) -> str:
     result = _blank_uncached(doc, text, inline=inline)
     _STRIPPED[inline] = (text, result)
     return result
+
+
+# Every spelling a line ending has, longest first so `\r\n` is one break and
+# not two. Counting `"\n"` instead is right for LF and for CRLF - which
+# contains one - and silently wrong for a bare `\r`, which contains none.
+LINE_BREAK = re.compile(r"\r\n|[\n\r]")
+
+
+def line_breaks(text: str) -> int:
+    """How many line breaks a string contains, in any spelling.
+
+    Used to BOUND a claim to a single wrapped line. A bound that counts only
+    `\\n` does not bind at all on a CR-only document: the scanners it guards
+    read the whole text, so the bound is the only thing standing between a
+    claim and a version or SHA in the paragraph after it.
+    """
+    return len(LINE_BREAK.findall(text))
+
+
+def line_number_at(text: str, offset: int) -> int:
+    """The 1-based line an offset falls on, in any spelling.
+
+    Its counterpart. Counting `"\\n"` up to the offset reports every claim in a
+    CR-only document as line 1 - a number that is confidently wrong rather than
+    absent, which sends a reader to the top of the file.
+    """
+    return len(LINE_BREAK.findall(text, 0, offset)) + 1
 
 
 def _line_and_terminator(raw: str) -> tuple[str, str]:
