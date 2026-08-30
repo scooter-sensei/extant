@@ -270,7 +270,7 @@ does not change that.
 ## Phase 22 - The limit 0.21.0 could only name is now configurable (shipped, 2026-08-09)
 
 **Status.** Suite is 606 tests, all passing. Thirteen rules, eighteen presets,
-and one new setting. This work is version 0.22.0, tagged at `6a27497`.
+and one new setting. This work shipped in 0.22.0, tagged at `6a27497`.
 Thirty-one tags from `v0.5.0`, each carrying a GitHub release. Two changes to
 shipped content sit above the tag and are unreleased: a drifted number the gap
 audit found (`9931855b`), and the campaign's own repair (`500c6a6`). Everything
@@ -376,9 +376,9 @@ holds, but it was confirmed afterwards rather than at the time.
 ## Phase 21 - The rules did not generalise, and forty unseen repositories said how (shipped, 2026-08-09)
 
 **Status.** Suite is 589 tests, all passing. Thirteen rules, eighteen presets,
-unchanged - every fix narrows a rule that already existed. This work is
-version 0.21.0, tagged at `7e844a3`. Thirty tags from `v0.5.0`, each carrying
-a GitHub release.
+unchanged - every fix narrows a rule that already existed. This work
+shipped in 0.21.0, tagged at `7e844a3`. Thirty tags from `v0.5.0`, each
+carrying a GitHub release.
 
 **Why this was done.** Every rule here was designed against 92 repositories
 and tuned until that set was quiet, so re-running there measured the fitting
@@ -472,7 +472,7 @@ general path exclusion today, and that is the clearest next piece of work.
 ## Phase 20 - The machine formats stop contradicting the exit code (shipped, 2026-08-06)
 
 **Status.** Suite is 547 tests, all passing. Thirteen rules, eighteen presets.
-This work is version 0.20.0. Twenty-nine tags from `v0.5.0`, each carrying a
+This work shipped in 0.20.0. Twenty-nine tags from `v0.5.0`, each carrying a
 GitHub release.
 
 **What shipped.**
@@ -655,7 +655,7 @@ all dead:
 ## Phase 17 - A denominator for the survey, and a gate for the release (shipped, 2026-08-04)
 
 **Status.** Suite was 536 tests at the time, all passing. Thirteen rules,
-eighteen presets. That work was version 0.19.0, published to PyPI and verified
+eighteen presets. That work shipped in 0.19.0, published to PyPI and verified
 from the installed wheel rather than from the working tree, and it left all 28
 tags from `v0.5.0` carrying a GitHub release with only the newest holding the
 Latest badge.
@@ -756,7 +756,7 @@ reports 139 of 139 matching.
 ## Phase 16 - A thirteenth rule, and the hole between it and an old one (shipped, 2026-08-04)
 
 **Status.** Suite was 512 tests at the time, all passing. Thirteen rules,
-eighteen presets. That work was version 0.18.1, and it left all 27 tags from
+eighteen presets. That work shipped in 0.18.1, and it left all 27 tags from
 `v0.5.0` carrying a GitHub release with only the newest holding the Latest
 badge.
 
@@ -838,7 +838,7 @@ badge.
 ## Phase 15 - A twelfth rule, measured before it was written (shipped, 2026-08-04)
 
 **Status.** Suite was 482 tests at the time, all passing. Twelve rules,
-eighteen presets. That work was version 0.17.2, and it left every tag from
+eighteen presets. That work shipped in 0.17.2, and it left every tag from
 `v0.5.0` carrying a GitHub release, against 19 at its start.
 
 **What shipped.**
@@ -925,7 +925,7 @@ eighteen presets. That work was version 0.17.2, and it left every tag from
 ## Phase 14 - What the campaign and the profiler found (shipped, 2026-08-03)
 
 **Status.** Suite was 447 tests at the time, all passing. Eleven rules,
-eighteen presets. That work was version 0.16.2.
+eighteen presets. That work shipped in 0.16.2.
 
 **What shipped.**
 
@@ -972,7 +972,7 @@ eighteen presets. That work was version 0.16.2.
 ## Phase 13 - The corpus that was never sampled (shipped, 2026-08-03)
 
 **Status.** Suite was 440 tests at the time, all passing. Eleven rules,
-eighteen presets. That work was version 0.16.1. It could not fold into `v0.16.0`: that version was
+eighteen presets. That work shipped in 0.16.1. It could not fold into `v0.16.0`: that version was
 already on PyPI, which never lets a version number be re-uploaded, so moving
 the tag would have left the repository asserting that `v0.16.0` is code PyPI
 has never served.
