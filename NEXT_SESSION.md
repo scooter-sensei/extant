@@ -575,7 +575,7 @@ preset-resolver mutations, all killed.
 
 **Status.** Suite was 536 tests at the time, all passing. Thirteen rules,
 eighteen presets, twelve of which supply a consistency pairing. No code changed
-in that work, so it remained version 0.19.0 against twenty-eight tags from
+in that work, so it remained released as 0.19.0 against twenty-eight tags from
 `v0.5.0`, each carrying a GitHub release.
 
 **What shipped.** Two new clauses in the admission test, in `CONTRIBUTING.md`
@@ -642,7 +642,7 @@ wrong.
 
 **Status.** Suite was 536 tests at the time, all passing. Thirteen rules,
 eighteen presets. No version was cut for that work, because nothing shipped but
-documentation, so it remained version 0.19.0 against twenty-eight tags from
+documentation, so it remained released as 0.19.0 against twenty-eight tags from
 `v0.5.0`, each carrying a GitHub release.
 
 **What shipped.**

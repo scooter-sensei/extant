@@ -277,16 +277,23 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # `tagged` followed by `in`, `as` or `at` - so every historical release
     # claim in this file sat there looking checked and read by nothing. They
     # now say "shipped in X.Y.Z" and are checked, at ONE SPAWN PER DISTINCT TAG
-    # CLAIMED: thirteen tags, thirteen `rev-parse --verify --quiet
-    # refs/tags/vX^{commit}`, on the command the post-commit hook runs after
-    # every commit. That cost buys thirteen claims that can now go stale
-    # loudly instead of quietly, and it is the number to reach for before
-    # adding another such claim.
+    # CLAIMED: fifteen claims naming thirteen distinct tags, and thirteen
+    # `rev-parse --verify --quiet refs/tags/vX^{commit}` - the lookup is per
+    # TAG, not per claim, so a claim naming a tag another claim already named
+    # is free. That is the number to reach for before adding another: a new
+    # claim about an already-claimed release costs nothing, a new one about a
+    # new release costs a spawn on the command the post-commit hook runs after
+    # every commit.
     #
-    # TWO were deliberately not reworded and must stay that way: both say "no
-    # version was cut for that work, so it remained version 0.19.0". That is a
-    # statement that no release happened, and "shipped in 0.19.0" would assert
-    # one that did not - inventing a claim rather than checking one.
+    # TWO of the fifteen took a different wording, and the difference is the
+    # point. Both say "no version was cut for that work, so it remained ...
+    # 0.19.0" - a statement that no release happened. "Shipped in 0.19.0" would
+    # have asserted one that did not, so they say "remained RELEASED AS 0.19.0"
+    # instead: same meaning, and `release_tag` reads it. They were left
+    # unchecked for a while on the belief that no faithful checkable wording
+    # existed, which was a failure of imagination rather than a property of the
+    # rule - the trigger words are `released`, `shipped` and `tagged`, and only
+    # one of the three had been tried.
     #
     # The shape of the regression is unchanged by any of this: the ref table,
     # the rev-list and the remote lookups still appear exactly TWICE, once per
