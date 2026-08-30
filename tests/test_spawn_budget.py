@@ -264,22 +264,22 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
           f"spawn(s), exit code {exit_code}")
     for cmd in spawns:
         print(f"    git {cmd}")
-    # 22, with no spare margin, for the same measured reason CEILING carries
+    # 23, with no spare margin, for the same measured reason CEILING carries
     # none above: with a spare, this exact regression - a `with run_scope():`
     # quietly deleted from main() - left the budget green. If this grows
     # because of a genuine new question, raise the number here and say why in
     # the commit; if it grows because a run_scope() was removed, that is the
     # regression this test exists to catch.
     #
-    # 22 since 0.24.0, and the jump is a DECISION rather than drift. Ten
+    # 23 since 0.24.1, and the jump is a DECISION rather than drift. Ten
     # entries used to say "This work is version X.Y.Z", which `release_tag`
     # does not read - it matches a version only after `released`, `shipped` or
     # `tagged` followed by `in`, `as` or `at` - so every historical release
     # claim in this file sat there looking checked and read by nothing. They
     # now say "shipped in X.Y.Z" and are checked, at ONE SPAWN PER DISTINCT TAG
-    # CLAIMED: twelve tags, twelve `rev-parse --verify --quiet
+    # CLAIMED: thirteen tags, thirteen `rev-parse --verify --quiet
     # refs/tags/vX^{commit}`, on the command the post-commit hook runs after
-    # every commit. That cost buys twelve claims that can now go stale
+    # every commit. That cost buys thirteen claims that can now go stale
     # loudly instead of quietly, and it is the number to reach for before
     # adding another such claim.
     #
@@ -303,9 +303,9 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # once per validate() + count_examined() pair. A deleted `with run_scope():`
     # duplicates those instead, which is what to look for before raising this
     # number again.
-    assert len(spawns) <= 22, (
+    assert len(spawns) <= 23, (
         f"{len(spawns)} git processes for --verify on this repository, above "
-        f"the 22 measured with run_scope() wrapping main()'s own validate() "
+        f"the 23 measured with run_scope() wrapping main()'s own validate() "
         f"+ count_examined() pairs. If this is a genuine new question, raise "
         f"the number here and say why in the commit; if a `with run_scope():` "
         f"was removed from main(), that is the regression this test exists "

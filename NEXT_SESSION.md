@@ -8,9 +8,12 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 25 - The two modes nothing was driving, and the probe that proved nothing (shipped, 2026-08-28)
 
-**Status.** Suite is 705 tests, all passing. This work shipped in 0.24.0, from
+**Status.** Suite is 732 tests, all passing. This work shipped in 0.24.0, from
 the commit `d60b822`, and is merged to `main` at `aa005a5`. Phase 24 shipped in
-the same release. The version is recorded here only now, after the tag exists:
+the same release. Two of the four defects below were found after that tag and
+shipped in 0.24.1: the release-claim denominator that counted what its check
+could not read, and the bound that did not bind on a CR-only document. Each
+version is recorded here only after its tag exists:
 `release_claims_name_our_tags` is on, so writing it beforehand would have been
 a dead release tag in the CI run the release had to wait for.
 
