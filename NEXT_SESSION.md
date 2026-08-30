@@ -59,9 +59,24 @@ from the table in `tests/harnesses/README.md` while having a section below it,
 are CI jobs, and `CONTRIBUTING.md` said "four more audits" while naming the
 pre-fuzz set. No rule here can catch that, because no rule inspects a number.
 
-**Two defects the new claims exposed, both now fixed.** Both were invisible
+**Three defects the new claims exposed, all now fixed.** Each was invisible
 until this document made a claim the rule could read, which is the argument for
-the paragraph below.
+the paragraph below. The third was found by stopping to ask whether it was safe
+to wrap a claim before writing eight of them, rather than by anything failing.
+
+- **`dead-release-tag` counted claims its check could not read. FIXED.** Three
+  readers of one pattern ran two different scans: `examined` and `probe`
+  searched the whole document while `check` - the only one that decides a
+  finding - matched per line. `release_tag` separates its parts with `\s+`, so
+  a claim wrapped at the margin was seen by two of the three. That is the
+  sharper form of the merge-claim defect below: there a wrapped claim was
+  absent from the denominator too, and the count at least said "nothing here";
+  here it reported `examined=1, findings=0`, which prints as examined and
+  clean. The one number kept to tell "checked and fine" apart from "never
+  looked" was reporting the wrong one. `check` and `examined` now read one
+  scanner, bounded to a single line break like the merge one, and restructuring
+  the check dedented a block that three mutation anchors named - all three
+  reported STALE, were retargeted, and were re-run for real rather than assumed.
 
 - **`strip_code` did not preserve offsets on CRLF, and its docstring said it
   did. FIXED.** It blanks code with spaces precisely so "every character offset

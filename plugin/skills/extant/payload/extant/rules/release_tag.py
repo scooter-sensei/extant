@@ -10,7 +10,7 @@ from extant.refs import integrated_by, integration_refs, ref_table
 from extant.scope import Context
 from extant.text import prose
 
-__all__ = ["RULE", "check", "examined", "probe"]
+__all__ = ["RULE", "_release_claims", "check", "examined", "probe"]
 
 
 def check(ctx: Context, text: str) -> list[Finding]:
@@ -33,57 +33,92 @@ def check(ctx: Context, text: str) -> list[Finding]:
     # Claims inside code are examples, not promises. See prose.
     text = prose(ctx.doc, text)
     findings: list[Finding] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        for tag in ctx.config.release_tag.findall(line):
-            resolved = _released_tag(ctx, tag)
-            if resolved is None:
-                if ctx.config.release_claims_are_ours:
-                    findings.append(Finding(
-                        number, "dead-release-tag",
-                        f"claims release `{tag}`, but no such tag exists",
-                        subject=tag,
-                    ))
-                    continue
-                # "NO SUCH TAG EXISTS" IS NOT A QUESTION GIT CAN SETTLE, and
-                # this branch used to answer it anyway. A version in prose can
-                # name a git tag, an npm or PyPI release, a sub-package, a
-                # plugin, or a toolchain somebody else ships, and nothing in
-                # the sentence says which.
-                #
-                # Measured on 15 repositories that write prose release claims,
-                # it was wrong 19 times out of 26. eugenelim/agent-ready-repo
-                # tags `credbroker-v0.4.0` and writes "shipped as 0.27.0", an
-                # npm version; 10CG/Aria tags to v1.5.0 and cites v1.17.3
-                # through v1.24.1, its plugin's numbering; rust-lang/rfcs has
-                # no tags at all and discusses Rust's releases throughout.
-                #
-                # A range test was tried and does not separate them - two of
-                # the false positives sit inside the repository's own tag
-                # range - so there is no narrowing here, only a question the
-                # rule should not be asking. `dead-pinned-ref` stays honest on
-                # the same problem only because `repo:` names the owner on the
-                # line above; prose carries no such marker.
-                #
-                # The cost is real and stated: a project that claims a release
-                # it never tagged is no longer caught. What remains is the
-                # half that IS settleable - the tag is here, and it shipped on
-                # nothing - which was right 7 times out of 7.
-                continue
-            if not integration_refs(ctx):
-                continue        # no integration branch here to have shipped it
-            if not integrated_by(ctx, f"refs/tags/{resolved}"):
+    for number, tag in _release_claims(ctx.config, text):
+        resolved = _released_tag(ctx, tag)
+        if resolved is None:
+            if ctx.config.release_claims_are_ours:
                 findings.append(Finding(
                     number, "dead-release-tag",
-                    f"tag `{resolved}` exists but is on no integration branch "
-                    f"({', '.join(integration_refs(ctx))})",
+                    f"claims release `{tag}`, but no such tag exists",
                     subject=tag,
                 ))
+                continue
+            # "NO SUCH TAG EXISTS" IS NOT A QUESTION GIT CAN SETTLE, and
+            # this branch used to answer it anyway. A version in prose can
+            # name a git tag, an npm or PyPI release, a sub-package, a
+            # plugin, or a toolchain somebody else ships, and nothing in
+            # the sentence says which.
+            #
+            # Measured on 15 repositories that write prose release claims,
+            # it was wrong 19 times out of 26. eugenelim/agent-ready-repo
+            # tags `credbroker-v0.4.0` and writes "shipped as 0.27.0", an
+            # npm version; 10CG/Aria tags to v1.5.0 and cites v1.17.3
+            # through v1.24.1, its plugin's numbering; rust-lang/rfcs has
+            # no tags at all and discusses Rust's releases throughout.
+            #
+            # A range test was tried and does not separate them - two of
+            # the false positives sit inside the repository's own tag
+            # range - so there is no narrowing here, only a question the
+            # rule should not be asking. `dead-pinned-ref` stays honest on
+            # the same problem only because `repo:` names the owner on the
+            # line above; prose carries no such marker.
+            #
+            # The cost is real and stated: a project that claims a release
+            # it never tagged is no longer caught. What remains is the
+            # half that IS settleable - the tag is here, and it shipped on
+            # nothing - which was right 7 times out of 7.
+            continue
+        if not integration_refs(ctx):
+            continue        # no integration branch here to have shipped it
+        if not integrated_by(ctx, f"refs/tags/{resolved}"):
+            findings.append(Finding(
+                number, "dead-release-tag",
+                f"tag `{resolved}` exists but is on no integration branch "
+                f"({', '.join(integration_refs(ctx))})",
+                subject=tag,
+            ))
     return findings
 
 
+def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
+    """(line, tag) for every release claim, read ONCE for check and examined.
+
+    Three readers of one pattern used to run two different scans: `examined`
+    and `probe` searched the whole document while `check` matched per line, so
+    a claim wrapped at the margin was counted by the denominator and never read
+    by the rule. That prints as examined-and-clean, which is the one thing the
+    denominator exists to stop being ambiguous.
+    """
+    claims: list[tuple[int, str]] = []
+    for match in config.release_tag.finditer(prose_text):
+        # ONE line break, no more, for the reason `merge_claims` bounds itself
+        # the same way. `release_tag` separates its parts with `\s+`, so
+        # scanning the whole document - which is what lets a wrapped claim be
+        # read at all - also lets that `\s+` cross anything whitespace-shaped.
+        # Two shapes were built and watched being invented: a sentence ending
+        # in "shipped in" adopting a version from the paragraph AFTER it, and
+        # a claim reaching through the run of spaces `prose()` leaves where a
+        # fenced block was, to a version the fence marked as an example.
+        #
+        # A blank line needs two newlines and a blanked fence needs more, so
+        # this one count refuses both. The per-line scan this replaces needed
+        # no such guard because it could not join anything - which is why the
+        # tests for it are written against the widened scan and were watched
+        # failing against the unguarded version of it.
+        if match.group(0).count("\n") > 1:
+            continue
+        number = prose_text.count("\n", 0, match.start()) + 1
+        claims.append((number, match.group(1)))
+    return claims
+
+
 def examined(ctx: Context, text: str) -> int:
-    """Every release claim the pattern finds, counted over prose."""
-    return len(ctx.config.release_tag.findall(prose(ctx.doc, text)))
+    """Every release claim the scanner finds, counted over prose.
+
+    Counted by the SAME scanner the check reads, so the denominator cannot
+    report a population the check never sees.
+    """
+    return len(_release_claims(ctx.config, prose(ctx.doc, text)))
 
 
 def _tags(ctx: Context) -> set[str]:

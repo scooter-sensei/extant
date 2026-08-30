@@ -89,6 +89,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a merge claim may span a paragraph break", commits,
          '        if match.group(0).count("\\n") > 1:\n            continue',
          "        if False:\n            continue"),
+        # The same bound on the release-claim scanner, which reads the whole
+        # document for the same reason and can walk the same whitespace. Its
+        # own defect was the sharper one: `examined` and `probe` already
+        # scanned whole text while `check` went line by line, so a wrapped
+        # claim was COUNTED by the denominator and never read - which prints as
+        # examined-and-clean rather than as zero.
+        ("a release claim may span a paragraph break", rules / "release_tag.py",
+         '        if match.group(0).count("\\n") > 1:\n            continue',
+         "        if False:\n            continue"),
         # Retargeted when ancestry became per-ref: the index is keyed by
         # (repo, ref) now and the prefix lookup moved into reachable_from.
         ("batched ancestry always answers yes", refs,
@@ -195,17 +204,21 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # prose can name an npm release, a sub-package or a plugin - so it is
         # opt-in. On by default it was wrong 19 times in 26 across 15 projects
         # that write such claims.
+        # Retargeted when `check` stopped nesting a per-line loop inside a
+        # per-match one and read the shared scanner instead: the body it names
+        # lost a level of indentation, and all three release-tag anchors below
+        # matched nothing until they followed it.
         ("a claimed release is judged local without being told",
          rules / "release_tag.py",
-         "            if resolved is None:\n"
-         "                if ctx.config.release_claims_are_ours:",
-         "            if resolved is None:\n"
-         "                if True:"),
+         "        if resolved is None:\n"
+         "            if ctx.config.release_claims_are_ours:",
+         "        if resolved is None:\n"
+         "            if True:"),
         ("the opt-in never fires even when it is set", rules / "release_tag.py",
-         "            if resolved is None:\n"
-         "                if ctx.config.release_claims_are_ours:",
-         "            if resolved is None:\n"
-         "                if False:"),
+         "        if resolved is None:\n"
+         "            if ctx.config.release_claims_are_ours:",
+         "        if resolved is None:\n"
+         "            if False:"),
         # Git resolves a bare name by trying `refs/tags/` BEFORE
         # `refs/heads/`. Reading the table heads-first resolves a repository
         # holding a branch and a tag of the same name to a different commit
@@ -289,8 +302,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted a second time when the rule started asking about the tag
         # it RESOLVED the claim to rather than the string the author wrote.
         ("release-tag ancestry check dropped", rules / "release_tag.py",
-         '            if not integrated_by(ctx, f"refs/tags/{resolved}"):',
-         "            if False:"),
+         '        if not integrated_by(ctx, f"refs/tags/{resolved}"):',
+         "        if False:"),
         ("path/branch guard removed (a file becomes a phantom branch)",
          rules / "branch.py",
          "            if looks_like_a_path(ctx, branch):\n"
