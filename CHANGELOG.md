@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.24.1 (2026-08-30)
+
+Two fixes, both to checks that reported something other than what they had
+actually checked. No feature changes, and no finding changes for a document
+written with LF or CRLF line endings.
+
+**`dead-release-tag` now reads a release claim that wraps a line, so you may
+get findings you did not get before.** They are claims that were always false
+and were never examined. The rule had three readers of one pattern and two
+different scans: `examined` and the selftest probe searched the whole document
+while the check - the only one that decides a finding - matched line by line.
+`release_tag` separates its parts with `\s+`, which matches a newline, so a
+claim wrapped at the margin was seen by two of the three.
+
+The denominator is the reason this is worth a release rather than a note. It
+reported `examined=1` against `0 findings`, which prints as *examined and
+clean* - not as the "0 examined" this project keeps denominators to make
+visible. The one number kept to tell "checked and fine" apart from "never
+looked" was reporting the wrong one. Check and denominator now read one
+scanner, so the count cannot describe a population the check never sees.
+
+Measured before shipping, as a widening must be: 263 markdown files, 57 claims
+found by the old scan and 60 by the new, none lost. All three additions are one
+wrapped quotation in a changelog, a document kind this project does not check
+by default. A project that does check its changelog, has
+`release_claims_name_our_tags` on, and quotes a wrapped version matching one of
+its own tags could see a new finding. Narrow, not zero.
+
+**A bound that counted newlines did not bind on a CR-only document.** `\r\n`
+contains `\n`, so CRLF was never affected; a bare `\r` contains none. Three
+places took a newline count as complete: both claim scanners, whose one-line
+bound therefore never tripped and whose line numbers were all 1, and `archive`.
+
+The last is the one to read twice. `^` in a multiline pattern follows a
+newline, and `\r` is not one, so a CR-only status document is a single line to
+every entry-header pattern: nothing splits, nothing moves, and `--archive`
+reports a document with no entries in it rather than failing. Its terminator
+detection would then have rewritten every line ending in the file as a side
+effect of retiring two sections - in the one operation here that writes
+irreversibly. Line breaks are now counted in every spelling, and a document is
+written back in the terminator it arrived in.
+
+The corpus is unchanged by this one - the same 50 merge claims and 60 release
+claims across the same 263 files - because for LF and CRLF it changes nothing.
+
 ## 0.24.0 (2026-08-29)
 
 **A large `--sweep` now spreads across worker processes.** Above 100 documents

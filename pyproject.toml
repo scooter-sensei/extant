@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "extant"
-version = "0.24.0"
+version = "0.24.1"
 description = "Find the commits, branches and paths your documentation cites that no longer exist"
 readme = "README.md"
 requires-python = ">=3.9"
