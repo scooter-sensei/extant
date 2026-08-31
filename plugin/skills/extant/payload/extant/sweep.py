@@ -110,16 +110,27 @@ def _validate_one(repo: Path, relative: str, is_primary: bool):
     session.set_document(link_base=path.parent,
                          doc_format=markup.format_for(relative),
                          doc_path=relative)
-    findings = session.validate(repo, text, has_entries=is_primary)
+    # `repository_rules=False`: this survey runs those in `run_sweep`, once,
+    # attributed to the file that declares them. Without it they ran HERE as
+    # well, for whichever document was primary - so a single raw LFS blob
+    # printed twice, bare and again under `.gitattributes:`, against a
+    # denominator counting the governed file once. `inconsistent-artifact`
+    # did the same. The exclusion was already written on the denominator
+    # below, by hand; this is the half the findings loop could not say.
+    findings = session.validate(repo, text, has_entries=is_primary,
+                                repository_rules=False)
     # The denominator, per rule. Counted only for rules that actually READ
     # this document: a sweep skips entry-scoped rules outside the primary file
     # and markdown-only rules for `.rst`, and `count_examined` knows nothing
     # about either. Summing it whole would report link candidates in a
     # document where no link rule ran.
+    #
+    # The SAME predicate the findings above were selected by, arguments and
+    # all. Restating one of its clauses here is how the two came to disagree.
     counted = session.count_examined(repo, text)
     examined = {rule.kind: counted[rule.kind] for rule in session.RULES
-                if rule.scope != "repository"
-                and session.rule_applies(rule, False, is_primary)}
+                if session.rule_applies(rule, False, is_primary,
+                                        repository_rules=False)}
     return (relative, findings, None, examined, list(RULE_ERRORS[mark:]))
 
 

@@ -241,3 +241,76 @@ def test_a_sweep_counts_a_floor_the_manifest_agrees_with(git_repo) -> None:
                 if r["ruleId"] == "manifest-floor-mismatch"], (
         doc["runs"][0]["results"])
     assert _examined(doc)["manifest-floor-mismatch"] == 1, _examined(doc)
+
+
+# --- seed 20260824, property DENOMINATOR: one fault reported twice ------
+
+
+def _lfs_repo(git_repo) -> Path:
+    """A raw blob at a path `.gitattributes` routes through an LFS filter.
+
+    Written past the filter with `hash-object --no-filters` and straight into
+    the index, because `git add` cannot produce this shape on a machine with
+    git-lfs installed: the clean filter converts the file on the way in and a
+    correct pointer reaches the tree, so the rule finds nothing and the test
+    passes without testing anything. `_lfs_finalize` in
+    tests/harnesses/fuzz_shapes.py records the two configurations that fail
+    more quietly still.
+    """
+    repo, commit = git_repo
+    commit(".gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n",
+           "chore: route the binaries through LFS")
+    commit("NEXT_SESSION.md", "# S\n\nNothing to see.\n",
+           "docs: a status document with no claims")
+    blob = repo / "asset-raw.bin"
+    blob.write_bytes(b"not a pointer, just bytes\n" + b"x" * 300)
+    run = ["git", "-C", str(repo)]
+    sha = subprocess.run(run + ["hash-object", "-w", "--no-filters", "--",
+                                "asset-raw.bin"],
+                         capture_output=True, text=True).stdout.strip()
+    subprocess.run(run + ["update-index", "--add", "--cacheinfo",
+                          f"100644,{sha},asset-raw.bin"], capture_output=True)
+    subprocess.run(run + ["commit", "-qm", "chore: a raw blob under a filter"],
+                   capture_output=True)
+    return repo
+
+
+def test_a_repository_rule_reports_its_one_fault_once(git_repo) -> None:
+    """One repository, one raw blob, one finding.
+
+    A repository-scoped rule reads no document, and `--sweep` ran it twice:
+    once inside the pass for whichever document was primary, and once in its
+    own repository pass. The same blob printed bare and again under
+    `.gitattributes:`, against a denominator that counts the governed file
+    once - so found was 2 from examined 1. `inconsistent-artifact` is the same
+    rule shape and did the same.
+
+    Catches a fix that leaves the rule running twice.
+    """
+    repo = _lfs_repo(git_repo)
+    doc = json.loads(_sweep(repo, "--format=sarif").stdout)
+
+    found = [r for r in doc["runs"][0]["results"]
+             if r["ruleId"] == "raw-lfs-blob"]
+    assert len(found) == 1, doc["runs"][0]["results"]
+    assert _examined(doc)["raw-lfs-blob"] >= len(found), _examined(doc)
+
+
+def test_that_fault_is_attributed_to_the_file_that_declares_it(
+        git_repo) -> None:
+    """WHERE the surviving copy points, which is the half a count cannot see.
+
+    The two copies were not interchangeable: one was attributed to the status
+    document that happens to be primary, and one to `.gitattributes`, which is
+    the file the answer actually lives in. Dropping either would have made the
+    count right; only one of them sends a reader to the right file.
+
+    Catches a fix that de-duplicated by keeping the document-attributed copy,
+    and one that dropped the repository pass instead of the per-document run.
+    """
+    repo = _lfs_repo(git_repo)
+    lines = [line for line in _sweep(repo).stdout.splitlines()
+             if "[raw-lfs-blob]" in line]
+
+    assert len(lines) == 1, lines
+    assert lines[0].startswith(".gitattributes:"), lines[0]
