@@ -171,16 +171,38 @@ def test_counting_git_records_one_entry_per_call(git_repo) -> None:
 
 def test_finding_fields_are_frozen_and_ordered() -> None:
     """The field ORDER is load-bearing: findings are constructed positionally
-    throughout, and `subject` must stay last and optional because the baseline
-    fingerprint keys on (path, kind, detail) and must not shift.
+    throughout, and everything after `detail` must stay optional and last
+    because the baseline fingerprint keys on (path, kind, detail) and must not
+    shift.
+
+    `subject` and `repair` are both outside that key, deliberately and for the
+    same reason - folding either in would invalidate every baseline already
+    recorded in every project that has one. `repair` makes the point sharper
+    than `subject` did: it varies with the CHECKOUT rather than the document,
+    so a repository that acquires a `filter-repo` commit-map would re-report
+    every `dead-sha` a baseline had forgiven. Anything added here must state
+    which side of the fingerprint it is on.
     """
     import dataclasses
     sys.path.insert(0, str(PAYLOAD))
     from extant.finding import Finding, Located
 
     names = [f.name for f in dataclasses.fields(Finding)]
-    assert names == ["line", "kind", "detail", "subject"], names
-    assert dataclasses.fields(Finding)[-1].default is None
+    assert names == ["line", "kind", "detail", "subject", "repair"], names
+    for field in dataclasses.fields(Finding)[3:]:
+        assert field.default is None, (
+            f"{field.name} sits after `detail` and must default to None, or "
+            f"every existing caller constructing a Finding positionally breaks")
+    # The fingerprint reads `detail` and nothing after it. A field that leaked
+    # into the identity would silently re-raise findings a project had agreed
+    # to leave alone, which fails no test and simply stops being read.
+    from extant.report import fingerprint
+    plain = Finding(1, "dead-sha", "d")
+    decorated = Finding(1, "dead-sha", "d", subject="abc1234", repair="hint")
+    assert (fingerprint("p.md", plain.kind, plain.detail)
+            == fingerprint("p.md", decorated.kind, decorated.detail))
+    assert decorated.message() != plain.message(), (
+        "a repair that changes no output is not being shown to anyone")
     assert [f.name for f in dataclasses.fields(Located)] == [
         "path", "finding", "primary", "gating"]
     try:

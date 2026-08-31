@@ -153,6 +153,16 @@ class RunScope:
     # Declared version floors, so a sweep does not re-read every manifest once
     # per document.
     manifest_floors: dict[Any, Any] = field(default_factory=dict)
+    # The commit-map a `git filter-repo` run left behind, parsed once, with the
+    # reason it could not be read if it could not. Keyed by repository, read
+    # only when a document already has a dead SHA to explain - a map carries one
+    # line per commit, and a clean document should not pay for one.
+    #
+    # Run-scoped for the reason every field here is, and the reason bites
+    # harder than usual: a rewrite is exactly the event that changes this
+    # answer, so a map held past the call that read it would keep explaining
+    # dead SHAs with the previous rewrite's mapping.
+    rewrite_map: dict[Any, Any] = field(default_factory=dict)
 
     # The eleven below are the ones no `global` statement ever named. All were
     # keyed on `str(repo)` and never invalidated, so a process that validated

@@ -45,9 +45,31 @@ class Finding:
     # (path, kind, detail). Folding it in would invalidate every baseline
     # already recorded in every project that has one.
     subject: str | None = None
+    # What the repository itself says can be done about this claim, when it
+    # says anything: today, the replacement a `git filter-repo` commit-map
+    # records for a dead SHA. A finished clause, appended after `detail`.
+    #
+    # Outside the baseline fingerprint for the same reason `subject` is, and
+    # the reason is sharper here because this one changes with the CHECKOUT
+    # rather than with the document. A repository that acquires a commit-map
+    # would otherwise re-report every `dead-sha` a baseline had already
+    # forgiven - and a baseline that stops matching does not fail loudly, it
+    # quietly re-raises findings the project agreed to leave alone, which is
+    # how a reader learns to stop reading the output.
+    #
+    # So `detail` remains the identity and `message()` is what anybody reads.
+    repair: str | None = None
+
+    def message(self) -> str:
+        """What a reader sees: the finding, plus any repair it can point at.
+
+        Every human-facing format calls this. `fingerprint` in extant/report.py
+        keeps hashing `detail`, which is what makes the two safe to differ.
+        """
+        return self.detail if self.repair is None else f"{self.detail}; {self.repair}"
 
     def render(self) -> str:
-        return f"line {self.line}: [{self.kind}] {self.detail}"
+        return f"line {self.line}: [{self.kind}] {self.message()}"
 
 
 @dataclass(frozen=True)

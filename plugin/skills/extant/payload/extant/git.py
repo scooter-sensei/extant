@@ -6,6 +6,7 @@ process and no way to say so.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -13,7 +14,8 @@ from pathlib import Path
 # declared here transitionally, because the shim re-exported them by name and
 # five test sites wrapped them to count calls; both are back to being private
 # implementation, called by SubprocessGit and named nowhere outside this file.
-__all__ = ["Git", "SubprocessGit", "CountingGit", "is_shallow"]
+__all__ = ["Git", "SubprocessGit", "CountingGit", "common_git_dir",
+           "is_shallow", "rewrite_map_path"]
 
 
 class Git:
@@ -121,37 +123,107 @@ def is_shallow(repo: Path) -> bool:
     """
     if (repo / ".git" / "shallow").is_file():
         return True
-    # A worktree or a submodule keeps `.git` as a FILE pointing elsewhere, and
-    # the marker lives at the real git directory rather than beside the file.
+    shared = common_git_dir(repo)
+    if shared is None or shared == repo / ".git":
+        return False
+    return (shared / "shallow").is_file()
+
+
+def common_git_dir(repo: Path) -> Path | None:
+    """The SHARED git directory - `.git` of the original clone - or None.
+
+    Everything git keeps once per REPOSITORY rather than once per checkout
+    lives here: the object store, `shallow`, and the commit-map a
+    `git filter-repo` run leaves behind. A linked worktree has a git directory
+    of its own beside those, and looking in that one instead finds none of
+    them.
+
+    Read from the filesystem rather than by shelling out to
+    `rev-parse --git-common-dir`, for the two reasons `is_shallow` gives: it is
+    a stat, and the interpretation of a failed `rev-parse` is exactly the
+    ambiguity this is trying to remove. It also has to stay a stat because the
+    spawn budget in tests/test_spawn_budget.py has no spare margin, and a
+    question asked once per run is still a question.
+
+    The three shapes, each of which git writes differently:
+
+    * A plain checkout keeps a `.git` DIRECTORY, and it is the shared one.
+    * A LINKED WORKTREE keeps a `.git` FILE naming a directory under
+      `.git/worktrees/<name>/`, which carries `commondir` pointing back at the
+      original. This is the case that was got wrong once: `shallow` lives in
+      the shared directory, so checking only the worktree's own returned False
+      for every worktree of a shallow clone while git said true.
+    * A SUBMODULE keeps a `.git` FILE too, naming a directory that IS its
+      shared one - no `commondir` beside it - so the pointer is the answer.
+
+    None means the question could not be settled: no `.git` at all, a pointer
+    that does not parse, or one naming a directory that is not there. Callers
+    report that rather than treating it as an absence, because "this
+    repository was never rewritten" and "this repository could not be read"
+    are the two answers this project exists to keep apart.
+    """
     pointer = repo / ".git"
-    if pointer.is_file():
-        try:
-            content = pointer.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeDecodeError):
-            return False
-        if content.startswith("gitdir:"):
-            gitdir = Path(content.split(":", 1)[1].strip())
-            if not gitdir.is_absolute():
-                gitdir = repo / gitdir
-            if (gitdir / "shallow").is_file():
-                return True
-            # A LINKED WORKTREE has a git dir of its own but shares the object
-            # store, and `shallow` lives in the shared one - `.git/shallow` of
-            # the original clone, not `.git/worktrees/<name>/shallow`. Checking
-            # only the former returned False for every worktree of a shallow
-            # clone while git itself said true, which is the silent wrong
-            # answer this function exists to prevent. `commondir` is how git
-            # records where the shared directory is.
-            common = gitdir / "commondir"
-            if common.is_file():
-                try:
-                    shared = Path(common.read_text(encoding="utf-8").strip())
-                except (OSError, UnicodeDecodeError):
-                    return False
-                if not shared.is_absolute():
-                    shared = gitdir / shared
-                return (shared / "shallow").is_file()
-    return False
+    if pointer.is_dir():
+        return pointer
+    if not pointer.is_file():
+        return None
+    try:
+        content = pointer.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not content.startswith("gitdir:"):
+        return None
+    gitdir = Path(content.split(":", 1)[1].strip())
+    if not gitdir.is_absolute():
+        gitdir = repo / gitdir
+    common = gitdir / "commondir"
+    if not common.is_file():
+        return _normal(gitdir)
+    try:
+        shared = Path(common.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeDecodeError):
+        return None
+    return _normal(shared if shared.is_absolute() else gitdir / shared)
+
+
+def _normal(path: Path) -> Path:
+    """Fold away the `..` git writes, so two spellings of one directory compare.
+
+    `commondir` holds `../..` relative to `.git/worktrees/<name>`, so joining
+    it yields `.../worktrees/<name>/../..` - the right directory under a name
+    that is equal to nothing, which matters because callers compare this
+    against `repo / ".git"` and key caches on it.
+
+    Lexical rather than `resolve()`: it touches no filesystem, so a question
+    asked once per run stays a question and not a walk, and it cannot turn a
+    path the caller gave into a different one by following a symlink.
+    """
+    return Path(os.path.normpath(path))
+
+
+def rewrite_map_path(repo: Path) -> Path | None:
+    """The commit-map `git filter-repo` leaves behind, or None if there is none.
+
+    Measured 2026-08-30 on a real agent-written project: 12 of its 12 dead SHA
+    references resolve through this file, and none of them resolves through
+    `rev-list --all`, an unreachable-object scan or any reflog. A rewrite
+    replaces every commit id at once, so it is a single event that kills a
+    document's whole population of commit references - and it records exactly
+    what each one became, at a fixed path, in the repository being checked.
+
+    `--sha-map` has been able to REPAIR that since the flag existed. What was
+    missing is that nobody looked: the operator had to know the flag existed
+    and hand it this path.
+
+    Finding the file does not repair anything. `--sha-map` stays the explicit
+    opt-in for rewriting a document, because a validation run that edited
+    prose on its own is the authoring this tool refuses.
+    """
+    shared = common_git_dir(repo)
+    if shared is None:
+        return None
+    candidate = shared / "filter-repo" / "commit-map"
+    return candidate if candidate.is_file() else None
 
 
 def _git(repo: Path, *args: str) -> str:

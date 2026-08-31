@@ -19,11 +19,12 @@ import json
 from pathlib import Path
 
 from extant import registry as _registry
-from extant.finding import Located
+from extant.finding import Finding, Located
 
 __all__ = [
-    "BASELINE_NAME", "FORMATS", "fingerprint", "format_github", "format_sarif",
-    "format_text", "load_baseline", "render_findings", "write_baseline",
+    "BASELINE_NAME", "Collector", "FORMATS", "fingerprint", "format_github",
+    "format_sarif", "format_text", "load_baseline", "render_findings",
+    "write_baseline",
 ]
 
 
@@ -117,6 +118,84 @@ def write_baseline(path: Path, located: list[Located]) -> int:
     return len(entries)
 
 
+class Collector:
+    """Findings from one run, with the baseline applied as they arrive.
+
+    Four values move together - what was recorded, what has been matched, how
+    many occurrences of each are already spent, and how many were suppressed -
+    and every one of them is meaningless without the other three. They used to
+    be four locals in `run_validate` closed over by a nested `record()`, which
+    is what kept that function from being split at all: the closure was the
+    only thing holding them in one place.
+
+    Here rather than beside the modes because this IS the baseline, and the
+    baseline lives in this file. Nothing below reads ambient state or asks git
+    anything, in keeping with the rest of the module: the caller supplies the
+    recorded entries and decides where an echoed line goes.
+
+    `echo` is how text output stays interleaved with its summaries, which is
+    what a reader following along expects and what the existing tests pin.
+    Passing a callable rather than a stream keeps the choice of stdout or
+    stderr - which depends on whether stdout must carry pure JSON or a pure
+    patch - with the mode that knows about it.
+    """
+
+    def __init__(self, baselined: dict[str, dict[str, str]] | None = None, *,
+                 echo=None) -> None:
+        # Empty, never None, so a caller that records without a baseline takes
+        # the same path as one that records with an empty one.
+        self.baselined = baselined or {}
+        self.echo = echo
+        self.located: list[Located] = []
+        # Fingerprints seen this run. `--baseline-check` subtracts these from
+        # the recorded set to find amnesties that have outlived their finding.
+        self.matched: set[str] = set()
+        # Occurrences already forgiven, per fingerprint, for this run.
+        self.used: dict[str, int] = {}
+        self.suppressed = 0
+
+    def record(self, path: str, items: list[Finding], *, primary: bool) -> int:
+        """Take one document's findings. Returns how many were NOT baselined.
+
+        That count is what decides the exit code. A baselined finding is still
+        wrong; it is simply not new.
+        """
+        new = 0
+        for finding in items:
+            item = Located(path, finding, primary)
+            mark = fingerprint(path, finding.kind, finding.detail)
+            if mark in self.baselined:
+                # Bounded by what was recorded. An entry written before counts
+                # existed has none, and forgives one - the shape it had when
+                # it was written.
+                allowed = self.baselined[mark].get("count", 1)
+                try:
+                    allowed = int(allowed)
+                except (TypeError, ValueError):
+                    allowed = 1
+                if self.used.get(mark, 0) < max(allowed, 1):
+                    self.used[mark] = self.used.get(mark, 0) + 1
+                    self.matched.add(mark)
+                    self.suppressed += 1
+                    continue
+            new += 1
+            self.located.append(item)
+            if self.echo is not None:
+                self.echo(format_text([item])[0])
+        return new
+
+    def stale(self) -> list[dict[str, str]]:
+        """Recorded entries whose finding no longer occurs, in a stable order.
+
+        A granted amnesty that outlives its finding is a suppression nobody
+        can see the cost of, which is the fair objection to having a baseline
+        at all. Sorted by fingerprint so two runs over one repository print
+        the same list in the same order.
+        """
+        return [entry for mark, entry in sorted(self.baselined.items())
+                if mark not in self.matched]
+
+
 def _gh_escape(value: str, *, prop: bool = False) -> str:
     """Escape a workflow-command string.
 
@@ -150,7 +229,7 @@ def format_github(located: list[Located]) -> list[str]:
             f"::{level} file={_gh_escape(item.path, prop=True)},"
             f"line={item.finding.line},"
             f"title={_gh_escape(item.finding.kind, prop=True)}"
-            f"::{_gh_escape(item.finding.detail)}"
+            f"::{_gh_escape(item.finding.message())}"
         )
     return lines
 
@@ -246,7 +325,10 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
             # A survey finding is reported and never gates. Publishing it as an
             # error contradicted the exit code and the README both.
             "level": "error" if item.gating else "note",
-            "message": {"text": item.finding.detail},
+            # `message()`, not `detail`: the repair a finding can point at
+            # belongs wherever a person reads it, and the fingerprint
+            # below deliberately does not move with it.
+            "message": {"text": item.finding.message()},
             "partialFingerprints": {
                 "statusClaim/v1": fingerprint(
                     item.path, item.finding.kind, item.finding.detail),

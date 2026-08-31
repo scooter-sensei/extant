@@ -30,8 +30,10 @@ one, and only the claim rule ever sees it.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
+from extant.git import rewrite_map_path
 from extant.refs import SHA_SHAPE, resolve_shas
 from extant.scope import Context
 from extant.text import line_breaks, line_number_at
@@ -43,7 +45,8 @@ __all__ = [
     "_find_sha_candidates", "_is_digest_length", "_merge_claims",
     "document_shas",
     "find_bare_sha_candidates", "find_sha_candidates", "load_sha_map",
-    "looks_like_bare_sha", "looks_like_sha", "merge_claims", "spans_overlap",
+    "looks_like_bare_sha", "looks_like_sha", "merge_claims", "rewrite_hint",
+    "spans_overlap",
     "translate_shas",
 ]
 
@@ -469,7 +472,60 @@ def load_sha_map(path: str) -> dict[str, str]:
     return mapping
 
 
-def _translated_value(token: str, mapping: dict[str, str]) -> str | None:
+# The shortest abbreviation git will produce, and the shortest a SHA-shaped
+# token can be - `SHA_SHAPE` and `BARE_SHA_TOKEN` both require seven. Bucketing
+# on exactly that many characters is therefore lossless for every token either
+# scanner can hand us, and the fallback below covers anything shorter.
+_BUCKET = 7
+
+
+def _bucket_index(mapping: dict[str, str]) -> dict[str, list[tuple[str, str]]]:
+    """Group a commit-map by the first `_BUCKET` characters of its old SHA.
+
+    Built once per map so a lookup reads one bucket instead of the whole
+    mapping. Measured before it existed, on a 200,000-entry map: one dead SHA
+    in a document cost 704 ms and two hundred cost 4,112 ms, because every
+    lookup walked all 200,000 entries. That is O(findings x map), and both
+    factors grow with exactly the repositories this is for - a long history
+    rewritten by `filter-repo`, and a plan directory full of citations.
+
+    The cost was not new, only newly on the default path: `--sha-map` scanned
+    the same way, and nothing but an explicit flag paid for it. Reporting the
+    replacement moved it onto every run, which is what made it worth fixing
+    rather than noting.
+    """
+    index: dict[str, list[tuple[str, str]]] = {}
+    for old, new in mapping.items():
+        index.setdefault(old[:_BUCKET], []).append((old, new))
+    return index
+
+
+def _mapped_values(token: str, mapping: dict[str, str],
+                   index: dict[str, list[tuple[str, str]]] | None = None
+                   ) -> list[str]:
+    """Every full post-rewrite value an old SHA starting with `token` has.
+
+    One list, two readers - the rewriter below and the hint the `dead-sha`
+    rule prints - so the ambiguity rule is applied to both by construction
+    rather than by two functions agreeing. That is the same argument
+    `translate_shas` makes about scanning: one claim, one scanner.
+
+    The index is an optimisation and must never be a second answer. It is
+    consulted only for a token at least `_BUCKET` long, where the bucket
+    provably holds every old SHA that could start with it; anything shorter,
+    or an absent index, walks the mapping exactly as before. Two paths that
+    can disagree is the shape this project refuses, so this one cannot: the
+    bucketed path is a filter over the same predicate, not a different test.
+    """
+    if index is not None and len(token) >= _BUCKET:
+        return [new for old, new in index.get(token[:_BUCKET], ())
+                if old.startswith(token)]
+    return [new for old, new in mapping.items() if old.startswith(token)]
+
+
+def _translated_value(token: str, mapping: dict[str, str],
+                      index: dict[str, list[tuple[str, str]]] | None = None
+                      ) -> str | None:
     """New value for `token` via prefix match, or None if it must stay put.
 
     GA-6: an AMBIGUOUS prefix - two old SHAs sharing it - is left untranslated
@@ -479,8 +535,78 @@ def _translated_value(token: str, mapping: dict[str, str]) -> str | None:
     Shared by both the backticked and bare translation paths below, so both
     apply the same ambiguity rule.
     """
-    hits = [new for old, new in mapping.items() if old.startswith(token)]
+    hits = _mapped_values(token, mapping, index)
     return hits[0][: len(token)] if len(hits) == 1 else None
+
+
+def _read_rewrite_map(repo: Path) -> tuple[dict[str, str], Any, str | None]:
+    """The repository's commit-map, and why it could not be read if it could not.
+
+    Two answers rather than one, because "no rewrite has happened here" and
+    "a rewrite happened and its record is unreadable" are the pair this
+    project refuses to conflate. An empty mapping and a None reason is the
+    first; an empty mapping and a reason is the second, and the reason travels
+    all the way out to the finding a reader sees.
+    """
+    path = rewrite_map_path(repo)
+    if path is None:
+        return {}, {}, None
+    try:
+        mapping = load_sha_map(str(path))
+        # Indexed here, once, beside the read that produced it. Building it
+        # per lookup would reintroduce the walk it exists to remove.
+        return mapping, _bucket_index(mapping), None
+    except (OSError, UnicodeDecodeError) as exc:
+        # Reported, not swallowed. A map present and unreadable that answered
+        # like a map absent would take the one signal that explains this
+        # project's largest finding class and hide it behind the finding
+        # itself.
+        return {}, {}, (f"a rewrite map at {path.as_posix()} could not be "
+                        f"read ({exc.__class__.__name__})")
+
+
+def _rewrite_map(ctx: Context) -> tuple[dict[str, str], Any, str | None]:
+    """Cached for the run, like every other answer the disk gave.
+
+    A sweep validates every tracked document in one scope and a commit-map
+    carries one line per commit, so reading it once per file is exactly the
+    cost `--sweep` took ownership of the directory listings to avoid. The
+    lifetime is the run's for the usual reason: a repository rewritten between
+    two validations has to be visible to the second.
+    """
+    key = str(ctx.repo)
+    if key not in ctx.run.rewrite_map:
+        ctx.run.rewrite_map[key] = _read_rewrite_map(ctx.repo)
+    return ctx.run.rewrite_map[key]
+
+
+def rewrite_hint(ctx: Context, token: str) -> str | None:
+    """What this repository's rewrite map says became of a dead SHA.
+
+    Called only for a token already known to be dead, which is what keeps a
+    clean document from paying to read the map at all.
+
+    Three answers and a silence:
+
+    * the replacement, when exactly one old SHA carries this prefix;
+    * that the commit was REMOVED, when the map sends it to forty zeroes -
+      filter-repo's spelling for a commit it dropped, and offering the reader
+      forty zeroes to paste would name nothing;
+    * that a map is present and unreadable;
+    * and nothing at all for an ambiguous prefix, on `_translated_value`'s
+      reasoning, which does not weaken for being a hint rather than a rewrite:
+      a wrong SHA reads as correct.
+    """
+    mapping, index, problem = _rewrite_map(ctx)
+    if problem is not None:
+        return problem
+    hits = _mapped_values(token, mapping, index)
+    if len(hits) != 1:
+        return None
+    new = hits[0]
+    if set(new) == {"0"}:
+        return "the rewrite map records that commit as removed"
+    return f"the rewrite map records it as `{new[: len(token)]}`"
 
 
 def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
@@ -518,13 +644,17 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
     finding ends up unfixable.
     """
     count = 0
+    # Once for the document, not once per token. Both replacers below run
+    # per match, and a prefix lookup that walked the whole mapping made
+    # this O(tokens x map) - the same defect the hint path had.
+    index = _bucket_index(mapping)
 
     def replace_backticked(match: "re.Match[str]") -> str:
         nonlocal count
         token = match.group(1)
         if not looks_like_sha(token):
             return match.group(0)
-        new = _translated_value(token, mapping)
+        new = _translated_value(token, mapping, index)
         if new is None:
             return match.group(0)
         count += 1
@@ -541,7 +671,7 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
             token = match.group(0)
             if not looks_like_bare_sha(token):
                 continue
-            new = _translated_value(token, mapping)
+            new = _translated_value(token, mapping, index)
             if new is None:
                 continue
             pieces.append(line[cursor: match.start()])

@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 
 from extant.commits import (
-    document_shas, find_bare_sha_candidates, find_sha_candidates,
+    document_shas, find_bare_sha_candidates, find_sha_candidates, rewrite_hint,
 )
 from extant.contract import Rule
 from extant.finding import Finding
@@ -61,12 +61,20 @@ def check(ctx: Context, text: str) -> list[Finding]:
     # anything below; see `_document_sha_tokens` in extant/commits.py for why
     # a wider batch cannot move a finding.
     alive = document_shas(ctx, text)
+    # A dead SHA is usually not a mistake anybody made. Measured 2026-08-30 on
+    # a real agent-written project: 12 of its 12 dead references were killed by
+    # ONE `git filter-repo` run, and every one of them is named in the
+    # commit-map that run left in `.git`. So where the repository can say what
+    # a reference became, the finding says it - see `rewrite_hint`.
+    #
+    # It rides in `repair` rather than in `detail` because `detail` is the
+    # baseline fingerprint; extant/finding.py has the whole argument.
     for number, token in backticked:
         if token not in alive:
             findings.append(
                 Finding(number, "dead-sha",
                         f"`{token}` does not resolve in this repo",
-                        subject=token)
+                        subject=token, repair=rewrite_hint(ctx, token))
             )
     # I-1(b): a bare token that RESOLVES is merely unstyled, not broken -
     # flagging it would be noise, so only a bare token that fails to resolve
@@ -79,11 +87,15 @@ def check(ctx: Context, text: str) -> list[Finding]:
         line = lines[number - 1] if 0 < number <= len(lines) else ""
         if changesets and _CHANGESET_ENTRY.match(line):
             continue
+        # Both kinds get the hint, or the class is only half repairable.
+        # `translate_shas` learned bare tokens for exactly that reason and
+        # records it as EX-8: reporting a shape the repair cannot reach is how
+        # a finding becomes permanent.
         findings.append(Finding(
             number, "bare-dead-sha",
             f"`{token}` is un-backticked and does not resolve; "
             "backtick real SHAs so they are checked",
-            subject=token,
+            subject=token, repair=rewrite_hint(ctx, token),
         ))
     return findings
 

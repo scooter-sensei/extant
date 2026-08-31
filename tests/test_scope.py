@@ -65,7 +65,17 @@ sys.path.insert(0, str(PAYLOAD))
 # site is built from, whether a reference resolves - so a survey asks it once
 # instead of once per file. All three are read only while `dircache` says the
 # checkout is static, exactly as the eleven before them are.
-CACHE_FIELDS = 26
+#
+# Plus ONE for the rewrite map: `rewrite_map`, holding the commit-map a
+# `git filter-repo` run left in `.git`, parsed once per repository, with the
+# reason it could not be read if it could not. It is a question about the
+# CHECKOUT like the three above, and it is read only when a document already
+# has a dead SHA to explain - a map carries one line per commit, so a clean
+# document must not pay for one. Its lifetime is the run's for the sharpest
+# version of the usual reason: a rewrite is precisely the event that changes
+# this answer, so a map held past its call would go on explaining dead SHAs
+# with the previous rewrite's mapping.
+CACHE_FIELDS = 27
 
 # Not a cache. `stable` says whether a caller has taken ownership of this
 # scope's lifetime for many documents, which is what the retired module-level
