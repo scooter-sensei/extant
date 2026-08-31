@@ -207,6 +207,20 @@ MODES_WITH_DENOMINATOR = ("--sweep", "--verify", "--validate")
 # life because nothing was watching this number.
 REACH_FLOOR = 11
 
+# What fraction of the repositories built must actually reach the rules before
+# this run's verdict means anything.
+#
+# Set BELOW the healthy measurement rather than at it, deliberately, because
+# this number gates whether any other number here can be read. A healthy run
+# reaches the rules in about 70 per cent of repositories - 25 of 35 at seed
+# 20260824 - and the rest are the refusals and the empty-repository state,
+# which are legitimately countless. Half of that is the point at which a run
+# has stopped being a sample of anything.
+#
+# Raise it once the collapse described beside its check is fixed; the healthy
+# figure is the ceiling to aim at, not this.
+CORPUS_FLOOR = 0.35
+
 # Rules that CANNOT reach the ledger for a reason outside this harness, with
 # the reason, so the exemption is readable and removable rather than a silently
 # lowered floor.
@@ -837,6 +851,32 @@ def main() -> int:
         print("HARNESS FAULT: extant examined nothing in any repository, so "
               "this run proves nothing. Fix the generator before reading the "
               "result above as clean.")
+        return 2
+    # A corpus that is MOSTLY dead, which the zero test above cannot see.
+    #
+    # Two identical invocations of this harness - same seed, same package, same
+    # machine - produced 25 of 35 repositories reaching the rules on one run
+    # and 6 on another, and the 6-repository run exited 0 while reporting 13 of
+    # 13 rules and no violations. It read exactly like the healthy run. Only
+    # the totally dead run was caught, because the only corpus-health test here
+    # was a test for zero.
+    #
+    # The collapse is real and not yet root-caused: repositories drawing the
+    # `lfs-blob` feature end with a single commit and no tracked markdown, so
+    # the whole build dies rather than that one feature, and the "could not
+    # build" column blames `merge-claim` - a downstream victim that needs a
+    # branch the collapsed build never created. Isolated, the shape builds
+    # twelve times out of twelve, so it needs the rest of the generator to
+    # reproduce.
+    #
+    # This floor does not fix that. It stops a degraded corpus reporting as a
+    # clean one while it is being fixed, which is the difference between a gate
+    # and a decoration.
+    if built and examined_somewhere < built * CORPUS_FLOOR:
+        print(f"HARNESS FAULT: only {examined_somewhere} of {built} "
+              f"repositories reached the rules, below the {CORPUS_FLOOR:.0%} "
+              f"this gate needs to mean anything. The corpus is degraded, not "
+              f"the tool - read no result above as clean.")
         return 2
     # A feature that was DRAWN and still reached nothing fails the run, whatever
     # the floor says. The floor alone did not catch this: restoring the dead
