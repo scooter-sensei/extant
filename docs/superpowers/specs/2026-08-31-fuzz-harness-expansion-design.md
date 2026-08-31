@@ -242,6 +242,7 @@ as having broken on CRLF and cost 1627 characters on one document.
 | `GITHUB` | the github format agrees with the text count, as sarif already does |
 | `ERRORED` | a run naming a raised rule never exits 0 |
 | `DENOM-AGREE` | the denominator sarif carries equals the one the text run printed |
+| `MODE-AGREE` | `--verify` and `--sweep` over one repository report the same finding SET |
 
 Five of these deserve their reason stated.
 
@@ -268,6 +269,14 @@ success "is the failure this whole project exists to prevent". The property
 reads that line out of the output and asserts the exit code, and Stage 6 owes
 it a feature that makes a rule raise on purpose, since nothing the generator
 builds today does.
+
+`MODE-AGREE` exists because the two modes already disagree. Fixing the
+repository-scoped duplication left `--sweep` attributing those findings to the
+file that declares them - `.gitattributes`, `.extant.toml` - while `--verify`
+still attributes them to the primary document. That asymmetry is pre-existing
+and harmless today, and reconciling it by hand would only reopen later. A
+property that requires the two modes to agree on the finding SET, whatever
+attribution each uses, is what keeps them honest permanently.
 
 `DENOM-AGREE` is nearly free and was missed on the first pass. `format_sarif`
 emits its denominator as `examined: <kind> <n>, ...` - the same string the text
@@ -393,13 +402,16 @@ This project's standing rule is that a check must be watched failing before it
 is trusted, so each stage states what to break and what should go red. A stage
 whose verification was not performed is not done.
 
-- **Stage 1**: BUILT, and the numbers are recorded under "Stage 1 as built"
-  below rather than left as a target. The reach ledger reaches 12 of 13 - not
-  13, for a reason that is itself one of the findings - the four existing tests
-  in `tests/test_fuzz_findings.py` still pass, and `--selftest` on a generated
-  repository reports 9 fired where it reported `0 fired, 13 had nothing to
-  corrupt` before. Still owed: watching the ledger fail by deleting a feature
-  from the catalogue, which is the half of this that has not been observed.
+- **Stage 1**: DONE, with the numbers under "Stage 1 as built" below rather
+  than left as targets. The reach ledger reaches 13 of 13 with the three
+  defects it found now fixed, the suite is green at 157 of 157 mutations
+  matching, and `--selftest` on a generated repository reports 9 fired where it
+  reported `0 fired, 13 had nothing to corrupt` before. The ledger was WATCHED
+  FAILING: restoring the dead merge spelling on purpose makes it report
+  `AIMED AT AND NOT REACHED: false-merge-claim` and exit 2. What is NOT done is
+  the corpus reproducibility described below; the harness can still build a
+  degraded corpus, and `CORPUS_FLOOR` only stops that being read as a clean
+  one.
 - **Stage 2**: a saved recipe replays to a repository that violates the same
   property, and ddmin returns a strictly smaller feature set that still does.
   Watched failing by replaying a recipe with one feature removed by hand and
@@ -427,18 +439,25 @@ repositories:
 
 | | before | after |
 |:---|---:|---:|
-| rules reaching a non-zero denominator | 5 of 13 | 12 of 13 |
+| rules reaching a non-zero denominator | 5 of 13 | 13 of 13 |
 | `--selftest` on a generated repository | 0 fired | 9 fired |
 | repositories reaching any rule | 21 of 35 | 25 of 35 |
 | runs that declined to start | 6 | 2 |
-| property violations | 0 | 14, across 3 real defects |
+| property violations | 0 | 14 against the unfixed tool, 0 once fixed |
 | wall clock | 102s | 356s |
 
-**The harness is RED on the CI seed, and that is the correct state.** Every
-violation is one of the three defects below, all found by the DENOMINATOR
-property without anybody looking for them. Stage 1 cannot land green until the
-product is fixed; landing it green would mean weakening the property that just
-did its job.
+The harness went red the moment it worked, and the three defects below are why.
+All three are now fixed and merged, and the same seed reports 13 of 13 rules
+with no violations. The intermediate numbers are kept because they are the
+evidence: 5 of 13 rules and a silent `--selftest` was the state this harness
+shipped in, and 12 of 13 with 14 violations was the state that proved the tool
+had defects rather than the harness having a bug.
+
+Verified two ways rather than one, because the fixing session's own run turned
+out to be degraded - see "The corpus is not reproducible" below. Sweeping a
+known-good 37-repository corpus with each payload gives 15 DENOMINATOR
+violations before and 0 after, which isolates the fix from how the corpus was
+built.
 
 ### What it found
 
@@ -468,10 +487,50 @@ blob is printed bare and again prefixed `.gitattributes:`, against a
 denominator that counts the governed file once. `inconsistent-artifact` reads
 no document either and is likely to share it.
 
-The second defect bounds the ledger: because the ledger probes with `--sweep`,
-the thirteenth rule cannot register until that is fixed, however well its
-feature works. `REACH_FLOOR` is set to 11 against a measured 12 and carries a
-note saying to raise it to 13 as part of that fix.
+All three are fixed. The second one is worth recording precisely, because the
+diagnosis in this document was wrong before the fix: the sweep's aggregation
+was not at fault. `_validate_one` passed the document path into `validate()`,
+which scopes it to that call and restores the ambient document on the way out,
+so `count_examined()` afterwards ran against a document with no path - and
+every rule keying on WHICH file it reads counted nothing. `gate.py` had
+already been fixed the same way for `--verify`. The third was fixed by
+attributing a repository-scoped finding to one file rather than
+de-duplicating output, because de-duplicating would leave the rule RUNNING
+twice and free to disagree with itself.
+
+That second defect had bounded the ledger, since the ledger probes with
+`--sweep`. With it fixed the exemption is gone, `KNOWN_UNREACHABLE` is empty,
+and `REACH_FLOOR` is 13 - at the measurement rather than below it, which is a
+deliberate loss of margin justified by CI pinning the seed and by the
+drawn-but-silent check failing independently.
+
+### The corpus is not reproducible, and that is not fixed
+
+Two identical invocations - same seed, same package, same machine - reached
+the rules in 6 of 35 repositories on one run and 0 of 35 on the next, where a
+healthy run reaches 25. The harness docstring's REPRODUCIBILITY section claims
+a seed rebuilds the identical corpus, and on this platform it does not.
+
+The zero run was caught: the existing "extant examined nothing anywhere" check
+exits 2. The 6-repository run was NOT - it exited 0 reporting 13 of 13 rules
+and no violations, and read exactly like the healthy run. A corpus 83 per cent
+dead reporting as clean is the failure this project exists to remove, sitting
+in the harness built to find it.
+
+`CORPUS_FLOOR` now fails a run reaching the rules in under 35 per cent of the
+repositories it built, against a healthy 71. It does not fix the collapse; it
+stops a degraded corpus being read as a clean one.
+
+The collapse itself is UNDIAGNOSED. Repositories drawing `lfs-blob` end with a
+single commit and no tracked markdown, so the whole build dies rather than that
+one feature, and the "could not build" column blames `merge-claim` - a
+downstream victim needing a branch the collapsed build never created. The
+system git config on this machine sets `filter.lfs.required = true`, which
+turns any git-lfs failure into a failed `git add` rather than a pass-through,
+and that is the leading suspect. Two things it is NOT: it is not the payload,
+since the merged tree carrying the fixed payload runs healthy; and it is not
+the shape in isolation, which built twelve times out of twelve. It needs the
+whole generator to reproduce, and it is intermittent.
 
 ### The change that made the harness able to see them
 
