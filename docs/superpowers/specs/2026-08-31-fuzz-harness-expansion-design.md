@@ -420,12 +420,16 @@ whose verification was not performed is not done.
   builds and reports nothing at exit 0. A plan naming a feature the catalogue
   no longer has is a broken build at exit 2 rather than an empty repository
   reported clean. See "What the Stage 2 audit found" below.
-- **Stage 3**: each oracle is watched failing against a deliberately broken
-  copy of the payload - one that miscounts CRLF line numbers for `CRLF` and
-  `SHIFT`, one that drops the sarif denominator for `DENOM-AGREE`, one that
-  swallows a rule error for `ERRORED`. An oracle that cannot be made to go red
-  is removed or rewritten, exactly as two smoke probes were when they turned
-  out to be unreachable by construction.
+- **Stage 3**: BUILT, with 8 of the 12 oracles watched failing against a
+  deliberately broken payload - line numbers pinned to 1 (`SHIFT`), fences no
+  longer blanked (`FENCE`), a bogus SARIF denominator (`DENOM-AGREE`), CRLF
+  counted as two breaks (`CRLF`), an annotation dropped from the github format
+  (`GITHUB`), a baseline suppressing nothing (`BASELINE`), a gate exiting 0
+  regardless (`EXIT`), and a rule memoised with no key (`PROCESS`).
+  `RELOCATE`, `MONOTONE`, `MODE-AGREE` and `ERRORED` are NOT yet watched
+  failing and are therefore not known to hold anything - the outstanding debt
+  of this stage. Seed 20260824 over 35 repositories: 13 of 13 rules, no
+  property violations, 704 seconds on Windows.
 - **Stage 4**: the differential reports zero differences against the previous
   tag on a clean tree, and reports a difference when a rule's behaviour is
   changed on purpose.
@@ -645,6 +649,49 @@ smaller feature set reproduces it" was indistinguishable from "the violation
 needs every feature"; two faults on one repository overwrote a single plan file,
 and two measured indices had exactly that; and a malformed plan raised a bare
 `KeyError` naming one field.
+
+## What the Stage 3 audit found
+
+Six gaps. The headline one is the same failure this work keeps producing, and
+it was written in the same hour as a note saying to watch for it.
+
+**A TIMEOUT MADE AN ORACLE PASS.** `run_mode` returns None when extant exceeds
+its budget, and the oracles read that as empty output - which compares equal to
+empty output. Measured by handing every oracle a runner that always returns
+None: `FENCE`, `CRLF`, `MONOTONE` and `RELOCATE` reported no faults and
+recorded no skip. A hang read as clean. `_text` now raises `DidNotRun`, caught
+as a skip, and no oracle passes silently.
+
+**`PROCESS` compared two modes when one of them had refused.** The oracle ran
+whenever `README.md` existed on disk, but `--verify` gates on `primary_doc`,
+and the generator deliberately ships a config naming a file that does not
+exist - so verify read nothing while `--validate README.md` read README
+perfectly well. It now requires verify to have actually read the document,
+the same guard `MODE-AGREE` needed for the same reason.
+
+**Five oracles compared things that are not comparable**, each fixed with a
+stated skip: repository-scoped rules report at line 1 and do not move with the
+document; `extra_docs` findings appear in a gating run and must not be required
+to shift when a different file was edited; SARIF never parses out of merged
+stdout and stderr; and `--sweep` reads HEAD's tree while the gating modes read
+the working tree, so the two answer about different inputs whenever those
+differ.
+
+**Two of the breakages were themselves broken**, which is the part worth
+keeping. The first `EXIT` breakage left a paren unclosed, so extant raised a
+SyntaxError, never ran, and the oracle looked hollow when the BREAKAGE was
+hollow. The first `PROCESS` breakage dropped the document path and broke
+`--verify` and `--validate` identically - the two agreed, and a symmetric break
+cannot test an oracle that compares two things. Both are now recorded beside
+the breakages that replaced them.
+
+**Four oracles remain unproven.** `RELOCATE`, `MONOTONE`, `MODE-AGREE` and
+`ERRORED` have not been watched failing. The rule this spec states is that an
+oracle which cannot be made to go red is removed or rewritten, so this is debt
+rather than polish. `MODE-AGREE` and `ERRORED` have obvious realistic breaks -
+make the sweep skip a rule, make a rule raise while the gate still exits 0.
+That `RELOCATE` and `MONOTONE` need contrived ones is itself information about
+what they are worth.
 
 ## Sequencing
 

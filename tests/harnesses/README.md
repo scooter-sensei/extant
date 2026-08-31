@@ -485,6 +485,40 @@ It runs only on a violation, and only on the deterministic properties;
 `UNSTABLE` exists because a run disagreed with itself, so bisecting on it would
 follow noise and report a minimal set that reproduces nothing.
 
+**Metamorphic oracles.** `tests/harnesses/fuzz_oracles.py` compares extant
+against itself under changes that must not matter: junk inside a code fence, a
+line inserted at the top, LF rewritten to CRLF, the document under another
+name, an unrelated document added, a baseline recorded and then honoured, one
+process reading two documents against two reading one, and the sweep against
+verify. Plus the cheap ones that need no extra run - findings and the exit code
+agreeing, and a raised rule never exiting 0.
+
+The mutable regions are chosen from what the tool GUARANTEES: `strip_code`
+blanks a fence with spaces so every character offset survives, so what is
+inside one cannot be a claim. That contract broke once on CRLF and cost 1627
+characters, which is why two of these oracles aim straight at it.
+
+**An oracle that stands aside says so.** A document with an unclosed fence
+cannot be given another one without changing what is code, and a repository
+whose `primary_doc` does not exist has a `--verify` that reads nothing to
+compare. Those are printed as skips with counts, on the same argument as the
+"could not build" column: not tested is not the same as passed.
+
+**Watched failing, which is the only thing that makes them worth having.**
+Eight of the twelve have been observed going red against a deliberately broken
+payload - line numbers pinned to 1, fences no longer blanked, a bogus SARIF
+denominator, CRLF counted as two breaks, an annotation dropped from the github
+format, a baseline that suppresses nothing, a gate that exits 0 anyway, and a
+rule memoised with no key. `RELOCATE`, `MONOTONE`, `MODE-AGREE` and `ERRORED`
+have NOT been, and are therefore not yet known to hold anything.
+
+Two of those eight took a second attempt, and both failures are worth keeping:
+the first `EXIT` breakage left a paren unclosed, so extant raised a
+SyntaxError, never ran, and the oracle looked hollow when the BREAKAGE was
+broken. The first `PROCESS` breakage removed the document path, which broke
+`--verify` and `--validate` identically - so the two agreed, and a symmetric
+break cannot test an oracle that compares two things.
+
 **Findings do not stay here.** Each is reduced to a case in
 `tests/test_fuzz_findings.py`, which the suite runs on every commit rather than
 waiting for a seed to come up again. This harness discovers; that file

@@ -148,10 +148,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fuzz_oracles as oracles  # noqa: E402
 import fuzz_shapes as shapes  # noqa: E402
 
 PY = sys.executable
 TIMEOUT = 90
+
+# Set from `--no-oracles`. A module-level switch rather than a
+# parameter because `all_faults` is called from three places and
+# threading a flag through each would be three chances to disagree.
+ORACLES_ON = True
 
 # --- the alphabets the generator draws from ---------------------------
 
@@ -915,10 +921,25 @@ def refused_early(done) -> bool:
 
 
 def run_mode(repo: Path, mode: list[str]):
+    """Run extant against one repository, FROM INSIDE IT.
+
+    `cwd=repo` is not tidiness. `--validate FILE` resolves FILE against the
+    working directory, not against `--repo`, so without this the
+    `--validate NEXT_SESSION.md` mode read whatever `NEXT_SESSION.md` the
+    harness happened to be standing in - which, run from a checkout of this
+    project, is THIS PROJECT'S OWN status document. One of the seven modes had
+    been validating the wrong file entirely, and reporting `ok` for it: the
+    findings were real, the document was not the one under test.
+
+    It surfaced only when a metamorphic oracle compared two runs and the
+    difference named `0.25.0` and commit `ec2b918` - a version and a SHA that
+    exist in this repository's history and in no generated one.
+    """
     try:
         return subprocess.run(
             [PY, str(repo / "tools/extant_collect.py"), *mode,
              "--repo", str(repo)],
+            cwd=str(repo),
             capture_output=True, text=True, timeout=TIMEOUT,
             encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
@@ -943,6 +964,26 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     if first.returncode not in (0, 1, 2):
         faults.append(("EXIT", f"{' '.join(mode)}: exit {first.returncode}"))
 
+    # ERRORED: a run naming a rule that RAISED never exits 0. Stated in
+    # `registry.py`, printed by `session.report_rule_errors`, enforced in
+    # `gate.py` with the comment that a partial answer reporting success is the
+    # failure this whole project exists to prevent - and fuzzed nowhere.
+    if "ERRORED:" in out and first.returncode == 0:
+        faults.append(("ERRORED",
+                       f"{' '.join(mode)}: a rule raised and the run still "
+                       f"exited 0"))
+    # EXIT: findings and the exit code have to agree. Any of 0, 1 or 2 used to
+    # pass for any mode, so a run that printed findings and exited 0 would have
+    # gone unremarked. Gating modes only: `--sweep` surveys and reports without
+    # gating, which is its documented job.
+    if mode[0] in ("--validate", "--verify"):
+        printed = bool(re.search(r"^(?:.*: )?line \d+: \[", out, re.M))
+        if printed and first.returncode == 0:
+            faults.append(("EXIT", f"{' '.join(mode)}: findings printed and "
+                                   f"the run exited 0"))
+        if not printed and first.returncode == 1:
+            faults.append(("EXIT", f"{' '.join(mode)}: exited 1 with no "
+                                   f"finding printed"))
     counts = _rule_counts(out)
     faults.extend(_denominator_faults(out, counts, " ".join(mode)))
     # Findings printed against NO denominator at all. Without this the
@@ -1032,14 +1073,22 @@ def all_faults(repo: Path, mode):
     """
     found = check(repo, list(mode))
     if found and found[0][0] == "refused":
-        return found, {}, ""
+        return found, {}, "", {}
     probe = run_mode(repo, ["--sweep"])
     probe_out = ((probe.stdout or "") + (probe.stderr or "")
                  if probe is not None else "")
     probed = _rule_counts(probe_out)
     found = list(found) + _denominator_faults(probe_out, probed,
                                               "--sweep (probe)")
-    return found, probed, probe_out
+    # The metamorphic oracles. They live here rather than in `check` so that
+    # the driver, the shrinker and `--replay` all see them through the one
+    # predicate - which means a new oracle gets ddmin reduction and replay for
+    # free rather than needing its own wiring.
+    skipped: dict = {}
+    if ORACLES_ON:
+        more, skipped = oracles.run_all(run_mode, repo)
+        found = found + more
+    return found, probed, probe_out, skipped
 
 
 # --- shrinking --------------------------------------------------------
@@ -1052,7 +1101,9 @@ def all_faults(repo: Path, mode):
 # timeout is a measurement of the machine as much as of the repository.
 #
 # A violation of either is reported at full size, and says so.
-SHRINKABLE = ("CRASH", "DENOMINATOR", "EXIT", "FORMATS", "SARIF", "HARNESS")
+SHRINKABLE = ("CRASH", "DENOMINATOR", "EXIT", "FORMATS", "SARIF", "HARNESS",
+              "ERRORED", "FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
+              "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE", "GITHUB")
 
 # Rebuilds are not free. Each one is a whole repository plus the four or so
 # process spawns `all_faults` makes, which is roughly ten seconds on Windows -
@@ -1105,7 +1156,7 @@ def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, signature: tuple):
         return None
     if recipe.broken:
         return None
-    found, _probed, _out = all_faults(repo, plan.mode)
+    found, _probed, _out, _skipped = all_faults(repo, plan.mode)
     for found_kind, found_detail in found:
         if fault_signature(found_kind, found_detail) == signature:
             return True
@@ -1212,7 +1263,7 @@ def run_replay(pkg: Path, arena: Path, path: Path) -> int:
         print(f"  UNBUILT: {recipe.broken[0]}")
         return 2
     print(f"  built at {repo}")
-    found, _probed, _out = all_faults(repo, plan.mode)
+    found, _probed, _out, _skipped = all_faults(repo, plan.mode)
     found = [f for f in found if f[0] != "refused"]
     if not found:
         print("  no property violation - this plan does not reproduce one")
@@ -1235,7 +1286,12 @@ def main() -> int:
                     help="rebuild one repository from a saved plan and recheck")
     ap.add_argument("--no-shrink", action="store_true",
                     help="report a violation at full size, without ddmin")
+    ap.add_argument("--no-oracles", action="store_true",
+                    help="skip the metamorphic oracles (they cost runs)")
     args = ap.parse_args()
+
+    global ORACLES_ON
+    ORACLES_ON = not args.no_oracles
 
     if args.replay is not None:
         return run_replay(args.pkg, args.arena, args.replay)
@@ -1252,6 +1308,7 @@ def main() -> int:
     faults: list[tuple[int, str, str]] = []
     unbuildable: dict[str, int] = {}
     reached: dict[str, int] = {}
+    oracle_skips: dict = {}
     broken_builds: list = []
     drawn_features: dict[str, int] = {}
     modes_run = 0
@@ -1307,7 +1364,9 @@ def main() -> int:
         mode = planned_mode
         pairs_seen.add((state, " ".join(mode)))
         modes_run += 1
-        found, probed, _probe_out = all_faults(repo, mode)
+        found, probed, _probe_out, skipped = all_faults(repo, mode)
+        for name, why in skipped.items():
+            oracle_skips[name] = oracle_skips.get(name, 0) + 1
         if found and found[0][0] == "refused":
             refusals += 1
             found = []
@@ -1426,6 +1485,14 @@ def main() -> int:
         # fire", which look identical in the ledger above and want opposite
         # fixes: more repositories, or a repaired feature.
         print(f"    never drawn at this repo count: {', '.join(undrawn)}")
+    if ORACLES_ON:
+        held = len(oracles.ORACLES) - len(oracle_skips)
+        print(f"  {held} of {len(oracles.ORACLES)} metamorphic oracles ran on "
+              f"every repository; those that ever stood aside:")
+        if not oracle_skips:
+            print("    none - all of them applied everywhere")
+        for name, n in sorted(oracle_skips.items(), key=lambda kv: -kv[1]):
+            print(f"    {n:3}  {name}")
     print(f"  {len(faults)} property violation(s)")
     print("=" * 70)
 
