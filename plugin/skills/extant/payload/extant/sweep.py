@@ -98,10 +98,19 @@ def _validate_one(repo: Path, relative: str, is_primary: bool):
         return (relative, [], f"{relative} ({exc.__class__.__name__})", {}, [])
 
     mark = len(RULE_ERRORS)
+    # All three, and the PATH is the one that was missing. It used to be
+    # passed to `validate` instead, which scopes it to that call and puts the
+    # ambient document back on the way out - so `count_examined` below ran
+    # against a document with no path, and every rule that keys on WHICH file
+    # it is reading counted nothing. `manifest-floor-mismatch` reported the
+    # README's contradiction and `examined=0` in the same sweep, and was then
+    # named among the rules that "examined nothing anywhere here". Set on the
+    # document rather than passed, so both halves read one file. `gate.py`
+    # carries the same comment for `--verify`, where this was found first.
     session.set_document(link_base=path.parent,
-                         doc_format=markup.format_for(relative))
-    findings = session.validate(repo, text, has_entries=is_primary,
-                                doc=relative)
+                         doc_format=markup.format_for(relative),
+                         doc_path=relative)
+    findings = session.validate(repo, text, has_entries=is_primary)
     # The denominator, per rule. Counted only for rules that actually READ
     # this document: a sweep skips entry-scoped rules outside the primary file
     # and markdown-only rules for `.rst`, and `count_examined` knows nothing
