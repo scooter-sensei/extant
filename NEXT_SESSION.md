@@ -6,6 +6,107 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 26 - A dead SHA is usually a rewrite casualty, and the repository already knows (shipped, 2026-08-31)
+
+**Status.** Suite is 777 tests across 50 files, all passing. This work shipped
+in 0.25.0, from the commit `ec2b918`, and is merged to `main` at `fc0b24b`.
+Thirteen rules, unchanged: nothing here adds one. The version is recorded only
+now because `release_claims_name_our_tags` is on and the tag had to exist
+first.
+
+**What started it.** Two strategy memos proposed a roadmap of thirteen items.
+Measuring them rather than accepting them killed four and reordered the rest,
+and one measurement was worth the whole exercise. A real agent-written project
+held out from every corpus here carries 12 distinct dead SHA references. Asked
+the way anyone would ask - `rev-parse`, `cat-file`, every reflog,
+`fsck --unreachable` - all 12 answer "never present anywhere in this clone",
+which reads as fabricated. All 12 are named in `.git/filter-repo/commit-map`, a
+623-entry file git wrote during a trailer purge and left in place. The
+repository's own repair commit maps them the same way by hand.
+
+So the dominant cause of this tool's largest finding class is a history
+rewrite, the answer was already on disk at a fixed path, and nothing looked.
+The memo's proposed probe for the same question would have concluded the
+opposite - it lists exactly the four signals that all report "never present"
+after precisely the event that is the cause.
+
+**What changed.**
+
+`dead-sha` and `bare-dead-sha` now name the replacement when the repository
+records one. `common_git_dir` in
+[extant/git.py](plugin/skills/extant/payload/extant/git.py) resolves the shared
+git directory from the filesystem, extracting the worktree and submodule walk
+`is_shallow` already performed rather than writing a second copy of it - a
+linked worktree keeps its own git directory and the map lives in the original
+clone. **No new git process.** The spawn budget is still 6.
+
+The replacement rides in `Finding.repair`, outside the baseline fingerprint,
+for the reason `subject` is and a sharper one: it varies with the CHECKOUT
+rather than with the document, so a repository that acquired a commit-map would
+otherwise re-report every `dead-sha` an existing baseline had already forgiven -
+and a baseline that stops matching does not fail loudly, it quietly re-raises
+findings the project agreed to leave alone.
+
+`--check-text` reads one document from stdin and gates on it, for text not yet
+on disk. It could not land where it belonged: `run_validate` stood at 295 lines
+against a 303-line ceiling and could not be split, because a nested `record()`
+closure held four locals together and a function cannot be split around a
+closure over its own locals. Those became `report.Collector`, and the gating
+modes moved to [extant/gate.py](plugin/skills/extant/payload/extant/gate.py) -
+the counterpart to `sweep.py`, which holds the modes that survey without
+gating. Largest module 829 to 801, largest function 295 to 284.
+
+A `post-rewrite` hook, a published GitHub Action over the `github` annotation
+format, and `--sha-map` documented for the first time - it has existed since
+0.14.0 and was named exactly once in this repository, in a release note.
+
+**The split was checked rather than asserted.** The payload before and after,
+one fixture, nine invocation shapes including the baseline triple and SARIF:
+byte-identical output, re-checked after every later fix. `suggest_renames` was
+transplanted verbatim from git after a reconstruction of it from memory got the
+capture group and an arity wrong - the tests caught it, and the lesson is that
+moving code means moving it, not retyping it. Nine mutation anchors reported
+STALE, were retargeted, and were then run for real: 9 killed, 0 survived.
+
+**A gap audit after the mode already worked found six more defects**, each
+measured doing damage, each now refused with a test naming it. Two lost user
+state: `--check-text --write-baseline` overwrote a baseline recorded from the
+whole project with one document's findings and exited 0, and
+`--check-text --baseline-check` reported live entries as stale under advice to
+delete them. One emitted an invalid SARIF URI. One let an empty stdin print
+every rule at 0 and exit 0 - nothing checked wearing the appearance of nothing
+wrong, in the newest mode, which is this project's own failure aimed at itself.
+One accepted `--as-path ../../../etc/passwd`. And the installed agent skill,
+which already told agents to check a document before trusting it, offered no
+way to check one before writing it.
+
+**One claim this work made and then had to withdraw.** The `post-rewrite` hook
+was justified as catching the moment claims die en masse. Tested end to end -
+real hooks, real rebase - it fires correctly and finds nothing, because after a
+LOCAL rebase the cited commit still resolves through the reflog. The claim is
+on no branch, so it is false in substance, and `dead-sha` asks a question that
+still answers "fine". Real value for `filter-repo`, which expires objects;
+deferred for rebase until a `gc` that nothing is hooked to. The hook ships with
+that split recorded in its own source rather than with the original claim
+standing.
+
+**What the measurements refused.** Four proposed rules died on a denominator
+grep costing minutes: workflow-job pointers and config-key pointers have zero
+sites in the target population, test-id pointers have 41 sites and no true
+positives, and symbol pointers have 285 sites at 20 percent precision or worse.
+The cause is one property of the population and it generalises: **agent plan
+documents are written in the future tense.** They describe code that does not
+exist yet, so a rule reading them as assertions about present state fires on
+intent. A code-comment sweep died the same way, at 1.9 percent of the
+markdown-borne denominator against its own 5 percent floor.
+
+**One candidate came out of the work rather than out of imagination.** Nothing
+here asks whether a cited commit is still REACHABLE - only whether it resolves -
+and the rebase case above is a real claim, in a real repository, that is false
+and that nothing reports. It clears all four admission clauses on inspection,
+and unlike the eight candidates refused before it, its population is already
+demonstrated. It has earned a denominator measurement and has not had one.
+
 ## Phase 25 - The two modes nothing was driving, and the probe that proved nothing (shipped, 2026-08-28)
 
 **Status.** Suite is 732 tests, all passing. This work shipped in 0.24.0, from

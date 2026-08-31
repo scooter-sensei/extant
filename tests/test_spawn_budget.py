@@ -264,7 +264,7 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
           f"spawn(s), exit code {exit_code}")
     for cmd in spawns:
         print(f"    git {cmd}")
-    # 23, with no spare margin, for the same measured reason CEILING carries
+    # 24, with no spare margin, for the same measured reason CEILING carries
     # none above: with a spare, this exact regression - a `with run_scope():`
     # quietly deleted from main() - left the budget green. If this grows
     # because of a genuine new question, raise the number here and say why in
@@ -284,6 +284,15 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # claim about an already-claimed release costs nothing, a new one about a
     # new release costs a spawn on the command the post-commit hook runs after
     # every commit.
+    #
+    # 24 since 0.25.0, and this is that cost being paid rather than drift.
+    # Phase 26 claims "shipped in 0.25.0", a tag no earlier entry names, so it
+    # buys one `rev-parse --verify --quiet refs/tags/v0.25.0^{commit}` and
+    # nothing else. Checked against the alternative before raising the number,
+    # because the two causes look identical from the count alone: the ref
+    # table and `rev-list main` each still appear exactly twice, so no
+    # `run_scope()` went missing. A future release entry costs one more; a
+    # future entry about 0.25.0 costs nothing.
     #
     # TWO of the fifteen took a different wording, and the difference is the
     # point. Both say "no version was cut for that work, so it remained ...
@@ -310,7 +319,7 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # once per validate() + count_examined() pair. A deleted `with run_scope():`
     # duplicates those instead, which is what to look for before raising this
     # number again.
-    assert len(spawns) <= 23, (
+    assert len(spawns) <= 24, (
         f"{len(spawns)} git processes for --verify on this repository, above "
         f"the 23 measured with run_scope() wrapping main()'s own validate() "
         f"+ count_examined() pairs. If this is a genuine new question, raise "
