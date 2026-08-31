@@ -255,7 +255,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.24.1
+    rev: v0.25.0
     hooks:
       - id: extant
 ```
@@ -578,7 +578,7 @@ If you have no step to add a flag to yet, there is an action:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: scooter-sensei/extant@v0.24.1
+      - uses: scooter-sensei/extant@v0.25.0
 ```
 
 **`fetch-depth: 0` is not optional.** `actions/checkout` defaults to a

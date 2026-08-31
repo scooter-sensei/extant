@@ -1,5 +1,76 @@
 # Changelog
 
+## 0.25.0 (2026-08-31)
+
+Four features, and the one that matters most is not a new rule: **a dead SHA
+now tells you what replaced it.**
+
+**`dead-sha` reads the commit-map a history rewrite leaves behind.** Measured on
+a real agent-written project held out from every corpus here: it carries 12
+distinct dead SHA references, and asked the obvious way - `rev-parse`,
+`cat-file`, every reflog, `fsck --unreachable` - all 12 answer "never present
+anywhere in this clone", which reads as invented. All 12 are in
+`.git/filter-repo/commit-map`, a file git wrote during a trailer purge and left
+in place. So the dominant cause of this project's largest finding class is a
+history rewrite, the answer was already on disk, and nothing looked:
+
+```
+line 14: [dead-sha] `77afb4e` does not resolve in this repo; the rewrite map records it as `d60aac9`
+```
+
+Finding the map repairs nothing. `--sha-map` remains the explicit opt-in for
+rewriting a document, because a validation run that edited prose on its own is
+the authoring this tool refuses. The map is read once per run and only when a
+SHA is already dead, so a clean document never opens a file with one line per
+commit, and lookups are bucketed on seven characters - unbucketed, a 200,000
+entry map cost 4,112 ms for 200 dead SHAs against 704 ms for one.
+
+The replacement rides outside the baseline fingerprint. **No recorded baseline
+stops matching**, which it would if this were folded into the finding's detail:
+the hint varies with the CHECKOUT rather than the document, so a repository that
+acquired a map would otherwise re-report every `dead-sha` a baseline had already
+forgiven.
+
+**`--check-text` checks a document that is not on disk yet**, from stdin, with
+the same rules, denominators, formats and baseline as `--verify`. It is the
+primitive under anything wanting an answer before a file exists. Pass
+`--as-path` with it: without a location the filename-keyed rules cannot answer,
+relative links resolve against the repository root rather than the document's
+own directory, and the markup falls back to markdown. That narrowing is stated
+on its own line rather than left to look like a clean pass. It refuses
+`--write-baseline` and `--baseline-check`, which judge the whole recorded set
+and would wreck it from one document, and `--format=sarif` requires
+`--as-path`, because SARIF locates every result by a URI and `<stdin>` is not
+one.
+
+**A `post-rewrite` hook**, because a rewrite renames every commit at once and
+nothing fired at that moment: `post-commit` is suppressed while a rebase
+replays commits and `post-merge` never sees one. It needed its own entry point,
+measured on git 2.53.0 rather than assumed - `rebase-merge/` is still present
+when `post-rewrite` fires, so the existing rebase-state guard would have skipped
+the one hook that exists to catch it. Its limits are recorded beside it: after a
+LOCAL rebase the old commits still resolve through the reflog, so the check
+correctly reports nothing until a `gc`. Real value for `filter-repo`, deferred
+for rebase.
+
+**A published GitHub Action**, over the `github` annotation format that has
+existed since 0.20.0. It carries no version of its own - it installs the ref you
+pinned - and every input arrives through `env:` rather than being interpolated
+into a shell script, which is the documented Actions injection hole.
+
+**Internally**, the gating modes moved to `extant/gate.py`, the counterpart to
+`extant/sweep.py`: `run_validate` had reached 295 lines against a 303-line
+ceiling and could not be split while a nested closure held four locals
+together. Those became `report.Collector`. `extant.cli.suggest_renames` is now
+`extant.gate.suggest_renames`, the only importable name that moved. The split
+was checked rather than asserted - the payload before and after, one fixture,
+nine invocation shapes including the baseline triple and SARIF, byte-identical
+output - and nine mutation anchors were retargeted and re-run: 9 killed, 0
+survived.
+
+`--sha-map` is documented for the first time. It has existed since 0.14.0 and
+was named exactly once in this repository, in a release note.
+
 ## 0.24.1 (2026-08-30)
 
 Two fixes, both to checks that reported something other than what they had

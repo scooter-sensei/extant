@@ -18,7 +18,7 @@ from __future__ import annotations
 #
 # FIRST, before any other package import. See the note above: an import error
 # from a stale package would otherwise mask this with a worse message.
-_SHIM_VERSION = "0.24.1"
+_SHIM_VERSION = "0.25.0"
 try:
     from extant import __version__ as _PACKAGE_VERSION
 except ImportError:                                  # pragma: no cover
