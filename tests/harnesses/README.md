@@ -409,6 +409,43 @@ count. The last two are metamorphic - extant compared against ITSELF under a
 change that must not matter - and they are what let a fuzzer find wrong answers
 rather than only crashes.
 
+**The generator is a catalogue, not a list of strings.** The shapes live in
+`tests/harnesses/fuzz_shapes.py`, one feature per rule, each offering a claim
+that is TRUE and one that is FALSE. It was twelve hard-coded content strings,
+and measuring them against the rules is what forced this rewrite: five of the
+twelve reached a rule at all, the corpus exercised 5 of the 13 rules, and two
+strings were dead in the way this project keeps warning about. One wrote
+`Merged` followed by the branch where `merge_claim` needs `merged` then `to` or
+`into`, so `false-merge-claim` had never fired here. The other wrote a release
+sentence in the spelling `release_tag` does not read - the same distinction
+that left ten status entries unread for six releases. Both had matched nothing
+since the day the harness was written, and nothing could say so, because a
+shape that stops firing is invisible when shapes are strings.
+
+**True claims are half of it.** Every document the old generator wrote was
+already wrong, which cost more than coverage of the clean path: `--selftest`
+was a no-op across the entire corpus, reporting `0 fired, 13 had nothing to
+corrupt`, because a probe corrupts an ACTUAL match and there were none to
+corrupt. A feature therefore offers both spellings and the draw picks `true`,
+`false` or `both`.
+
+**Features are drawn swarm-style.** Each repository omits a random subset of
+features outright rather than drawing every feature independently at a tuned
+probability - Groce et al.'s feature-omission diversity. Both mechanisms that
+technique addresses were present here: features competed for space, because one
+content shape was chosen per document so no repository could hold a merge claim
+and an LFS blob at once, and features suppressed one another, because an
+unparseable config silences everything downstream. The hand-tuned weighting
+that used to compensate is gone.
+
+**The reach ledger is this harness's own denominator.** It records which rules
+actually EXAMINED something across the corpus and fails below a floor. The old
+count - how many repositories produced rule counts of any kind - was the same
+number for a repository exercising one rule and one exercising twelve, which is
+how 8 of 13 rules went unreached with nothing saying so. It separates a rule no
+feature aims at from one a feature aims at and misses, because those are
+different failures with different fixes.
+
 **Coverage is walked, not drawn.** The five git states times the seven modes
 are thirty-five pairs, and the harness covers each once before spending any
 remaining budget at random. That is not tidiness. The first genuine finding
