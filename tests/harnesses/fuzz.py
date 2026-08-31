@@ -311,6 +311,18 @@ KNOWN_UNREACHABLE: dict = {}
 # inherit it from the config set at build time.
 LONGPATHS = ("-c", "core.longpaths=true")
 
+# What every repository this harness creates needs before it checks anything
+# out, passed on the command line because a CLONE is a brand new repository
+# with default configuration and inherits nothing from its origin.
+#
+# That omission was residual nondeterminism after the arena-path fix was
+# already in: the origin carried `filter.lfs.required=false` and the clone did
+# not, so a `shallow` repository holding an LFS pointer smudged it under the
+# system-wide `required=true`, git-lfs asked the network for a fabricated oid,
+# and the answer depended on timing. Measured: one replay of the same plan in
+# four came back clean.
+SAFE_GIT = ("-c", "core.longpaths=true", "-c", "filter.lfs.required=false")
+
 
 def _rmtree(path: Path) -> None:
     """Remove a built repository, including the parts git made read-only.
@@ -457,17 +469,36 @@ class RepoPlan:
     mode: tuple
     # (feature name, truth) - the ONLY part of the plan ddmin edits.
     features: tuple = ()
+    # WHAT THE PLAN WAS BUILT AGAINST. A plan says how to build a repository
+    # and says nothing about the tool that was run over it, so replaying a CI
+    # artifact against a locally patched payload silently answers a different
+    # question from the one asked. Recorded so `--replay` can SAY the payload
+    # differs - a warning rather than a refusal, because replaying against a
+    # fixed payload is the point when you are checking whether a fix worked.
+    payload: str = ""
 
     def to_dict(self) -> dict:
         return {"repo_seed": self.repo_seed, "index": self.index,
                 "state": self.state, "mode": list(self.mode),
-                "features": [list(f) for f in self.features]}
+                "features": [list(f) for f in self.features],
+                "payload": self.payload}
 
     @classmethod
     def from_dict(cls, raw: dict) -> "RepoPlan":
+        missing = [k for k in ("repo_seed", "index", "state", "mode")
+                   if k not in raw]
+        if missing:
+            # A bare KeyError names one field and no context. This is a file
+            # somebody hand-edited or an artifact from an older harness, and
+            # either way the useful thing is which fields a plan needs.
+            raise ValueError(
+                f"not a usable plan: missing {', '.join(missing)}. A plan "
+                f"needs repo_seed, index, state and mode, and optionally "
+                f"features and payload.")
         return cls(repo_seed=int(raw["repo_seed"]), index=int(raw["index"]),
                    state=str(raw["state"]), mode=tuple(raw["mode"]),
-                   features=tuple(tuple(f) for f in raw.get("features", ())))
+                   features=tuple(tuple(f) for f in raw.get("features", ())),
+                   payload=str(raw.get("payload", "")))
 
     def without(self, names) -> "RepoPlan":
         """The same plan with some features removed. What ddmin bisects over."""
@@ -475,7 +506,26 @@ class RepoPlan:
         return RepoPlan(repo_seed=self.repo_seed, index=self.index,
                         state=self.state, mode=self.mode,
                         features=tuple(f for f in self.features
-                                       if f[0] not in drop))
+                                       if f[0] not in drop),
+                        payload=self.payload)
+
+
+def payload_digest(pkg: Path) -> str:
+    """A short fingerprint of the payload a plan was built against.
+
+    Content rather than version string: two checkouts can both call themselves
+    0.25.0 while one carries the fix being tested. Cheap enough to take once
+    per run, and only the first 12 hex digits are kept because this exists to
+    say SAME or DIFFERENT, never to identify a build.
+    """
+    import hashlib
+    root = pkg / "plugin/skills/extant/payload"
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*.py")
+                       if "__pycache__" not in p.parts):
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def _feature_by_name(name: str):
@@ -485,13 +535,14 @@ def _feature_by_name(name: str):
     return None
 
 
-def draw_plan(rng: random.Random, index: int, state: str, mode) -> RepoPlan:
+def draw_plan(rng: random.Random, index: int, state: str, mode,
+              payload: str = "") -> RepoPlan:
     """Decide one repository. Draws from the run generator, builds nothing."""
     repo_seed = rng.randrange(2 ** 31)
     local = random.Random(repo_seed)
     features = tuple((f.name, truth) for f, truth in _draw_features(local))
     return RepoPlan(repo_seed=repo_seed, index=index, state=state,
-                    mode=tuple(mode), features=features)
+                    mode=tuple(mode), features=features, payload=payload)
 
 
 def _apply(build, drawn, phase: str, recipe: Recipe):
@@ -600,9 +651,26 @@ def build_from_plan(pkg: Path, arena: Path,
     sh(repo, "git", "config", "filter.lfs.required", "false")
     shutil.copytree(pkg / "plugin/skills/extant/payload", repo / "tools")
 
-    drawn = [(f, truth) for f, truth in
-             ((_feature_by_name(name), truth) for name, truth in plan.features)
-             if f is not None]
+    # A NAME THAT NO LONGER RESOLVES IS A BROKEN BUILD, NOT AN EMPTY ONE.
+    #
+    # This used to drop the unknown ones and carry on, which made the
+    # reproduction path lie in the most damaging direction available: replaying
+    # a plan whose feature had been renamed built a repository with NOTHING in
+    # it, found no violation, and printed "this plan does not reproduce one" at
+    # exit 0. Which reads as "the bug is fixed". It even listed the feature it
+    # had just discarded, so the output asserted the opposite of what happened.
+    #
+    # Plans outlive the catalogue - a CI artifact from last week, a case in a
+    # bug report - so this is the normal way for one to go stale, not an exotic
+    # one.
+    drawn = []
+    for name, truth in plan.features:
+        feature = _feature_by_name(name)
+        if feature is None:
+            recipe.broke(f"plan names feature {name!r}, which this catalogue "
+                         f"does not have - the plan is stale, not the tool")
+            continue
+        drawn.append((feature, truth))
     for feature, truth in drawn:
         recipe.drew(feature.name, truth)
     build = shapes.Build(repo=repo, rng=rng, sh=sh, trunk=trunk)
@@ -760,9 +828,14 @@ def build_from_plan(pkg: Path, arena: Path,
     elif state == "shallow":
         cloned = arena / f"sh{index:03d}"
         _rmtree(cloned)
-        r = sh(arena, "git", *LONGPATHS, "clone", "-q", "--depth", "1",
+        r = sh(arena, "git", *SAFE_GIT, "clone", "-q", "--depth", "1",
                repo.as_uri(), str(cloned))
         if r.returncode == 0 and cloned.exists():
+            # Persisted as well as passed: the clone is checked out again by
+            # anything that touches it later, including `--replay` rebuilding
+            # over it, and `-c` covers only the command it is given to.
+            sh(cloned, "git", "config", "core.longpaths", "true")
+            sh(cloned, "git", "config", "filter.lfs.required", "false")
             shutil.copytree(pkg / "plugin/skills/extant/payload",
                             cloned / "tools", dirs_exist_ok=True)
             recipe.did("shallow clone (validated instead of the origin)")
@@ -991,7 +1064,27 @@ SHRINKABLE = ("CRASH", "DENOMINATOR", "EXIT", "FORMATS", "SARIF", "HARNESS")
 SHRINK_CEILING = 30
 
 
-def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, kind: str):
+def fault_signature(kind: str, detail: str) -> tuple:
+    """What counts as THE SAME violation when shrinking.
+
+    Kind alone is too coarse, and measurably so. `DENOMINATOR` covers every
+    rule that reports more than it examined, so a bisect targeting it accepted
+    any repository that produced any such violation - and reported that a
+    `raw-lfs-blob` fault shrank to the `consistency` feature, which merely
+    produces an `inconsistent-artifact` fault of the same shape. A confident,
+    checkable, wrong answer: the reduced plan reproduces A violation and not
+    THE one.
+
+    Kind plus the rule named in the detail. Faults that name no rule - CRASH,
+    EXIT - fall back to kind alone, which is the right granularity for them.
+    """
+    for rule in shapes.RULE_KINDS:
+        if rule in detail:
+            return (kind, rule)
+    return (kind, "")
+
+
+def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, signature: tuple):
     """Does this plan still violate the SAME property? None if it did not build.
 
     Same kind, not same message: a shrunk repository legitimately reports a
@@ -1013,13 +1106,14 @@ def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, kind: str):
     if recipe.broken:
         return None
     found, _probed, _out = all_faults(repo, plan.mode)
-    for found_kind, _detail in found:
-        if found_kind == kind:
+    for found_kind, found_detail in found:
+        if fault_signature(found_kind, found_detail) == signature:
             return True
     return False
 
 
-def shrink(pkg: Path, arena: Path, plan: RepoPlan, kind: str):
+def shrink(pkg: Path, arena: Path, plan: RepoPlan,
+           signature: tuple):
     """The minimizing delta debugging algorithm over the drawn feature set.
 
     ddmin bisects a set of atomic units while preserving an interesting
@@ -1038,13 +1132,24 @@ def shrink(pkg: Path, arena: Path, plan: RepoPlan, kind: str):
     budget = [SHRINK_CEILING]
     unbuildable = [0]
 
+    # THE BASELINE FIRST. Without it, a plan that does not reproduce at all -
+    # a violation that needed the arena in some state, or one of the
+    # properties this list should not have admitted - explores the whole
+    # lattice, finds nothing, and reports "no smaller feature set reproduces
+    # it". Which is exactly what a violation genuinely caused by every feature
+    # reports. Two opposite findings, one sentence.
+    baseline = _still_fails(pkg, arena, plan, signature)
+    if baseline is not True:
+        return (tuple(items), 1, False, 1 if baseline is None else 0, False)
+
     def fails(subset) -> bool:
         if budget[0] <= 0:
             return False
         budget[0] -= 1
         keep = {name for name, _ in subset}
         dropped = [name for name, _ in items if name not in keep]
-        answer = _still_fails(pkg, arena, plan.without(dropped), kind)
+        answer = _still_fails(pkg, arena, plan.without(dropped),
+                              signature)
         if answer is None:
             unbuildable[0] += 1
             return False
@@ -1070,7 +1175,7 @@ def shrink(pkg: Path, arena: Path, plan: RepoPlan, kind: str):
             break
         granularity = min(granularity * 2, len(items))
     return (tuple(items), SHRINK_CEILING - budget[0], budget[0] <= 0,
-            unbuildable[0])
+            unbuildable[0], True)
 
 
 def run_replay(pkg: Path, arena: Path, path: Path) -> int:
@@ -1081,9 +1186,23 @@ def run_replay(pkg: Path, arena: Path, path: Path) -> int:
     nothing could execute. This is the other end of that: the same file, fed
     back, produces the repository.
     """
-    plan = RepoPlan.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    try:
+        plan = RepoPlan.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"cannot read {path}: {exc}")
+        return 2
     arena.mkdir(parents=True, exist_ok=True)
     print(f"replaying repository {plan.index:03d} from {path}")
+    here = payload_digest(pkg)
+    if plan.payload and plan.payload != here:
+        # Said, not enforced. Replaying against a CHANGED payload is the whole
+        # point when the question is "did the fix work" - what would be wrong
+        # is doing it without knowing.
+        print(f"  payload {here}, plan was built against {plan.payload} - "
+              f"DIFFERENT, so a clean result here means this payload, not "
+              f"this plan, changed")
+    elif plan.payload:
+        print(f"  payload {here}, same as the plan was built against")
     print(f"  repo_seed {plan.repo_seed}, state {plan.state}, "
           f"mode {' '.join(plan.mode)}")
     print(f"  {len(plan.features)} feature(s): "
@@ -1124,8 +1243,10 @@ def main() -> int:
     seed = args.seed if args.seed is not None else random.randrange(2 ** 31)
     rng = random.Random(seed)
     args.arena.mkdir(parents=True, exist_ok=True)
+    payload = payload_digest(args.pkg)
 
     print(f"seed {seed}   (reproduce with --seed {seed})")
+    print(f"payload {payload}")
     print(f"building {args.repos} hostile repositories\n")
 
     faults: list[tuple[int, str, str]] = []
@@ -1164,7 +1285,7 @@ def main() -> int:
         # Decide, then build. The plan is written down before anything touches
         # the disk, so a repository that fails can be handed back as a file
         # rather than as a position in this loop.
-        repo_plan = draw_plan(rng, index, state, planned_mode)
+        repo_plan = draw_plan(rng, index, state, planned_mode, payload)
         repo, recipe = build_from_plan(args.pkg, args.arena, repo_plan)
         for note in recipe.skipped:
             key = note.split(" (")[0]
@@ -1210,9 +1331,15 @@ def main() -> int:
             # what somebody can actually read. Runs only on a violation, so a
             # green run pays nothing for it.
             if kind in SHRINKABLE and not args.no_shrink:
-                smaller, rebuilds, exhausted, unjudged = shrink(
-                    args.pkg, args.arena, repo_plan, kind)
-                if len(smaller) < len(repo_plan.features):
+                signature = fault_signature(kind, detail)
+                smaller, rebuilds, exhausted, unjudged, reproduced = shrink(
+                    args.pkg, args.arena, repo_plan, signature)
+                if not reproduced:
+                    print(f"           NOT SHRUNK: rebuilding this plan does "
+                          f"not reproduce {kind}, so there is nothing to "
+                          f"bisect. The violation depends on something the "
+                          f"plan does not capture.")
+                elif len(smaller) < len(repo_plan.features):
                     saved = repo_plan.without(
                         [n for n, _ in repo_plan.features
                          if n not in {s for s, _ in smaller}])
@@ -1237,7 +1364,14 @@ def main() -> int:
                       f"and bisecting on it would follow noise")
             if args.save:
                 args.save.mkdir(parents=True, exist_ok=True)
-                target = args.save / f"seed{seed}-{index:03d}.json"
+                # Per FAULT, not per repository. Indices 014 and 025 of
+                # one measured run each reported two, so a single name meant
+                # the second overwrote the first and the surviving file
+                # described a different violation from the one above it.
+                named = "-".join(x for x in fault_signature(kind, detail) if x)
+                slug = re.sub(r"[^a-z0-9]+", "-", named.lower()).strip("-")
+                target = (args.save /
+                          f"seed{seed}-{index:03d}-{slug}.json")
                 target.write_text(json.dumps(saved.to_dict(), indent=2),
                                   encoding="utf-8")
                 print(f"           replay with --replay {target}")

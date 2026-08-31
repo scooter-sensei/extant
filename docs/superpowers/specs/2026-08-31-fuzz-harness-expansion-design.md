@@ -412,11 +412,14 @@ whose verification was not performed is not done.
   the corpus reproducibility described below; the harness can still build a
   degraded corpus, and `CORPUS_FLOOR` only stops that being read as a clean
   one.
-- **Stage 2**: DONE. ddmin reduced a `manifest-floor-mismatch` denominator
-  violation from 9 features to 1 in 7 rebuilds, naming `manifest-floor`; the
-  saved plan replays and reproduces it at exit 1; and it was watched failing -
-  the same plan with that one feature removed by hand builds and reports no
-  violation at exit 0.
+- **Stage 2**: DONE, and audited afterwards, which found seven gaps and two
+  confident wrong answers. ddmin reduces a `raw-lfs-blob` violation to
+  `lfs-blob` and a `manifest-floor-mismatch` one to `manifest-floor`; a saved
+  plan replays and reproduces at exit 1, six times out of six; and it was
+  watched failing - the same plan with the causal feature removed by hand
+  builds and reports nothing at exit 0. A plan naming a feature the catalogue
+  no longer has is a broken build at exit 2 rather than an empty repository
+  reported clean. See "What the Stage 2 audit found" below.
 - **Stage 3**: each oracle is watched failing against a deliberately broken
   copy of the payload - one that miscounts CRLF line numbers for `CRLF` and
   `SHIFT`, one that drops the sarif denominator for `DENOM-AGREE`, one that
@@ -597,6 +600,51 @@ the failure mode this harness exists to surface.
 - Weighting the config draw cut refusals from 10 of 35 to 2 and took
   repositories reaching a rule from 15 to 25. The uniform draw was spending a
   third of the corpus on argument parsing.
+
+## What the Stage 2 audit found
+
+Seven gaps, every one confirmed by running something rather than by reading.
+Five are the same failure - something could not be determined and the code
+returned the reassuring answer - which by then was the fifth, sixth and seventh
+instance of that shape in this work, three in the product and four in the
+harness built to find them. Knowing about the pattern demonstrably does not
+prevent writing it.
+
+Two were confident WRONG ANSWERS, which is worse than a crash.
+
+**A plan naming a feature the catalogue no longer has was silently dropped.**
+The harness built a repository with nothing in it, found no violation, and
+printed "this plan does not reproduce one" at exit 0 - which reads as "the bug
+is fixed". It listed the discarded feature while doing so, so the output
+asserted the opposite of what happened. Plans outlive the catalogue, so this is
+the ordinary way for one to go stale. Now a broken build at exit 2.
+
+**Shrinking matched on the PROPERTY and not the rule**, which was a documented
+decision and wrong. `DENOMINATOR` covers every rule that reports more than it
+examined, so ddmin accepted the `consistency` feature - which produces an
+`inconsistent-artifact` fault of the same shape - as reproducing a
+`raw-lfs-blob` fault, and reported it as the minimal cause. The signature is
+kind plus the rule named in the detail now.
+
+**Clones inherit none of the origin's git configuration**, which was residual
+nondeterminism after the arena-path fix had already been called complete. A
+clone is a brand new repository: it got neither `core.longpaths` nor
+`filter.lfs.required=false`, so a `shallow` repository holding an LFS pointer
+smudged it under the system-wide `required=true`, asked the network for a
+fabricated oid, and varied by timing. One replay in four came back clean;
+after the fix, six of six reproduce.
+
+That one surfaced only because the shrunk plan was replayed and checked to
+actually reproduce, rather than trusting that ddmin had verified it. Verifying
+that the shrinker verified something is not the same as verifying it.
+
+The remaining four: the plan did not record which payload it was built against,
+so a CI artifact replayed locally silently answered a different question;
+`shrink` bisected without first confirming the full plan reproduces, so "no
+smaller feature set reproduces it" was indistinguishable from "the violation
+needs every feature"; two faults on one repository overwrote a single plan file,
+and two measured indices had exactly that; and a malformed plan raised a bare
+`KeyError` naming one field.
 
 ## Sequencing
 
