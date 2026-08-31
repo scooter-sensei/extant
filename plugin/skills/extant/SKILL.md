@@ -82,6 +82,21 @@ together, returning whole entries. `--suggest-fixes` prints a patch repointing
 references at files git recorded as renamed; it writes nothing, and stdout
 carries only the patch so it can be piped to `git apply`.
 
+`--check-text` reads ONE document from stdin and gates on it, for text that is
+not on disk yet - a draft you are about to write, or one you have just
+generated. Same rules, denominators, formats and baseline as `--verify`. Pass
+`--as-path RELATIVE` with it: without a path the filename-keyed rules cannot
+answer, relative links resolve against the repository root rather than the
+document's directory, and the markup is assumed to be markdown. That narrowing
+is stated in the output rather than left to look like a clean pass. It reads no
+archive and no `extra_docs`, and it writes no file - `--sha-map` still applies
+its translation in memory so the findings match the repaired text. It reads a
+baseline but refuses `--write-baseline` and `--baseline-check`, which judge the
+whole recorded set and would wreck it from one document; `--format=sarif`
+requires `--as-path`, since SARIF locates results by URI. Nothing on stdin is
+an error, not an empty document: a pipe that delivers nothing would otherwise
+report every rule clean.
+
 `--validate`, `--verify`, `--sweep` and `--deleted-since` take `--format=text` (default), `--format=github`
 for Actions annotations, or `--format=sarif`. SARIF puts nothing but JSON on
 stdout; every human diagnostic moves to stderr.
@@ -92,6 +107,17 @@ carries `properties.gates`. The run also carries `properties.examined`, the
 same denominator the text output prints, because a machine consumer seeing
 zero results otherwise cannot tell a clean repository from one where nothing
 ran.
+
+**After a history rewrite.** `git filter-repo` renames every commit at once, so
+every document citing one goes wrong in the same instant - measured on one real
+agent-written project as 12 of its 12 dead SHAs, none of them findable in the
+object store, the reflogs or the unreachable objects. `filter-repo` records what
+each commit became in `.git/filter-repo/commit-map`; a `dead-sha` finding names
+the replacement from it automatically, and `--sha-map <path>` applies the
+substitution across a document. That is the one place this tool rewrites prose,
+so it is opt-in: the new value comes from a file git wrote rather than from
+anything inferred, and a prefix two old commits share is left alone rather than
+guessed at.
 
 **Adopting on an old repository.** `--write-baseline` records every current
 finding once; `--baseline` then checks only NEW claims. Use it when the first

@@ -67,6 +67,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     session = collect.parent / "extant/session.py"
     sweep = collect.parent / "extant/sweep.py"
     cli = collect.parent / "extant/cli.py"
+    # The gating modes left extant/cli.py when `run_validate` reached 295 lines
+    # against a 303-line ceiling and `--check-text` still had to be written.
+    # Nine anchors moved with the code, and every one of them reported STALE
+    # rather than passing - which is the whole reason --check-only exists, and
+    # the third time this file has recorded the same lesson. Mutations rot
+    # alongside the code they point at.
+    gate = collect.parent / "extant/gate.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -442,13 +449,17 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted a second time when run_validate was pulled out of
         # `main()` as its own function: the block dedented by one level (4
         # spaces) with it, and a mutation anchors on exact text.
-        ("sarif diagnostics leak onto stdout", cli,
-         '    stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)\n'
-         "              else sys.stdout)",
-         "    stream = sys.stdout"),
-        ("suggested patch shares stdout with the findings", cli,
-         '    stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
-         '    stream = (sys.stderr if (args.format == "sarif" or False)'),
+        # Retargeted a THIRD time when the gating modes moved to
+        # extant/gate.py and this became `_diagnostic_stream` - one function
+        # answering the question for both of them, so the choice is now a
+        # `return` rather than an assignment.
+        ("sarif diagnostics leak onto stdout", gate,
+         '    return (sys.stderr if (args.format == "sarif" or args.suggest_fixes)\n'
+         "            else sys.stdout)",
+         "    return sys.stdout"),
+        ("suggested patch shares stdout with the findings", gate,
+         '    return (sys.stderr if (args.format == "sarif" or args.suggest_fixes)',
+         '    return (sys.stderr if (args.format == "sarif" or False)'),
         ("fingerprint folds in the line number", report,
          '                "statusClaim/v1": fingerprint(\n'
          "                    item.path, item.finding.kind, item.finding.detail),",
@@ -608,18 +619,21 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '            if kind != "phase":'),
 
         # --- suggested fixes ------------------------------------------------------
-        ("suggest-fixes offers a guess for a merely missing file", cli,
+        # `suggest_renames` moved to extant/gate.py with the mode that calls
+        # it. The TEXT of these three is unchanged - the function was
+        # transplanted rather than rewritten - so only the file moved.
+        ("suggest-fixes offers a guess for a merely missing file", gate,
          "        moved = renamed_to(ctx, target)\n"
          "        if moved:\n"
          "            replacements.append((target, moved))",
          "        moved = renamed_to(ctx, target) or target + \".guess\"\n"
          "        if moved:\n"
          "            replacements.append((target, moved))"),
-        ("suggest-fixes rewrites prose as well as references", cli,
+        ("suggest-fixes rewrites prose as well as references", gate,
          '        updated = updated.replace(f"]({old})", f"]({new})")\n'
          '        updated = updated.replace(f"`{old}`", f"`{new}`")',
          "        updated = updated.replace(old, new)"),
-        ("suggest-fixes writes the file instead of emitting a patch", cli,
+        ("suggest-fixes writes the file instead of emitting a patch", gate,
          "    if not replacements:\n        return \"\"",
          "    if not replacements:\n        return \"\"\n"
          "    (base / 'SIDE_EFFECT.txt').write_text('written', encoding='utf-8')"),
@@ -729,22 +743,32 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The four `cli` anchors in this group all dedented by one level (4
         # spaces) when run_validate was pulled out of `main()` as its own
         # function; see the note beside the sarif/stdout pair above.
-        ("baseline suppresses by kind, so every future finding is forgiven", cli,
-         "            if mark in baselined:",
-         "            if any(e[\"kind\"] == finding.kind for e in baselined.values()):"),
-        ("baseline stops stating how much it is hiding", cli,
-         '        diag(f"{len(located)} new finding(s), {suppressed} suppressed by "',
-         '        diag("" or f"{len(located)} new finding(s), {suppressed} hidden by "'),
+        # They then split across two files. The bookkeeping - what was
+        # recorded, what matched, how much was hidden - became
+        # `report.Collector`, which is what let `run_validate` be split at all;
+        # the two that only PRINT it went to extant/gate.py with the mode.
+        ("baseline suppresses by kind, so every future finding is forgiven", report,
+         "            if mark in self.baselined:",
+         "            if any(e[\"kind\"] == finding.kind\n"
+         "                   for e in self.baselined.values()):"),
+        ("baseline stops stating how much it is hiding", gate,
+         '        diag(f"{len(found.located)} new finding(s), {found.suppressed} "\n'
+         '             f"suppressed by {rel(repo, baseline_path)}")',
+         '        diag(f"suppressed by {rel(repo, baseline_path)}")'),
         ("a missing baseline becomes an empty one", report,
          "    if not path.is_file():\n        raise ValueError(",
          "    if not path.is_file():\n        return {}\n    if False:\n        raise ValueError("),
-        ("re-recording honours the active baseline and shrinks the file", cli,
-         "    if (args.baseline or args.baseline_check) and not args.write_baseline:",
-         "    if args.baseline or args.baseline_check:"),
-        ("baseline-check stops reporting entries that no longer occur", cli,
-         "        stale = [entry for fingerprint, entry in sorted(baselined.items())\n"
-         "                 if fingerprint not in matched]",
-         "        stale = []"),
+        # Inverted when it became `_open_baseline`, which returns early rather
+        # than loading conditionally. The fault it reintroduces is the same
+        # one: reading a baseline while WRITING one, so each re-recording
+        # keeps only what the previous baseline had missed.
+        ("re-recording honours the active baseline and shrinks the file", gate,
+         "    if not (args.baseline or args.baseline_check) or args.write_baseline:",
+         "    if not (args.baseline or args.baseline_check):"),
+        ("baseline-check stops reporting entries that no longer occur", report,
+         "        return [entry for mark, entry in sorted(self.baselined.items())\n"
+         "                if mark not in self.matched]",
+         "        return []"),
 
         # --- the cross-platform agent skill --------------------------------------
         # The newest code, which is where every gap starts. Setup writes agent

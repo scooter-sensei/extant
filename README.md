@@ -109,6 +109,7 @@ The full set of modes:
 | `--deleted-since <ref>` | claims removed while still false. Always exits 0; pass the merge base in CI |
 | `--validate <file>` | one document, exits 1 on findings |
 | `--verify` | every document `.extant.toml` names. What the git hooks run |
+| `--check-text` | one document on **stdin**, for text not on disk yet. Pair with `--as-path` |
 
 [Four ways to install properly](#install) are below.
 
@@ -449,9 +450,59 @@ It is rendered for your repository rather than copied, so it names your document
 and your paths, and it carries the discipline that matters: read the
 denominator, never make a document pass by deleting the claim.
 
+**And it says when to run it, which is the part the commit hook cannot cover.**
+An agent crosses two boundaries a commit does not: it *reads* a document at the
+start of a session and takes what it says as fact, and it *writes* one at the
+end. The skill instructs it to check at both - before trusting a document, and
+after editing one - because the commit hook fires later than the first and can
+only report what a session has already planned around.
+
+This is where the findings actually are. In the project measured above, every
+located finding sat in the plan and spec directories that agent sessions read
+back; the README and CONTRIBUTING were clean. A human notices a broken link. An
+agent cannot tell an expired line from a current one, and there is nothing in
+the prose to tell it.
+
 Claude Code additionally gets `/extant`, a slash command for the end-to-end
 workflow. Both are rendered from the same observations, so they cannot end up
 describing different documents.
+
+### Checking a document that is not on disk yet
+
+The commit hook checks what was written. `--check-text` checks what is *about*
+to be, from stdin:
+
+```console
+$ cat draft.md | python tools/extant_collect.py --check-text --as-path docs/plan.md
+line 12: [dead-sha] `77afb4e` does not resolve in this repo
+checked docs/plan.md: dead-sha 3, false-merge-claim 1, dead-path-pointer 4, ...
+```
+
+Same rules, same denominators, same formats as `--verify`. It is the primitive
+under anything that wants an answer before a file exists - a post-write hook
+handing findings back in the same turn, an editor, a harness.
+
+It **reads** a baseline (`--baseline`) so a draft is judged by the same
+amnesties as the rest of the project, and refuses the two flags that write or
+judge one. `--write-baseline` would record a single document's findings over a
+baseline recorded from all of them, and `--baseline-check` would call every
+entry this document happens not to mention "stale" and tell you to delete it.
+Both are `--verify`'s job. `--format=sarif` needs `--as-path`, because SARIF
+locates every result by a URI and a document with no path has none.
+
+**`--as-path` is worth passing.** A document with no path is a narrower
+question: rules that key on the filename cannot answer, relative links resolve
+against the repository root rather than the document's own directory, and the
+markup language falls back to markdown - which would run the markdown-only
+rules over reStructuredText. `--as-path` says where the text would live and all
+three follow from it. Leave it off and the run says so on its own line, rather
+than letting a thinner denominator read as a clean pass.
+
+Two things it deliberately does not do. It reads no archive and no `extra_docs`,
+because one document arrived and inventing two more to read beside it would
+answer a question nobody asked. And it writes nothing at all: `--sha-map` still
+applies its translation to the text in memory, so the findings match the
+repaired document, but there is no file to write back to and none is created.
 
 ### What lands in your project
 
@@ -520,6 +571,25 @@ broken.** This runs in CI here on every change, so the tool is not merely
 tested, it is watched failing.
 
 ### Findings inside pull requests
+
+If you have no step to add a flag to yet, there is an action:
+
+```yaml
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: scooter-sensei/extant@v0.24.1
+```
+
+**`fetch-depth: 0` is not optional.** `actions/checkout` defaults to a
+depth-limited checkout, and this tool asks whether commits still exist - in a
+depth-limited repository nearly none of them do. Measured on a held-out corpus,
+one project produced 2,094 dead-SHA findings checked out that way and 3 with its
+history. The run says when it is looking at a depth-limited repository, but the
+fix belongs in the workflow.
+
+It takes `mode` (`verify`, the default, or `sweep`), `repo`, `format` and `args`
+for anything else. Under it is one command:
 
 ```console
 $ python tools/extant_collect.py --verify --format=github
@@ -615,6 +685,38 @@ It only offers corrections for files git actually recorded as renamed. If a file
 is simply gone it says nothing, because guessing where it went means writing
 something that might not be true, and that is the one thing this refuses to do.
 Its authority rests on checking claims and never authoring them.
+
+### After a history rewrite
+
+`git filter-repo` gives every commit a new id. Any document naming an old one
+is now wrong - all at once, in every file, without anybody editing anything.
+This is the single largest cause of dead commit references in agent-written
+documents: measured on one real project, **12 of its 12 dead SHAs came from one
+rewrite**, and none of them could be found by any amount of searching the
+object store, the reflogs or the unreachable objects.
+
+They can all be found in one place. `filter-repo` writes what each commit
+became to `.git/filter-repo/commit-map`, and extant reads it, so a finding says
+what to put back:
+
+```console
+$ python tools/extant_collect.py --verify
+line 14: [dead-sha] `77afb4e` does not resolve in this repo; the rewrite map records it as `d60aac9`
+```
+
+To apply that across a document, pass the map:
+
+```console
+$ python tools/extant_collect.py --verify --sha-map .git/filter-repo/commit-map
+translated 12 stale SHA reference(s) in NEXT_SESSION.md
+```
+
+`--sha-map` is the one place this tool rewrites your prose, and it is opt-in
+for that reason: the substitution comes from a file git wrote, not from
+anything extant inferred. Reading the map to *explain* a finding happens on
+every run; rewriting a document never happens unless you ask. A prefix that two
+old commits share is left alone rather than resolved by guess - a wrong SHA
+reads as correct, where a dead one is visibly broken.
 
 ### Search across the archive
 

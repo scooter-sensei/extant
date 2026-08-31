@@ -27,6 +27,23 @@ To check one file:
 python tools/extant_collect.py --validate path/to/file.md
 ```
 
+## Check a draft BEFORE you write it
+
+"Run it after you edit one" is too late if the edit was wrong. When you have
+composed a document and not yet written it, pipe it in:
+
+```
+python tools/extant_collect.py --check-text --as-path docs/plan.md < draft.md
+```
+
+Same rules, same denominator, same exit code as `--validate`. It writes no
+file. Pass `--as-path` with the path the document WOULD have: without it the
+rules that key on a filename cannot answer, relative links resolve against the
+repository root instead of the document's own directory, and the markup is
+assumed to be markdown. The run says so on its own line when you leave it off,
+and that line means the check was narrower than usual - not that the document
+was clean.
+
 ## Read the denominator, not just the verdict
 
 Every run ends with a line counting what it EXAMINED:

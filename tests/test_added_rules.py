@@ -1134,6 +1134,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
+    from extant import gate
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1144,7 +1145,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     git(repo, "commit", "-qm", "docs: rename")
     hc._SCOPE = hc.RunScope()
 
-    patch = cli.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+    patch = gate.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
 
     assert patch, "a recorded rename produced no suggestion"
     assert "-See [plan](docs/plan.md)." in patch
@@ -1159,12 +1160,13 @@ def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
     exactly the authoring this refuses to do."""
     from extant import session as hc
     from extant import cli
+    from extant import gate
     from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     hc._SCOPE = hc.RunScope()
 
-    assert cli.suggest_renames(repo, repo, "See [x](docs/never-existed.md).\n",
+    assert gate.suggest_renames(repo, repo, "See [x](docs/never-existed.md).\n",
                            "NEXT_SESSION.md") == ""
 
 
@@ -1176,6 +1178,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
+    from extant import gate
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1184,7 +1187,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
     text = "See [plan](docs/plan.md).\nWe renamed docs/plan.md last week.\n"
 
-    patch = cli.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+    patch = gate.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
 
     assert "+See [plan](docs/design.md)." in patch
     # The prose line must not appear as a changed line at all.
@@ -1303,6 +1306,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
+    from extant import gate
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1311,7 +1315,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
     before = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
 
-    patch = cli.suggest_renames(repo, repo, "See [plan](docs/plan.md).\n", "DOC.md")
+    patch = gate.suggest_renames(repo, repo, "See [plan](docs/plan.md).\n", "DOC.md")
 
     after = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
     assert patch, "the setup produced no patch, so this proves nothing"

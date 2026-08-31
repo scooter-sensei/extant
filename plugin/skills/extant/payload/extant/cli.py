@@ -1,4 +1,4 @@
-"""Argument parsing, and the modes that are not a survey.
+"""Argument parsing, and the modes that neither survey nor gate.
 
 `main` is the whole command line: it reads the flags, picks the mode, and is
 the only place an exit code is decided. `cli` is the console-script entry point
@@ -7,10 +7,20 @@ is why it differs from `main` in exactly two ways - a missing mode means
 `--verify`, and `--repo` defaults to the current directory rather than to
 wherever the package was installed.
 
-`--sweep` and `--deleted-since` live in extant/sweep.py; everything else is
-here, because `--collect`, `--archive`, `--search`, `--selftest` and
-`--validate`/`--verify` are each a handful of lines over machinery that already
-exists. Splitting them further would put one caller per file.
+The modes now live in three places, and the line between them is what the mode
+DOES with what it finds:
+
+* extant/sweep.py surveys and never gates: `--sweep`, `--deleted-since`.
+* extant/gate.py checks one document and decides an exit code: `--validate`,
+  `--verify`, `--check-text`.
+* here: `--collect`, `--archive`, `--search`, `--selftest`, which are each a
+  handful of lines over machinery that already exists.
+
+That third clause used to cover `--validate` too, and it was true when written.
+It stopped being true quietly: `run_validate` reached 295 lines against the
+303-line ceiling, which is a ceiling doing its job rather than a surprise. The
+argument for keeping the small modes together is unchanged - splitting them
+further would put one caller per file.
 
 This module reaches the ambient run state through extant/session.py rather than
 holding any of its own. That is the boundary Task 10 exists to draw: the state
@@ -25,82 +35,14 @@ from pathlib import Path
 
 from extant import session
 from extant.collect import collect
-from extant.commits import load_sha_map, translate_shas
 from extant.config import StatusConfig
 from extant.entries import archive, split_entries
-from extant.finding import Finding, Located, rel
-from extant.git import is_shallow
-from extant.refs import renamed_to
+from extant.gate import run_check_text, run_validate
 from extant.registry import RULE_ERRORS
-from extant.report import (
-    BASELINE_NAME, FORMATS, fingerprint, format_text, load_baseline,
-    render_findings, write_baseline,
-)
-from extant.sites import resolve_reference
+from extant.report import BASELINE_NAME, FORMATS
 from extant.sweep import run_deleted_since, run_sweep
-from extant.text import EXTERNAL, MD_LINK, prose, strip_code
 
-__all__ = ["build_parser", "cli", "main", "search_entries", "suggest_renames"]
-
-
-def suggest_renames(repo: Path, base: Path, text: str, relative: str) -> str:
-    """A unified diff repointing references at where git says the file went.
-
-    Emitted to stdout as a PATCH, never written. That is not caution for its own
-    sake: this tool's authority rests entirely on the fact that it checks claims
-    and never writes them. A validator that edits prose can be wrong in a new
-    way - it can author a falsehood itself - and the first time it did, nothing
-    would be left to catch it.
-
-    A patch keeps the boundary and loses nothing. `git apply` is one command,
-    the diff is reviewable before it is applied, and the decision stays with the
-    person whose document it is.
-
-    Only renames GIT RECORDED are offered. A path that is merely missing gets no
-    suggestion, because guessing where it went is exactly the authoring this
-    refuses to do.
-    """
-    replacements: list[tuple[str, str]] = []
-    ctx = session.context(repo)
-
-    for raw in MD_LINK.findall(strip_code(ctx.doc, text)):
-        if EXTERNAL.match(raw) or raw.startswith("#"):
-            continue
-        target = raw.split("#", 1)[0]
-        if not target or resolve_reference(ctx, base, target)[0]:
-            continue
-        moved = renamed_to(ctx, target)
-        if moved:
-            replacements.append((target, moved))
-
-    for raw in ctx.config.path_pointer.findall(prose(ctx.doc, text)):
-        if resolve_reference(ctx, repo, raw)[0]:
-            continue
-        moved = renamed_to(ctx, raw)
-        if moved:
-            replacements.append((raw, moved))
-
-    if not replacements:
-        return ""
-
-    updated = text
-    for old, new in dict.fromkeys(replacements):
-        # Replaced only where the path is USED as a reference - inside a link
-        # target or a backticked pointer - rather than anywhere the characters
-        # happen to appear. A bare replace would also rewrite prose discussing
-        # the old name, which is often the very sentence explaining the move.
-        updated = updated.replace(f"]({old})", f"]({new})")
-        updated = updated.replace(f"`{old}`", f"`{new}`")
-
-    if updated == text:
-        return ""
-
-    import difflib
-    diff = difflib.unified_diff(
-        text.splitlines(keepends=True), updated.splitlines(keepends=True),
-        fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,
-    )
-    return "".join(diff)
+__all__ = ["build_parser", "cli", "main", "search_entries"]
 
 
 def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
@@ -205,6 +147,15 @@ def build_parser() -> argparse.ArgumentParser:
                       help="corrupt one real claim per rule and confirm each fires")
     mode.add_argument("--search", metavar="TEXT",
                       help="find past entries mentioning TEXT, live and archived")
+    mode.add_argument("--check-text", action="store_true",
+                      help="check a document read from stdin; needs no file on "
+                           "disk. Pair with --as-path so the rules that key on "
+                           "a location can answer")
+    parser.add_argument("--as-path", metavar="RELATIVE",
+                        help="with --check-text, the repo-relative path this "
+                             "document would have. Sets what relative links "
+                             "resolve against, which filename the keyed rules "
+                             "read, and the markup language")
     parser.add_argument("--full", action="store_true",
                         help="with --search, print whole entries rather than excerpts")
     parser.add_argument("--suggest-fixes", action="store_true",
@@ -393,349 +344,6 @@ def run_archive(repo: Path) -> int:
     return 0
 
 
-def _report_denominators(diag, repo: Path, name: str,
-                         examined: dict[str, int]) -> bool:
-    """The counts, and everything that qualifies them. Returns whether any
-    rule error was reported.
-
-    Split out of `run_validate` when the shallow-clone note took that function
-    one line past the ceiling in tests/test_module_quality.py. The block was
-    always one thing - here is what was counted, and here is every reason a
-    count might not mean what it looks like - so it reads better named than it
-    did inline.
-    """
-    summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
-    blind = [kind for kind, n in examined.items() if n == 0]
-    diag(f"checked {name}: {summary}")
-    # Beside the denominators, because that is where a reader looks to
-    # decide whether a quiet rule was quiet or broken.
-    errors_reported = session.report_rule_errors(diag)
-    if blind:
-        diag("  NOTE: these rules matched nothing at all - either this "
-             "document makes no such claims, or the pattern is wrong: "
-             + ", ".join(blind))
-    # Beside the denominators for the same reason they are printed at all: a
-    # `dead-sha` count taken from a shallow clone describes the slice that was
-    # cloned rather than the repository, and a reader cannot tell those apart
-    # from the number alone.
-    if is_shallow(repo):
-        # "shallow repository" rather than "shallow clone", and not for style.
-        # tests/harnesses/smoke.py scans this package's operational source for
-        # the shapes a network call takes, and the verb for copying a remote
-        # repository is one of them. That scan keeps string literals on
-        # purpose, because a git subcommand only ever reaches git as one, so a
-        # scan that dropped them would be permanently clean and permanently
-        # useless. It therefore cannot tell a sentence from an argument, and
-        # the word in a message here read as a network operation in a tool
-        # that opens no sockets. tests/test_module_quality.py now runs the
-        # same scan in the suite, so the next one fails before a push.
-        #
-        # It is also the better term: `git rev-parse --is-shallow-repository`
-        # is what git calls the question, and a linked worktree of a shallow
-        # checkout is not itself a copy of anything.
-        diag("  NOTE: this is a shallow repository, so commit SHAs were "
-             "checked against the history present locally rather than "
-             "against everything upstream.")
-    return errors_reported
-
-
-def run_validate(repo: Path, args: argparse.Namespace,
-                 status: StatusConfig) -> int:
-    """`--validate FILE` / `--verify`: check one document's claims and gate.
-
-    Also validates the archive and any `extra_docs`, applies `--sha-map`
-    translation, and handles baselining, `--suggest-fixes`, and every
-    machine output format. Not split further within this function: the
-    `record()` closure below shares locals - `baselined`, `matched`,
-    `used`, `stream` - across the whole pass.
-    """
-    # Human diagnostics go to stderr when stdout must be pure JSON. A SARIF
-    # document with a progress line prepended is not a SARIF document.
-    # stdout carries ONE machine-readable thing at a time. SARIF must be
-    # the only JSON there, and a patch must be the only patch there or
-    # `... | git apply` receives log lines and rejects the lot. Everything
-    # human moves to stderr in both cases.
-    stream = (sys.stderr if (args.format == "sarif" or args.suggest_fixes)
-              else sys.stdout)
-
-    def diag(*parts: object) -> None:
-        print(*parts, file=stream)
-
-    target = Path(args.validate)
-    if not target.is_file():
-        # A traceback here is a poor answer to a common situation: the
-        # document lives elsewhere in this project, or the config points at
-        # the wrong name. Say which file was expected and where it came from.
-        diag(f"no such document: {target}")
-        diag(f"  primary_doc is '{status.primary_doc}', from "
-             f"{status.source}")
-        diag("  set primary_doc in .extant.toml, or pass --validate <path>")
-        return 1
-    try:
-        with open(target, encoding="utf-8", newline="") as fh:
-            text = fh.read()
-    except UnicodeDecodeError as exc:
-        # A document that is not valid UTF-8 is a situation to report, not
-        # to crash on. Reading it with errors="replace" instead would let
-        # every rule run against silently corrupted text and report findings
-        # about bytes that are not there.
-        print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
-              f"{exc.start}). The status document must be a text file.",
-              file=sys.stderr)
-        return 1
-    # Relative links resolve against the document, not the repo root.
-    session.set_document(link_base=target.parent)
-    mapping = load_sha_map(args.sha_map) if args.sha_map else None
-    if mapping is not None:
-        text, changed = translate_shas(text, mapping)
-        if changed:
-            with open(target, "w", encoding="utf-8", newline="") as fh:
-                fh.write(text)
-            diag(f"translated {changed} stale SHA reference(s) in {target}")
-    located: list[Located] = []
-    # Recording a baseline must see everything, so suppression is off while
-    # writing one. Otherwise a second --write-baseline against an existing
-    # baseline would record only what that baseline had missed, quietly
-    # shrinking it each time it was run.
-    baselined: dict[str, dict[str, str]] = {}
-    # --baseline-check implies reading one, so it does not also need
-    # --baseline. Both fall back to the conventional filename.
-    # Against the REPO, not the process cwd. A hook or a CI step runs
-    # from wherever it likes and passes --repo, and a relative baseline
-    # would then be looked for somewhere else entirely - reported as
-    # missing, or worse, silently a different file.
-    baseline_path = Path(args.baseline or BASELINE_NAME)
-    if not baseline_path.is_absolute():
-        baseline_path = repo / baseline_path
-    if (args.baseline or args.baseline_check) and not args.write_baseline:
-        try:
-            baselined = load_baseline(baseline_path)
-        except ValueError as exc:
-            print(exc, file=sys.stderr)
-            return 2
-    matched: set[str] = set()
-    # Occurrences already forgiven, per fingerprint, for this run.
-    used: dict[str, int] = {}
-    suppressed = 0
-
-    def record(path: str, items: list[Finding], *, primary: bool) -> int:
-        """Collect for the machine formats; print inline for the human one.
-
-        Text output stays interleaved with its summaries, which is what a
-        reader following along expects and what the existing tests pin. The
-        machine formats are emitted in one block at the end instead.
-
-        Returns the count of findings that were NOT baselined, which is what
-        decides the exit code. A baselined finding is still wrong; it is
-        simply not new.
-        """
-        nonlocal suppressed
-        new = 0
-        for finding in items:
-            item = Located(path, finding, primary)
-            mark = fingerprint(path, finding.kind, finding.detail)
-            if mark in baselined:
-                # Bounded by what was recorded. An entry written before
-                # counts existed has none, and forgives one - the shape it
-                # had when it was written.
-                allowed = baselined[mark].get("count", 1)
-                try:
-                    allowed = int(allowed)
-                except (TypeError, ValueError):
-                    allowed = 1
-                if used.get(mark, 0) < max(allowed, 1):
-                    used[mark] = used.get(mark, 0) + 1
-                    matched.add(mark)
-                    suppressed += 1
-                    continue
-            new += 1
-            located.append(item)
-            if args.format == "text":
-                print(format_text([item])[0], file=stream)
-        return new
-
-    # Which document this is, for rules that key on the FILENAME. Set
-    # before validate rather than passed into it: validate restores the
-    # value it found on entry, so count_examined below still sees the
-    # document the rules just read. Without this, manifest-floor-mismatch
-    # works in --sweep and is silent in --verify, and reports 0 examined
-    # beside 0 findings - the exact conflation the denominator exists to
-    # prevent. Found by running the gate, not by any test.
-    session.set_document(doc_path=rel(repo, target))
-    # ONE run scope across both halves of examining this document. The two
-    # calls below ask the same repository the same questions - the origin
-    # remote, most visibly - and without a scope spanning them the second
-    # re-asked everything the first had already learned. Measured on this
-    # repository's own document: 7 git processes for one --verify, of which
-    # `remote get-url origin` was two.
-    #
-    # Only this pair, not the whole mode. The archive and the extra
-    # documents get their own below, because `--sha-map` REWRITES documents
-    # between them, and a stable scope promises the checkout does not
-    # change while it is held.
-    with session.run_scope():
-        findings = session.validate(repo, text)
-        exit_code = 1 if record(rel(repo, target), findings,
-                                primary=True) else 0
-
-        # The denominator. Without it a clean run and a run that checked
-        # nothing print identically - the failure that recurred five times
-        # in one day. A rule reporting 0 examined is either genuinely
-        # absent from this document or broken, and the reader has to be
-        # able to tell.
-        examined = session.count_examined(repo, text)
-    errors_reported = _report_denominators(
-        diag, repo, Path(args.validate).name, examined)
-
-    # --verify/--validate used to read only their target file, so content
-    # moved into the archive by --archive escaped validation forever: a
-    # dead reference or a stale live-claim could sit there unreported
-    # indefinitely. Validate it too, whenever it exists.
-    archive_path = repo / session.ARCHIVE_DOC
-    if archive_path.exists():
-        with open(archive_path, encoding="utf-8", newline="") as fh:
-            archive_text = fh.read()
-        if mapping is not None:
-            archive_text, archive_changed = translate_shas(archive_text, mapping)
-            if archive_changed:
-                with open(archive_path, "w", encoding="utf-8", newline="") as fh:
-                    fh.write(archive_text)
-                diag(f"translated {archive_changed} stale SHA "
-                     f"reference(s) in {session.ARCHIVE_DOC}")
-        session.set_document(doc_path=session.ARCHIVE_DOC)
-        archive_findings = session.validate(repo, archive_text,
-                                            in_archive=True)
-        if record(session.ARCHIVE_DOC, archive_findings, primary=False):
-            exit_code = 1
-
-    # Extra documents: CLAUDE.md, AGENTS.md, a README. They carry the same
-    # kinds of checkable claim and rot the same way, but have no dated
-    # entries, so the entry-scoped rules are skipped exactly as they are for
-    # the archive. A project whose status lives in a tracker rather than a
-    # document still gets these checked, which is most of the reason the
-    # setting exists.
-    for relative in status.extra_docs:
-        extra = repo / relative
-        if not extra.is_file():
-            # A configured document that is absent is itself a finding, not
-            # a log line: a machine consumer has to see it too, or a broken
-            # extra_docs entry disappears from every format but the human
-            # one. Line 1, because there is no file to point into.
-            if record(relative, [Finding(
-                1, "missing-document",
-                "listed in extra_docs but does not exist",
-            )], primary=False):
-                exit_code = 1
-            continue
-        with open(extra, encoding="utf-8", newline="") as fh:
-            extra_text = fh.read()
-        session.set_document(link_base=extra.parent, doc_path=relative)
-        # One scope per document, for the reason given at the primary
-        # document above: findings and denominator are two halves of one
-        # examination and must not re-ask git the same questions.
-        with session.run_scope():
-            extra_findings = session.validate(repo, extra_text,
-                                              has_entries=False)
-            new_extra = record(relative, extra_findings, primary=False)
-            examined_extra = session.count_examined(repo, extra_text)
-        # Repository-scoped rules do not run for an extra document, so
-        # reporting their candidate count here claims coverage that was
-        # not provided. A denominator that overstates is worse than none:
-        # it is the reassuring number, not the honest one.
-        skipped = {rule.kind for rule in session.RULES
-                   if rule.scope == "repository"}
-        # Zero counts are REPORTED, not filtered. "examined 0" and "not
-        # applicable here" are different facts, and dropping the zeros
-        # made an extra document look fully covered while a rule sat
-        # blind - the exact conflation the primary summary avoids.
-        checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
-                            if kind not in skipped)
-        diag(f"checked {relative}: {checked or 'nothing applicable'}")
-        errors_reported = session.report_rule_errors(diag, errors_reported)
-        if new_extra:
-            exit_code = 1
-    session.set_document(link_base=None)
-
-    if args.suggest_fixes:
-        # Written to stdout as a patch and never applied. In sarif mode the
-        # document must stay pure JSON, so the patch goes to stderr instead
-        # of corrupting it.
-        patch = suggest_renames(repo, target.parent, text,
-                                rel(repo, target))
-        if patch:
-            # Written as BYTES, because print() rewrites newlines on
-            # Windows. A patch for a document that uses LF then arrives
-            # with CRLF, git apply rejects the mixed endings, and a patch
-            # that cannot be applied is not a feature.
-            sys.stdout.buffer.write(patch.encode("utf-8"))
-            sys.stdout.buffer.flush()
-        else:
-            diag("no rename suggestions: nothing references a file git "
-                 "recorded as moved")
-
-    # Machine formats are emitted in one block, after every document has
-    # been read, because SARIF is a single JSON value and annotations are
-    # easier to read grouped than interleaved with progress lines.
-    if args.format != "text":
-        # `examined` is the primary document's denominator, the same figure
-        # the `checked ...` diagnostic prints. A machine consumer of the
-        # SARIF could not see it at all before.
-        for line in render_findings(located, args.format, repo,
-                                    examined=examined)[0]:
-            print(line)
-
-    if args.write_baseline:
-        # Explicit, never implicit. A baseline that rewrote itself on every
-        # verify would ratchet the wrong way: each run would forgive
-        # whatever it had just found, and the check would decay to nothing
-        # while continuing to report success.
-        path = Path(args.write_baseline)
-        # Against the REPO, not the process cwd, for the same reason the
-        # READ path resolves that way: a git hook passes --repo and runs
-        # from wherever the commit was made, so a relative path here
-        # wrote a baseline that the next --baseline could not find.
-        if not path.is_absolute():
-            path = repo / path
-        written = write_baseline(path, located)
-        diag(f"recorded {written} finding(s) in {rel(repo, path)}")
-        diag("Each is still wrong. They are excluded from future runs so "
-             "that NEW ones are visible; prune them with --baseline-check.")
-        return 0
-
-    if baselined:
-        # Stated on every run, in both directions. "no findings" and "no new
-        # findings, 40 suppressed" are different facts, and a baseline that
-        # hides its own size is the denominator failure this project exists
-        # to surface, reintroduced by one of its own features.
-        diag(f"{len(located)} new finding(s), {suppressed} suppressed by "
-             f"{rel(repo, baseline_path)}")
-
-    # Anything the archive pass raised, which happens between the two
-    # blocks above and belongs to no `checked ...` line of its own.
-    errors_reported = session.report_rule_errors(diag, errors_reported)
-    if RULE_ERRORS:
-        # An errored run NEVER exits 0. A partial answer that reports
-        # success is the failure this whole project exists to prevent, and
-        # it is the one thing that would make per-rule isolation worse than
-        # letting the traceback out.
-        exit_code = 1
-
-    if args.baseline_check:
-        stale = [entry for fingerprint, entry in sorted(baselined.items())
-                 if fingerprint not in matched]
-        diag(f"\nbaseline: {len(baselined)} entr(y/ies), {len(matched)} still "
-             f"occur, {len(stale)} do not")
-        for entry in stale:
-            diag(f"  STALE  {entry['path']}: [{entry['kind']}] {entry['detail']}")
-        if stale:
-            diag("\nThese no longer happen: the claim was fixed, or deleted. "
-                 "Remove them, or the baseline keeps forgiving something that "
-                 "is not there.")
-            exit_code = 1
-
-    return exit_code
-
-
 def main(argv: list[str] | None = None) -> int:
     _survivable_output()
     # One RUN, one list. Cleared here rather than by `validate()`, which is
@@ -783,8 +391,68 @@ def main(argv: list[str] | None = None) -> int:
               f"NOT read. Configuration loads relative to this script; install it "
               f"into that repository as tools/ for its own settings to apply.",
               file=sys.stderr)
+    # Refused rather than ignored, on the reasoning `--sweep` uses below: a
+    # flag that names a file cannot mean anything for a document that has no
+    # file, and silently dropping it would let a caller believe a location was
+    # supplied when none was.
+    if args.as_path and not args.check_text:
+        print("--as-path applies to --check-text, which reads a document with "
+              "no path of its own. --validate already knows where its file is.",
+              file=sys.stderr)
+        return 2
     if args.search is not None:
         return run_search(repo, parser, args)
+    if args.check_text:
+        # The two baseline flags that WRITE or JUDGE the recorded set are
+        # refused here, and neither refusal is tidiness. Both were measured
+        # doing real damage before this block existed.
+        #
+        # `--write-baseline` records `located` and replaces the file. Over one
+        # stdin document that is one document's findings keyed on `<stdin>` or
+        # on an asserted path, and it OVERWRITES a baseline recorded from the
+        # whole project - measured: a two-entry baseline became a one-entry
+        # one, the run exited 0, and the next `--verify --baseline` reported
+        # "2 new finding(s), 0 suppressed" with nothing anywhere saying an
+        # amnesty had been thrown away.
+        #
+        # `--baseline-check` asks which recorded entries this RUN did not
+        # encounter. `--verify` reads the primary document, the archive and
+        # every extra_doc, so its answer means something. A run over one piped
+        # document encounters almost nothing, so it calls live entries STALE
+        # and prints "These no longer happen ... Remove them" - advice which,
+        # followed, deletes suppressions that are still needed. Measured: both
+        # entries of a correct baseline reported stale by a document that
+        # mentioned neither.
+        #
+        # Reading one is fine and stays allowed: `--baseline` suppresses what
+        # the project already forgave, which is what a caller checking a draft
+        # against project policy wants.
+        conflicting = [name for name, value in (
+            ("--write-baseline", args.write_baseline),
+            ("--baseline-check", args.baseline_check)) if value]
+        if conflicting:
+            print(f"--check-text does not support {', '.join(conflicting)}. It "
+                  "reads ONE document, so it cannot say what the project's "
+                  "recorded findings look like - writing a baseline from it "
+                  "would discard the rest, and checking one would report live "
+                  "entries as stale. Use --verify for both. `--baseline` "
+                  "(reading) works here.", file=sys.stderr)
+            return 2
+        # SARIF locates every result by `artifactLocation.uri`, and a document
+        # with no path has none. Emitting `<stdin>` put `<` and `>` in a field
+        # the format requires to be a URI - characters RFC 3986 forbids - so
+        # the document is invalid and a code-scanning upload can reject the
+        # whole file rather than report the findings in it. Refused rather
+        # than papered over with a plausible-looking name: a URI reading
+        # `stdin` would be a valid path to a file that does not exist, which
+        # is the wrong answer wearing a better disguise.
+        if args.format == "sarif" and not args.as_path:
+            print("--check-text --format=sarif needs --as-path: SARIF locates "
+                  "every result by a URI, and a document with no path has "
+                  "none. Use --format=text or --format=github, or say where "
+                  "this document would live.", file=sys.stderr)
+            return 2
+        return run_check_text(repo, args, status)
     if args.selftest:
         return run_selftest(repo, status)
     if args.collect:
