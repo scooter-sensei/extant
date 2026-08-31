@@ -187,25 +187,26 @@ MODES_WITH_DENOMINATOR = ("--sweep", "--verify", "--validate")
 
 # How many of the 13 rules a run must see EXAMINE something before its result
 # means anything. Measured, not guessed: seed 20260824 at 35 repositories
-# reaches 12.
+# reaches all 13.
 #
-# THE CEILING IS 12, NOT 13, AND FOR A REASON WORTH KEEPING HERE. The ledger
-# probes with `--sweep`, and `manifest-floor-mismatch` reports a sweep
-# denominator of zero even in a repository where it finds something - the sweep
-# prints the finding, prints `manifest-floor-mismatch 0`, and names the rule in
-# its own "examined nothing anywhere" note. `--verify` counts it correctly, so
-# this is the sweep's aggregation rather than the rule. Until that is fixed the
-# thirteenth rule cannot register here, however well the feature works. The
-# feature does work: `--verify` on a generated repository reports
-# `checked README.md: ... manifest-floor-mismatch 2`.
+# THE CEILING WAS 12, and the thirteenth was `manifest-floor-mismatch`. The
+# ledger probes with `--sweep`, and the sweep passed the document PATH into
+# `validate()` alone - which scopes it to that call - so `count_examined()` ran
+# against a document with no path and that rule, which keys on the document
+# name, could not register here however well the feature worked. `--verify`
+# counted it correctly throughout, which is what kept the defect in the survey
+# rather than in the rule. Fixed with the two denominator conflations this
+# harness found, so the exemption below went with it and this rises to 13.
 #
-# Set one below the measured 12, so an unlucky swarm draw does not fail a run
-# that is working. Raise it deliberately and say why, the way the spawn budget
-# is raised - and raise it to 13 as part of fixing the sweep denominator. Do
-# not lower it to make a red run green: a drop means a feature stopped firing,
-# and the release shape sat in this harness matching nothing for its entire
-# life because nothing was watching this number.
-REACH_FLOOR = 11
+# AT the measurement now rather than one below it, which is a deliberate loss
+# of margin and safe for one reason: the CI job pins the seed, so the draw is
+# not a lottery there, and a feature that is drawn and reaches nothing already
+# fails the run on its own below. Raise it deliberately and say why, the way
+# the spawn budget is raised. Do not lower it to make a red run green: a drop
+# means a feature stopped firing, and the release shape sat in this harness
+# matching nothing for its entire life because nothing was watching this
+# number.
+REACH_FLOOR = 13
 
 # What fraction of the repositories built must actually reach the rules before
 # this run's verdict means anything.
@@ -233,12 +234,13 @@ CORPUS_FLOOR = 0.35
 #
 # Delete an entry the moment its defect is fixed. An exemption nobody revisits
 # is how a rule stops being exercised for six releases.
-KNOWN_UNREACHABLE = {
-    "manifest-floor-mismatch":
-        "sweep reports a denominator of 0 for this rule even where it finds "
-        "something, and the ledger probes with --sweep; --verify counts it "
-        "correctly, so the feature works and the sweep aggregation does not",
-}
+# Empty, and kept rather than deleted: the one entry it held was
+# `manifest-floor-mismatch`, exempt only because the sweep's denominator could
+# not see the document it keys on. That is fixed, so the exemption is gone and
+# the floor above covers all 13. An entry here must name a reason OUTSIDE this
+# harness, so that it reads as removable rather than as a silently lowered
+# floor - which is what this one turned out to be.
+KNOWN_UNREACHABLE: dict = {}
 
 
 # --- plumbing ---------------------------------------------------------

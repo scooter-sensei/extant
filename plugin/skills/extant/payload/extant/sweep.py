@@ -98,19 +98,39 @@ def _validate_one(repo: Path, relative: str, is_primary: bool):
         return (relative, [], f"{relative} ({exc.__class__.__name__})", {}, [])
 
     mark = len(RULE_ERRORS)
+    # All three, and the PATH is the one that was missing. It used to be
+    # passed to `validate` instead, which scopes it to that call and puts the
+    # ambient document back on the way out - so `count_examined` below ran
+    # against a document with no path, and every rule that keys on WHICH file
+    # it is reading counted nothing. `manifest-floor-mismatch` reported the
+    # README's contradiction and `examined=0` in the same sweep, and was then
+    # named among the rules that "examined nothing anywhere here". Set on the
+    # document rather than passed, so both halves read one file. `gate.py`
+    # carries the same comment for `--verify`, where this was found first.
     session.set_document(link_base=path.parent,
-                         doc_format=markup.format_for(relative))
+                         doc_format=markup.format_for(relative),
+                         doc_path=relative)
+    # `repository_rules=False`: this survey runs those in `run_sweep`, once,
+    # attributed to the file that declares them. Without it they ran HERE as
+    # well, for whichever document was primary - so a single raw LFS blob
+    # printed twice, bare and again under `.gitattributes:`, against a
+    # denominator counting the governed file once. `inconsistent-artifact`
+    # did the same. The exclusion was already written on the denominator
+    # below, by hand; this is the half the findings loop could not say.
     findings = session.validate(repo, text, has_entries=is_primary,
-                                doc=relative)
+                                repository_rules=False)
     # The denominator, per rule. Counted only for rules that actually READ
     # this document: a sweep skips entry-scoped rules outside the primary file
     # and markdown-only rules for `.rst`, and `count_examined` knows nothing
     # about either. Summing it whole would report link candidates in a
     # document where no link rule ran.
+    #
+    # The SAME predicate the findings above were selected by, arguments and
+    # all. Restating one of its clauses here is how the two came to disagree.
     counted = session.count_examined(repo, text)
     examined = {rule.kind: counted[rule.kind] for rule in session.RULES
-                if rule.scope != "repository"
-                and session.rule_applies(rule, False, is_primary)}
+                if session.rule_applies(rule, False, is_primary,
+                                        repository_rules=False)}
     return (relative, findings, None, examined, list(RULE_ERRORS[mark:]))
 
 
