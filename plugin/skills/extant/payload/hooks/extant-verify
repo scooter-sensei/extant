@@ -1,9 +1,10 @@
 #!/bin/sh
-# Re-check the status document against git after a commit or merge.
+# Re-check the status document against git after a commit, merge or rewrite.
 #
 #     tools/hooks/extant-verify
+#     tools/hooks/extant-verify --after-rewrite <amend|rebase>
 #
-# Installed into .git/hooks/post-commit and .git/hooks/post-merge by
+# Installed into .git/hooks/post-commit, post-merge and post-rewrite by
 # tools/hooks/install. Advisory only: it never blocks or fails an operation,
 # because the commit it is checking has already happened.
 #
@@ -13,8 +14,69 @@
 # on 2026-07-21 turned "not yet integrated" false the instant it landed, and
 # only a manual --verify noticed. This turns "the validator was run" from a
 # claim into an observation.
+#
+# WHY post-rewrite NEEDS ITS OWN ENTRY POINT
+#
+# A rewrite is the event that falsifies the most claims at once: every commit
+# gets a new id, so every document citing one goes wrong in the same instant.
+# Measured 2026-08-30 on a real agent-written project, 12 of its 12 dead SHA
+# references came from a single `git filter-repo` run.
+#
+# Wiring post-rewrite to the plain entry point would have installed a hook that
+# never ran. Measured on git 2.53.0:
+#
+#   git rebase   post-commit fires ONCE PER REPLAYED COMMIT and is correctly
+#                suppressed by the rebase-state guard below; post-rewrite then
+#                fires once - and `rebase-merge/` IS STILL PRESENT when it
+#                does, so the same guard would have skipped it too.
+#   git amend    post-commit fires and runs the check, then post-rewrite fires
+#                for the same event - which is why --after-rewrite amend exits
+#                without re-running it. Two identical reports for one operation
+#                is how a hook teaches people to stop reading it.
+#
+# So the flag does exactly two things: it suspends the rebase-state guard,
+# because here that state means the rebase FINISHED rather than that one is in
+# progress, and it declines the amend case that post-commit already covered.
+#
+# WHAT THIS HOOK CAN AND CANNOT SEE, measured rather than assumed
+#
+# It fires on a rebase - confirmed end to end, real hooks, real rebase, git
+# 2.53.0 - and the check it runs finds nothing, because after a LOCAL rebase
+# the old commits still resolve. The reflog holds them, so `git cat-file -e`
+# succeeds and `dead-sha` has no finding to make. The commit is no longer an
+# ancestor of any branch, which is what actually makes the claim false, and no
+# rule here asks that question.
+#
+# So be honest about the split:
+#
+#   filter-repo   REAL value. It expires the old objects, so the references
+#                 genuinely stop resolving - which is the case measured on a
+#                 real project, 12 of 12 dead SHAs from one such run.
+#   rebase/amend  The hook runs and correctly reports nothing, until a `gc`
+#                 expires the reflog. Nothing is attached to gc, so in
+#                 practice the breakage surfaces on the next fresh clone.
+#
+# Two things follow, and neither is built here because neither is measured:
+# a rule asking whether a cited commit is still REACHABLE would catch the
+# rebase case at the moment it happens; and git feeds this hook
+# `<old-sha> <new-sha>` pairs on stdin, byte-for-byte the commit-map format
+# `--sha-map` already parses, which is the only record a rebase leaves. The
+# hook currently drains those pairs and discards them. Persisting them would
+# let a finding name the replacement after a rebase the way it already does
+# after filter-repo. Measure how often a rebase is the cause before building
+# either.
 
 set -u
+
+AFTER_REWRITE=0
+REWRITE_KIND=""
+if [ "${1:-}" = "--after-rewrite" ]; then
+    AFTER_REWRITE=1
+    REWRITE_KIND="${2:-}"
+fi
+
+# post-commit already reported this one. See the header.
+[ "$AFTER_REWRITE" -eq 1 ] && [ "$REWRITE_KIND" = "amend" ] && exit 0
 
 # Three answers from ONE git process. This hook runs on every commit, and each
 # subprocess costs roughly 90 ms on Windows, so three separate `git rev-parse`
@@ -53,8 +115,14 @@ MAIN_TREE=$(dirname "$COMMON_DIR")
 # Never disturb an in-progress operation. A rebase or cherry-pick commits
 # repeatedly and would fire this on every step; MERGE_HEAD means a merge is
 # still resolving.
-[ -d "$GIT_DIR_PATH/rebase-merge" ] && exit 0
-[ -d "$GIT_DIR_PATH/rebase-apply" ] && exit 0
+#
+# Suspended after a rewrite, and only there: post-rewrite runs once, at the
+# END, and git has not torn the state directory down yet. Reading it as "a
+# rebase is in progress" is how this hook would have been installed and inert.
+if [ "$AFTER_REWRITE" -eq 0 ]; then
+    [ -d "$GIT_DIR_PATH/rebase-merge" ] && exit 0
+    [ -d "$GIT_DIR_PATH/rebase-apply" ] && exit 0
+fi
 [ -f "$GIT_DIR_PATH/MERGE_HEAD" ] && exit 0
 
 # Virtualenv layout differs by platform: Windows uses Scripts/python.exe, POSIX

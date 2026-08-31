@@ -141,11 +141,25 @@ def test_guard_exempts_linked_worktrees(git_repo, tmp_path: Path) -> None:
 VERIFY_HOOK = HOOKS_DIR / "extant-verify"
 
 
-def run_verify_hook(cwd: Path) -> subprocess.CompletedProcess[str]:
+def run_verify_hook(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["sh", str(VERIFY_HOOK)], cwd=cwd, capture_output=True, text=True,
+        ["sh", str(VERIFY_HOOK), *args], cwd=cwd, capture_output=True, text=True,
         encoding="utf-8",
     )
+
+
+def _using_the_tool(repo: Path, doc: str = "STATUS.md") -> None:
+    """Enough of an install that the hook reaches its "no document" report.
+
+    Same shape the two tests above use: no interpreter and no real collector,
+    so what is under test is the hook's control flow rather than the
+    validator's. Reaching that report is the observable that separates "the
+    hook ran" from "the hook exited early", which is the whole distinction
+    these tests exist for.
+    """
+    (repo / "tools").mkdir(exist_ok=True)
+    (repo / "tools" / "extant_collect.py").write_text("", encoding="utf-8")
+    (repo / ".extant.toml").write_text(f'primary_doc = "{doc}"\n', encoding="utf-8")
 
 
 @requires_sh
@@ -192,6 +206,111 @@ def test_verify_hook_stays_quiet_when_no_document_is_configured(git_repo) -> Non
     result = run_verify_hook(repo)
 
     assert (result.stdout + result.stderr).strip() == "", "nagged a repo with no status doc"
+
+
+@requires_sh
+def test_after_rewrite_still_runs_while_rebase_state_is_present(git_repo) -> None:
+    """The one that decides whether post-rewrite is a hook or a decoration.
+
+    Measured on git 2.53.0: when post-rewrite fires at the end of a rebase,
+    `rebase-merge/` HAS NOT BEEN TORN DOWN YET. The plain entry point reads
+    that directory as "a rebase is in progress" and exits 0, which is correct
+    for post-commit - it fires once per replayed commit - and would have made
+    post-rewrite installed and inert. That is this repository's oldest bug
+    shape, and the reason `main-tree-guard` has tests at all.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# repo\n", "init")
+    _using_the_tool(repo)
+    (repo / ".git" / "rebase-merge").mkdir()
+
+    plain = run_verify_hook(repo)
+    after = run_verify_hook(repo, "--after-rewrite", "rebase")
+
+    assert (plain.stdout + plain.stderr).strip() == "", (
+        "post-commit's guard stopped suppressing an in-progress rebase")
+    assert "nothing was validated" in (after.stdout + after.stderr), (
+        "post-rewrite skipped the rebase it exists to catch, because git had "
+        "not removed rebase-merge/ yet")
+
+
+@requires_sh
+def test_after_rewrite_declines_an_amend_post_commit_already_reported(git_repo) -> None:
+    """Both hooks fire for `git commit --amend`; only one should report.
+
+    Measured on git 2.53.0: an amend fires post-commit and then post-rewrite,
+    and nothing suppresses the first, so wiring both to the same behaviour
+    prints the same findings twice for one operation. Two identical reports is
+    how a hook teaches its reader to stop reading it.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# repo\n", "init")
+    _using_the_tool(repo)
+
+    amend = run_verify_hook(repo, "--after-rewrite", "amend")
+    rebase = run_verify_hook(repo, "--after-rewrite", "rebase")
+
+    assert (amend.stdout + amend.stderr).strip() == "", "reported an amend twice"
+    assert "nothing was validated" in (rebase.stdout + rebase.stderr), (
+        "declining the amend case also silenced the rebase case")
+
+
+@requires_sh
+def test_the_installed_post_rewrite_hook_drains_the_pairs_git_writes(git_repo) -> None:
+    """Unread, git blocks on a full pipe and the rebase HANGS.
+
+    post-rewrite is the only hook git feeds on stdin - one `<old> <new>` pair
+    per rewritten commit. The pipe buffer is finite and this hook spends a
+    second or two validating before it exits, so a long enough rebase fills the
+    buffer and git waits forever for a reader that never comes. A hang is a
+    worse failure than a missed check, and it would only appear on large
+    rebases, which is to say not on anybody's test repository.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+    assert run_installer(repo).returncode == 0
+
+    hook = repo / ".git" / "hooks" / "post-rewrite"
+    assert hook.exists(), "the installer did not wire post-rewrite"
+    body = hook.read_text(encoding="utf-8")
+    assert "cat > /dev/null" in body, "the shim never reads git's pairs"
+    assert "--after-rewrite" in body, "the shim did not pass the rewrite kind"
+
+    # And it survives being handed more than it will ever read.
+    flood = "".join(f"{'a' * 40} {'b' * 40}\n" for _ in range(5000))
+    done = subprocess.run(["sh", str(hook), "rebase"], cwd=repo, input=flood,
+                          capture_output=True, text=True, encoding="utf-8",
+                          timeout=120)
+    assert done.returncode == 0, done.stderr
+
+
+@requires_sh
+def test_default_install_wires_post_rewrite(git_repo) -> None:
+    """A rewrite renames every commit at once, so it must be a default hook.
+
+    Measured 2026-08-30 on a real agent-written project: 12 of its 12 dead SHA
+    references were created by one `git filter-repo` run. Nothing in the
+    advisory set fired at that moment - post-commit is suppressed during the
+    rewrite and post-merge never sees it.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+
+    result = run_installer(repo)
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / ".git" / "hooks" / "post-rewrite").exists()
+    assert not (repo / ".git" / "hooks" / "pre-commit").exists(), (
+        "adding post-rewrite also added something that can block a commit")
+    # Re-running must not append a second copy.
+    again = run_installer(repo)
+    assert "already installed: post-rewrite" in again.stdout, again.stdout
+    body = (repo / ".git" / "hooks" / "post-rewrite").read_text(encoding="utf-8")
+    assert body.count("extant-verify-hook") == 1, "installed twice"
 
 
 def test_installer_references_only_hooks_that_exist() -> None:
