@@ -412,10 +412,11 @@ whose verification was not performed is not done.
   the corpus reproducibility described below; the harness can still build a
   degraded corpus, and `CORPUS_FLOOR` only stops that being read as a clean
   one.
-- **Stage 2**: a saved recipe replays to a repository that violates the same
-  property, and ddmin returns a strictly smaller feature set that still does.
-  Watched failing by replaying a recipe with one feature removed by hand and
-  confirming the violation disappears.
+- **Stage 2**: DONE. ddmin reduced a `manifest-floor-mismatch` denominator
+  violation from 9 features to 1 in 7 rebuilds, naming `manifest-floor`; the
+  saved plan replays and reproduces it at exit 1; and it was watched failing -
+  the same plan with that one feature removed by hand builds and reports no
+  violation at exit 0.
 - **Stage 3**: each oracle is watched failing against a deliberately broken
   copy of the payload - one that miscounts CRLF line numbers for `CRLF` and
   `SHIFT`, one that drops the sarif denominator for `DENOM-AGREE`, one that

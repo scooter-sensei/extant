@@ -3,7 +3,9 @@
     python tests/harnesses/fuzz.py <extracted-package> <scratch-dir> [options]
       --seed N       reproduce one run exactly (printed by every run)
       --repos N      how many repositories to build (default 24)
-      --save DIR     write a failing repository's recipe here
+      --save DIR     write a failing repository's PLAN here, replayable
+      --replay FILE  rebuild one repository from a saved plan and recheck it
+      --no-shrink    report a violation at full size, without ddmin
 
 Every other harness here checks a case somebody thought of. This one checks the
 ones nobody did, which is the only way to cover a list that keeps growing:
@@ -96,6 +98,35 @@ to build says so instead of arriving as a quiet zero. The second half matters
 more than the first: some paths are still too deep for git whatever is
 configured, and what makes that survivable is that the harness now knows.
 
+A PLAN IS A REPOSITORY YOU CAN HAND SOMEBODY
+
+`--save` writes a `RepoPlan`, and `--replay` builds it. That is a change of
+kind rather than of detail: what `--save` wrote before was PROSE, a list of
+sentences describing what a repository had contained, and CI uploaded it as
+the `fuzz-failures` artifact where nothing could consume it. The only route
+back to repository 25 was `--seed N`, rebuilding all thirty-five to reach one.
+
+It could not have been otherwise, because deciding and building were the same
+loop: a repository was defined by its POSITION IN AN RNG STREAM. `draw_plan`
+now makes every choice and writes it down, `build_from_plan` builds and draws
+nothing the plan does not fix, and one integer - `repo_seed` - owns every
+choice inside a repository, so the file stays small instead of carrying a
+60,000-character noise document.
+
+AND THEN IT SHRINKS
+
+A violation arrives attached to whatever the swarm drew, often eight or nine
+features with one of them responsible. ddmin bisects the feature set while the
+property still holds, which needs no shrinking-specific machinery at all: the
+features are the atoms and dropping one is a legal repository. Measured on a
+`manifest-floor-mismatch` denominator violation: 9 features to 1 in 7 rebuilds.
+
+It runs only on a violation, so a green run pays nothing, and only on the
+DETERMINISTIC properties. `UNSTABLE` exists because a run disagreed with
+itself, so a bisect guided by it follows noise and reports a minimal set that
+reproduces nothing - which is worse than reporting the unshrunk one, because
+it looks like an answer.
+
 A finding does not stay here. It gets reduced to a case in
 tests/test_fuzz_findings.py, so it runs in the suite on every commit instead
 of waiting for a seed to come up again. This harness discovers; that file
@@ -110,8 +141,10 @@ import json
 import random
 import re
 import shutil
+import stat
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -279,6 +312,30 @@ KNOWN_UNREACHABLE: dict = {}
 LONGPATHS = ("-c", "core.longpaths=true")
 
 
+def _rmtree(path: Path) -> None:
+    """Remove a built repository, including the parts git made read-only.
+
+    `shutil.rmtree(ignore_errors=True)` is not enough on Windows: git marks
+    loose objects read-only, rmtree cannot unlink them, `ignore_errors`
+    swallows the failure, and the directory survives. Nothing noticed while
+    each index was built exactly once - the very next thing to build the same
+    index twice was ddmin, and every one of its rebuilds died on
+    `FileExistsError` instead. Which `_still_fails` then caught and read as
+    "this subset does not reproduce", so the shrink concluded that no feature
+    could be dropped.
+    """
+    if not path.exists():
+        return
+    for child in path.rglob("*"):
+        try:
+            child.chmod(stat.S_IWRITE | stat.S_IREAD)
+        except OSError:
+            pass
+    shutil.rmtree(path, ignore_errors=True)
+    if path.exists():
+        raise OSError(f"could not remove {path}")
+
+
 def sh(cwd: Path, *args: str, check: bool = False):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                           check=check, encoding="utf-8", errors="replace")
@@ -370,6 +427,73 @@ def _draw_features(rng: random.Random):
     return drawn
 
 
+@dataclass
+class RepoPlan:
+    """Everything needed to build ONE repository, without building any other.
+
+    This is the whole of Stage 2, and the reason it needed a type rather than a
+    few more fields on `Recipe`. Before it, deciding and building were the same
+    loop: `build_repo` drew from the run's shared generator as it went, so a
+    repository was defined by its POSITION IN AN RNG STREAM rather than by
+    anything writable. `--save` could therefore only ever write prose, CI
+    uploaded that prose as the `fuzz-failures` artifact, and nothing could
+    consume it - the sole way back to repository 25 was `--seed N`, which
+    rebuilds all thirty-five.
+
+    A plan separates the two. `draw_plan` makes every choice and writes it
+    down; `build_from_plan` makes the repository and draws nothing the plan
+    does not already fix. Replay, and shrinking, both fall out of that: one
+    loads a plan, the other edits one.
+
+    `repo_seed` is drawn from the run's generator and then owns every random
+    choice INSIDE this repository - the trunk name, the noise, the awkward
+    paths, the symlink shapes, the hostile refs. Keeping it to one integer is
+    what stops a recipe file having to carry a 60,000-character noise document.
+    """
+
+    repo_seed: int
+    index: int
+    state: str
+    mode: tuple
+    # (feature name, truth) - the ONLY part of the plan ddmin edits.
+    features: tuple = ()
+
+    def to_dict(self) -> dict:
+        return {"repo_seed": self.repo_seed, "index": self.index,
+                "state": self.state, "mode": list(self.mode),
+                "features": [list(f) for f in self.features]}
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "RepoPlan":
+        return cls(repo_seed=int(raw["repo_seed"]), index=int(raw["index"]),
+                   state=str(raw["state"]), mode=tuple(raw["mode"]),
+                   features=tuple(tuple(f) for f in raw.get("features", ())))
+
+    def without(self, names) -> "RepoPlan":
+        """The same plan with some features removed. What ddmin bisects over."""
+        drop = set(names)
+        return RepoPlan(repo_seed=self.repo_seed, index=self.index,
+                        state=self.state, mode=self.mode,
+                        features=tuple(f for f in self.features
+                                       if f[0] not in drop))
+
+
+def _feature_by_name(name: str):
+    for feature in shapes.FEATURES:
+        if feature.name == name:
+            return feature
+    return None
+
+
+def draw_plan(rng: random.Random, index: int, state: str, mode) -> RepoPlan:
+    """Decide one repository. Draws from the run generator, builds nothing."""
+    repo_seed = rng.randrange(2 ** 31)
+    local = random.Random(repo_seed)
+    features = tuple((f.name, truth) for f, truth in _draw_features(local))
+    return RepoPlan(repo_seed=repo_seed, index=index, state=state,
+                    mode=tuple(mode), features=features)
+
+
 def _apply(build, drawn, phase: str, recipe: Recipe):
     """Run every drawn feature of one phase, recording what would not build."""
     parts = []
@@ -418,13 +542,30 @@ def _git_scaffold(repo: Path, trunk: str, rng: random.Random) -> None:
         sh(repo, "git", "commit", "-qm", f"c{i}")
 
 
-def build_repo(pkg: Path, arena: Path, rng: random.Random,
-               seed: int, index: int,
-               state: str | None = None) -> tuple[Path, Recipe]:
-    """One randomly hostile repository. Returns it and what went into it."""
-    recipe = Recipe(seed, index)
+def build_from_plan(pkg: Path, arena: Path,
+                    plan: RepoPlan) -> tuple[Path, Recipe]:
+    """One hostile repository, built from a plan and drawing nothing new.
+
+    Every random choice comes from `random.Random(plan.repo_seed)`, so the same
+    plan yields the same repository no matter what else the run has built. The
+    FEATURE SET is the one exception: it is taken from the plan rather than
+    from the generator, which is what lets ddmin hand this function a subset.
+
+    THE DISCARDED DRAW BELOW IS LOAD-BEARING. `_draw_features` is still called
+    and its result thrown away, purely to advance the generator exactly as far
+    as it advanced when the plan was drawn. Skipping it would leave every later
+    draw - trunk, noise, awkward paths, symlinks - reading different numbers, so
+    a replayed repository would differ from the one being replayed and a shrunk
+    one would differ from both. Bisecting on a repository that changes shape
+    underneath you reports a minimal feature set that reproduces nothing.
+    """
+    rng = random.Random(plan.repo_seed)
+    _draw_features(rng)
+    index = plan.index
+    state = plan.state
+    recipe = Recipe(plan.repo_seed, index)
     repo = arena / f"fuzz{index:03d}"
-    shutil.rmtree(repo, ignore_errors=True)
+    _rmtree(repo)
     repo.mkdir(parents=True)
     trunk = rng.choice(["main", "master", "trunk"])
     sh(repo, "git", *LONGPATHS, "init", "-q", "-b", trunk)
@@ -459,7 +600,9 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     sh(repo, "git", "config", "filter.lfs.required", "false")
     shutil.copytree(pkg / "plugin/skills/extant/payload", repo / "tools")
 
-    drawn = _draw_features(rng)
+    drawn = [(f, truth) for f, truth in
+             ((_feature_by_name(name), truth) for name, truth in plan.features)
+             if f is not None]
     for feature, truth in drawn:
         recipe.drew(feature.name, truth)
     build = shapes.Build(repo=repo, rng=rng, sh=sh, trunk=trunk)
@@ -572,7 +715,7 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     # a submodule, when the transport allows one
     if rng.random() < 0.35:
         inner = arena / f"sub{index:03d}"
-        shutil.rmtree(inner, ignore_errors=True)
+        _rmtree(inner)
         inner.mkdir(parents=True)
         sh(inner, "git", *LONGPATHS, "init", "-q", "-b", "main")
         sh(inner, "git", "config", "user.email", "t@t")
@@ -605,7 +748,7 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
         recipe.did("detached HEAD")
     elif state == "worktree":
         linked = arena / f"wt{index:03d}"
-        shutil.rmtree(linked, ignore_errors=True)
+        _rmtree(linked)
         r = sh(repo, "git", "worktree", "add", "-q", "--detach",
                str(linked), "HEAD")
         if r.returncode == 0 and linked.exists():
@@ -616,7 +759,7 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
         recipe.could_not("worktree", "git refused")
     elif state == "shallow":
         cloned = arena / f"sh{index:03d}"
-        shutil.rmtree(cloned, ignore_errors=True)
+        _rmtree(cloned)
         r = sh(arena, "git", *LONGPATHS, "clone", "-q", "--depth", "1",
                repo.as_uri(), str(cloned))
         if r.returncode == 0 and cloned.exists():
@@ -628,7 +771,7 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     elif state == "empty":
         # a repository with no commit at all reaches rules that assume HEAD
         bare = arena / f"empty{index:03d}"
-        shutil.rmtree(bare, ignore_errors=True)
+        _rmtree(bare)
         bare.mkdir(parents=True)
         sh(bare, "git", *LONGPATHS, "init", "-q", "-b", "main")
         shutil.copytree(pkg / "plugin/skills/extant/payload", bare / "tools")
@@ -798,6 +941,168 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     return faults
 
 
+def all_faults(repo: Path, mode):
+    """Every fault the run counts, from ONE function, plus the sweep probe.
+
+    The driver and the shrinker have to judge by the same predicate, and the
+    first version of Stage 2 did not: `check` was the shrinker's whole
+    definition of a violation, while the driver ALSO ran a plain `--sweep`
+    probe and reported denominator faults from that. So every DENOMINATOR
+    violation the probe found - which is most of them, because it is the run
+    that sees every repository whatever mode it drew - was invisible to
+    shrinking, `_still_fails` answered False for every subset, and ddmin
+    reported that no feature could be dropped.
+
+    That is the defect this project calls "one claim, two scanners", found in
+    the harness written to find it. Returns (faults, probed counts, probe
+    output) so the driver still gets the ledger numbers it needs.
+    """
+    found = check(repo, list(mode))
+    if found and found[0][0] == "refused":
+        return found, {}, ""
+    probe = run_mode(repo, ["--sweep"])
+    probe_out = ((probe.stdout or "") + (probe.stderr or "")
+                 if probe is not None else "")
+    probed = _rule_counts(probe_out)
+    found = list(found) + _denominator_faults(probe_out, probed,
+                                              "--sweep (probe)")
+    return found, probed, probe_out
+
+
+# --- shrinking --------------------------------------------------------
+
+# Properties ddmin may bisect on, and the omission is the point. `UNSTABLE`
+# exists precisely BECAUSE a run disagreed with itself, so a bisect guided by
+# it follows noise and reports a minimal feature set that reproduces nothing -
+# which is worse than reporting the unshrunk one, because it looks like an
+# answer. `HANG` is excluded for the same reason from the other direction: a
+# timeout is a measurement of the machine as much as of the repository.
+#
+# A violation of either is reported at full size, and says so.
+SHRINKABLE = ("CRASH", "DENOMINATOR", "EXIT", "FORMATS", "SARIF", "HARNESS")
+
+# Rebuilds are not free. Each one is a whole repository plus the four or so
+# process spawns `all_faults` makes, which is roughly ten seconds on Windows -
+# so a ceiling of 60 is ten minutes PER VIOLATION, and a run with several
+# violations stops being something anyone waits for. Measured and lowered.
+#
+# ddmin is O(n^2) in the worst case over a 13-element set, which is small; the
+# ceiling is what makes that a promise rather than an expectation.
+SHRINK_CEILING = 30
+
+
+def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, kind: str):
+    """Does this plan still violate the SAME property? None if it did not build.
+
+    Same kind, not same message: a shrunk repository legitimately reports a
+    different rule or a different count, and demanding the whole string back
+    would refuse every reduction that actually worked.
+
+    THREE ANSWERS, NOT TWO, and the third is why. This returned False on a
+    build failure at first, which reads as "that subset does not reproduce" -
+    so when every rebuild was dying on a Windows `FileExistsError`, ddmin
+    concluded that no feature could be dropped and reported the unshrunk set as
+    minimal. A confident wrong answer, from the same fail-open shape this
+    harness keeps finding elsewhere. `None` is "I could not tell", and the
+    caller counts and prints those rather than folding them into a verdict.
+    """
+    try:
+        repo, recipe = build_from_plan(pkg, arena, plan)
+    except (OSError, ValueError):
+        return None
+    if recipe.broken:
+        return None
+    found, _probed, _out = all_faults(repo, plan.mode)
+    for found_kind, _detail in found:
+        if found_kind == kind:
+            return True
+    return False
+
+
+def shrink(pkg: Path, arena: Path, plan: RepoPlan, kind: str):
+    """The minimizing delta debugging algorithm over the drawn feature set.
+
+    ddmin bisects a set of atomic units while preserving an interesting
+    property, and this harness has had that set of units since the catalogue
+    landed - the features are the atoms, and dropping one is a legal
+    repository. So the implementation is the standard loop over rebuild and
+    recheck, with no shrinking-specific machinery at all.
+
+    Returns (features, rebuilds, exhausted, unbuildable). `exhausted` says the
+    ceiling stopped it, so the answer is A smaller reproduction rather than THE
+    smallest - a distinction worth printing rather than rounding off.
+    `unbuildable` counts the subsets that could not be built at all, which is
+    neither a reduction nor a refusal and must not be reported as either.
+    """
+    items = list(plan.features)
+    budget = [SHRINK_CEILING]
+    unbuildable = [0]
+
+    def fails(subset) -> bool:
+        if budget[0] <= 0:
+            return False
+        budget[0] -= 1
+        keep = {name for name, _ in subset}
+        dropped = [name for name, _ in items if name not in keep]
+        answer = _still_fails(pkg, arena, plan.without(dropped), kind)
+        if answer is None:
+            unbuildable[0] += 1
+            return False
+        return answer
+
+    granularity = 2
+    while len(items) >= 2 and budget[0] > 0:
+        size = max(1, len(items) // granularity)
+        chunks = [items[i:i + size] for i in range(0, len(items), size)]
+        reduced = False
+        for chunk in chunks:
+            complement = [i for i in items if i not in chunk]
+            if not complement:
+                continue
+            if fails(complement):
+                items = complement
+                granularity = max(granularity - 1, 2)
+                reduced = True
+                break
+        if reduced:
+            continue
+        if granularity >= len(items):
+            break
+        granularity = min(granularity * 2, len(items))
+    return (tuple(items), SHRINK_CEILING - budget[0], budget[0] <= 0,
+            unbuildable[0])
+
+
+def run_replay(pkg: Path, arena: Path, path: Path) -> int:
+    """`--replay FILE`: rebuild exactly one repository and check it again.
+
+    The artifact CI uploads on failure used to be prose - a list of sentences
+    describing what a repository had contained, which a human could read and
+    nothing could execute. This is the other end of that: the same file, fed
+    back, produces the repository.
+    """
+    plan = RepoPlan.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    arena.mkdir(parents=True, exist_ok=True)
+    print(f"replaying repository {plan.index:03d} from {path}")
+    print(f"  repo_seed {plan.repo_seed}, state {plan.state}, "
+          f"mode {' '.join(plan.mode)}")
+    print(f"  {len(plan.features)} feature(s): "
+          f"{', '.join(n for n, _ in plan.features) or 'none'}")
+    repo, recipe = build_from_plan(pkg, arena, plan)
+    if recipe.broken:
+        print(f"  UNBUILT: {recipe.broken[0]}")
+        return 2
+    print(f"  built at {repo}")
+    found, _probed, _out = all_faults(repo, plan.mode)
+    found = [f for f in found if f[0] != "refused"]
+    if not found:
+        print("  no property violation - this plan does not reproduce one")
+        return 0
+    for kind, detail in found:
+        print(f"  {kind:<12} {detail}")
+    return 1
+
+
 # --- driver -----------------------------------------------------------
 
 def main() -> int:
@@ -807,7 +1112,14 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--repos", type=int, default=24)
     ap.add_argument("--save", type=Path, default=None)
+    ap.add_argument("--replay", type=Path, default=None,
+                    help="rebuild one repository from a saved plan and recheck")
+    ap.add_argument("--no-shrink", action="store_true",
+                    help="report a violation at full size, without ddmin")
     args = ap.parse_args()
+
+    if args.replay is not None:
+        return run_replay(args.pkg, args.arena, args.replay)
 
     seed = args.seed if args.seed is not None else random.randrange(2 ** 31)
     rng = random.Random(seed)
@@ -849,8 +1161,11 @@ def main() -> int:
     pairs_seen: set[tuple[str, str]] = set()
 
     for index, (state, planned_mode) in enumerate(plan):
-        repo, recipe = build_repo(args.pkg, args.arena, rng, seed, index,
-                                  state=state)
+        # Decide, then build. The plan is written down before anything touches
+        # the disk, so a repository that fails can be handed back as a file
+        # rather than as a position in this loop.
+        repo_plan = draw_plan(rng, index, state, planned_mode)
+        repo, recipe = build_from_plan(args.pkg, args.arena, repo_plan)
         for note in recipe.skipped:
             key = note.split(" (")[0]
             unbuildable[key] = unbuildable.get(key, 0) + 1
@@ -871,35 +1186,12 @@ def main() -> int:
         mode = planned_mode
         pairs_seen.add((state, " ".join(mode)))
         modes_run += 1
-        found = check(repo, mode)
+        found, probed, _probe_out = all_faults(repo, mode)
         if found and found[0][0] == "refused":
             refusals += 1
             found = []
-        # Fixed mode on purpose. Asking whether the randomly chosen mode
-        # printed rule counts measured the MODE - `--selftest`, `--format=
-        # github` and `--deleted-since` never print that line - and read as a
-        # generator producing unanalysable repositories when it was not.
-        probe = run_mode(repo, ["--sweep"])
-        probe_out = ((probe.stdout or "") + (probe.stderr or "")
-                     if probe is not None else "")
-        probed = _rule_counts(probe_out)
         if probed:
             examined_somewhere += 1
-        # The denominator is checked HERE as well as in the planned mode, and
-        # this is the run that actually covers it. Features are drawn
-        # independently of the mode a repository is assigned, so a repository
-        # whose claims expose a denominator bug is as likely as not to draw a
-        # mode that cannot show one: `--format=github` emits annotations and no
-        # counts, `--selftest` and `--deleted-since` print none either. Seed
-        # 20260824 built a repository reporting two `dead-md-anchor` findings
-        # against a denominator of one and handed it `--sweep --format=github`,
-        # so the violation was real, present, and invisible.
-        #
-        # This probe is a plain `--sweep`, already spawned for the ledger, and
-        # it always prints counts. Checking it costs nothing and gives every
-        # repository denominator coverage whatever mode it drew.
-        for fault in _denominator_faults(probe_out, probed, "--sweep (probe)"):
-            found.append(fault)
         # THE REACH LEDGER. Which rules actually examined a candidate, not how
         # many repositories produced counts of any kind - a repository
         # exercising one rule and one exercising twelve were the same number
@@ -911,10 +1203,44 @@ def main() -> int:
         for kind, detail in found:
             faults.append((index, kind, detail))
             print(f"  [{index:03d}] {kind:<12} {detail}")
+            saved = repo_plan
+            # SHRINK, then save what shrinking produced. A violation arrives
+            # attached to whatever the swarm happened to draw - often eight or
+            # nine features, most of them irrelevant - and the reduced plan is
+            # what somebody can actually read. Runs only on a violation, so a
+            # green run pays nothing for it.
+            if kind in SHRINKABLE and not args.no_shrink:
+                smaller, rebuilds, exhausted, unjudged = shrink(
+                    args.pkg, args.arena, repo_plan, kind)
+                if len(smaller) < len(repo_plan.features):
+                    saved = repo_plan.without(
+                        [n for n, _ in repo_plan.features
+                         if n not in {s for s, _ in smaller}])
+                    names = ", ".join(n for n, _ in smaller) or "none"
+                    print(f"           shrunk {len(repo_plan.features)} -> "
+                          f"{len(smaller)} feature(s) in {rebuilds} rebuild(s)"
+                          f"{' (ceiling reached)' if exhausted else ''}: "
+                          f"{names}")
+                else:
+                    print(f"           no smaller feature set reproduces it "
+                          f"({rebuilds} rebuild(s))")
+                if unjudged:
+                    print(f"           {unjudged} subset(s) could not be "
+                          f"built, so shrinking could not judge them - the "
+                          f"reduction above is a floor, not a minimum")
+                # The repository on disk is now whichever plan shrinking built
+                # last, not the one reported above. Rebuild the saved plan so
+                # what is left in the arena matches what the file describes.
+                build_from_plan(args.pkg, args.arena, saved)
+            elif kind in ("UNSTABLE", "HANG"):
+                print(f"           not shrunk: {kind} is not deterministic, "
+                      f"and bisecting on it would follow noise")
             if args.save:
                 args.save.mkdir(parents=True, exist_ok=True)
-                (args.save / f"seed{seed}-{index:03d}.json").write_text(
-                    json.dumps(recipe.as_dict(), indent=2), encoding="utf-8")
+                target = args.save / f"seed{seed}-{index:03d}.json"
+                target.write_text(json.dumps(saved.to_dict(), indent=2),
+                                  encoding="utf-8")
+                print(f"           replay with --replay {target}")
         if not found:
             print(f"  [{index:03d}] ok           {' '.join(mode)}")
 

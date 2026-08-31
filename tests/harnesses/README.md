@@ -466,6 +466,25 @@ config, or one excluding the document it is told to gate on - produces no
 result, and emitting a report there would assert a scan that never happened.
 Those are counted and printed separately rather than exempted quietly.
 
+**A saved failure is a repository, not a note.** `--save` writes a plan and
+`--replay FILE` rebuilds exactly that repository and rechecks it. What it wrote
+before was prose - sentences describing what a repository had contained, which
+CI uploaded as an artifact nothing could consume, and the only way back to
+repository 25 was `--seed N` rebuilding all thirty-five. That was structural
+rather than lazy: deciding and building were one loop, so a repository was
+defined by its position in an RNG stream and there was nothing to write down.
+Now `draw_plan` decides and `build_from_plan` builds, and a single `repo_seed`
+owns every choice inside a repository so the file stays small.
+
+**And it shrinks.** A violation arrives carrying whatever the swarm drew, often
+nine features with one responsible. ddmin bisects the feature set while the
+property still holds - the features are the atoms, so dropping one is a legal
+repository and no shrinking-specific machinery is needed. Measured on a
+`manifest-floor-mismatch` denominator violation: 9 features to 1 in 7 rebuilds.
+It runs only on a violation, and only on the deterministic properties;
+`UNSTABLE` exists because a run disagreed with itself, so bisecting on it would
+follow noise and report a minimal set that reproduces nothing.
+
 **Findings do not stay here.** Each is reduced to a case in
 `tests/test_fuzz_findings.py`, which the suite runs on every commit rather than
 waiting for a seed to come up again. This harness discovers; that file
