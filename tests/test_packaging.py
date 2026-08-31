@@ -313,6 +313,104 @@ def test_installer_ships_every_hook_it_wires() -> None:
     )
 
 
+def test_the_action_never_interpolates_an_input_into_its_script() -> None:
+    """`${{ inputs.x }}` written inside `run:` is arbitrary code execution.
+
+    An Actions expression is substituted TEXTUALLY before the shell sees the
+    script, so an input carrying a newline ends the intended command and
+    everything after it runs with the workflow's token. Inputs to this action
+    come from a caller's workflow file, which is exactly the untrusted
+    direction.
+
+    Every value therefore arrives through `env:` and is read as `$VAR`, where
+    the shell treats it as data. This is a property nobody sees in review and
+    that a one-line "simplification" reintroduces, which is why it is a test
+    rather than a comment.
+    """
+    import re
+
+    action = PACKAGE_ROOT / "action.yml"
+    assert action.is_file(), "the published action is missing"
+    lines = action.read_text(encoding="utf-8").splitlines()
+
+    # Only inside a `run:` block. `env:` mappings are where expressions
+    # BELONG, so a blanket search for `${{` would forbid the fix as well as
+    # the fault.
+    offenders, in_run = [], False
+    for number, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("run:"):
+            in_run = True
+        elif stripped and not line.startswith((" " * 8, "\t")) and stripped != "|":
+            in_run = stripped.startswith("run:")
+        if in_run and "${{" in line:
+            offenders.append(f"{number}: {stripped}")
+
+    assert not offenders, (
+        "action.yml interpolates an Actions expression into a shell script; "
+        f"pass it through env: instead. {offenders}")
+
+
+def test_the_action_carries_no_version_of_its_own() -> None:
+    """Seven files carry the version and `.extant.toml` cross-checks all seven.
+
+    They are cross-checked because they drifted once - three manifests said
+    0.1.0 while the CHANGELOG said 0.3.0. An eighth that nothing compares
+    against is that failure with the detector removed, so the action installs
+    `$GITHUB_ACTION_PATH`: the source the caller already pinned by ref.
+
+    Version-shaped strings in the COMMENTS are fine and deliberate - the usage
+    example has to show a real pin - so this reads the executable half only.
+    """
+    import re
+
+    text = (PACKAGE_ROOT / "action.yml").read_text(encoding="utf-8")
+    code = "\n".join(line for line in text.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert "GITHUB_ACTION_PATH" in code or "github.action_path" in code, (
+        "the action stopped installing the ref the caller pinned")
+    pinned = re.findall(r"\b\d+\.\d+\.\d+\b", code)
+    assert not pinned, (
+        f"action.yml names a version outside its comments: {pinned}. It would "
+        "be an eighth file carrying one, and nothing cross-checks it.")
+
+
+def test_every_flag_the_action_passes_exists(tmp_path) -> None:
+    """The published entry point must not name a mode the CLI dropped.
+
+    Same failure as a documented flag that does not exist, one layer out: the
+    README's version fails a test, and the action's version fails somebody
+    else's build.
+    """
+    import re
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    from extant.cli import build_parser
+    from extant.report import FORMATS
+
+    text = (PACKAGE_ROOT / "action.yml").read_text(encoding="utf-8")
+    known = {option for parsed in build_parser()._actions
+             for option in parsed.option_strings}
+
+    # Read from the `case` arms rather than hardcoded here, so this compares
+    # the action against the CLI rather than against a second copy of the
+    # answer. Both denominators are asserted non-empty: a pattern that stopped
+    # matching would otherwise leave this passing against an action offering
+    # anything at all.
+    modes = re.findall(r"^\s*([a-z|]+)\)\s*: ;;", text, re.M)
+    assert len(modes) == 2, (
+        f"expected the mode and format case arms; matched {modes}")
+    offered_modes, offered_formats = (set(arm.split("|")) for arm in modes)
+
+    unknown = sorted(f"--{name}" for name in offered_modes
+                     if f"--{name}" not in known)
+    assert not unknown, f"action.yml offers modes the CLI does not have: {unknown}"
+    assert offered_formats == set(FORMATS), (
+        f"action.yml accepts formats {sorted(offered_formats)} against a CLI "
+        f"offering {sorted(FORMATS)}")
+
+
 def test_command_template_placeholders_are_all_rendered() -> None:
     """Every placeholder in the template must be one the installer substitutes.
 

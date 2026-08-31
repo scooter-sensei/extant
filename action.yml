@@ -1,0 +1,102 @@
+# The GitHub Action. Packaging over `--format=github`, which already exists.
+#
+#     - uses: actions/checkout@v4
+#       with:
+#         fetch-depth: 0          # REQUIRED - see below
+#     - uses: scooter-sensei/extant@v0.24.1
+#
+# WHY fetch-depth: 0 IS NOT OPTIONAL
+#
+# `actions/checkout` defaults to a depth-limited checkout, and this tool asks
+# whether commits still exist. In a depth-limited repository nearly none of
+# them do: measured on a held-out corpus, one project supplied 2,094 dead-SHA
+# findings when checked out that way and 3 when checked out with its history.
+# Every one of those 2,091 was the checkout, not the document.
+#
+# The run says so rather than reporting them - `is_shallow` is checked before
+# any count is printed - but a wall of findings that names its own cause is
+# still a wall of findings, so the fix belongs in the workflow.
+#
+# WHY THE VERSION APPEARS NOWHERE HERE
+#
+# The install is `pip install "$GITHUB_ACTION_PATH"` - the very source the
+# caller pinned with `@v0.24.1`. Naming a version here would make this an
+# eighth file carrying one, and the seven that do are cross-checked by
+# `.extant.toml`'s consistency block precisely because they drifted once. An
+# eighth that nothing checks is how that happens again.
+name: extant
+description: >
+  Check that the claims in your documentation are still true - dead commit
+  references, false merge claims, dead links and paths, releases that never
+  shipped - against git and the filesystem.
+author: scooter-sensei
+
+branding:
+  icon: check-square
+  color: purple
+
+inputs:
+  mode:
+    description: >
+      `verify` checks the documents .extant.toml names and fails the job on a
+      finding. `sweep` surveys every tracked markdown file and always passes -
+      use it to see the shape of the problem before configuring anything.
+    required: false
+    default: verify
+  repo:
+    description: Repository root to check, relative to the workspace.
+    required: false
+    default: "."
+  format:
+    description: >
+      `github` puts each finding on the offending line of the pull request.
+      `text` and `sarif` are the other two; SARIF is for uploading to code
+      scanning and puts nothing but JSON on stdout.
+    required: false
+    default: github
+  args:
+    description: >
+      Extra flags, passed through verbatim - `--baseline`, `--suggest-fixes`,
+      `--sha-map .git/filter-repo/commit-map`.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # No third-party dependencies, so this is the tool and nothing else. Every
+    # GitHub-hosted runner ships a python.
+    - name: Install extant
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: python -m pip install --disable-pip-version-check --quiet "$ACTION_PATH"
+
+    # Every input arrives through the ENVIRONMENT, never interpolated into the
+    # script. `${{ inputs.args }}` written inline is the documented Actions
+    # injection hole: an input can carry a newline and everything after it is
+    # then a command running with the workflow's token. The values are also
+    # checked rather than trusted, so a typo in `mode` fails the step instead
+    # of being pasted onto a command line.
+    - name: Check the documentation
+      shell: bash
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_ARGS: ${{ inputs.args }}
+      run: |
+        set -eu
+        case "$INPUT_MODE" in
+          verify|sweep) : ;;
+          *) echo "::error::mode must be 'verify' or 'sweep', not '$INPUT_MODE'" >&2
+             exit 2 ;;
+        esac
+        case "$INPUT_FORMAT" in
+          text|github|sarif) : ;;
+          *) echo "::error::format must be 'text', 'github' or 'sarif', not '$INPUT_FORMAT'" >&2
+             exit 2 ;;
+        esac
+        # Word-split deliberately and only here: `args` is a flag list.
+        # shellcheck disable=SC2086
+        extant "--$INPUT_MODE" --repo "$INPUT_REPO" "--format=$INPUT_FORMAT" $INPUT_ARGS

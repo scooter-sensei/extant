@@ -269,6 +269,13 @@ Bump the version in four manifests - `.claude-plugin/marketplace.json`,
 `pyproject.toml` - and the `rev:` pin in the two places that are live install
 INSTRUCTIONS: `README.md` and `.pre-commit-hooks.yaml`.
 
+The README carries a THIRD live pin, in the `uses: scooter-sensei/extant@vX.Y.Z`
+line of the GitHub Action snippet. It is the same kind of promise as the `rev:`
+pins and has the same non-coverage: `README.md` is not a checked document, so
+nothing here fails when it goes stale. `action.yml` itself deliberately names no
+version - it installs the ref the caller pinned - so this snippet is the only
+place the action's version appears.
+
 **Never bump a `rev:` inside `CHANGELOG.md`.** A changelog entry records what
 was true at that release, so a pin in one is history, not instruction. A
 first-occurrence replace across the changelog silently rewrote the 0.5.0
