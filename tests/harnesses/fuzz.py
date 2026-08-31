@@ -75,6 +75,27 @@ Randomness that cannot be replayed produces bug reports nobody can act on.
 Every run prints its seed; passing it back rebuilds the identical corpus, and
 a failing repository is left on disk with `--save` writing its recipe out.
 
+THE SEED IS NOT THE ONLY INPUT. The ARENA PATH is one too, on Windows, and
+that went unnoticed long enough to be reported as nondeterminism. Two runs of
+the same seed and the same package reached the rules in 25 of 35 repositories
+and then 6, and the only difference between them was an arena directory named
+`arenaPeer` rather than `arenaPeer2`. One character.
+
+Past roughly 260 characters, git commands start failing individual writes on
+Windows, and because nothing here checked a return code the build carried on
+and produced repositories with no commits - which the sweep then reports as
+`git tracks none in this repository`, indistinguishable from a repository that
+is genuinely empty. Measured with the arena path as the ONLY variable: 2 of 12
+repositories collapsed at 183 characters and 9 of 12 at 222.
+
+Both halves are fixed. `core.longpaths` is passed to every command that
+CREATES a repository, because setting it afterwards is too late - `git init`
+fails first, and a config cannot be written into a repository that does not
+exist. And `must()` now checks the core git steps, so a repository that fails
+to build says so instead of arriving as a quiet zero. The second half matters
+more than the first: some paths are still too deep for git whatever is
+configured, and what makes that survivable is that the harness now knows.
+
 A finding does not stay here. It gets reduced to a case in
 tests/test_fuzz_findings.py, so it runs in the suite on every commit instead
 of waiting for a seed to come up again. This harness discovers; that file
@@ -245,9 +266,56 @@ KNOWN_UNREACHABLE: dict = {}
 
 # --- plumbing ---------------------------------------------------------
 
+# `core.longpaths` has to be passed ON THE COMMAND LINE for any command that
+# CREATES a repository, and that is the whole subtlety. Setting it with
+# `git config` afterwards is too late: `git init` itself fails first, with
+# `cannot stat '.../.git/hooks/applypatch-msg.sample': Filename too long`, and
+# a config cannot be written into a repository that does not exist.
+#
+# Measured at a 230-character repository path: plain `git init` fails, and
+# `git -c core.longpaths=true init` succeeds. Every command below that builds a
+# NEW repository - init, clone - needs it; commands run inside an existing one
+# inherit it from the config set at build time.
+LONGPATHS = ("-c", "core.longpaths=true")
+
+
 def sh(cwd: Path, *args: str, check: bool = False):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                           check=check, encoding="utf-8", errors="replace")
+
+
+def must(recipe: "Recipe", cwd: Path, *args: str):
+    """A git step the repository CANNOT be built without, checked.
+
+    Everything here used to call `sh` and drop the return code, and that is
+    the single reason a corpus could collapse in silence. When `git add -A`
+    failed, the commit that followed failed too, the build carried on, and what
+    came back was a repository with no commits and no tracked markdown - which
+    the sweep then reported as `git tracks none in this repository`, and which
+    reads exactly like a repository that is simply empty.
+
+    Two whole days of symptoms came from that: a corpus reaching 6 of 35
+    repositories instead of 25 looked like nondeterminism, because the thing
+    that actually failed never said so. A harness that cannot tell a
+    construction failure from a construction is not measuring anything.
+    """
+    done = sh(cwd, *args)
+    if done.returncode == 0:
+        return done
+    # "nothing to commit" is not a failure, and treating it as one threw away a
+    # working repository. The second commit carries the claims that needed a
+    # ref or a tag to exist first; when the draw produced no such feature the
+    # document is byte-identical to the one already committed, git exits 1, and
+    # the repository is exactly as intended.
+    #
+    # It is invisible on stderr - git says so on STDOUT - which is why the
+    # first version of this check reported it as `git commit -qm: exit 1` with
+    # no detail at all, and discarded repository 025 of a clean run.
+    if "nothing to commit" in (done.stdout or ""):
+        return done
+    detail = " ".join((done.stderr or "").split())[:120]
+    recipe.broke(f"{' '.join(args[:3])}: {detail or 'exit ' + str(done.returncode)}")
+    return done
 
 
 class Recipe:
@@ -259,9 +327,17 @@ class Recipe:
         self.steps: list[str] = []
         self.skipped: list[str] = []
         self.features: list[str] = []
+        # Core construction steps that FAILED. Distinct from `skipped`, which
+        # is a shape this platform declines to build and is a legitimate
+        # result. A broken step means the repository is not what the recipe
+        # says it is, and nothing measured from it can be read.
+        self.broken: list[str] = []
 
     def did(self, what: str) -> None:
         self.steps.append(what)
+
+    def broke(self, what: str) -> None:
+        self.broken.append(what)
 
     def drew(self, name: str, truth: str) -> None:
         self.features.append(f"{name}:{truth}")
@@ -272,7 +348,8 @@ class Recipe:
     def as_dict(self) -> dict:
         return {"seed": self.seed, "index": self.index,
                 "features": self.features,
-                "built": self.steps, "not_built": self.skipped}
+                "built": self.steps, "not_built": self.skipped,
+                "broken": self.broken}
 
 
 def _draw_features(rng: random.Random):
@@ -350,9 +427,36 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     shutil.rmtree(repo, ignore_errors=True)
     repo.mkdir(parents=True)
     trunk = rng.choice(["main", "master", "trunk"])
-    sh(repo, "git", "init", "-q", "-b", trunk)
+    sh(repo, "git", *LONGPATHS, "init", "-q", "-b", trunk)
     sh(repo, "git", "config", "user.email", "t@t")
     sh(repo, "git", "config", "user.name", "T")
+    # WINDOWS MAX_PATH, and the reason this harness was unreadable for a while.
+    #
+    # A generated repository carries `tools/extant/rules/*.py` and a full
+    # `.git/objects` tree under an arena path that is already long, because the
+    # scratchpad these run in is nested. Past 260 characters git starts failing
+    # individual writes - "Filename too long", "cannot write keep file" - and
+    # since nothing checked a return code, the build carried on and produced a
+    # repository with no commits.
+    #
+    # Measured rather than reasoned: the same seed and package, with ONLY the
+    # arena path length changed, collapsed 2 of 12 repositories at 183
+    # characters and 9 of 12 at 222. That is what looked like a fuzzer whose
+    # corpus varied run to run - it varied by arena NAME, which nobody was
+    # treating as an input.
+    sh(repo, "git", "config", "core.longpaths", "true")
+    # git-lfs must not reach the network, and by default it does. `lfs-blob`
+    # commits a file whose content is a valid LFS pointer with a fabricated
+    # oid; any later checkout asks git-lfs to smudge it, git-lfs asks whatever
+    # `origin` names for the object - the `pinned-ref` feature helpfully adds a
+    # github.com remote - and the answer is a credential error off the machine.
+    # `git worktree add` was observed failing exactly that way.
+    #
+    # `required = false` makes a filter failure a warning and passes the
+    # content through, which is what this harness wants: the pointer is data,
+    # not something to resolve. The no-network guarantee this project makes
+    # about the tool should hold for the harness that tests it.
+    sh(repo, "git", "config", "filter.lfs.required", "false")
     shutil.copytree(pkg / "plugin/skills/extant/payload", repo / "tools")
 
     drawn = _draw_features(rng)
@@ -423,8 +527,8 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
         except (OSError, NotImplementedError) as exc:
             recipe.could_not("symlinks", type(exc).__name__)
 
-    sh(repo, "git", "add", "-A")
-    sh(repo, "git", "commit", "-qm", "initial")
+    must(recipe, repo, "git", "add", "-A")
+    must(recipe, repo, "git", "commit", "-qm", "initial")
 
     _git_scaffold(repo, trunk, rng)
 
@@ -439,8 +543,8 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     (repo / "NEXT_SESSION.md").write_text(
         shapes.compose_document(list(merged.prose) + preamble[len(merged_pre.prose):],
                                 merged.entry), encoding="utf-8")
-    sh(repo, "git", "add", "-A")
-    sh(repo, "git", "commit", "-qm", "the claims")
+    must(recipe, repo, "git", "add", "-A")
+    must(recipe, repo, "git", "commit", "-qm", "the claims")
 
     # hostile refs: names that look like options, contain spaces or non-ASCII
     for ref in rng.sample(["-dashed-branch", "--option-branch", "with space",
@@ -470,9 +574,14 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
         inner = arena / f"sub{index:03d}"
         shutil.rmtree(inner, ignore_errors=True)
         inner.mkdir(parents=True)
-        sh(inner, "git", "init", "-q", "-b", "main")
+        sh(inner, "git", *LONGPATHS, "init", "-q", "-b", "main")
         sh(inner, "git", "config", "user.email", "t@t")
         sh(inner, "git", "config", "user.name", "T")
+        # The inner repository needs the setting PERSISTED too, not just on its
+        # init. `-c` covers the command it is passed to and nothing after it,
+        # so this repository's own `git add` was still failing with "unable to
+        # create temporary file: Filename too long" once init had been fixed.
+        sh(inner, "git", "config", "core.longpaths", "true")
         (inner / "README.md").write_text("# inner\n\nSee `gone.py`.\n",
                                          encoding="utf-8")
         sh(inner, "git", "add", "-A")
@@ -508,7 +617,7 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     elif state == "shallow":
         cloned = arena / f"sh{index:03d}"
         shutil.rmtree(cloned, ignore_errors=True)
-        r = sh(arena, "git", "clone", "-q", "--depth", "1",
+        r = sh(arena, "git", *LONGPATHS, "clone", "-q", "--depth", "1",
                repo.as_uri(), str(cloned))
         if r.returncode == 0 and cloned.exists():
             shutil.copytree(pkg / "plugin/skills/extant/payload",
@@ -521,7 +630,7 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
         bare = arena / f"empty{index:03d}"
         shutil.rmtree(bare, ignore_errors=True)
         bare.mkdir(parents=True)
-        sh(bare, "git", "init", "-q", "-b", "main")
+        sh(bare, "git", *LONGPATHS, "init", "-q", "-b", "main")
         shutil.copytree(pkg / "plugin/skills/extant/payload", bare / "tools")
         (bare / "NEXT_SESSION.md").write_text(
             shapes.compose_document(preamble, merged.entry), encoding="utf-8")
@@ -710,6 +819,7 @@ def main() -> int:
     faults: list[tuple[int, str, str]] = []
     unbuildable: dict[str, int] = {}
     reached: dict[str, int] = {}
+    broken_builds: list = []
     drawn_features: dict[str, int] = {}
     modes_run = 0
     examined_somewhere = 0
@@ -741,13 +851,23 @@ def main() -> int:
     for index, (state, planned_mode) in enumerate(plan):
         repo, recipe = build_repo(args.pkg, args.arena, rng, seed, index,
                                   state=state)
-        built += 1
         for note in recipe.skipped:
             key = note.split(" (")[0]
             unbuildable[key] = unbuildable.get(key, 0) + 1
         for note in recipe.features:
             name = note.split(":")[0]
             drawn_features[name] = drawn_features.get(name, 0) + 1
+        # A repository whose core git steps failed is NOT a hostile repository
+        # the tool survived - it was never built, and every property checked
+        # against it would be measuring an empty directory. Excluded from the
+        # corpus entirely rather than checked and counted, which is the same
+        # treatment a shape this platform cannot construct already gets: NOT
+        # TESTED, reported in its own column, never a pass.
+        if recipe.broken:
+            broken_builds.append((index, recipe.broken[0]))
+            print(f"  [{index:03d}] UNBUILT      {recipe.broken[0][:96]}")
+            continue
+        built += 1
         mode = planned_mode
         pairs_seen.add((state, " ".join(mode)))
         modes_run += 1
@@ -874,6 +994,31 @@ def main() -> int:
     # This floor does not fix that. It stops a degraded corpus reporting as a
     # clean one while it is being fixed, which is the difference between a gate
     # and a decoration.
+    # Construction failures, reported BEFORE any verdict. A repository whose
+    # `git add` failed is not a hostile repository the tool survived, it is a
+    # repository that was never built - and every number computed from it is
+    # about nothing.
+    if broken_builds:
+        print(f"  {len(broken_builds)} repositor(y/ies) FAILED TO BUILD - a core "
+              f"git step returned non-zero:")
+        for index, why in broken_builds[:5]:
+            print(f"    [{index:03d}] {why}")
+        if len(broken_builds) > 5:
+            print(f"    ... and {len(broken_builds) - 5} more")
+        print("    On Windows this is usually MAX_PATH: use a SHORT arena path. "
+              "The repositories carry tools/extant/rules/ and a full object "
+              "store, so a deep arena tips individual writes over 260 "
+              "characters.")
+
+    # Fails only when the corpus is mostly unbuilt, for the same reason
+    # CORPUS_FLOOR exists: one marginal write failure on a deep path is a shape
+    # this platform would not construct, and the run still measured 34 others.
+    # A third of them failing means the run is about the filesystem, not the
+    # tool.
+    if broken_builds and len(broken_builds) > len(plan) * 0.2:
+        print(f"HARNESS FAULT: {len(broken_builds)} of {len(plan)} repositories "
+              f"did not build. Nothing above describes the tool.")
+        return 2
     if built and examined_somewhere < built * CORPUS_FLOOR:
         print(f"HARNESS FAULT: only {examined_somewhere} of {built} "
               f"repositories reached the rules, below the {CORPUS_FLOOR:.0%} "
