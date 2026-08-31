@@ -27,6 +27,37 @@ The last two are metamorphic: they compare extant against ITSELF under a
 change that must not matter. That is what lets a fuzzer find wrong answers
 rather than only crashes, and it costs one extra run per repository.
 
+WHAT THE GENERATOR DRAWS, AND WHY IT IS A CATALOGUE
+
+The shapes live in fuzz_shapes.py, one feature per rule, each offering a claim
+that is TRUE and one that is FALSE. That file explains why; the short version
+is that the twelve hard-coded content strings this harness shipped with reached
+5 of the 13 rules, two of them were dead in the way this project keeps warning
+about, and every document the generator produced was already wrong - which made
+`--selftest` a no-op across the whole corpus, because a probe corrupts a real
+match and there were none.
+
+Features are drawn SWARM-STYLE: each repository omits a random subset of them
+outright rather than drawing every feature independently at a tuned
+probability. That is Groce et al.'s feature-omission diversity (ISSTA 2012),
+and it replaces the hand-tuned weighting this generator used to carry. Two
+mechanisms it addresses were both present here: features competed for space,
+because one content shape was chosen per document, so no repository could hold
+a merge claim and an LFS blob at once; and features actively suppressed one
+another, because an unparseable config or an unclosed fence silences
+everything downstream.
+
+THE REACH LEDGER IS THE DENOMINATOR OF THIS HARNESS
+
+A rule no feature reaches is a rule this gate does not cover, and the old
+harness could not say which those were - it counted repositories that produced
+any rule counts at all, which was true of a repository exercising one rule and
+of one exercising twelve. The ledger records which rules actually EXAMINED
+something across the corpus and fails below a floor, for the reason
+`registry.py` gives for a denominator that raises rather than answering zero:
+an omission should arrive as a red run in the commit that caused it, not as a
+reassuring `ok` forever.
+
 WHAT A "COULD NOT BUILD" ROW MEANS
 
 Symlinks need a privilege Windows withholds by default, and submodules need a
@@ -62,6 +93,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fuzz_shapes as shapes  # noqa: E402
+
 PY = sys.executable
 TIMEOUT = 90
 
@@ -86,34 +120,47 @@ AWKWARD_NAMES = [
     "tab\there" if sys.platform != "win32" else "no-tab-here",
 ]
 
-# Content shapes that have historically cost something: backtracking bait,
-# claims of every kind, fences that do not close, and a line long enough to
-# matter.
-def _content_shapes(rng: random.Random) -> list[str]:
+# Document shapes that cost something without making a claim: backtracking
+# bait, fences that do not close, a line long enough to matter. These are
+# NOISE, drawn alongside the catalogue rather than instead of it. They used to
+# be the whole alphabet, which is why 8 of 13 rules were never reached.
+def _noise_shapes(rng: random.Random) -> list[str]:
     return [
-        "# Doc\n\nSee `src/gone.py` for detail.\n",
-        "# Doc\n\nMerged `feature/x` into main at `deadbeef1234`.\n",
-        "# Doc\n\nSee [link](../other/missing.md) and [a](a.md#nope).\n",
-        "# Doc\n\nRelease `v9.9.9` shipped.\n",
-        "# Doc\n\nRequires Python 3.99+.\n",
-        "# Doc\n\n```\nunclosed fence with `src/gone.py` inside\n",
-        "# Doc\n\n" + ("a" * rng.choice([200, 5_000, 60_000])) + "\n",
-        "# Doc\n\n" + "".join(f"See `f{i}.py`. " for i in range(rng.randint(1, 40))) + "\n",
-        "# Doc\n\nPointer at `tools/extant_collect.py:999999`.\n",
-        "# Doc\n\n" + "\u202e" * 20 + " reversed prose `x.py`\n",
-        "# Doc\n\nnested ``` ` `` ticks `src/gone.py` ``` here\n",
-        "# H\n\n# H\n\n# H\n\nRepeated headings and [#h-2](#h-2).\n",
+        "```\nunclosed fence with `src/gone.py` inside\n",
+        ("a" * rng.choice([200, 5_000, 60_000])),
+        "".join(f"See `f{i}.py`. " for i in range(rng.randint(1, 40))),
+        "Pointer at `tools/extant_collect.py:999999`.",
+        "\u202e" * 20 + " reversed prose `x.py`",
+        "nested ``` ` `` ticks `src/gone.py` ``` here",
+        "Repeated headings and [#h-2](#h-2).",
     ]
 
 # Configuration a hostile or careless project might ship. The regexes are the
 # backtracking bait the existing smoke probe covers as a single case; here they
 # combine with everything else.
 CONFIG_SHAPES = [
-    'primary_doc = "NEXT_SESSION.md"\n',
-    'primary_doc = "NEXT_SESSION.md"\npath_pointer = "(a+)+$"\n',
-    'primary_doc = "NEXT_SESSION.md"\nentry_prefix = "## "\n',
-    'primary_doc = "NEXT_SESSION.md"\nexclude_paths = ["**", "*.md"]\n',
-    'primary_doc = "NEXT_SESSION.md"\nexclude_paths = ["nothing-matches-this"]\n',
+    "",
+    'path_pointer = "(a+)+$"\n',
+    'entry_prefix = "## "\n',
+    'exclude_paths = ["**", "*.md"]\n',
+    'exclude_paths = ["nothing-matches-this"]\n',
+]
+
+# Weighted, because two of those shapes END the run. `exclude_paths` covering
+# every path excludes the document the config gates on, which is a refusal, and
+# a refusal costs a whole repository and answers almost nothing. Drawn
+# uniformly alongside the 15 per cent broken-config rate below, refusals reached
+# 10 of 35 - nearly a third of the budget spent on argument parsing. The
+# pathological shapes stay in the draw, because a config that excludes its own
+# target is a real mistake a project makes; they are just no longer a third of
+# it.
+CONFIG_WEIGHTS = [6, 2, 2, 1, 2]
+
+# Configurations that END the run before any rule executes. Drawn rarely and
+# deliberately: uniformly, they spent most of the corpus on the two shapes that
+# test the least. Measured at 2 of 12 repositories reaching the rules before
+# this weighting.
+BROKEN_CONFIG_SHAPES = [
     'primary_doc = "missing-on-purpose.md"\n',
     "not valid toml at all [[[\n",
 ]
@@ -132,6 +179,53 @@ MODES = [
     ["--deleted-since", "HEAD"],
 ]
 
+# Modes that MUST print a denominator line. A mode listed here that prints none
+# is a harness fault rather than a pass: `_rule_counts` returning nothing makes
+# the DENOMINATOR check iterate nothing and succeed, so a tool that stopped
+# reporting its denominator would read exactly like a tool with clean counts.
+MODES_WITH_DENOMINATOR = ("--sweep", "--verify", "--validate")
+
+# How many of the 13 rules a run must see EXAMINE something before its result
+# means anything. Measured, not guessed: seed 20260824 at 35 repositories
+# reaches 12.
+#
+# THE CEILING IS 12, NOT 13, AND FOR A REASON WORTH KEEPING HERE. The ledger
+# probes with `--sweep`, and `manifest-floor-mismatch` reports a sweep
+# denominator of zero even in a repository where it finds something - the sweep
+# prints the finding, prints `manifest-floor-mismatch 0`, and names the rule in
+# its own "examined nothing anywhere" note. `--verify` counts it correctly, so
+# this is the sweep's aggregation rather than the rule. Until that is fixed the
+# thirteenth rule cannot register here, however well the feature works. The
+# feature does work: `--verify` on a generated repository reports
+# `checked README.md: ... manifest-floor-mismatch 2`.
+#
+# Set one below the measured 12, so an unlucky swarm draw does not fail a run
+# that is working. Raise it deliberately and say why, the way the spawn budget
+# is raised - and raise it to 13 as part of fixing the sweep denominator. Do
+# not lower it to make a red run green: a drop means a feature stopped firing,
+# and the release shape sat in this harness matching nothing for its entire
+# life because nothing was watching this number.
+REACH_FLOOR = 11
+
+# Rules that CANNOT reach the ledger for a reason outside this harness, with
+# the reason, so the exemption is readable and removable rather than a silently
+# lowered floor.
+#
+# The floor alone is not enough. A feature that was DRAWN and still reached
+# nothing is a defect - it is the release-shape failure exactly - while a
+# feature the swarm never drew is only a short run. Those are separated below,
+# and the drawn-and-missed case fails. This table is what stops that check
+# reddening every run over a defect somebody already knows about.
+#
+# Delete an entry the moment its defect is fixed. An exemption nobody revisits
+# is how a rule stops being exercised for six releases.
+KNOWN_UNREACHABLE = {
+    "manifest-floor-mismatch":
+        "sweep reports a denominator of 0 for this rule even where it finds "
+        "something, and the ledger probes with --sweep; --verify counts it "
+        "correctly, so the feature works and the sweep aggregation does not",
+}
+
 
 # --- plumbing ---------------------------------------------------------
 
@@ -148,16 +242,87 @@ class Recipe:
         self.index = index
         self.steps: list[str] = []
         self.skipped: list[str] = []
+        self.features: list[str] = []
 
     def did(self, what: str) -> None:
         self.steps.append(what)
+
+    def drew(self, name: str, truth: str) -> None:
+        self.features.append(f"{name}:{truth}")
 
     def could_not(self, what: str, why: str) -> None:
         self.skipped.append(f"{what} ({why})")
 
     def as_dict(self) -> dict:
         return {"seed": self.seed, "index": self.index,
+                "features": self.features,
                 "built": self.steps, "not_built": self.skipped}
+
+
+def _draw_features(rng: random.Random):
+    """A swarm configuration: which features are IN, and how each is spelled.
+
+    Independent inclusion at even odds, which is the plain form of the
+    technique. A feature that is in then draws `true`, `false` or `both`;
+    `both` is weighted highest because it exercises the examined-and-clean path
+    and the reporting path in one repository, and because `--selftest` needs a
+    true claim to corrupt.
+    """
+    drawn = []
+    for feature in shapes.FEATURES:
+        if rng.random() < 0.5:
+            continue
+        truth = rng.choices(("both", "true", "false"), weights=(3, 1, 1))[0]
+        drawn.append((feature, truth))
+    return drawn
+
+
+def _apply(build, drawn, phase: str, recipe: Recipe):
+    """Run every drawn feature of one phase, recording what would not build."""
+    parts = []
+    for feature, truth in drawn:
+        if feature.phase != phase:
+            continue
+        try:
+            part = feature.build(build, truth)
+        except (OSError, UnicodeError, ValueError) as exc:
+            recipe.could_not(f"feature {feature.name}", type(exc).__name__)
+            continue
+        if part is None:
+            recipe.could_not(f"feature {feature.name}", "declined")
+            continue
+        parts.append(part)
+    return parts
+
+
+def _git_scaffold(repo: Path, trunk: str, rng: random.Random) -> None:
+    """The refs the post-commit features name.
+
+    Built unconditionally rather than per feature, because two features name
+    the same branch and a ref created twice is an error while a ref nobody
+    cites is harmless. `claude/already-merged` really is merged and
+    `claude/still-open` really is not, so a claim about either has a definite
+    answer rather than an accidental one.
+    """
+    sh(repo, "git", "branch", "claude/real-work")
+    sh(repo, "git", "branch", "claude/still-open")
+    sh(repo, "git", "checkout", "-q", "-b", "side-work")
+    (repo / "side.txt").write_text("side\n", encoding="utf-8")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "side work, off the trunk")
+    sh(repo, "git", "checkout", "-q", trunk)
+    sh(repo, "git", "checkout", "-q", "-b", "claude/already-merged")
+    (repo / "merged.txt").write_text("merged\n", encoding="utf-8")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "work that was merged")
+    sh(repo, "git", "checkout", "-q", trunk)
+    sh(repo, "git", "merge", "-q", "--no-ff", "-m", "merge", "claude/already-merged")
+    sh(repo, "git", "tag", "v1.0")
+    # more commits, so ancestry rules have something to walk
+    for i in range(rng.randint(0, 4)):
+        (repo / f"f{i}.txt").write_text(f"{i}\n", encoding="utf-8")
+        sh(repo, "git", "add", "-A")
+        sh(repo, "git", "commit", "-qm", f"c{i}")
 
 
 def build_repo(pkg: Path, arena: Path, rng: random.Random,
@@ -168,22 +333,42 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     repo = arena / f"fuzz{index:03d}"
     shutil.rmtree(repo, ignore_errors=True)
     repo.mkdir(parents=True)
-    sh(repo, "git", "init", "-q", "-b", rng.choice(["main", "master", "trunk"]))
+    trunk = rng.choice(["main", "master", "trunk"])
+    sh(repo, "git", "init", "-q", "-b", trunk)
     sh(repo, "git", "config", "user.email", "t@t")
     sh(repo, "git", "config", "user.name", "T")
     shutil.copytree(pkg / "plugin/skills/extant/payload", repo / "tools")
 
-    shapes = _content_shapes(rng)
-    (repo / "NEXT_SESSION.md").write_text(rng.choice(shapes), encoding="utf-8")
-    # Weighted, not uniform. A config that cannot be parsed and a primary
-    # document that does not exist both END the run before any rule executes,
-    # so drawing them uniformly spent most of the corpus on the two shapes
-    # that test the least. Measured at 2 of 12 repositories reaching the rules
-    # before this weighting.
-    config = (rng.choice(CONFIG_SHAPES[:5]) if rng.random() < 0.85
-              else rng.choice(CONFIG_SHAPES[5:]))
+    drawn = _draw_features(rng)
+    for feature, truth in drawn:
+        recipe.drew(feature.name, truth)
+    build = shapes.Build(repo=repo, rng=rng, sh=sh, trunk=trunk)
+
+    pre = _apply(build, drawn, "pre", recipe)
+    merged_pre = shapes.merge(pre)
+    shapes.write_files(repo, merged_pre)
+
+    noise = _noise_shapes(rng)
+    preamble = list(merged_pre.prose)
+    for _ in range(rng.randint(0, 2)):
+        preamble.append(rng.choice(noise))
+    # The drawn extra setting joins the BARE KEYS rather than being appended to
+    # the rendered config, because `compose_config` emits table blocks last and
+    # a key written after a `[table]` header belongs to that table. Appending
+    # it put `path_pointer` inside `[extant.consistency.*]`, where it parses as
+    # a different setting and reads as the tool ignoring its own configuration.
+    extra = rng.choices(CONFIG_SHAPES, weights=CONFIG_WEIGHTS)[0].strip()
+    base = ('primary_doc = "NEXT_SESSION.md"', f'trunk = "{trunk}"')
+    if extra:
+        base = base + (extra,)
+    broken = rng.random() < 0.08
+    config = (rng.choice(BROKEN_CONFIG_SHAPES) if broken
+              else shapes.compose_config(base, merged_pre))
     (repo / ".extant.toml").write_text(config, encoding="utf-8")
-    recipe.did("primary document and config")
+    (repo / "NEXT_SESSION.md").write_text(
+        shapes.compose_document(preamble, merged_pre.entry), encoding="utf-8")
+    recipe.did(f"{len(drawn)} feature(s), config "
+               f"{'deliberately broken' if broken else 'valid'}")
 
     # documents at awkward paths, in awkward directories
     made = 0
@@ -193,8 +378,8 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
                                     rng.choice(AWKWARD_NAMES)])
         try:
             parent.mkdir(parents=True, exist_ok=True)
-            (parent / f"{name}.md").write_text(rng.choice(shapes),
-                                               encoding="utf-8")
+            (parent / f"{name}.md").write_text(
+                "# Doc\n\n" + rng.choice(noise) + "\n", encoding="utf-8")
             made += 1
         except (OSError, UnicodeError) as exc:
             recipe.could_not(f"path {name!r}", type(exc).__name__)
@@ -225,21 +410,44 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
     sh(repo, "git", "add", "-A")
     sh(repo, "git", "commit", "-qm", "initial")
 
-    # more commits, so ancestry rules have something to walk
-    for i in range(rng.randint(0, 4)):
-        (repo / f"f{i}.txt").write_text(f"{i}\n", encoding="utf-8")
-        sh(repo, "git", "add", "-A")
-        sh(repo, "git", "commit", "-qm", f"c{i}")
+    _git_scaffold(repo, trunk, rng)
+
+    # post features: the ones naming a commit, a tag or a branch, which have to
+    # exist before the claim about them can be written
+    post = _apply(build, drawn, "post", recipe)
+    merged = shapes.merge(pre + post)
+    shapes.write_files(repo, shapes.merge(post))
+    if not broken:
+        (repo / ".extant.toml").write_text(
+            shapes.compose_config(base, merged), encoding="utf-8")
+    (repo / "NEXT_SESSION.md").write_text(
+        shapes.compose_document(list(merged.prose) + preamble[len(merged_pre.prose):],
+                                merged.entry), encoding="utf-8")
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "commit", "-qm", "the claims")
 
     # hostile refs: names that look like options, contain spaces or non-ASCII
     for ref in rng.sample(["-dashed-branch", "--option-branch", "with space",
                            "\u00fcnicode", "a/b/c/deep", "HEAD-ish",
                            "feature/x"], k=rng.randint(0, 4)):
         sh(repo, "git", "branch", "--", ref)
-    for tag in rng.sample(["v1.0", "-v2", "tag with space", "\u00fctag",
-                           "v9.9.9"], k=rng.randint(0, 3)):
+    # `v1.0` and `v9.9.9` are NOT in this list, and must not be. The release
+    # feature writes a true claim about `v1.0` and a false one about `v9.9.9`,
+    # so a hostile tag creating either turns one of those claims into the other
+    # and the feature silently stops meaning what it says. The old list carried
+    # both, from when no feature named a version at all.
+    for tag in rng.sample(["-v2", "tag with space", "\u00fctag",
+                           "release-candidate"], k=rng.randint(0, 3)):
         sh(repo, "git", "tag", "--", tag)
     recipe.did("hostile ref and tag names")
+
+    # anything that must land AFTER the last generic `git add -A`
+    for feature, truth in drawn:
+        if feature.finalize is not None:
+            try:
+                feature.finalize(build, truth)
+            except (OSError, ValueError) as exc:
+                recipe.could_not(f"finalize {feature.name}", type(exc).__name__)
 
     # a submodule, when the transport allows one
     if rng.random() < 0.35:
@@ -299,8 +507,8 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
         bare.mkdir(parents=True)
         sh(bare, "git", "init", "-q", "-b", "main")
         shutil.copytree(pkg / "plugin/skills/extant/payload", bare / "tools")
-        (bare / "NEXT_SESSION.md").write_text(rng.choice(shapes),
-                                              encoding="utf-8")
+        (bare / "NEXT_SESSION.md").write_text(
+            shapes.compose_document(preamble, merged.entry), encoding="utf-8")
         recipe.did("repository with no commits")
         return bare, recipe
 
@@ -309,19 +517,60 @@ def build_repo(pkg: Path, arena: Path, rng: random.Random,
 
 # --- the properties ---------------------------------------------------
 
-_EXAMINED = re.compile(r"examined: (.+)$", re.M)
+# BOTH spellings of the denominator line, and every occurrence of each.
+#
+# `--sweep` prints one aggregate `examined: ...`; `--verify` and `--validate`
+# print `checked <path>: ...` once PER DOCUMENT, and the old pattern matched
+# neither of those. So in the two gating modes `_rule_counts` returned nothing,
+# the DENOMINATOR check iterated nothing, and every gating run passed that
+# property vacuously - while a `--verify` over `extra_docs` is exactly where a
+# per-document denominator can disagree with a whole-run finding count.
+#
+# Summing across documents rather than reading the first line is what makes the
+# comparison meaningful: findings are counted over the whole output, so the
+# denominator has to be too.
+_EXAMINED = re.compile(r"^(?:  )?(?:examined|checked [^:]+): (.+)$", re.M)
 
 
 def _rule_counts(text: str) -> dict[str, int]:
-    m = _EXAMINED.search(text)
-    if not m:
-        return {}
-    counts = {}
-    for part in m.group(1).split(","):
-        bits = part.strip().rsplit(" ", 1)
-        if len(bits) == 2 and bits[1].isdigit():
-            counts[bits[0]] = int(bits[1])
+    """Summed denominators, or an empty mapping when the output states none.
+
+    An empty mapping is AMBIGUOUS on its own - it means either "this mode
+    prints no denominator" or "this mode stopped printing one" - so callers
+    must decide against MODES_WITH_DENOMINATOR rather than reading it as clean.
+    """
+    counts: dict[str, int] = {}
+    for match in _EXAMINED.finditer(text):
+        for part in match.group(1).split(","):
+            bits = part.strip().rsplit(" ", 1)
+            if len(bits) == 2 and bits[1].isdigit():
+                counts[bits[0]] = counts.get(bits[0], 0) + int(bits[1])
     return counts
+
+
+def _denominator_faults(out: str, counts: dict, label: str):
+    """A rule may not report more findings than it examined candidates."""
+    faults = []
+    for kind, examined in counts.items():
+        found = len(re.findall(r"\[" + re.escape(kind) + r"\]", out))
+        if found > examined:
+            faults.append(("DENOMINATOR",
+                           f"{label}: {kind} reported {found} "
+                           f"from {examined} examined"))
+    return faults
+
+
+def refused_early(done) -> bool:
+    """Did this run DECLINE to start, rather than run and conclude?
+
+    Recognised structurally rather than by message: nothing on stdout, a
+    diagnostic on stderr, a non-zero exit. Extracted so the denominator check
+    and the SARIF check agree on what a refusal is - they were two spellings of
+    the same test, and a refusal exempted from one but not the other would be
+    reported as a fault by whichever had not been updated.
+    """
+    return bool(done.returncode != 0 and not (done.stdout or "").strip()
+                and (done.stderr or "").strip())
 
 
 def run_mode(repo: Path, mode: list[str]):
@@ -353,12 +602,23 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     if first.returncode not in (0, 1, 2):
         faults.append(("EXIT", f"{' '.join(mode)}: exit {first.returncode}"))
 
-    for kind, examined in _rule_counts(out).items():
-        found = len(re.findall(r"\[" + re.escape(kind) + r"\]", out))
-        if found > examined:
-            faults.append(("DENOMINATOR",
-                           f"{' '.join(mode)}: {kind} reported {found} "
-                           f"from {examined} examined"))
+    counts = _rule_counts(out)
+    faults.extend(_denominator_faults(out, counts, " ".join(mode)))
+    # Findings printed against NO denominator at all. Without this the
+    # DENOMINATOR loop below iterates nothing and reports success, which is the
+    # same fail-open shape `mutate.py` refuses when an anchor stops matching.
+    #
+    # Deliberately narrower than "this mode owes a denominator". A sweep of a
+    # repository git tracks no markdown in prints none and is RIGHT to: it
+    # examined no documents, and `tests/test_fuzz_findings.py` pins that
+    # behaviour. Faulting on the absence alone reported those runs, which is
+    # the harness crying wolf about the case it already agreed was correct.
+    # Keyed on findings existing instead, which has no such exemption to make.
+    findings_printed = re.search(r"^(?:.*: )?line \d+: \[", out, re.M)
+    if findings_printed and not counts and mode[0] in MODES_WITH_DENOMINATOR:
+        faults.append(("HARNESS",
+                       f"{' '.join(mode)}: findings printed with no "
+                       f"denominator line, so DENOMINATOR checked nothing"))
 
     # metamorphic: nothing changed, so nothing may change
     second = run_mode(repo, mode)
@@ -383,8 +643,7 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     # Recognised structurally rather than by message: nothing on stdout, a
     # diagnostic on stderr, a non-zero exit. Refusals are counted and printed
     # so the exemption stays visible instead of quietly widening.
-    refused = (first.returncode != 0 and not (first.stdout or "").strip()
-               and (first.stderr or "").strip())
+    refused = refused_early(first)
     if refused:
         faults.append(("refused", f"{' '.join(mode)}: declined to run"))
         return [f for f in faults if f[0] != "refused"] or [("refused", "")]
@@ -434,6 +693,8 @@ def main() -> int:
 
     faults: list[tuple[int, str, str]] = []
     unbuildable: dict[str, int] = {}
+    reached: dict[str, int] = {}
+    drawn_features: dict[str, int] = {}
     modes_run = 0
     examined_somewhere = 0
     refusals = 0
@@ -468,6 +729,9 @@ def main() -> int:
         for note in recipe.skipped:
             key = note.split(" (")[0]
             unbuildable[key] = unbuildable.get(key, 0) + 1
+        for note in recipe.features:
+            name = note.split(":")[0]
+            drawn_features[name] = drawn_features.get(name, 0) + 1
         mode = planned_mode
         pairs_seen.add((state, " ".join(mode)))
         modes_run += 1
@@ -480,9 +744,34 @@ def main() -> int:
         # github` and `--deleted-since` never print that line - and read as a
         # generator producing unanalysable repositories when it was not.
         probe = run_mode(repo, ["--sweep"])
-        if probe is not None and _rule_counts(
-                (probe.stdout or "") + (probe.stderr or "")):
+        probe_out = ((probe.stdout or "") + (probe.stderr or "")
+                     if probe is not None else "")
+        probed = _rule_counts(probe_out)
+        if probed:
             examined_somewhere += 1
+        # The denominator is checked HERE as well as in the planned mode, and
+        # this is the run that actually covers it. Features are drawn
+        # independently of the mode a repository is assigned, so a repository
+        # whose claims expose a denominator bug is as likely as not to draw a
+        # mode that cannot show one: `--format=github` emits annotations and no
+        # counts, `--selftest` and `--deleted-since` print none either. Seed
+        # 20260824 built a repository reporting two `dead-md-anchor` findings
+        # against a denominator of one and handed it `--sweep --format=github`,
+        # so the violation was real, present, and invisible.
+        #
+        # This probe is a plain `--sweep`, already spawned for the ledger, and
+        # it always prints counts. Checking it costs nothing and gives every
+        # repository denominator coverage whatever mode it drew.
+        for fault in _denominator_faults(probe_out, probed, "--sweep (probe)"):
+            found.append(fault)
+        # THE REACH LEDGER. Which rules actually examined a candidate, not how
+        # many repositories produced counts of any kind - a repository
+        # exercising one rule and one exercising twelve were the same number
+        # before this, which is how 8 of 13 rules went unreached without
+        # anything saying so.
+        for kind, n in probed.items():
+            if n:
+                reached[kind] = reached.get(kind, 0) + 1
         for kind, detail in found:
             faults.append((index, kind, detail))
             print(f"  [{index:03d}] {kind:<12} {detail}")
@@ -513,6 +802,34 @@ def main() -> int:
         print("  (the CI job runs on Linux, where these build)")
     else:
         print("  every shape built on this platform")
+    # The reach ledger, printed whether or not it fails, because the number is
+    # the point even on a green run.
+    missed = [k for k in shapes.RULE_KINDS if k not in reached]
+    claimed = shapes.rules_claimed()
+    print(f"  {len(reached)} of {len(shapes.RULE_KINDS)} rules examined "
+          f"something somewhere")
+    if missed:
+        # Two different failures, and the fix is not the same for both. A rule
+        # NO feature aims at is a hole in the catalogue. A rule some feature
+        # claims and did not reach is a feature that has stopped working - the
+        # `Release ... shipped.` case, which matched nothing for as long as
+        # this harness has existed.
+        unaimed = [k for k in missed if k not in claimed]
+        aimed = [k for k in missed if k in claimed]
+        if unaimed:
+            print(f"    no feature aims at: {', '.join(unaimed)}")
+        if aimed:
+            print(f"    AIMED AT AND NOT REACHED: {', '.join(aimed)} - a "
+                  f"feature exists and did not fire")
+        for kind in aimed:
+            if kind in KNOWN_UNREACHABLE:
+                print(f"      {kind}: exempt - {KNOWN_UNREACHABLE[kind]}")
+    undrawn = [f.name for f in shapes.FEATURES if f.name not in drawn_features]
+    if undrawn:
+        # Separates "the swarm never drew it" from "it was drawn and did not
+        # fire", which look identical in the ledger above and want opposite
+        # fixes: more repositories, or a repaired feature.
+        print(f"    never drawn at this repo count: {', '.join(undrawn)}")
     print(f"  {len(faults)} property violation(s)")
     print("=" * 70)
 
@@ -520,6 +837,28 @@ def main() -> int:
         print("HARNESS FAULT: extant examined nothing in any repository, so "
               "this run proves nothing. Fix the generator before reading the "
               "result above as clean.")
+        return 2
+    # A feature that was DRAWN and still reached nothing fails the run, whatever
+    # the floor says. The floor alone did not catch this: restoring the dead
+    # merge spelling on purpose left the ledger at 11 of 13, which met the
+    # floor, so the run exited 0 while printing the very line that named the
+    # broken feature. A number that reports a defect without failing on it is
+    # the reassuring zero this project keeps removing.
+    silent = sorted(
+        kind for feature in shapes.FEATURES if feature.name in drawn_features
+        for kind in feature.rules
+        if kind not in reached and kind not in KNOWN_UNREACHABLE)
+    if silent:
+        print(f"HARNESS FAULT: {', '.join(silent)} - a feature aiming at each "
+              f"was drawn and none of them examined anything. The feature has "
+              f"stopped firing; fix it, or exempt it in KNOWN_UNREACHABLE with "
+              f"the reason.")
+        return 2
+    # Raise REACH_FLOOR deliberately, with a reason, never quietly.
+    if len(reached) < REACH_FLOOR:
+        print(f"HARNESS FAULT: {len(reached)} rules reached, floor is "
+              f"{REACH_FLOOR}. Either a feature stopped firing or the draw was "
+              f"unlucky - re-run with more --repos before editing the floor.")
         return 2
     return 1 if faults else 0
 
