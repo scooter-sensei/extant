@@ -6,6 +6,7 @@
       --save DIR     write a failing repository's PLAN here, replayable
       --replay FILE  rebuild one repository from a saved plan and recheck it
       --no-shrink    report a violation at full size, without ddmin
+      --self-check   break each property on purpose and confirm it goes red
       --differential [REF|DIR]
                      run the same corpus through this package and another
                      version and diff the findings; defaults to the newest
@@ -153,6 +154,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fuzz_differential as differential  # noqa: E402
+import fuzz_selfcheck as selfcheck  # noqa: E402
 import fuzz_oracles as oracles  # noqa: E402
 import fuzz_shapes as shapes  # noqa: E402
 
@@ -1389,6 +1391,103 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
     return 1 if differences else 0
 
 
+def run_self_check(pkg: Path, arena: Path) -> int:
+    """`--self-check`: break each property on purpose and confirm it goes red.
+
+    Stage 5. ONE repository, built once with every feature drawn both ways so
+    that every rule has something to read, and only the payload text changes
+    between the silent run and the red one. Each property is judged by
+    `all_faults` - the harness's own predicate, not a copy of it - so a
+    property this reports as observable is observable to the driver and the
+    shrinker too.
+
+    Both halves are required and the first is not ceremony: a property already
+    firing on the clean build would be "confirmed" by a breakage that did
+    nothing at all, which is exactly how a breakage that failed to apply reads
+    as a success. See fuzz_selfcheck.py.
+    """
+    arena.mkdir(parents=True, exist_ok=True)
+    features = tuple((f.name, "both") for f in shapes.FEATURES)
+    plan = RepoPlan(repo_seed=20260901, index=0, state="attached",
+                    mode=("--verify",), features=features,
+                    payload=payload_digest(pkg))
+    print("building one repository with every feature drawn both ways")
+    repo, recipe = build_from_plan(pkg, arena, plan)
+    if recipe.broken:
+        print(f"UNBUILT: {recipe.broken[0]}")
+        return 2
+    print(f"  built at {repo}")
+
+    # ANCHORS FIRST, ALL OF THEM, BEFORE ANY OF THEM RUNS. A stale anchor is a
+    # harness fault and there is no point measuring anything until it is fixed;
+    # reporting it per-breakage would bury it among the results it invalidates.
+    stale = selfcheck.check_anchors(repo)
+    if stale:
+        print()
+        print("HARNESS FAULT: a breakage cannot be applied, so the "
+              "property it names was not tested. Retarget it at the "
+              "code that replaced what it named.")
+        for note in stale:
+            print(f"  STALE  {note}")
+        return 2
+    print(f"  {len(selfcheck.BREAKAGES)} breakage(s), every anchor matching "
+          f"exactly once")
+    print()
+
+    # ONE PROPERTY AT A TIME, not the whole predicate. `all_faults` runs
+    # `check`, the sweep probe and all ten oracles, which is fifteen or so
+    # extant invocations; doing that twice per breakage timed out at ten
+    # minutes before it reported anything. Each half is still the harness's
+    # OWN code - `check` for the core properties and `oracles.run_all(only=)`
+    # for the oracles - so a property observable here is observable to the
+    # driver and the shrinker, which is the part that had to stay true.
+    def observe(mode: list) -> list:
+        if item.prop in selfcheck.ORACLE_PROPERTIES:
+            faults, _skipped = oracles.run_all(run_mode, repo,
+                                               only={item.prop})
+            return faults
+        global ORACLES_ON
+        was, ORACLES_ON = ORACLES_ON, False
+        try:
+            faults, _p, _o, _s = all_faults(repo, mode)
+        finally:
+            ORACLES_ON = was
+        return faults
+
+    rows: list[tuple[str, str, str]] = []
+    covered = set()
+    for item in selfcheck.BREAKAGES:
+        covered.add(item.prop)
+        mode = list(item.mode)
+        print(f"  [{item.prop}] ...", flush=True)
+        clean = observe(mode)
+        if selfcheck.observed(clean, item.prop):
+            # The breakage proves nothing here: the property is already firing
+            # on the clean payload, so its firing afterwards says nothing about
+            # the breakage. Reported rather than counted as a pass.
+            rows.append((item.prop, "CANNOT JUDGE",
+                         "already fires on the clean payload"))
+            print(f"  [{item.prop}] CANNOT JUDGE - fires before the breakage")
+            continue
+        saved = selfcheck.apply(repo, item)
+        try:
+            broken = observe(mode)
+        finally:
+            selfcheck.restore(saved)
+        if selfcheck.observed(broken, item.prop):
+            rows.append((item.prop, "observed",
+                         "contrived" if item.contrived else item.why[:58]))
+            print(f"  [{item.prop}] observed")
+        else:
+            rows.append((item.prop, "NOT OBSERVED",
+                         f"broke {item.paths} and nothing reported it"))
+            print(f"  [{item.prop}] NOT OBSERVED - broke {item.paths} and the "
+                  f"property stayed silent")
+
+    unwritten = [p for p in selfcheck.ALL_PROPERTIES if p not in covered]
+    return selfcheck.summarise(rows, unwritten)
+
+
 # --- driver -----------------------------------------------------------
 
 def main() -> int:
@@ -1404,6 +1503,9 @@ def main() -> int:
                     help="report a violation at full size, without ddmin")
     ap.add_argument("--no-oracles", action="store_true",
                     help="skip the metamorphic oracles (they cost runs)")
+    ap.add_argument("--self-check", action="store_true",
+                    help="break each property on purpose and confirm it goes "
+                         "red; a property that cannot be provoked is a fault")
     ap.add_argument("--differential", nargs="?", const="", default=None,
                     metavar="REF|DIR",
                     help="diff this package's findings against another "
@@ -1418,6 +1520,9 @@ def main() -> int:
         return run_replay(args.pkg, args.arena, args.replay)
 
     seed = args.seed if args.seed is not None else random.randrange(2 ** 31)
+
+    if args.self_check:
+        return run_self_check(args.pkg, args.arena)
 
     if args.differential is not None:
         return run_differential(args.pkg, args.arena, args.differential,

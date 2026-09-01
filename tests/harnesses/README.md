@@ -519,6 +519,47 @@ broken. The first `PROCESS` breakage removed the document path, which broke
 `--verify` and `--validate` identically - so the two agreed, and a symmetric
 break cannot test an oracle that compares two things.
 
+**`--self-check` asks whether the properties can fire at all.**
+
+```sh
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --self-check
+```
+
+A fuzz property asserts that something did NOT happen, over repositories
+nobody looked at, and the healthy output of every one of them is silence. A
+property that can never fire produces exactly the output of a property that
+holds - across the whole corpus, forever. Eight of these were watched failing
+once, by hand, against a payload in a scratch directory that no longer exists;
+that is a measurement, not a gate, and it says nothing after the next refactor
+moves the code out from under it.
+
+It builds one repository with every feature drawn both ways, then for each
+property runs a silent/red pair: the clean payload must NOT produce it, and the
+broken payload must. The first half is not ceremony - a property already firing
+on the clean build would be confirmed by a breakage that did nothing at all,
+which is how a breakage that fails to apply reads as a success. An anchor that
+does not match is a HARNESS FAULT rather than a skip, the same rule `mutate.py`
+states for the same reason.
+
+**18 of 18 properties are observed going red**, including the four the Stage 3
+audit recorded as never watched. Three need contrived breakages and are marked
+as such in the output, because "this property can be made to fire" and "this
+property guards something somebody might really write" are different claims and
+only the first is being made. `MONOTONE`'s is tautological - it keys on the
+oracle's own probe file - which shows the comparison works and is not
+structurally inert, and shows nothing about what it guards.
+
+**Two of its own breakages were broken, and both are recorded rather than
+quietly fixed.** `ERRORED` asserts that a run naming a rule which RAISED never
+exits 0, so making a rule raise does not provoke it - the gate then correctly
+exits non-zero, which is the property holding. It needs a raising rule AND a
+gate that ignores it. And the `UNSTABLE` anchor was written with four spaces of
+indentation where the real line has eight, so it matched as a SUBSTRING,
+exactly once, applied cleanly, and edited a SARIF-only path that `--verify`
+never reaches; the property was reported unobservable, which was true of the
+breakage and false of the property. `check_anchors` refuses a mid-line match
+now - counting cannot catch that one, because the count is 1 either way.
+
 **`--differential` asks the one question the properties cannot.** Every other
 check here holds whatever the right answer is, which is what makes them usable
 without an oracle - and it is also their limit: a rule that stops firing

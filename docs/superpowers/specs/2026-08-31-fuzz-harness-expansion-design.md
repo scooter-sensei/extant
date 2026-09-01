@@ -436,8 +436,12 @@ whose verification was not performed is not done.
   156 denominators; a deliberately silenced `dead-md-link` is caught at exit 1;
   the real `v0.25.0` comparison reports 16 differences, all of them fixes that
   shipped after the tag. See "Stage 4 as built" below.
-- **Stage 5**: `--self-check` reports every property as observable. It is the
-  stage that makes the other verifications repeatable rather than one-time.
+- **Stage 5**: DONE. `--self-check` reports 18 of 18 properties observed going
+  red, including `RELOCATE`, `MONOTONE`, `MODE-AGREE` and `ERRORED` - the four
+  Stage 3 recorded as never watched. Three need contrived breakages and say so;
+  `MONOTONE`'s is tautological and says that too. Two of its own breakages were
+  themselves broken, which is the fourth time this campaign has found that
+  shape in the harness. See "Stage 5 as built" below.
 - **Stage 6**: each new axis raises the reach ledger, the refusal count, or the
   count of shapes the platform declined to build - and if it raises none of the
   three, it added nothing and comes out.
@@ -709,6 +713,78 @@ exercised.
 This mode is NOT wired into CI. It needs a baseline ref, it doubles the build
 cost, and its output is meant to be read rather than gated on - a difference is
 not a failure. It is a release-time check, run by hand before tagging.
+
+## Stage 5 as built
+
+### What it does
+
+One repository, built with every feature drawn both ways so that every rule has
+something to read, and only the payload text changing between the two halves of
+each experiment:
+
+  silent  the clean payload must NOT produce the property
+  red     the broken payload must
+
+The first half is the one that earns its place. A property already firing on the
+clean build is "confirmed" by any breakage at all, including one that did
+nothing - which is precisely how a breakage that failed to apply reads as a
+success. The Stage 3 audit caught two breakages that were themselves broken,
+one leaving a SyntaxError so extant never ran, and a run that never ran produces
+no finding of any kind.
+
+Each property is judged by the harness's OWN predicate - `check` for the core
+properties, `oracles.run_all(only=)` for the oracles - so a property observable
+here is observable to the driver and the shrinker. Running the whole of
+`all_faults` per breakage was the first attempt and timed out at ten minutes
+before reporting anything.
+
+### The result
+
+18 of 18, including all four Stage 3 listed as unproven. `HANG`, `RELOCATE` and
+`MONOTONE` need contrived breakages and are marked as such in the output.
+
+`MONOTONE`'s is worse than contrived, it is TAUTOLOGICAL: it keys on the
+oracle's own probe file. A count threshold was tried first and observed
+nothing, for a reason worth keeping - the maximal repository already carries
+more than two markdown files, so the rule was silent before the oracle added
+its document as well as after, and a break that changes nothing changes
+nothing. What the tautology proves is bounded: MONOTONE's comparison WORKS and
+is not structurally inert, which is the failure this stage exists to rule out.
+It does not show the oracle guards a defect anybody would write. Stage 3
+predicted this one would need contriving; needing a tautology is the sharper
+version of that answer.
+
+### Two of its own breakages were broken
+
+`ERRORED` was reported unobservable and the diagnosis was wrong about which
+half had failed. The property asserts that a run naming a rule which RAISED
+never exits 0 - so a raising rule alone does not provoke it, because the gate
+then correctly exits non-zero, which is the property HOLDING. It takes a
+raising rule AND a gate that swallows the consequence. The table carries
+multi-edit breakages because of this one.
+
+`UNSTABLE`'s anchor was written with four spaces of indentation where the real
+statement has eight. Being a SUBSTRING of the real line, it matched exactly
+once, applied cleanly, and edited a SARIF-only path that `--verify` never
+reaches. The property was reported unobservable - true of the breakage, false
+of the property. `check_anchors` now refuses an anchor that begins mid-line;
+counting alone cannot catch this, because the count is 1 either way.
+
+That is the fourth time this campaign has found the project's own defect inside
+the machinery built to find it: a check that could not reach its subject
+returning the value that means all clear.
+
+### What is not done
+
+`--self-check` is not wired into CI. It costs a full timeout to observe `HANG`
+- there is no way to watch a deadline missed without missing it - and it
+rewrites the installed payload in place, which is safe in a disposable arena
+and is not something to run against a tree anybody is holding. It is a
+release-time check, run by hand, exactly like `--differential`.
+
+The properties list is written out rather than discovered, so a property added
+to the harness and not to that list is not checked and nothing says so. That is
+the obvious next gap and the same shape as every other one here.
 
 ## What the Stage 2 audit found
 
