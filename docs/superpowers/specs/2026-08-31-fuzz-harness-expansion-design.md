@@ -430,9 +430,12 @@ whose verification was not performed is not done.
   failing and are therefore not known to hold anything - the outstanding debt
   of this stage. Seed 20260824 over 35 repositories: 13 of 13 rules, no
   property violations, 704 seconds on Windows.
-- **Stage 4**: the differential reports zero differences against the previous
-  tag on a clean tree, and reports a difference when a rule's behaviour is
-  changed on purpose.
+- **Stage 4**: DONE, with the criterion CHANGED and the change argued below.
+  `--differential` lives in `tests/harnesses/fuzz_differential.py` behind a
+  flag on `fuzz.py`. The control reports 0 differences over 292 findings and
+  156 denominators; a deliberately silenced `dead-md-link` is caught at exit 1;
+  the real `v0.25.0` comparison reports 16 differences, all of them fixes that
+  shipped after the tag. See "Stage 4 as built" below.
 - **Stage 5**: `--self-check` reports every property as observable. It is the
   stage that makes the other verifications repeatable rather than one-time.
 - **Stage 6**: each new axis raises the reach ledger, the refusal count, or the
@@ -604,6 +607,108 @@ the failure mode this harness exists to surface.
 - Weighting the config draw cut refusals from 10 of 35 to 2 and took
   repositories reaching a rule from 15 to 25. The uniform draw was spending a
   third of the corpus on argument parsing.
+
+## Stage 4 as built
+
+### The stated criterion could not be met, and was wrong
+
+The plan asked for "zero differences against the previous tag on a clean tree".
+That is not achievable and would not have meant anything if it were: the tree
+has changed behaviour deliberately since `v0.25.0` - three denominator fixes
+and one duplicated finding removed - so a differential against that tag MUST
+report differences, and a version of this check reporting none would have been
+broken. A criterion that only holds on a release day is not a gate.
+
+Replaced by two, which between them say more:
+
+- **The control.** `--differential HEAD` compares the working package against a
+  `git archive` of HEAD. Same payload, two builds, so it isolates exactly the
+  thing that could make this check useless - normalisation hiding real
+  differences - and zero is the only correct outcome. Measured at seed 20260824
+  over 6 repositories: 0 differences over 292 findings and 156 denominators.
+- **The break.** `dead-md-link`'s `check` made to return `[]` in the baseline
+  copy is reported as `only head reports [dead-md-link]` at exit 1.
+
+### Why the break is the interesting half
+
+NO DENOMINATOR MOVED WITH IT. `examined` was untouched, so the rule went on
+reporting the same reach while reporting nothing - and every other property in
+this harness passes on that repository. It crashes nothing, exceeds no
+denominator, prints the same thing twice, and agrees with its own SARIF. A
+silent rule is self-consistent under every metamorphic comparison, which is
+precisely the class Stage 3 cannot reach and the reason this stage exists.
+
+### What the real comparison found
+
+Against `v0.25.0`, 16 differences over 6 repositories, each traceable to a fix
+that shipped after the tag: the duplicated `raw-lfs-blob` and
+`inconsistent-artifact` findings the repository pass now attributes to
+`.gitattributes`, the widened `dead-md-anchor` denominator,
+`manifest-floor-mismatch` counting a document whose path the sweep used to
+lose, and - added when this branch was rebased - `stale-live-claim` and
+`dead-release-tag` no longer counting sites their rules refuse to judge. The
+differential rediscovered every product fix of both releases from a generated
+corpus, knowing nothing about any of them.
+
+THIS NUMBER MOVED ONCE ALREADY, and that is the honest argument against
+recording it at all. It was 14 before the denominator work merged, and the two
+that arrived with it are the only two of that change's SIX rules this corpus
+surfaced at seed 20260824 over 6 repositories. A count like this describes one
+seed at one size against one baseline; it is evidence that the check reaches
+real changes, and it is not a threshold anything should be compared against.
+
+### Three defects in this stage's own machinery, found by running it
+
+Both are the shape this project keeps finding in itself, so they are recorded
+rather than quietly fixed.
+
+The first report TRUNCATED FROM THE LEFT at 70 characters. The line it prints
+most often is `examined:`, which is long, and two versions disagreeing about
+the eleventh rule on it produced two identical strings offered as evidence of a
+difference. It showed the reader nothing while claiming to show a difference.
+It prints a window around the divergence now.
+
+The second is that "0 differences" had no denominator. A corpus where both
+versions reported nothing at all prints exactly like thirty repositories
+agreeing, and the control's whole value depends on telling those apart. The run
+states how many findings and denominators were on the table, and says so
+outright when both are zero.
+
+The third is the one that mattered. THE CONTROL WENT RED ONCE, reporting
+FINDING 1, EXAMINED 1, OUTPUT 1 against an identical payload, during a run
+concurrent with a 35-repository campaign - and did not reproduce in five clean
+runs afterwards. The cause is not the tool and not the normalisation: it is the
+BUILD. `build_from_plan` checks return codes on the core git steps only, so the
+hostile refs, the tags and the scaffold can lose a race with an index lock on a
+busy machine, and the result is two repositories that are not the same
+repository. The differential then attributes the difference to the versions.
+
+A differential whose control is intermittently red is worse than one that is
+broken outright, because it teaches whoever runs it to discount a red result -
+and a red result is the only signal it has. So the two repositories are now
+compared to each other before their outputs are: ref and tag NAMES, tracked
+paths with `tools/` removed, and the commit count. A pair that disagrees is
+reported as BUILD and counted as NOT COMPARED, which is the same treatment a
+shape the platform cannot construct already gets.
+
+This is the harness's own version of the defect the tool exists to catch, and
+it is the third time this campaign has found it in the harness rather than in
+the product.
+
+### What is not done
+
+Corpus size is the sensitivity of this check and it is not free: every
+repository is built twice. At 6 repositories only one drew a live
+`dead-md-link` case, so the deliberate break was caught once. A clean run over
+6 is a much weaker statement than a clean run over 35, and nothing in the
+harness currently says how weak - the reach ledger is not computed for this
+mode. That is the honest gap, and it is the same shape as `CORPUS_FLOOR`: what
+is missing is a floor on how much of the rule set the comparison actually
+exercised.
+
+This mode is NOT wired into CI. It needs a baseline ref, it doubles the build
+cost, and its output is meant to be read rather than gated on - a difference is
+not a failure. It is a release-time check, run by hand before tagging.
 
 ## What the Stage 2 audit found
 
