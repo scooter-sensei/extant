@@ -284,6 +284,66 @@ def test_rules_are_leaves() -> None:
     assert not offenders, offenders
 
 
+def test_no_rule_counts_what_it_will_not_judge() -> None:
+    """`examined` must read the scanner `check` reads, not scan for itself.
+
+    ONE CLAIM, ONE SCANNER, made structural. The behavioural cases live in
+    tests/test_denominators.py; this is what stops the class returning in a
+    rule nobody wrote a case for, which matters because it has returned five
+    times already - `false-merge-claim`, `dead-release-tag`, `dead-md-anchor`,
+    `manifest-floor-mismatch` and `raw-lfs-blob` - every one of them found by
+    running something rather than by review.
+
+    Two conditions, and the second is the one with teeth:
+
+      * `examined` is a single `return`, so it cannot walk the document again;
+      * what it returns is built from a module-level function `check` ALSO
+        calls, so the population both halves describe is one function's answer.
+
+    Neither condition can prove the scanner returns only decidable sites - no
+    test can, because "the rule declined to judge this" is not observable from
+    outside it. What they remove is the ARRANGEMENT that lets the two drift:
+    two passes over one document, agreeing on the day they were written.
+    `unknown-branch` was exactly that and agreed, right up until this gate was
+    written; the four rules beside it in the list above had already stopped.
+    """
+    rules = [p for p in _modules()
+             if p.parent.name == "rules" and p.name != "__init__.py"]
+    assert len(rules) == 13, f"found {len(rules)} rule modules, expected 13"
+
+    offenders = []
+    for path in rules:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        top = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+        local = set(top)
+
+        def called(node) -> set:
+            """Module-level functions this one calls, at any nesting depth."""
+            return {c.func.id for c in ast.walk(node)
+                    if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                    and c.func.id in local}
+
+        examined, check = top["examined"], top["check"]
+        body = [n for n in examined.body
+                if not (isinstance(n, ast.Expr)
+                        and isinstance(n.value, ast.Constant))]
+        if len(body) != 1 or not isinstance(body[0], ast.Return):
+            offenders.append(
+                f"{path.name}: examined() is {len(body)} statements, so it "
+                f"scans rather than counting what check() read")
+            continue
+        shared = called(examined) & called(check)
+        if not shared:
+            offenders.append(
+                f"{path.name}: examined() shares no scanner with check() - "
+                f"it calls {sorted(called(examined)) or 'nothing local'}, "
+                f"check() calls {sorted(called(check)) or 'nothing local'}")
+
+    print(f"checked {len(rules)} rules: every examined() returns one call into "
+          f"a scanner its check() also reads")
+    assert not offenders, offenders
+
+
 # The shapes tests/harnesses/smoke.py scans this package's source for, kept in
 # step with the list there. Duplicated deliberately: the harness is the deeper
 # check - it also runs the tool behind a black-hole proxy - but it is slow, run

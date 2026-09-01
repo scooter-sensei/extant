@@ -157,10 +157,19 @@ def test_an_entry_scoped_rule_is_counted_only_where_it_runs(git_repo) -> None:
     configuration to be treated as one. The sibling holds the same bytes and no
     rule looks at its branch token. Reporting 2 here would claim the survey
     checked a live claim it never read.
+
+    The entry carries a live phrase rather than reusing `ENTRY`, because
+    `stale-live-claim` counts the claims it can DECIDE: with no live phrase in
+    the newest entry the rule gives up before reading a token, so both
+    documents report 0 and the 1-versus-2 question this test asks would not
+    arise. `ENTRY` stays as it is - a document naming a branch and claiming
+    nothing about it is exactly the case that must count 0.
     """
+    live = ENTRY.replace("Work continues on `feature/widgets`.",
+                         "`feature/widgets` is NOT yet merged.")
     repo, commit = git_repo
-    commit("NEXT_SESSION.md", ENTRY, "docs: status")
-    commit("docs/copy.md", ENTRY, "docs: a copy of it")
+    commit("NEXT_SESSION.md", live, "docs: status")
+    commit("docs/copy.md", live, "docs: a copy of it")
     installed = install_collector(repo)
 
     reported = counts(sweep(repo, collector=installed))

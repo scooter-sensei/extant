@@ -21,6 +21,80 @@ from extant.text import prose
 __all__ = ["RULE", "check", "examined", "probe"]
 
 
+def _merge_sites(ctx: Context, text: str) -> list[tuple[int, str, str, bool]]:
+    """Every merge claim this rule can SETTLE, and what settles it.
+
+    THE scanner. `check` judges what this returns and `examined` counts it, so
+    the two cannot describe different populations - which they did. `examined`
+    counted every claim the PATTERN matched, while `check` skipped three kinds
+    it cannot decide, so the denominator claimed coverage of claims nothing
+    read. On this project's own status document that printed 5 against 3 the
+    rule could settle.
+
+    Each entry is (line number, ref, sha, whether that ref resolves here). A
+    claim is dropped, and so neither judged nor counted, when:
+
+      * its SHA does not resolve - `dead-sha` reports that one, and "not an
+        ancestor of main" about a commit that does not exist would be a
+        confusing second finding about the same token;
+      * its ref does not resolve and was written bare, which is likelier prose
+        than a branch name - see `_claimed_ref`;
+      * its ref does not resolve and this repository has no integration branch
+        at all, so there is nothing here the work could have landed on.
+
+    TWO git subprocesses PER CLAIM was 98% of total validation time, measured
+    on a 4000-line document: 17.7 of 18.0 seconds, and most of the 1.8s the
+    post-commit hook added to every commit. `dead-sha` had already solved half
+    of this by batching existence checks, and the optimisation was simply never
+    carried across. Existence goes through the same batched
+    `git cat-file --batch-check` now, and everything below is memoised for the
+    run, so counting the sites costs nothing beyond judging them.
+
+    The DOCUMENT's tokens, not this rule's, and only for the git question - the
+    claims are still this rule's own. A wider batch cannot move any token's
+    answer, and asking for the document's union is what makes the whole
+    document cost one batch instead of one per rule. See
+    `_document_sha_tokens` in extant/commits.py.
+    """
+    # Claims inside code are examples, not promises. See prose.
+    text = prose(ctx.doc, text)
+    claims = merge_claims(ctx.config, text)
+    if not claims:
+        return []
+    resolved = document_shas(ctx, text)
+    sites: list[tuple[int, str, str, bool]] = []
+    for number, raw_ref, sha in claims:
+        ref, quoted = _claimed_ref(raw_ref)
+        if sha not in resolved:
+            continue
+        if resolve_ref(ctx, ref) is None:
+            # The named branch is not here NOW, which is not the same as never
+            # having been: gitflow deletes every release and feature branch on
+            # merge. Asking git for the branch by name cannot tell those apart,
+            # and neither can the merge-message rescue `unknown-branch` uses -
+            # a squash merge or a custom `-m` erases the name entirely. This
+            # probe reported a legitimately deleted `release/1.2.0` as invented.
+            #
+            # So ask the SUBSTANTIVE question instead, in `check`: did this
+            # work land anywhere at all? A missing branch plus an integrated
+            # commit is a stale or misspelt name on a claim that is true in
+            # substance, and silence is right. A missing branch plus a commit
+            # on no integration branch is a claim that work landed when it did
+            # not, which is the whole point of the rule.
+            #
+            # This also keeps the rule from being defeated by a typo. Evading
+            # it requires the commit to be genuinely integrated, at which point
+            # there is no false claim left to hide.
+            if not quoted:
+                continue        # a bare word, likelier prose than a ref
+            if not integration_refs(ctx):
+                continue        # no integration branch here to have taken it
+            sites.append((number, ref, sha, False))
+            continue
+        sites.append((number, ref, sha, True))
+    return sites
+
+
 def check(ctx: Context, text: str) -> list[Finding]:
     """Claims that work merged to main, re-checked against git ancestry.
 
@@ -53,59 +127,17 @@ def check(ctx: Context, text: str) -> list[Finding]:
     contract and still means (sha), checked against trunk exactly as before, so
     a project that customised `merge_claim` keeps working.
     """
-    # Claims inside code are examples, not promises. See prose.
-    text = prose(ctx.doc, text)
-    claims = merge_claims(ctx.config, text)
-    if not claims:
-        return []
-
-    # TWO git subprocesses PER CLAIM was 98% of total validation time, measured
-    # on a 4000-line document: 17.7 of 18.0 seconds, and most of the 1.8s the
-    # post-commit hook added to every commit. `dead-sha` had already solved half
-    # of this by batching existence checks, and the optimisation was simply
-    # never carried across.
-    #
-    # Existence now goes through the same batched `git cat-file --batch-check`,
-    # and ancestry is asked once per DISTINCT commit rather than once per
-    # mention - documents repeat the same SHA constantly. Deliberately scoped to
-    # this call rather than memoised across the process: git state can change
-    # between validations, and a cache that outlives the run would answer from
-    # a repository that no longer exists in that shape.
-    #
-    # The DOCUMENT's tokens, not this rule's, and only for the git question -
-    # the claims above are still this rule's own and decide every finding
-    # below. A wider batch cannot move any token's answer, and asking for the
-    # document's union is what makes the whole document cost one batch instead
-    # of one per rule. See `_document_sha_tokens` in extant/commits.py.
-    resolved = document_shas(ctx, text)
+    # Ancestry is asked once per DISTINCT (ref, commit) rather than once per
+    # mention - documents repeat the same SHA constantly. Deliberately scoped
+    # to this call rather than memoised across the process: git state can
+    # change between validations, and a cache that outlives the run would
+    # answer from a repository that no longer exists in that shape.
     merged: dict[tuple[str, str], bool] = {}
     findings: list[Finding] = []
-    for number, raw_ref, sha in claims:
-        ref, quoted = _claimed_ref(raw_ref)
-        if sha not in resolved:
-            continue
-        if resolve_ref(ctx, ref) is None:
-            # The named branch is not here NOW, which is not the same as never
-            # having been: gitflow deletes every release and feature branch on
-            # merge. Asking git for the branch by name cannot tell those apart,
-            # and neither can the merge-message rescue `unknown-branch` uses -
-            # a squash merge or a custom `-m` erases the name entirely. This
-            # probe reported a legitimately deleted `release/1.2.0` as invented.
-            #
-            # So ask the SUBSTANTIVE question instead: did this work land
-            # anywhere at all? A missing branch plus an integrated commit is a
-            # stale or misspelt name on a claim that is true in substance, and
-            # silence is right. A missing branch plus a commit on no
-            # integration branch is a claim that work landed when it did not,
-            # which is the whole point of the rule.
-            #
-            # This also keeps the rule from being defeated by a typo. Evading
-            # it requires the commit to be genuinely integrated, at which point
-            # there is no false claim left to hide.
-            if not quoted:
-                continue        # a bare word, likelier prose than a ref
-            if not integration_refs(ctx):
-                continue        # no integration branch here to have taken it
+    for number, ref, sha, ref_exists in _merge_sites(ctx, text):
+        if not ref_exists:
+            # The substantive question `_merge_sites` defers to this loop: the
+            # branch is gone, so did the work land anywhere at all?
             if not integrated_by(ctx, sha):
                 findings.append(Finding(
                     number, "false-merge-claim",
@@ -129,13 +161,16 @@ def check(ctx: Context, text: str) -> list[Finding]:
 
 
 def examined(ctx: Context, text: str) -> int:
-    """Every claim the pattern finds, counted by the scanner the rule reads.
+    """Every claim the rule can SETTLE, from the one scanner.
 
-    Counted from PROSE, like the check: a merge claim inside a fence is an
-    example of the syntax, and counting it would report coverage of a claim no
-    rule ever looks at.
+    It used to count every claim the pattern found, which included the three
+    kinds `check` skips because it cannot decide them - so the two halves
+    described different populations and the number overstated the rule's
+    reach. See `_merge_sites`, which reads PROSE for both callers: a merge
+    claim inside a fence is an example of the syntax, and counting it would
+    report coverage of a claim no rule ever looks at.
     """
-    return len(merge_claims(ctx.config, prose(ctx.doc, text)))
+    return len(_merge_sites(ctx, text))
 
 
 def _claimed_ref(raw: str) -> tuple[str, bool]:

@@ -19,6 +19,55 @@ from extant.text import prose
 __all__ = ["RULE", "check", "examined", "probe"]
 
 
+def _live_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
+    """Every branch this document makes a live claim about, and its line.
+
+    THE scanner. `check` judges what this returns and `examined` counts it,
+    so the two cannot describe different populations - which they did.
+    `examined` ran a pass of its own that counted every branch token in the
+    newest entry whether or not the entry made a live claim at all, and its
+    docstring defended that as "candidates this rule looked at and passed
+    over". The control flow says otherwise: with no live phrase present
+    `check` gives up on the entry and never reaches the token loop, so it
+    inspects none of them. A status document naming branches and claiming
+    nothing about them therefore printed `stale-live-claim 1` beside no
+    findings, which reads as a live claim examined and found sound.
+
+    `unknown-branch` reads the same tokens with no such gate, so the two
+    rules reporting different numbers on such a document is correct: they ask
+    different questions of one entry. Reporting the same number was the bug.
+
+    Only the NEWEST phase entry is ever read. Entries are stored newest-first,
+    so that is the first segment whose kind is "phase"; every phase entry after
+    it is historical by definition and must never produce a finding, no matter
+    what it says. The walk still advances over EVERY segment before it, phase
+    or not, so the reported line numbers stay correct.
+
+    Claims inside code are examples, not promises - hence `prose`. A token that
+    is path-shaped is not returned and so is neither judged nor counted: the
+    pattern is equally capable of matching a file, and `dead-path-pointer`
+    owns that one.
+    """
+    text = prose(ctx.doc, text)
+    _, segments, _ = split_entries(text, ctx.config)
+    sites: list[tuple[int, str]] = []
+    cursor = 0
+    for kind, entry in segments:
+        start = text.index(entry, cursor)
+        cursor = start + len(entry)  # advance for every segment, phase or not
+        if kind != "phase":
+            continue
+        if ctx.config.live_phrases.search(entry):
+            for match in ctx.config.branch_token.finditer(entry):
+                branch = match.group(1)
+                if looks_like_a_path(ctx, branch):
+                    continue
+                sites.append(
+                    (text.count("\n", 0, start + match.start()) + 1, branch))
+        break        # the newest phase entry, and never another
+    return sites
+
+
 def check(ctx: Context, text: str) -> list[Finding]:
     """Present-tense status claims, re-checked against git.
 
@@ -34,71 +83,46 @@ def check(ctx: Context, text: str) -> list[Finding]:
     reported line numbers stay correct - only the checking itself is
     restricted to that first phase segment.
     """
-    # Claims inside code are examples, not promises. See prose.
-    text = prose(ctx.doc, text)
     findings: list[Finding] = []
-    _, segments, _ = split_entries(text, ctx.config)
-    cursor = 0
-    newest_checked = False
-    for kind, entry in segments:
-        start = text.index(entry, cursor)
-        cursor = start + len(entry)  # advance for every segment, phase or not
-        if kind != "phase" or newest_checked:
-            continue
-        newest_checked = True
-        if not ctx.config.live_phrases.search(entry):
-            continue
-        for match in ctx.config.branch_token.finditer(entry):
-            branch = match.group(1)
-            # Same path/branch ambiguity as `unknown-branch`. Harder to reach
-            # here, because a live phrase must appear in the entry first, but
-            # the pattern is equally capable of matching a file and the
-            # consequence would be a confident falsehood about a document.
-            if looks_like_a_path(ctx, branch):
-                continue
-            exists = branch_exists(ctx, branch)
-            # "Merged" means landed on an integration branch, and which one is
-            # measured rather than configured. Against a single-trunk repo that
-            # is the same question as before; on a gitflow repo with trunk=main
-            # it is the difference between noticing that a feature reached
-            # develop and silently accepting a stale claim about it.
-            holders = integrated_by(ctx, branch, exclude=branch) if exists else []
-            if exists and not holders:
-                continue  # genuinely still open: the claim is true
-            line = text.count("\n", 0, start + match.start()) + 1
-            if exists:
-                detail = (f"claims `{branch}` unmerged, but it is an ancestor of "
-                          f"{', '.join(holders)}")
-            else:
-                detail = (
-                    f"claims `{branch}` unmerged, but that branch no longer exists "
-                    "(merged and cleaned up, or the claim is stale)"
-                )
-            findings.append(Finding(line, "stale-live-claim", detail,
-                                    subject=branch))
+    for line, branch in _live_sites(ctx, text):
+        exists = branch_exists(ctx, branch)
+        # "Merged" means landed on an integration branch, and which one is
+        # measured rather than configured. Against a single-trunk repo that
+        # is the same question as before; on a gitflow repo with trunk=main
+        # it is the difference between noticing that a feature reached
+        # develop and silently accepting a stale claim about it.
+        holders = integrated_by(ctx, branch, exclude=branch) if exists else []
+        if exists and not holders:
+            continue  # genuinely still open: the claim is true
+        if exists:
+            detail = (f"claims `{branch}` unmerged, but it is an ancestor of "
+                      f"{', '.join(holders)}")
+        else:
+            detail = (
+                f"claims `{branch}` unmerged, but that branch no longer exists "
+                "(merged and cleaned up, or the claim is stale)"
+            )
+        findings.append(Finding(line, "stale-live-claim", detail,
+                                subject=branch))
     return findings
 
 
 def examined(ctx: Context, text: str) -> int:
-    """Branch tokens in the NEWEST entry, path-shaped ones excluded.
+    """The live claims this document makes, from the one scanner.
 
-    Counts what the rule actually inspects, not what the pattern matched.
-    Path-shaped tokens are skipped by the check above, so counting them here
-    would overstate the denominator - and a denominator that overstates is
-    worse than none, because it reports coverage that does not exist.
+    The live phrase IS a condition, and used not to be. This counted every
+    branch token in the newest entry and argued that an entry naming branches
+    without claiming anything about them "has candidates this rule looked at
+    and passed over" - but `check` gives up on such an entry before the token
+    loop, so it looked at none of them. The number that produced was coverage
+    reported where none was provided, which the anchor and manifest rules both
+    call worse than no denominator at all. See `_live_sites`.
 
-    The live phrase itself is deliberately NOT a condition. A newest entry that
-    names branches and makes no live claim has candidates this rule looked at
-    and passed over, which is a different fact from a document with no branches
-    in it at all; `unknown-branch` reads exactly the same population, which is
-    why the two rules report the same number.
+    This no longer matches `unknown-branch` on every document, and should not:
+    that rule reads the same tokens without this gate, so on an entry making
+    no live claim it examines them and this one does not.
     """
-    _, segments, _ = split_entries(prose(ctx.doc, text), ctx.config)
-    newest = next((s for kind, s in segments if kind == "phase"), "")
-    if not newest:
-        return 0
-    return sum(1 for token in ctx.config.branch_token.findall(newest)
-               if not looks_like_a_path(ctx, token))
+    return len(_live_sites(ctx, text))
 
 
 def probe(ctx: Context, text: str) -> str | None:

@@ -1461,10 +1461,16 @@ def test_count_examined_reports_the_denominator(git_repo):
     counts are load-bearing, not cosmetic."""
     from extant.session import count_examined
     repo, commit = git_repo
-    commit("a.py", "a = 1\n", "feat: a - base")
+    head = commit("a.py", "a = 1\n", "feat: a - base")
+    # The merge claim cites a REAL commit, because `false-merge-claim` counts
+    # the claims it can settle: one whose SHA does not resolve belongs to
+    # `dead-sha` and this rule declines to judge it, so counting it would be
+    # the overstatement `tests/test_denominators.py` exists to refuse. This
+    # line used to say `deadbee1` and the assertion below passed on a claim
+    # nothing read.
     text = (
         "## Phase 9.1 - x (DONE, 2026-01-01)\n\n"
-        "Merged to `main` at `deadbee1`. See `docs/plan.md`.\n"
+        f"Merged to `main` at `{head[:8]}`. See `docs/plan.md`.\n"
         "Also `cafe1234` and bare deadbee2 here.\n"
     )
     counts = count_examined(repo, text)

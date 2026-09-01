@@ -171,16 +171,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          detect.parent / "install.py",
          'rf"\\s+(?:at|in|as)\\s+`?([0-9a-f]{{7,40}})`?(?![0-9a-f])"',
          'rf"\\s+(?:at|in|as)\\s+`([0-9a-f]{{7,40}})`"'),
+        # Retargeted when the scan moved into `_live_sites`: the newest entry
+        # is held by a `break` now rather than by a `newest_checked` flag, so
+        # the way to make the rule read every phase entry is to fall through.
         ("live-claim checks EVERY entry, not just the newest",
          rules / "live_claim.py",
-         '        if kind != "phase" or newest_checked:\n            continue\n'
-         "        newest_checked = True\n"
-         "        if not ctx.config.live_phrases.search(entry):",
-         '        if kind != "phase":\n            continue\n'
-         "        if not ctx.config.live_phrases.search(entry):"),
+         "        break        # the newest phase entry, and never another",
+         "        continue     # the newest phase entry, and never another"),
+        # Dedented one level when `check` stopped nesting its own scan inside a
+        # per-entry loop and started reading `_branch_sites`. Same statement.
         ("branch rule loses the merge-history rescue", rules / "branch.py",
-         "            if branch_exists(ctx, branch) or named_in_merge_history(ctx, branch):",
-         "            if branch_exists(ctx, branch):"),
+         "        if branch_exists(ctx, branch) or named_in_merge_history(ctx, branch):",
+         "        if branch_exists(ctx, branch):"),
         # Half the ecosystem tags `v1.2.3` and half tags `1.2.3`. Reading the
         # prefix from the repository is what stops a claim written in the other
         # convention reporting a release that shipped.
@@ -325,11 +327,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("path guard over-broad: skips anything containing a dot", sites,
          "    return bool(_FILEISH.search(token)) or (ctx.repo / token).exists()",
          '    return "." in token or (ctx.repo / token).exists()'),
+        # Retargeted with the scan: the guard sits in `_live_sites` now, one
+        # level deeper, and what follows it is the append rather than the
+        # branch lookup `check` used to do inline.
         ("live-claim loses the path guard", rules / "live_claim.py",
-         "            if looks_like_a_path(ctx, branch):\n                continue\n"
-         "            exists = branch_exists(ctx, branch)",
-         "            if False:\n                continue\n"
-         "            exists = branch_exists(ctx, branch)"),
+         "                if looks_like_a_path(ctx, branch):\n"
+         "                    continue\n                sites.append(",
+         "                if False:\n"
+         "                    continue\n                sites.append("),
 
         # --- markdown --------------------------------------------------------
         ("external links get checked (needs the network)", rules / "md_link.py",
@@ -417,9 +422,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # --- denominator ------------------------------------------------------
         # Retargeted when the denominator stopped being one entry in a central
         # dict and became the rule module's own `examined`, computed over the
-        # same population its `check` reads.
+        # same population its `check` reads. Retargeted again when that
+        # population moved into `_sha_sites`, so both halves read one scanner
+        # instead of `examined` re-running the two candidate scans itself.
         ("denominator lies: dead-sha always 1", rules / "sha.py",
-         "    return len(find_sha_candidates(text)) + len(find_bare_sha_candidates(text))",
+         "    return len(_sha_sites(ctx, text))",
          "    return 1"),
         # Retargeted when `count_examined` stopped being a dict of thirteen entries
         # and became a fold over the registry. A rule is dropped from the
@@ -581,11 +588,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # invisible to `--deleted-since`, and the mode reports the skip rather
         # than hiding it - so the loss is quiet rather than silent, which is
         # still not good enough to leave unpinned.
+        # Dedented one level when `check` stopped nesting its own scan inside
+        # a per-line loop and started reading `_link_sites`. The code is the
+        # same statement; only the indentation this matches by moved.
         ("a rule stops recording which token its claim is about",
          rules / "md_link.py",
-         '            findings.append(Finding(number, "dead-md-link", detail,\n'
-         "                                    subject=target))",
-         '            findings.append(Finding(number, "dead-md-link", detail))'),
+         '        findings.append(Finding(number, "dead-md-link", detail,\n'
+         "                                subject=target))",
+         '        findings.append(Finding(number, "dead-md-link", detail))'),
         # SARIF's contract is that stdout is one valid document, always. Zero
         # bytes fails a CI upload rather than reading as "no results", so a
         # clean run looks exactly like a broken one.
