@@ -49,18 +49,48 @@ def _uses_changesets(ctx: Context) -> bool:
     return ctx.run.changesets[key]
 
 
-def check(ctx: Context, text: str) -> list[Finding]:
-    """Every referenced SHA must still resolve; a dead reference is useless."""
+def _sha_sites(ctx: Context, text: str) -> list[tuple[int, str, bool]]:
+    """Every SHA reference this rule will resolve, and whether it is bare.
+
+    THE scanner. `check` judges what this returns and `examined` counts it, so
+    the two cannot describe different populations. `examined` already read
+    PROSE for that reason - counting the raw document reported candidates the
+    rule never looked at, and rust-lang/rfcs printed `dead-sha 23` where the
+    rule read 11 - but it stopped one skip short of `check`.
+
+    A CHANGESET ENTRY is that skip, and it is the whole of the difference.
+    `.changeset/` release notes open each line with the changeset id, which is
+    hex and shaped exactly like a short commit. The rule steps over such a line
+    rather than reporting every release note as full of dead references, so it
+    resolves none of those tokens - and counting them said it had.
+
+    Backticked candidates come first, so the findings keep the order they were
+    reported in before this was one function.
+    """
     # Claims inside code are examples, not promises. See prose.
     text = prose(ctx.doc, text)
-    findings: list[Finding] = []
-    backticked = find_sha_candidates(text)
+    sites: list[tuple[int, str, bool]] = [
+        (number, token, False) for number, token in find_sha_candidates(text)]
     bare = find_bare_sha_candidates(text)
-    # The document's tokens rather than only this rule's two lists, so the
-    # whole document costs one batch. Only `backticked` and `bare` decide
-    # anything below; see `_document_sha_tokens` in extant/commits.py for why
-    # a wider batch cannot move a finding.
-    alive = document_shas(ctx, text)
+    if bare:
+        lines = text.splitlines()
+        changesets = _uses_changesets(ctx)
+        for number, token in bare:
+            line = lines[number - 1] if 0 < number <= len(lines) else ""
+            if changesets and _CHANGESET_ENTRY.match(line):
+                continue
+            sites.append((number, token, True))
+    return sites
+
+
+def check(ctx: Context, text: str) -> list[Finding]:
+    """Every referenced SHA must still resolve; a dead reference is useless."""
+    findings: list[Finding] = []
+    # The document's tokens rather than only this rule's sites, so the whole
+    # document costs one batch. Only the sites decide anything below; see
+    # `_document_sha_tokens` in extant/commits.py for why a wider batch cannot
+    # move a finding.
+    alive = document_shas(ctx, prose(ctx.doc, text))
     # A dead SHA is usually not a mistake anybody made. Measured 2026-08-30 on
     # a real agent-written project: 12 of its 12 dead references were killed by
     # ONE `git filter-repo` run, and every one of them is named in the
@@ -69,23 +99,18 @@ def check(ctx: Context, text: str) -> list[Finding]:
     #
     # It rides in `repair` rather than in `detail` because `detail` is the
     # baseline fingerprint; extant/finding.py has the whole argument.
-    for number, token in backticked:
-        if token not in alive:
+    for number, token, bare in _sha_sites(ctx, text):
+        # I-1(b): a bare token that RESOLVES is merely unstyled, not broken -
+        # flagging it would be noise, so only a token that fails to resolve is
+        # worth a finding, whichever shape it was written in.
+        if token in alive:
+            continue
+        if not bare:
             findings.append(
                 Finding(number, "dead-sha",
                         f"`{token}` does not resolve in this repo",
                         subject=token, repair=rewrite_hint(ctx, token))
             )
-    # I-1(b): a bare token that RESOLVES is merely unstyled, not broken -
-    # flagging it would be noise, so only a bare token that fails to resolve
-    # is worth a finding.
-    lines = text.splitlines()
-    changesets = _uses_changesets(ctx)
-    for number, token in bare:
-        if token in alive:
-            continue
-        line = lines[number - 1] if 0 < number <= len(lines) else ""
-        if changesets and _CHANGESET_ENTRY.match(line):
             continue
         # Both kinds get the hint, or the class is only half repairable.
         # `translate_shas` learned bare tokens for exactly that reason and
@@ -101,7 +126,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
 
 
 def examined(ctx: Context, text: str) -> int:
-    """Both candidate kinds, counted the way `check` finds them.
+    """Both candidate kinds, from the one scanner `check` reads.
 
     Computed from PROSE, because that is what the rule reads - claims inside
     code are examples, not promises - and counting the raw document reported
@@ -109,9 +134,12 @@ def examined(ctx: Context, text: str) -> int:
     reported `dead-sha 23` where the rule read 11, so more than half that
     denominator was fenced example output. An overstated denominator is the
     worst of the three numbers available: it is the one that reassures.
+
+    That argument was right and stopped one skip early: a changeset entry is
+    also a candidate the rule never resolves. See `_sha_sites`, which both
+    halves read now rather than each running the scan its own way.
     """
-    text = prose(ctx.doc, text)
-    return len(find_sha_candidates(text)) + len(find_bare_sha_candidates(text))
+    return len(_sha_sites(ctx, text))
 
 
 # A letter is required now that an all-digit run reads as a number rather than

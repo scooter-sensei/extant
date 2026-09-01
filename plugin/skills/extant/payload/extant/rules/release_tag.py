@@ -30,18 +30,55 @@ def check(ctx: Context, text: str) -> list[Finding]:
     branch at all is still reported, which is the case this rule exists for -
     a tag created for a release that was abandoned or rewritten away.
     """
+    findings: list[Finding] = []
+    for number, tag, resolved in _release_sites(ctx, text):
+        if resolved is None:
+            findings.append(Finding(
+                number, "dead-release-tag",
+                f"claims release `{tag}`, but no such tag exists",
+                subject=tag,
+            ))
+            continue
+        if not integrated_by(ctx, f"refs/tags/{resolved}"):
+            findings.append(Finding(
+                number, "dead-release-tag",
+                f"tag `{resolved}` exists but is on no integration branch "
+                f"({', '.join(integration_refs(ctx))})",
+                subject=tag,
+            ))
+    return findings
+
+
+def _release_sites(ctx: Context, text: str
+                   ) -> list[tuple[int, str, str | None]]:
+    """Every release claim this rule can SETTLE, and what settles it.
+
+    THE scanner. `check` judges what this returns and `examined` counts it, so
+    the two cannot describe different populations. `_release_claims` below
+    already fixed one half of that - three readers running two different scans
+    - but the count still stopped there, at what the PATTERN matched, while
+    `check` went on to skip two kinds of claim it cannot decide.
+
+    Each entry is (line number, the version as written, the tag that backs it).
+    A resolved tag of None means the claim is decidable ONLY because
+    `release_claims_are_ours` is set: the project has said every version it
+    names is one of its own tags, so a version with no tag is a dead release.
+
+    Dropped, and so neither judged nor counted:
+
+      * an unresolvable version with that setting off, which is the default -
+        see the measurement below;
+      * a resolved tag in a repository with no integration branch at all,
+        because there is nothing here it could have shipped on.
+    """
     # Claims inside code are examples, not promises. See prose.
     text = prose(ctx.doc, text)
-    findings: list[Finding] = []
+    sites: list[tuple[int, str, str | None]] = []
     for number, tag in _release_claims(ctx.config, text):
         resolved = _released_tag(ctx, tag)
         if resolved is None:
             if ctx.config.release_claims_are_ours:
-                findings.append(Finding(
-                    number, "dead-release-tag",
-                    f"claims release `{tag}`, but no such tag exists",
-                    subject=tag,
-                ))
+                sites.append((number, tag, None))
                 continue
             # "NO SUCH TAG EXISTS" IS NOT A QUESTION GIT CAN SETTLE, and
             # this branch used to answer it anyway. A version in prose can
@@ -70,14 +107,8 @@ def check(ctx: Context, text: str) -> list[Finding]:
             continue
         if not integration_refs(ctx):
             continue        # no integration branch here to have shipped it
-        if not integrated_by(ctx, f"refs/tags/{resolved}"):
-            findings.append(Finding(
-                number, "dead-release-tag",
-                f"tag `{resolved}` exists but is on no integration branch "
-                f"({', '.join(integration_refs(ctx))})",
-                subject=tag,
-            ))
-    return findings
+        sites.append((number, tag, resolved))
+    return sites
 
 
 def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
@@ -118,12 +149,16 @@ def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
 
 
 def examined(ctx: Context, text: str) -> int:
-    """Every release claim the scanner finds, counted over prose.
+    """Every release claim the rule can SETTLE, from the one scanner.
 
-    Counted by the SAME scanner the check reads, so the denominator cannot
-    report a population the check never sees.
+    It counted what `_release_claims` matched, which is what the PATTERN found
+    rather than what the rule decides: with `release_claims_are_ours` off - the
+    default - an unresolvable version is a question git cannot settle and is
+    skipped, and a resolved tag is skipped too where the repository has no
+    integration branch. Both were counted, so the number reported coverage the
+    rule had declined to provide. See `_release_sites`.
     """
-    return len(_release_claims(ctx.config, prose(ctx.doc, text)))
+    return len(_release_sites(ctx, text))
 
 
 def _tags(ctx: Context) -> set[str]:

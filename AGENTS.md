@@ -89,6 +89,31 @@ sweep's denominator by hand while the findings loop had no way to say it, which
 is the two-readers defect one layer up from the rules: `rule_applies` carries
 the argument now, and both halves read the one predicate.
 
+**A denominator can also OVERSTATE, and that is the quiet direction.** The
+three above are the severe one - a rule that speaks and is then listed among
+those that never looked - and they are loud, because a finding sits beside the
+zero for somebody to argue with. The opposite arrangement prints nothing at
+all: a denominator counting sites the rule refuses to judge reports coverage on
+a run with no findings, and nobody investigates a clean run. `dead-md-link`
+counted `@ref` macros and `.html` targets it declines in every repository;
+`stale-live-claim` counted branch tokens in an entry making no live claim,
+having returned before reading one; `false-merge-claim` counted claims whose
+commit does not resolve, printing 5 over this project's own status document
+where the rule could settle 3; `dead-release-tag` counted unresolvable versions
+with `release_claims_name_our_tags` off, which is the default; `dead-sha`
+counted changeset entries it steps over. `unknown-branch` was a second pass
+that merely happened to agree. All six read one scanner now.
+
+**The remedy is structural, because the last five instances were not caught by
+reading.** `tests/test_module_quality.py` refuses a rule whose `examined` is
+anything but a single call into a function its `check` also reads. No test can
+prove a scanner returns only decidable sites - "the rule declined to judge
+this" is not observable from outside it - but that gate removes the
+arrangement that lets two passes drift, which is the part that keeps
+recurring. The behavioural cases live in `tests/test_denominators.py` and
+cover only the rules somebody thought to write one for; the gate covers the
+rest.
+
 **Watch a check fail before you trust it.** Mutate the thing it guards and
 confirm it goes red. A test that has never failed pins nothing.
 `tests/harnesses/mutate.py` does this mechanically.
