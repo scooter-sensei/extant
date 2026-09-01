@@ -122,11 +122,11 @@ jobs:
     # code, findings never exceeding the denominator, two runs agreeing, and
     # SARIF parsing and matching the text count.
     #
-    # HERE rather than only by hand, because Linux is where the shapes build.
+    # HERE rather than only by hand, because a DEVELOPER MACHINE skips shapes.
     # Windows withholds the privilege symlinks need and some sandboxes refuse
     # the submodule transport, so a developer run reports those as "could not
-    # build" - which the harness prints as its own count rather than as a
-    # pass. This job is the only place that coverage is actually held.
+    # build" - which the harness prints as its own count rather than as a pass.
+    # This job is where that coverage is actually held.
     #
     # A FIXED seed, deliberately. A random seed per commit would fail `main`
     # for reasons unrelated to the commit that ran it, and a gate that cries
@@ -135,12 +135,20 @@ jobs:
     # this harness either way - they are reduced to cases in
     # tests/test_fuzz_findings.py, which the suite runs on every commit.
     #
-    # TWO LEGS SINCE STAGE 6, and the Windows one is not duplication. The
-    # shapes that only matter on Windows - CRLF, a case-insensitive
-    # filesystem, MAX_PATH - were fuzzed nowhere, while the shapes Windows
-    # cannot build were counted as untested only on developer machines. Each
-    # leg reports its own "could not build" column, so between them the two
-    # say what is actually held rather than what one platform assumes.
+    # TWO LEGS SINCE STAGE 6, and the Windows one is not duplication - though
+    # NOT for the reason first written here. That said each leg reports its own
+    # "could not build" column; measured on the first two-leg run, GitHub's
+    # Windows runners CAN create symlinks, so both legs build every shape and
+    # the columns are IDENTICAL. The differing column is a developer-machine
+    # phenomenon. What the leg is actually for is the shapes that only matter
+    # on Windows - CRLF, a case-insensitive filesystem, MAX_PATH - which were
+    # fuzzed nowhere before it.
+    #
+    # The identical results buy something unplanned and better. Both legs draw
+    # ONE seed and report the same corpus and the same ledgers, which is direct
+    # evidence that `core.autocrlf` is pinned. Left unset it is true at system
+    # level on Windows and unset on Linux, so one seed would build DIFFERENT
+    # corpora on the two legs and nothing would say so.
     #
     # `fail-fast: false` because the interesting result is which leg went red.
     strategy:

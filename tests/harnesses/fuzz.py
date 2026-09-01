@@ -2311,8 +2311,8 @@ def main() -> int:
         print("  shapes this platform would NOT build, so they were NOT tested:")
         for shape, n in sorted(unbuildable.items()):
             print(f"    {n:3}  {shape}")
-        print("  (the CI job runs both Linux and Windows since Stage 6, so "
-              "between the two legs these are held somewhere)")
+        print("  (CI builds these: measured, both its legs construct every "
+              "shape, so a count here is this machine's privileges)")
     else:
         print("  every shape built on this platform")
     # The reach ledger, printed whether or not it fails, because the number is

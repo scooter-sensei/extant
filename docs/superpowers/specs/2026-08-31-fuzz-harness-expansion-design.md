@@ -942,9 +942,23 @@ A `CONCURRENT` property joined the core set, taking the properties from 20 to
 which it had never been on - `--validate --format=sarif` had never been
 executed by this harness at all. Four are the modes that were never run:
 `--collect`, `--search`, `--check-text` and `--archive`. And the fuzz CI job
-grew a Windows leg, so the shapes that only matter there are fuzzed somewhere,
-and the ones Windows will not build are counted as untested by the platform
-that cannot build them rather than assumed by the one that can.
+grew a Windows leg, so the shapes that only matter there - CRLF, a
+case-insensitive filesystem, MAX_PATH - are fuzzed somewhere rather than
+nowhere.
+
+THE OTHER HALF OF THAT ARGUMENT DID NOT SURVIVE MEASUREMENT, and is corrected
+here rather than left reading better than it is. It said each leg reports its
+own "could not build" column, so between them the two say what is actually
+held. Measured on the first run: GitHub's Windows runners CAN create symlinks,
+so both legs build every shape and the two columns are IDENTICAL. The differing
+column is a developer-machine phenomenon - this machine skips 21 symlink shapes
+and the runner skips none - so the second leg adds no shape coverage in CI.
+
+What the identical results do buy is unplanned and better. Both legs reached 25
+of 35 repositories, the same ledgers and the same counts from one seed: direct
+evidence that `core.autocrlf` is now pinned. Before that fix the two platforms
+would have built different corpora from the same seed, and nothing would have
+said so.
 
 ### How it was verified
 
@@ -961,6 +975,7 @@ rather than the working tree.
 | `scenarios.py` | 25 scenarios, 213 of 213 assertions |
 | `--verify` and `--selftest` on this repo | clean, 7 fired and 0 silent |
 | `fuzz.py --seed 20260824 --repos 35` | 0 property violations, exit 0 |
+| the same, on CI, both legs | 0 violations; 104s on Linux, 421s on Windows |
 
 THE PINNED CI SEED IS UNCHANGED, and that was not a given. Drawing axes
 consumes the generator differently, so seed 20260824 builds a different corpus

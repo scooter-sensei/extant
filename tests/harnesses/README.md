@@ -500,9 +500,12 @@ mode nobody runs is a mode whose crash this gate cannot find, which is what
 **"Could not build" is its own column.** Symlinks need a privilege Windows
 withholds and submodules need a transport some sandboxes refuse. When a shape
 will not construct, the case was NOT TESTED and the harness says so rather than
-counting it as a pass. The CI job runs two legs since Stage 6, Linux and
-Windows, so between them that coverage is actually held - and each leg reports
-its own column rather than one platform assuming the other's.
+counting it as a pass. The column is a DEVELOPER-MACHINE phenomenon, and
+measured: on GitHub's runners both CI legs build every shape including
+symlinks, and the two report identical columns. So the second leg buys no extra
+shape coverage there - what it buys is the shapes that only matter on Windows,
+CRLF and a case-insensitive filesystem and MAX_PATH, which were fuzzed nowhere
+before Stage 6.
 
 **A refusal is not a fault.** A run that declines to start - an unreadable
 config, or one excluding the document it is told to gate on - produces no
