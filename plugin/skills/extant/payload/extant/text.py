@@ -88,7 +88,8 @@ __all__ = [
     "_slug_punctuation_to_dash", "_translation_tree",
     "_without_tags", "EXTERNAL", "HEADING", "MARKDOWN_ONLY", "MD_LINK",
     "anchors", "format_for",
-    "current_document", "line_breaks", "line_number_at", "numbered_document",
+    "current_document", "line_breaks", "line_number_at", "lone_cr_to_lf",
+    "numbered_document",
     "percent_decoded",
     "prose", "strip_code", "unique_basename",
 ]
@@ -222,7 +223,41 @@ def strip_code(doc: DocScope, text: str) -> str:
 _STRIPPED: dict[bool, tuple[str, str]] = {}
 
 
+# A bare carriage return, rewritten to a newline WITHOUT changing the length.
+#
+# `^` in a MULTILINE pattern follows a NEWLINE, and a bare CR is not one - so
+# in a CR-only document every `^`-anchored header pattern matches at position
+# 0 and nowhere else. `split_entries` then finds no sections, and every rule
+# reading the newest entry examines ZERO candidates. Measured on one document
+# written twice: LF reported `stale-live-claim 2, unknown-branch 2` and CR-only
+# reported 0 and 0, printed beside every other rule's honest count - the
+# reassuring zero this project exists to remove, arriving in the denominator
+# built to prevent it. Found by the Stage 6 encoding axis.
+#
+# LENGTH-PRESERVING IS THE WHOLE CONSTRAINT, which is why this does not
+# collapse CRLF too. That SHRINKS the text, and every offset computed against
+# the result would index different characters in the original - the contract
+# `strip_code` keeps by blanking code with spaces, broken once already on this
+# very axis at a cost of 1627 characters. Substituting only a CR NOT followed
+# by a newline leaves LF and CRLF byte-identical and maps CR-only one to one.
+#
+# Returns the SAME OBJECT when there is nothing to do, because `_blank` memoises
+# on identity and a fresh string every call would turn that memo off.
+_LONE_CR = re.compile(r'\r(?!\n)')
+
+
+def lone_cr_to_lf(text: str) -> str:
+    return _LONE_CR.sub('\n', text) if _LONE_CR.search(text) else text
+
+
 def _blank(doc: DocScope, text: str, *, inline: bool) -> str:
+    # Normalised HERE, at the one function both `prose` and `strip_code` reach,
+    # so a rule and `split_entries` cannot disagree about where the lines are.
+    # Normalising in `split_entries` alone was the first attempt and was worse
+    # than the bug: it returned segments the caller could no longer find in its
+    # own copy of the text, so `text.index(entry)` raised and two rules went
+    # from a silent zero to `ValueError: substring not found`.
+    text = lone_cr_to_lf(text)
     cached = _STRIPPED.get(inline)
     if cached is not None and cached[0] is text:
         return cached[1]

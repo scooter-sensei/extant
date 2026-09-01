@@ -13,6 +13,8 @@ seed that found it and the property that failed.
 from __future__ import annotations
 
 import json
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -314,3 +316,220 @@ def test_that_fault_is_attributed_to_the_file_that_declares_it(
 
     assert len(lines) == 1, lines
     assert lines[0].startswith(".gitattributes:"), lines[0]
+
+
+# --- seed 4242, property CRASH: a mode that only ever crashed ----------
+
+DOC = "# Status\n\n## Phase 1 - x\n\nWork.\n"
+
+
+def _installed(repo: Path) -> Path:
+    """Copy the payload in as `tools/`, which is how a real project holds it.
+
+    Needed rather than tidy. `extant_collect.py` loads settings RELATIVE TO
+    ITSELF - it says so on stderr when they differ - so driving the payload in
+    place with `--repo <tmp>` reads THIS project's `.extant.toml` and answers
+    about the wrong configuration. `_sweep` above escapes that only because
+    `--sweep` needs no config at all.
+    """
+    shutil.copytree(PAYLOAD, repo / "tools", dirs_exist_ok=True)
+    return repo / "tools" / "extant_collect.py"
+
+
+def _collect(repo: Path, *extra: str):
+    return subprocess.run(
+        [sys.executable, str(_installed(repo)), "--collect", *extra,
+         "--repo", str(repo)],
+        cwd=str(repo),
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def test_collect_without_a_project_interpreter_reports_rather_than_crashes(
+        git_repo) -> None:
+    """No `.venv`, so `suite_command` cannot resolve - and that is not a bug.
+
+    `run_suite` raises RuntimeError here on purpose, and its docstring says the
+    point was to replace "an uncaught FileNotFoundError crashing /extant step
+    1" with something actionable. The message became actionable and the crash
+    did not go away: nothing caught it, so a carefully written paragraph
+    arrived inside a traceback.
+
+    It survived because `--collect` was one of four modes `fuzz.py` never ran.
+    Every generated repository lacks a `.venv`, so this was not an edge case
+    there - it was the mode's ONLY behaviour, and the first fuzz run that
+    included `--collect` reported CRASH on it.
+
+    Catches a fix that removes the message, and one that lets the exception
+    back out.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+
+    done = _collect(repo)
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    assert done.returncode == 2, (done.returncode, done.stdout, done.stderr)
+    assert "no project interpreter found" in done.stderr, done.stderr
+
+
+def test_collect_writes_a_bundle_when_the_suite_command_needs_no_interpreter(
+        git_repo) -> None:
+    """The other half, and the reason the generator now sets `suite_command`.
+
+    Without a runnable command every `--collect` run declines at the same
+    point, so the mode exercises argument parsing rather than the 350 lines of
+    collect.py behind it. This pins that the path past the refusal still works,
+    so a fix to the refusal cannot quietly break the case it guards.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n'
+        'suite_command = ["git", "--version"]\n', encoding="utf-8")
+
+    done = _collect(repo)
+
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
+    assert (repo / "status_bundle.json").is_file(), done.stdout
+    json.loads((repo / "status_bundle.json").read_text(encoding="utf-8"))
+
+
+# --- seed 20260824, property CRASH: the one mode that rewrites --------
+
+def _archive(repo: Path):
+    return subprocess.run(
+        [sys.executable, str(_installed(repo)), "--archive", "--repo", str(repo)],
+        cwd=str(repo),
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def test_archive_refuses_an_undecodable_document_rather_than_crashing(
+        git_repo) -> None:
+    """A UTF-16 status document met the only irreversible write in the product.
+
+    Every other mode guards this read - `--validate`, `--verify`, `--selftest`
+    and `--check-text` all report "not valid UTF-8" and refuse. `--archive` let
+    the exception out, so an undecodable document produced an unhandled
+    traceback from `entries.archive` instead of a diagnostic.
+
+    Nothing had been written when it raised, since the read is the first thing
+    `archive` does. What was wrong is that a crash is not an answer, and this
+    mode's crash is indistinguishable from one that failed halfway through
+    rewriting the document.
+
+    It survived because `--archive` was one of four modes `fuzz.py` never ran,
+    and because no generated repository had ever carried a document that was
+    not UTF-8. Stage 6 added both, and the pinned CI seed found it.
+
+    Catches a fix that lets the exception back out, and one that "helpfully"
+    reads with errors="replace" - which would archive corrupted text.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+    doc = repo / "NEXT_SESSION.md"
+    doc.write_bytes(DOC.encode("utf-16"))
+    before = doc.read_bytes()
+
+    done = _archive(repo)
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    assert done.returncode == 1, (done.returncode, done.stdout, done.stderr)
+    assert "not valid UTF-8" in done.stderr, done.stderr
+    assert doc.read_bytes() == before, "the document was modified"
+
+
+# --- Stage 6 gap audit: a CR-only document lost two rules --------------
+
+ENTRY_DOC = (
+    "# Status\n\n## Phase 2 - newest\n\n"
+    "Work continued on `claude/never-existed` this phase.\n"
+    "Branch `claude/also-gone` is NOT yet merged.\n\n"
+    "## Phase 1 - old\n\nEarlier.\n"
+)
+
+
+def _validate(repo: Path):
+    return subprocess.run(
+        [sys.executable, str(_installed(repo)), "--validate", "NEXT_SESSION.md",
+         "--repo", str(repo)],
+        cwd=str(repo),
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def _denominators(out: str) -> dict:
+    counts = {}
+    for part in out.split("checked NEXT_SESSION.md:")[-1].split("\n")[0].split(","):
+        bits = part.strip().rsplit(" ", 1)
+        if len(bits) == 2 and bits[1].isdigit():
+            counts[bits[0]] = int(bits[1])
+    return counts
+
+
+def test_entry_rules_read_a_document_written_with_bare_carriage_returns(
+        git_repo) -> None:
+    """The same claims, in three line endings, examined the same number of times.
+
+    `^` in a MULTILINE pattern follows a NEWLINE, and a bare `\r` is not one,
+    so `split_entries` found no sections in a CR-only document and every rule
+    that reads the newest entry examined ZERO candidates. Measured before the
+    fix: LF reported `stale-live-claim 2, unknown-branch 2` and CR-only
+    reported 0 and 0, printed beside every other rule's honest count.
+
+    That is the exact conflation this project exists to remove - "nothing was
+    checked" wearing the appearance of "nothing was wrong" - and it was
+    arriving inside the denominator built to prevent it. `entries.archive`
+    already normalised for this reason and said so; the fix lived in one of six
+    callers.
+
+    Asserts the DENOMINATOR, not the findings, because the denominator is the
+    half that was lying. Catches a fix that normalises by collapsing CRLF too,
+    which would shrink the text and move every offset.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", ENTRY_DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+    doc = repo / "NEXT_SESSION.md"
+
+    seen = {}
+    for name, body in (("lf", ENTRY_DOC),
+                       ("crlf", ENTRY_DOC.replace("\n", "\r\n")),
+                       ("cr", ENTRY_DOC.replace("\n", "\r"))):
+        doc.write_bytes(body.encode("utf-8"))
+        seen[name] = _denominators(_validate(repo).stdout)
+
+    for name, counts in seen.items():
+        assert counts.get("stale-live-claim") == 2, (name, counts)
+        assert counts.get("unknown-branch") == 2, (name, counts)
+
+
+def test_normalising_a_bare_cr_does_not_move_any_offset(git_repo) -> None:
+    """Line numbers survive the normalisation, which is why it is length-preserving.
+
+    A CR-only document reports its findings at the lines they are actually on.
+    Collapsing `\r\n` as well would shrink the text and shift every offset
+    after the first line ending - the `strip_code` contract, broken once
+    already on this axis at a cost of 1627 characters.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", ENTRY_DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+    doc = repo / "NEXT_SESSION.md"
+
+    lines = {}
+    for name, body in (("lf", ENTRY_DOC),
+                       ("crlf", ENTRY_DOC.replace("\n", "\r\n")),
+                       ("cr", ENTRY_DOC.replace("\n", "\r"))):
+        doc.write_bytes(body.encode("utf-8"))
+        lines[name] = sorted(
+            int(n) for n in re.findall(r"^line (\d+): \[unknown-branch\]",
+                                       _validate(repo).stdout, re.M))
+
+    assert lines["lf"] == [5, 6], lines
+    assert lines["crlf"] == lines["lf"], lines
+    assert lines["cr"] == lines["lf"], lines

@@ -134,7 +134,42 @@ jobs:
     # belongs in CI is the part that is reproducible. Findings do not stay in
     # this harness either way - they are reduced to cases in
     # tests/test_fuzz_findings.py, which the suite runs on every commit.
-    runs-on: ubuntu-latest
+    #
+    # TWO LEGS SINCE STAGE 6, and the Windows one is not duplication. The
+    # shapes that only matter on Windows - CRLF, a case-insensitive
+    # filesystem, MAX_PATH - were fuzzed nowhere, while the shapes Windows
+    # cannot build were counted as untested only on developer machines. Each
+    # leg reports its own "could not build" column, so between them the two
+    # say what is actually held rather than what one platform assumes.
+    #
+    # `fail-fast: false` because the interesting result is which leg went red.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            pkg: /tmp/fuzzpkg
+            arena: /tmp/fuzzarena
+            fail: /tmp/fuzzfail
+          # SHORT, NATIVE, AND ON C:. Both halves are load-bearing and both
+          # were learned the hard way. A generated repository carries
+          # `tools/extant/rules/*.py` and a full object store, so past roughly
+          # 260 characters git starts failing individual writes and the build
+          # produces repositories with no commits - measured at 2 of 12
+          # collapsing at a 183-character arena path. And an MSYS-style
+          # `/tmp/...` path is one Python on Windows cannot open at all, which
+          # makes the harness report an empty run that reads exactly like a
+          # clean one.
+          - os: windows-latest
+            pkg: C:/fzpkg
+            arena: C:/fzarena
+            fail: C:/fzfail
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # git bash on the Windows leg, so one set of steps serves both. The
+        # paths above are native either way; only the shell is shared.
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
@@ -146,23 +181,25 @@ jobs:
 
       - name: Build a shippable extract
         run: |
-          mkdir -p /tmp/fuzzpkg
-          git archive HEAD | tar -x -C /tmp/fuzzpkg
+          mkdir -p "${{ matrix.pkg }}"
+          git archive HEAD | tar -x -C "${{ matrix.pkg }}"
 
       # Exits 1 on a property violation and 2 when the generator reached no
       # rules at all, which is the harness reporting itself broken rather
       # than reporting the tool clean.
       - name: Build hostile repositories
         run: >
-          python tests/harnesses/fuzz.py /tmp/fuzzpkg /tmp/fuzzarena
-          --seed 20260824 --repos 35 --save /tmp/fuzzfail
+          python tests/harnesses/fuzz.py "${{ matrix.pkg }}" "${{ matrix.arena }}"
+          --seed 20260824 --repos 35 --save "${{ matrix.fail }}"
 
       - name: Keep the recipe of anything that failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-failures
-          path: /tmp/fuzzfail
+          # Per leg, or the second upload collides with the first and the
+          # surviving artifact describes whichever platform finished last.
+          name: fuzz-failures-${{ matrix.os }}
+          path: ${{ matrix.fail }}
           if-no-files-found: ignore
 
   self-check:

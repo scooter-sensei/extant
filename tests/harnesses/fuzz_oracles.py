@@ -365,7 +365,19 @@ def oracle_baseline(run, repo: Path) -> Result:
         faults.append(("BASELINE", f"{len(after)} finding(s) survived a "
                                    f"baseline recording all {len(before)}: "
                                    f"{sorted(after)[:2]}"))
-    if done is not None and done.returncode != 0 and not after:
+    # A RULE THAT RAISED MAKES A NON-ZERO EXIT CORRECT, whatever the baseline
+    # suppressed. `gate.py` forces it deliberately, with the comment that a
+    # partial answer reporting success "is the failure this whole project
+    # exists to prevent" - so "zero findings, exit 1" is the tool obeying its
+    # own contract, not a baseline that failed to suppress.
+    #
+    # Unreachable until Stage 6: nothing the generator built had ever made a
+    # rule raise, so this assumption had never been tested. The `raising-rule`
+    # axis made it false on the first corpus that drew both. Nothing is lost by
+    # exempting it, because the `ERRORED` property owns exactly this question
+    # and asserts the opposite direction - that such a run must NOT exit 0.
+    errored = "ERRORED:" in out
+    if done is not None and done.returncode != 0 and not after and not errored:
         faults.append(("BASELINE", f"no findings survived the baseline but "
                                    f"the run exited {done.returncode}"))
     return Result(faults)
@@ -433,6 +445,26 @@ def oracle_mode_agrees(run, repo: Path) -> Result:
     # a `checked <name>:` line.
     if f"checked {PRIMARY}:" not in verify_out:
         return Result(skipped=f"--verify did not read {PRIMARY}")
+    # AND THE SAME QUESTION OF THE SWEEP, which this asked of verify alone.
+    #
+    # The guard above was added when verify was found comparing against a
+    # document it had never read, and the Stage 3 audit recorded that
+    # `MODE-AGREE` needed it "for the same reason" as `PROCESS`. It got one
+    # half. A sweep can decline too - `exclude_paths` covering the very
+    # document `primary_doc` names makes it refuse with a CONFLICT, while
+    # verify proceeds, correctly, because you asked it to gate on that file.
+    # The sweep then reports nothing, and every finding verify printed reads
+    # as one the sweep LOST.
+    #
+    # Found by the Stage 6 corpus at seed 20260824, which reached that config
+    # against that mode for the first time; the shape has been reachable since
+    # `exclude_paths` joined CONFIG_SHAPES. Structural like the guard above: a
+    # sweep that ran prints a denominator, and one that declined prints a
+    # diagnostic instead. No denominator means it never surveyed, and two
+    # modes cannot be held to agree when only one of them answered.
+    if "examined:" not in swept_out:
+        return Result(skipped="--sweep did not survey - it declined, or git "
+                              "tracks no markdown here")
     swept = findings_in(swept_out)
     verified = findings_in(verify_out)
     if not swept and not verified:

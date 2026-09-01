@@ -326,8 +326,26 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
 def run_collect(repo: Path, args: argparse.Namespace,
                 status: StatusConfig) -> int:
     """`--collect`: assemble the handoff bundle and write it to --out."""
-    bundle = collect(repo, args.suite_json,
-                     session.context(repo).config, status)
+    # `run_suite` raises RuntimeError for the two states it cannot proceed
+    # from - no project interpreter, and a suite_command that will not run -
+    # and its docstring says the point of raising was to replace "an uncaught
+    # FileNotFoundError crashing /extant step 1" with something actionable.
+    # The message became actionable and the crash did not go away: nothing
+    # caught it, so it arrived as a traceback with a good paragraph inside it.
+    #
+    # Found by fuzzing `--collect`, which had never been run by that harness.
+    # Every generated repository lacks a `.venv`, so this was not an edge case
+    # there - it was the mode's ONLY behaviour.
+    #
+    # Exit 2, matching every other "this run cannot proceed" in this file: a
+    # bundle was not written, and 0 or 1 would both claim one was.
+    try:
+        bundle = collect(repo, args.suite_json,
+                         session.context(repo).config, status)
+    except RuntimeError as exc:
+        print(f"extant --collect cannot measure the suite: {exc}",
+              file=sys.stderr)
+        return 2
     out = Path(args.out) if args.out else repo / "status_bundle.json"
     with open(out, "w", encoding="utf-8", newline="") as fh:
         json.dump(bundle, fh, indent=2)
@@ -339,7 +357,30 @@ def run_collect(repo: Path, args: argparse.Namespace,
 
 def run_archive(repo: Path) -> int:
     """`--archive`: split old entries out of the primary document."""
-    counts = archive(repo, None, session.context(repo).config)
+    # THE ONE MODE THAT REWRITES THE DOCUMENT WAS THE ONE NOT CHECKING IT.
+    #
+    # `entries.archive` opens the primary document as UTF-8 and every other
+    # mode guards that read - `--validate`, `--verify`, `--selftest` and
+    # `--check-text` all report "not valid UTF-8" and refuse. This one let the
+    # exception out, so a UTF-16 or otherwise undecodable status document met
+    # the only irreversible file write in the product with an unhandled
+    # traceback instead of a diagnostic.
+    #
+    # Nothing had been written at the point it raised - the read is the first
+    # thing `archive` does - so the file was intact either way. What was wrong
+    # is that a crash is not an answer, and this mode's crash looks identical
+    # to one that failed halfway through a rewrite.
+    #
+    # Found by fuzzing `--archive`, one of the four modes that harness had
+    # never run, against an encoding it had never built.
+    try:
+        counts = archive(repo, None, session.context(repo).config)
+    except UnicodeDecodeError as exc:
+        target = repo / session.context(repo).config.primary_doc
+        print(f"{target}: not valid UTF-8 ({exc.reason} at byte "
+              f"{exc.start}). The status document must be a text file.",
+              file=sys.stderr)
+        return 1
     print(f"retained={counts['retained']} archived={counts['archived']}")
     return 0
 

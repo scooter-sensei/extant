@@ -79,7 +79,8 @@ from pathlib import Path
 # `refused` stays out, and that one is genuine: it records that a run declined
 # to START, so no breakage to the payload produces it honestly.
 CORE_PROPERTIES = ("CRASH", "HANG", "EXIT", "ERRORED", "DENOMINATOR",
-                   "UNSTABLE", "SARIF", "FORMATS", "HARNESS")
+                   "UNSTABLE", "SARIF", "FORMATS", "HARNESS", "AXIS",
+                   "CONCURRENT")
 ORACLE_PROPERTIES = ("FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
                      "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE",
                      "GITHUB")
@@ -137,6 +138,66 @@ class Breakage:
 
 
 BREAKAGES = (
+    # --- the Stage 6 axes ---------------------------------------------
+    Breakage(
+        prop="CONCURRENT",
+        why="a fixed-name file in the repository that a second overlapping "
+            "run finds already taken, so one of two simultaneous runs answers "
+            "differently from the same run alone",
+        # CONTRIVED, and specifically so rather than conveniently so. A
+        # breakage that merely made output vary - a PID in a finding, say -
+        # would fire this property while proving nothing about concurrency,
+        # because a SEQUENTIAL pair would differ too and `UNSTABLE` already
+        # owns that. This one is invisible to every sequential run: the file is
+        # created, held, and removed inside one invocation, so a run that has
+        # the repository to itself never meets it. Only an overlapping run
+        # does, which is exactly the population this property exists to reach.
+        #
+        # The sleep is what makes the overlap observable at all. Without it the
+        # first run releases the name before the second looks, and the
+        # breakage silently does nothing - which would read as the property
+        # being unobservable when the breakage was the thing that failed, the
+        # mistake this file records three other instances of.
+        edits=(("extant/cli.py",
+                "    repo = Path(args.repo)",
+                "    repo = Path(args.repo)\n"
+                "    _race = repo / '.extant-race-probe'\n"
+                "    try:\n"
+                "        _race.touch(exist_ok=False)\n"
+                "    except FileExistsError:\n"
+                "        print('another run of extant holds this repository')\n"
+                "    else:\n"
+                "        import time as _time\n"
+                "        _time.sleep(1.5)\n"
+                "        try:\n"
+                "            _race.unlink()\n"
+                "        except OSError:\n"
+                "            pass"),),
+        contrived=True,
+    ),
+
+    Breakage(
+        prop="AXIS",
+        why="an annotated tag no longer peeled to its commit, so a tag that "
+            "exists and is merged reads as one on no integration branch - a "
+            "false positive on the most ordinary tag shape there is",
+        # `^{commit}` in `resolve_ref`, whose own docstring says what dropping
+        # it does: "without it a tag object's own SHA is returned and never
+        # appears in any rev-list".
+        #
+        # THE FIRST ATTEMPT TARGETED `ref_table` INSTEAD - `commit = peeled or
+        # obj`, which peels annotated tags there and reads like the obvious
+        # site. It applied cleanly, matched exactly once, and changed NOTHING:
+        # `ref_table` keys tags by SHORT name, and this rule asks about
+        # `refs/tags/v1.0`, which misses that table entirely and falls through
+        # to the `rev-parse` below. So the property read as unobservable when
+        # the BREAKAGE was aimed at a path the rule does not take - the same
+        # mistake Stage 5 made twice and wrote down both times.
+        edits=(("extant/refs.py",
+                '                                   f"{ref}^{{commit}}").strip() or None',
+                '                                   f"{ref}").strip() or None'),),
+    ),
+
     # --- the document scanners ----------------------------------------
     Breakage(
         prop="SHIFT",
