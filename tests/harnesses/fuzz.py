@@ -6,6 +6,10 @@
       --save DIR     write a failing repository's PLAN here, replayable
       --replay FILE  rebuild one repository from a saved plan and recheck it
       --no-shrink    report a violation at full size, without ddmin
+      --differential [REF|DIR]
+                     run the same corpus through this package and another
+                     version and diff the findings; defaults to the newest
+                     tag. See fuzz_differential.py
 
 Every other harness here checks a case somebody thought of. This one checks the
 ones nobody did, which is the only way to cover a list that keeps growing:
@@ -148,6 +152,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fuzz_differential as differential  # noqa: E402
 import fuzz_oracles as oracles  # noqa: E402
 import fuzz_shapes as shapes  # noqa: E402
 
@@ -1273,6 +1278,117 @@ def run_replay(pkg: Path, arena: Path, path: Path) -> int:
     return 1
 
 
+def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
+                     repos: int) -> int:
+    """`--differential [REF|DIR]`: the same corpus through two versions.
+
+    Stage 4. No oracle is required and none is used: this asks whether the
+    answer CHANGED, not whether it is right, and a human reads which
+    differences were intended. It is the only check here that notices a rule
+    going quiet, because a rule reporting nothing is self-consistent under
+    every metamorphic comparison the other properties make.
+
+    The corpus is drawn exactly as a normal run draws it - same seed, same
+    walk over (git state, mode) pairs - so `--differential --seed N` and
+    `--seed N` build the same repositories and a difference can be taken back
+    to a plan. Each repository is then built TWICE at one arena path, once per
+    version; fuzz_differential.py carries the argument for why it rebuilds
+    rather than swapping `tools/` in place.
+
+    Shrinking and the oracles are not run. Both exist to reduce and explain a
+    property violation, and a difference is not one: there is nothing to
+    bisect toward when the question is which of two versions is right.
+    """
+    arena.mkdir(parents=True, exist_ok=True)
+    source = Path(__file__).resolve().parent.parent.parent
+    target = spec or differential.latest_tag(source)
+    if not target:
+        print("no tag is reachable from HEAD, so there is no previous release "
+              "to compare against. Pass a ref or a directory explicitly.")
+        return 2
+    try:
+        base_pkg, base_label = differential.materialise(
+            target, source, arena / "_baseline")
+    except ValueError as exc:
+        print(f"cannot prepare the baseline: {exc}")
+        return 2
+
+    head_digest = payload_digest(pkg)
+    base_digest = payload_digest(base_pkg)
+    print(f"seed {seed}   (reproduce with --seed {seed})")
+    print(f"head payload {head_digest}")
+    print(f"base payload {base_digest}   ({base_label})")
+    if head_digest == base_digest:
+        # Said rather than refused. Comparing a payload against itself is the
+        # CONTROL - two builds, two sets of commit SHAs, one payload, and a
+        # result that must be zero differences - and refusing it would remove
+        # the only way to find out that this comparison reports noise.
+        print("  IDENTICAL PAYLOADS - this is the control run. Zero "
+              "differences is the only correct outcome; anything else is "
+              "normalisation reporting noise, not a change in the tool.")
+    print(f"building {repos} repository(s) twice each\n")
+
+    rng = random.Random(seed)
+    plan: list[tuple[str, list[str]]] = [(s, m) for s in GIT_STATES
+                                         for m in MODES]
+    rng.shuffle(plan)
+    while len(plan) < repos:
+        plan.append((rng.choice(GIT_STATES), rng.choice(MODES)))
+    plan = plan[:repos]
+
+    differences: list[tuple[int, str, str]] = []
+    compared = 0
+    unbuilt = 0
+    # What the comparison actually had to compare. See `observed`: two
+    # silences compare equal, and without this they print as agreement.
+    findings_seen = 0
+    examined_seen = 0
+    mismatched = 0
+    for index, (state, planned_mode) in enumerate(plan):
+        repo_plan = draw_plan(rng, index, state, planned_mode, head_digest)
+        repo, recipe = build_from_plan(pkg, arena, repo_plan)
+        if recipe.broken:
+            unbuilt += 1
+            print(f"  [{index:03d}] UNBUILT head  {recipe.broken[0][:80]}")
+            continue
+        head_report = differential.observe(repo, planned_mode, run_mode)
+        head_repo = repo
+
+        repo, recipe = build_from_plan(base_pkg, arena, repo_plan)
+        if recipe.broken:
+            unbuilt += 1
+            print(f"  [{index:03d}] UNBUILT base  {recipe.broken[0][:80]}")
+            continue
+        # THE TWO REPOSITORIES BEFORE THE TWO ANSWERS. A build whose
+        # non-core git steps lost a race produces a repository missing a ref,
+        # and comparing outputs across that pair blames the versions for the
+        # build. `fingerprint` carries the instance this was found by.
+        if differential.fingerprint(head_repo) != differential.fingerprint(repo):
+            mismatched += 1
+            print(f"  [{index:03d}] BUILD     the two builds differ as "
+                  f"repositories, so this pair was not compared")
+            continue
+        base_report = differential.observe(repo, planned_mode, run_mode)
+
+        compared += 1
+        for report in (head_report, base_report):
+            found, counts = differential.observed(report)
+            findings_seen += found
+            examined_seen += counts
+        for kind, detail in differential.compare(head_report, base_report):
+            differences.append((index, kind, detail))
+            print(f"  [{index:03d}] {kind:<9} {detail}")
+
+    differential.summarise(differences, compared, unbuilt, base_label,
+                           (findings_seen, examined_seen), mismatched)
+    # A run that compared nothing is a harness fault, not a clean result - the
+    # same distinction CORPUS_FLOOR draws for the main driver. Without it an
+    # arena the builds cannot use reports "0 differences" and reads as green.
+    if not compared:
+        return 2
+    return 1 if differences else 0
+
+
 # --- driver -----------------------------------------------------------
 
 def main() -> int:
@@ -1288,6 +1404,11 @@ def main() -> int:
                     help="report a violation at full size, without ddmin")
     ap.add_argument("--no-oracles", action="store_true",
                     help="skip the metamorphic oracles (they cost runs)")
+    ap.add_argument("--differential", nargs="?", const="", default=None,
+                    metavar="REF|DIR",
+                    help="diff this package's findings against another "
+                         "version's over one corpus; defaults to the newest "
+                         "tag reachable from HEAD")
     args = ap.parse_args()
 
     global ORACLES_ON
@@ -1297,6 +1418,10 @@ def main() -> int:
         return run_replay(args.pkg, args.arena, args.replay)
 
     seed = args.seed if args.seed is not None else random.randrange(2 ** 31)
+
+    if args.differential is not None:
+        return run_differential(args.pkg, args.arena, args.differential,
+                                seed, args.repos)
     rng = random.Random(seed)
     args.arena.mkdir(parents=True, exist_ok=True)
     payload = payload_digest(args.pkg)

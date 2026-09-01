@@ -519,6 +519,64 @@ broken. The first `PROCESS` breakage removed the document path, which broke
 `--verify` and `--validate` identically - so the two agreed, and a symmetric
 break cannot test an oracle that compares two things.
 
+**`--differential` asks the one question the properties cannot.** Every other
+check here holds whatever the right answer is, which is what makes them usable
+without an oracle - and it is also their limit: a rule that stops firing
+altogether is self-consistent under all of them. It crashes nothing, exceeds no
+denominator, prints the same thing twice, and agrees with its own SARIF. The
+previous release is the only reference here that disagrees with silence.
+
+```sh
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --differential          # newest tag
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --differential v0.25.0
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --differential HEAD     # the control
+```
+
+It builds each repository twice at one arena path, once per version, because
+the generated repository CARRIES the payload - `tools/` is committed - so
+swapping the directory in place would leave one side dirty against HEAD and two
+features write claims about `tools/` paths. Differences are classified rather
+than pooled: FINDING is a change in what the tool reports, EXAMINED is a
+denominator that moved, and folding them together would bury the first in the
+second on any release that narrows a count.
+
+**Zero differences means nothing until the control has run.** Two builds of one
+plan cannot share commit SHAs - the committed `tools/` differs and `git commit`
+stamps the time - so hex runs are normalised away before anything is compared,
+and a comparison that over-normalises reports agreement. `--differential HEAD`
+compares the working package against an extract of HEAD: same payload, two
+builds, and zero differences is the only correct outcome. The run also states
+how many findings and denominators were on the table, because two silences
+compare equal and print exactly like two versions agreeing.
+
+Watched failing, on both halves. The control reports 0 differences over 292
+findings and 156 denominators at seed 20260824 over 6 repositories. Silencing
+`dead-md-link` in the baseline copy - `check` returning `[]` outright - is
+caught as `only head reports [dead-md-link]` at exit 1, and NO denominator
+moved with it, which is the case that exists to show what this catches and the
+metamorphic oracles cannot. Against the real `v0.25.0` it reports 16
+differences over the same 6 repositories, every one of them a fix that shipped
+after the tag: the duplicated `raw-lfs-blob` and `inconsistent-artifact`
+findings the repository pass now attributes to `.gitattributes`, the widened
+`dead-md-anchor` denominator, `manifest-floor-mismatch` counting a document the
+sweep used to lose the path to, and `stale-live-claim` and `dead-release-tag`
+no longer counting sites their rules refuse to judge. Read that 16 as evidence
+the check reaches real changes and not as a threshold - it was 14 one merge
+ago, and only two of that merge's six rules showed up at this corpus size.
+
+**A pair that is not the same repository is not compared.** The control went
+red once under load with an identical payload, and the cause was the build
+rather than the tool: `build_from_plan` checks return codes on the core git
+steps only, so a hostile ref or a tag can lose a race with an index lock and
+leave the two sides genuinely different. Ref names, tracked paths and the
+commit count are compared before any output is, and a mismatched pair is
+reported as BUILD and counted as NOT COMPARED rather than as a difference.
+
+One coverage note, stated because a differential is easy to over-read: at 6
+repositories only one drew a live `dead-md-link` case, so the silenced rule was
+caught once. Corpus size is the sensitivity of this check, and a clean run over
+6 repositories is a much weaker statement than a clean run over 35.
+
 **Findings do not stay here.** Each is reduced to a case in
 `tests/test_fuzz_findings.py`, which the suite runs on every commit rather than
 waiting for a seed to come up again. This harness discovers; that file
