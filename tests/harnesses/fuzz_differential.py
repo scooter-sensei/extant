@@ -73,6 +73,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import shutil
 import subprocess
 import tarfile
 from dataclasses import dataclass
@@ -81,6 +82,8 @@ from pathlib import Path
 # A hex run long enough to be a commit. The same lower bound the tool's own
 # bare-SHA scanner uses, so a token this masks is one a rule would have read.
 _HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
+# How many FINDING lines one repository may print per direction.
+_FINDING_CAP = 6
 # Windows prints backslashes and posix forward slashes for the same path, and
 # the two versions need not agree with each other about which - `rel()` changed
 # spelling once. Both spellings of the repository root collapse to one token.
@@ -133,6 +136,22 @@ def materialise(spec: str, source: Path, into: Path) -> tuple[Path, str]:
     if done.returncode != 0:
         detail = (done.stderr or b"").decode("utf-8", "replace").strip()
         raise ValueError(f"cannot archive {spec!r}: {detail[:200]}")
+    # CLEARED FIRST, and this was a real defect rather than tidiness. Extract
+    # is a merge: `tar` writes the files the archive holds and leaves every
+    # other file where it was. Running `--differential v0.25.0` and then
+    # `--differential v0.24.0` in one arena therefore left SIX files the newer
+    # tag ships and the older one does not, `extant/gate.py` among them - so
+    # the second run compared HEAD against a payload that was neither version,
+    # and labelled the result with the tag. A confident wrong answer, silent.
+    #
+    # `ignore_errors` is deliberately absent: a directory that survives its own
+    # removal is the case this must not continue past, and swallowing it is a
+    # defect this project has already recorded once in a harness.
+    if into.exists():
+        shutil.rmtree(into)
+        if into.exists():
+            raise ValueError(f"{into} could not be cleared, so the baseline "
+                             f"would be a mixture of two versions")
     into.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(done.stdout)) as tar:
         try:
@@ -230,6 +249,14 @@ class Report:
     mode_text: str            # its normalised stdout+stderr
     sarif_ok: bool            # did the sweep produce parseable SARIF at all
     crashed: bool
+    # A RUN THAT NEVER FINISHED IS NOT AN ANSWER. Without this the two sides
+    # of a timed-out pair carry the same placeholder text, the same empty
+    # findings and the same empty denominators - so they compare EQUAL and the
+    # repository is counted as compared and agreeing. That is the defect the
+    # Stage 3 audit found in the oracles, where `_text(None)` returned "" and
+    # four of them passed while nothing ran, reproduced in the stage written
+    # after it. The driver refuses to compare a pair where either side is set.
+    timed_out: bool = False
 
 
 def observe(repo: Path, mode, run_mode) -> Report:
@@ -243,7 +270,10 @@ def observe(repo: Path, mode, run_mode) -> Report:
     never be compared at all.
     """
     crashed = False
+    timed_out = False
     sweep = run_mode(repo, ["--sweep", "--format=sarif"])
+    if sweep is None:
+        timed_out = True
     findings: list[tuple] = []
     examined: dict = {}
     sarif_ok = False
@@ -270,6 +300,7 @@ def observe(repo: Path, mode, run_mode) -> Report:
 
     drawn = run_mode(repo, list(mode))
     if drawn is None:
+        timed_out = True
         mode_exit, mode_text = -1, "<no answer inside the timeout>"
     else:
         mode_exit = drawn.returncode
@@ -281,7 +312,7 @@ def observe(repo: Path, mode, run_mode) -> Report:
     return Report(findings=tuple(sorted(findings)),
                   examined=tuple(sorted((k, v) for k, v in examined.items())),
                   mode_exit=mode_exit, mode_text=mode_text,
-                  sarif_ok=sarif_ok, crashed=crashed)
+                  sarif_ok=sarif_ok, crashed=crashed, timed_out=timed_out)
 
 
 def _window(left: str, right: str, width: int = 58) -> str:
@@ -356,12 +387,18 @@ def compare(head: Report, base: Report) -> list[tuple[str, str]]:
 
     gone = [f for f in base.findings if f not in head.findings]
     new = [f for f in head.findings if f not in base.findings]
-    for rule, uri, line, message in gone:
-        out.append(("FINDING", f"only base reports [{rule}] {uri}:{line} "
-                               f"{message[:80]}"))
-    for rule, uri, line, message in new:
-        out.append(("FINDING", f"only head reports [{rule}] {uri}:{line} "
-                               f"{message[:80]}"))
+    # CAPPED, and the remainder COUNTED rather than dropped. A silenced rule
+    # produces one line per finding it stopped reporting, which on a document
+    # dense in one shape is a screen of identical text that buries every other
+    # difference in the run. Saying how many were not printed keeps the
+    # number honest, which is the half that matters.
+    for label, group in (("base", gone), ("head", new)):
+        for rule, uri, line, message in group[:_FINDING_CAP]:
+            out.append(("FINDING", f"only {label} reports [{rule}] "
+                                   f"{uri}:{line} {message[:80]}"))
+        if len(group) > _FINDING_CAP:
+            out.append(("FINDING", f"and {len(group) - _FINDING_CAP} further "
+                                   f"finding(s) only {label} reports"))
 
     head_counts, base_counts = dict(head.examined), dict(base.examined)
     for rule in sorted(set(head_counts) | set(base_counts)):
@@ -393,7 +430,8 @@ def observed(report: Report) -> tuple[int, int]:
 
 def summarise(differences: list[tuple[int, str, str]],
               compared: int, unbuilt: int, base_label: str,
-              seen: tuple[int, int], mismatched: int = 0) -> None:
+              seen: tuple[int, int], mismatched: int = 0,
+              timed_out: int = 0) -> None:
     """What the run found, in the shape the other harnesses report.
 
     The counts are printed whether or not anything differed, because "compared
@@ -412,6 +450,9 @@ def summarise(differences: list[tuple[int, str, str]],
         print(f"  {mismatched} NOT COMPARED - the two builds were not the "
               f"same repository, so any difference would have been the "
               f"build's, not the tool's. See `fingerprint`.")
+    if timed_out:
+        print(f"  {timed_out} NOT COMPARED - a run did not finish, and two "
+              f"unfinished runs compare equal. Not an agreement.")
     if not differences:
         print("  0 differences")
         if not compared:

@@ -6,6 +6,7 @@
       --save DIR     write a failing repository's PLAN here, replayable
       --replay FILE  rebuild one repository from a saved plan and recheck it
       --no-shrink    report a violation at full size, without ddmin
+      --self-check   break each property on purpose and confirm it goes red
       --differential [REF|DIR]
                      run the same corpus through this package and another
                      version and diff the findings; defaults to the newest
@@ -153,8 +154,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fuzz_differential as differential  # noqa: E402
+import fuzz_selfcheck as selfcheck  # noqa: E402
 import fuzz_oracles as oracles  # noqa: E402
 import fuzz_shapes as shapes  # noqa: E402
+import fuzz_axes as axes  # noqa: E402
 
 PY = sys.executable
 TIMEOUT = 90
@@ -242,7 +245,41 @@ MODES = [
     ["--sweep", "--format=github"],
     ["--selftest"],
     ["--deleted-since", "HEAD"],
+    # THE FORMAT AXIS ON THE GATING MODES. It was bolted only to `--sweep`, so
+    # the FORMATS and DENOM-AGREE properties had never once seen the output of
+    # a run that GATES - and `--validate --format=sarif` had never been
+    # executed by this harness at all. A survey and a gate render findings
+    # through different call paths, and only one of them was being compared.
+    ["--verify", "--format=sarif"],
+    ["--verify", "--format=github"],
+    ["--validate", "NEXT_SESSION.md", "--format=sarif"],
+    # The modes that were never run. Four of the nine mutually exclusive modes
+    # had no coverage here whatever, so a crash in any of them was this
+    # harness's blind spot rather than its finding.
+    ["--collect"],
+    ["--search", "phase"],
+    ["--check-text", "--as-path", "NEXT_SESSION.md"],
+    ["--archive"],
 ]
+
+# Modes that CHANGE THE REPOSITORY, so a second run does not answer the same
+# question as the first.
+#
+# `--archive` is the only irreversible file write in the product: it splits
+# retired entries out of the status document and asserts multiset conservation
+# of every line. Running it twice is not a repeat, it is two different inputs -
+# the second run meets a document the first already shortened - so the UNSTABLE
+# property must not compare them. Exempting the PROPERTY rather than skipping
+# the mode keeps the crash, exit and denominator checks on it, which are the
+# ones that can still say something true about a mutating run.
+MUTATING_MODES = ("--archive",)
+
+# Modes that read a document from stdin rather than from disk. Without this
+# `--check-text` inherits whatever stdin the harness was started with, reads
+# end-of-file immediately, and checks an EMPTY DOCUMENT - which reports no
+# findings and exits 0, and is indistinguishable in the output from a document
+# that was read and found clean.
+STDIN_MODES = ("--check-text",)
 
 # Modes that MUST print a denominator line. A mode listed here that prints none
 # is a harness fault rather than a pass: `_rule_counts` returning nothing makes
@@ -272,6 +309,27 @@ MODES_WITH_DENOMINATOR = ("--sweep", "--verify", "--validate")
 # matching nothing for its entire life because nothing was watching this
 # number.
 REACH_FLOOR = 13
+
+# How many times an axis must have been JUDGED before "never confirmed" is
+# read as broken rather than as a short run.
+#
+# The floor exists because an axis's evidence is not available in every
+# repository, and for some it is available in few. `commit-map` can only be
+# confirmed where a dead SHA was actually claimed, and `annotated-tag` where a
+# release claim was, so both depend on a feature the swarm may not have drawn -
+# and a gate demanding confirmation from a corpus that offered no opportunity
+# would fail on the draw rather than on the harness.
+#
+# THE FIRST VERSION COUNTED DRAWS AND WAS WRONG, which is worth keeping because
+# the axis it killed is gone. `runnable-suite` set a `suite_command` and could
+# only show in a `--collect` run - one mode of fourteen - so it was applied
+# eight times, confirmed zero, and failed the run over a denominator that was
+# never opportunity. Applications are not chances.
+#
+# Set where it is because below it the question genuinely cannot be answered,
+# and "too few to conclude" is the honest report. Same distinction the reach
+# ledger draws between a feature never drawn and one drawn that did not fire.
+AXIS_FLOOR = 5
 
 # What fraction of the repositories built must actually reach the rules before
 # this run's verdict means anything.
@@ -332,7 +390,8 @@ LONGPATHS = ("-c", "core.longpaths=true")
 # system-wide `required=true`, git-lfs asked the network for a fabricated oid,
 # and the answer depended on timing. Measured: one replay of the same plan in
 # four came back clean.
-SAFE_GIT = ("-c", "core.longpaths=true", "-c", "filter.lfs.required=false")
+SAFE_GIT = ("-c", "core.longpaths=true", "-c", "filter.lfs.required=false",
+            "-c", "core.autocrlf=false")
 
 
 def _rmtree(path: Path) -> None:
@@ -407,6 +466,13 @@ class Recipe:
         self.steps: list[str] = []
         self.skipped: list[str] = []
         self.features: list[str] = []
+        # Axes that APPLIED, and what they learned while applying. The facts
+        # are how the driver judges evidence: an axis states what it did here,
+        # and its `confirm` reads that back against the run's output rather
+        # than re-deriving it from the repository, which would be a second
+        # scanner for one claim.
+        self.axes: list[str] = []
+        self.axis_facts: dict = {}
         # Core construction steps that FAILED. Distinct from `skipped`, which
         # is a shape this platform declines to build and is a legitimate
         # result. A broken step means the repository is not what the recipe
@@ -422,12 +488,15 @@ class Recipe:
     def drew(self, name: str, truth: str) -> None:
         self.features.append(f"{name}:{truth}")
 
+    def drew_axis(self, name: str) -> None:
+        self.axes.append(name)
+
     def could_not(self, what: str, why: str) -> None:
         self.skipped.append(f"{what} ({why})")
 
     def as_dict(self) -> dict:
         return {"seed": self.seed, "index": self.index,
-                "features": self.features,
+                "features": self.features, "axes": self.axes,
                 "built": self.steps, "not_built": self.skipped,
                 "broken": self.broken}
 
@@ -480,6 +549,13 @@ class RepoPlan:
     mode: tuple
     # (feature name, truth) - the ONLY part of the plan ddmin edits.
     features: tuple = ()
+    # Stage 6 axis names. Recorded like features so a plan still rebuilds the
+    # repository it describes, and DELIBERATELY NOT bisected: an axis is a
+    # condition the whole rule set reads under, so dropping one changes what
+    # every remaining feature means rather than removing one candidate cause.
+    # ddmin over a set whose elements are not independent reports a minimum
+    # that is not one. `without` therefore carries them through untouched.
+    axes: tuple = ()
     # WHAT THE PLAN WAS BUILT AGAINST. A plan says how to build a repository
     # and says nothing about the tool that was run over it, so replaying a CI
     # artifact against a locally patched payload silently answers a different
@@ -492,6 +568,7 @@ class RepoPlan:
         return {"repo_seed": self.repo_seed, "index": self.index,
                 "state": self.state, "mode": list(self.mode),
                 "features": [list(f) for f in self.features],
+                "axes": list(self.axes),
                 "payload": self.payload}
 
     @classmethod
@@ -509,6 +586,7 @@ class RepoPlan:
         return cls(repo_seed=int(raw["repo_seed"]), index=int(raw["index"]),
                    state=str(raw["state"]), mode=tuple(raw["mode"]),
                    features=tuple(tuple(f) for f in raw.get("features", ())),
+                   axes=tuple(raw.get("axes", ())),
                    payload=str(raw.get("payload", "")))
 
     def without(self, names) -> "RepoPlan":
@@ -518,6 +596,7 @@ class RepoPlan:
                         state=self.state, mode=self.mode,
                         features=tuple(f for f in self.features
                                        if f[0] not in drop),
+                        axes=self.axes,
                         payload=self.payload)
 
 
@@ -552,8 +631,13 @@ def draw_plan(rng: random.Random, index: int, state: str, mode,
     repo_seed = rng.randrange(2 ** 31)
     local = random.Random(repo_seed)
     features = tuple((f.name, truth) for f, truth in _draw_features(local))
+    # AFTER the features, and `build_from_plan` discards a draw here in the
+    # same order for the same reason it discards the feature draw: the local
+    # generator's position is what every later choice reads.
+    drawn_axes = axes.draw_axes(local)
     return RepoPlan(repo_seed=repo_seed, index=index, state=state,
-                    mode=tuple(mode), features=features, payload=payload)
+                    mode=tuple(mode), features=features, axes=drawn_axes,
+                    payload=payload)
 
 
 def _apply(build, drawn, phase: str, recipe: Recipe):
@@ -572,6 +656,57 @@ def _apply(build, drawn, phase: str, recipe: Recipe):
             continue
         parts.append(part)
     return parts
+
+
+def _apply_axes(build, drawn, phase: str, recipe: Recipe) -> tuple:
+    """Run every drawn axis of one phase. Returns (config, prose, entry).
+
+    An axis returning None DECLINED - the state or the platform will not carry
+    it - which is the "could not build" answer and never a pass, the same
+    treatment a feature that declines already gets.
+    """
+    lines: list[str] = []
+    said: list[str] = []
+    entry: list[str] = []
+    for axis in drawn:
+        if axis.phase != phase:
+            continue
+        # DECLINED BY DECLARATION, before it runs. An axis applied in a state
+        # it cannot take effect in reports itself applied and does nothing -
+        # which is the reassuring answer the ledger exists to refuse, and it
+        # is invisible from inside the axis because writing the file succeeds.
+        if build.state not in axis.states:
+            recipe.could_not(f"axis {axis.name}",
+                             f"the {build.state} state carries none of it")
+            continue
+        try:
+            effect = axis.apply(build)
+        except (OSError, UnicodeError, ValueError) as exc:
+            recipe.could_not(f"axis {axis.name}", type(exc).__name__)
+            continue
+        if effect is None:
+            recipe.could_not(f"axis {axis.name}", "declined")
+            continue
+        recipe.drew_axis(axis.name)
+        # ONLY THE CONFIG PHASE HAS A READER for prose and entry lines: the
+        # document is composed there and rewritten once more from the same
+        # pieces, and nothing looks at what a later phase returns. An axis that
+        # contributed text from `tree`, `document` or `final` therefore had it
+        # SILENTLY DROPPED while reporting itself applied - which is how the
+        # commit-map axis spent its first draft citing a SHA that was never in
+        # any document. Loud here rather than discovered by the ledger later.
+        if phase != "config" and (effect.prose or effect.entry):
+            recipe.broke(f"axis {axis.name} contributed document text from "
+                         f"the {phase!r} phase, where nothing reads it - it "
+                         f"belongs in `config`, with any late work in "
+                         f"`finalize`")
+            continue
+        lines.extend(effect.config)
+        said.extend(effect.prose)
+        entry.extend(effect.entry)
+        if effect.note:
+            recipe.did(effect.note)
+    return tuple(lines), tuple(said), tuple(entry)
 
 
 def _git_scaffold(repo: Path, trunk: str, rng: random.Random) -> None:
@@ -623,8 +758,15 @@ def build_from_plan(pkg: Path, arena: Path,
     """
     rng = random.Random(plan.repo_seed)
     _draw_features(rng)
+    axes.draw_axes(rng)
     index = plan.index
-    state = plan.state
+    # RESOLVED HERE, not down beside the git-state block where it used to be.
+    # `AxisBuild` carries the state so each axis can decline the ones it cannot
+    # take effect in, and it is built long before that block - so a plan with
+    # no state would have handed every axis `None`, declining all six, while
+    # the repository went on to get a real state anyway. No plan carries None
+    # today, which is exactly why this would have sat here unnoticed.
+    state = plan.state if plan.state is not None else rng.choice(GIT_STATES)
     recipe = Recipe(plan.repo_seed, index)
     repo = arena / f"fuzz{index:03d}"
     _rmtree(repo)
@@ -660,6 +802,22 @@ def build_from_plan(pkg: Path, arena: Path,
     # not something to resolve. The no-network guarantee this project makes
     # about the tool should hold for the harness that tests it.
     sh(repo, "git", "config", "filter.lfs.required", "false")
+    # core.autocrlf IS AN INPUT NOBODY HAD DECLARED, and it is the same class
+    # of unnoticed input as the arena path above.
+    #
+    # It is set to `true` at SYSTEM level on a default Windows git install and
+    # on GitHub's Windows runners, and inherited by every repository built
+    # here. Under it a CRLF file becomes LF in the committed blob and CRLF
+    # again on checkout - measured directly, working tree and HEAD blob
+    # differing by exactly that. So `--sweep`, which reads HEAD's tree, and the
+    # gating modes, which read the working tree, would be answering about
+    # DIFFERENT BYTES, and the encoding axis would be judged against a document
+    # git had quietly normalised back.
+    #
+    # Worse than wrong: platform-dependent. Linux leaves it off, so one seed
+    # would build two different corpora on the two CI legs and neither would
+    # say so.
+    sh(repo, "git", "config", "core.autocrlf", "false")
     shutil.copytree(pkg / "plugin/skills/extant/payload", repo / "tools")
 
     # A NAME THAT NO LONGER RESOLVES IS A BROKEN BUILD, NOT AN EMPTY ONE.
@@ -684,31 +842,110 @@ def build_from_plan(pkg: Path, arena: Path,
         drawn.append((feature, truth))
     for feature, truth in drawn:
         recipe.drew(feature.name, truth)
+    # A STALE AXIS NAME IS A BROKEN BUILD for the reason a stale feature name
+    # is, and the argument is the one written out above: a plan that names
+    # something the catalogue no longer has must not build a repository
+    # missing it and then report "no violation" at exit 0.
+    drawn_axes = []
+    for name in plan.axes:
+        axis = axes.axis_by_name(name)
+        if axis is None:
+            recipe.broke(f"plan names axis {name!r}, which this catalogue "
+                         f"does not have - the plan is stale, not the tool")
+            continue
+        drawn_axes.append(axis)
     build = shapes.Build(repo=repo, rng=rng, sh=sh, trunk=trunk)
+    axis_build = axes.AxisBuild(
+        repo=repo, rng=rng, sh=sh, trunk=trunk, state=state,
+        doc="NEXT_SESSION.md",
+        features=frozenset(name for name, _t in plan.features), facts={})
+    recipe.axis_facts = axis_build.facts
 
     pre = _apply(build, drawn, "pre", recipe)
     merged_pre = shapes.merge(pre)
     shapes.write_files(repo, merged_pre)
 
     noise = _noise_shapes(rng)
-    preamble = list(merged_pre.prose)
-    for _ in range(rng.randint(0, 2)):
-        preamble.append(rng.choice(noise))
+    # KEPT AS ITS OWN LIST rather than folded into one preamble, because the
+    # post-feature rewrite below has to rebuild the document from the LATER
+    # feature prose plus the same noise and the same axis lines. That used to
+    # be a positional slice - `preamble[len(merged_pre.prose):]` - which is a
+    # fact about list order masquerading as a fact about content, and it broke
+    # silently the moment anything was inserted at the front.
+    noise_lines = [rng.choice(noise) for _ in range(rng.randint(0, 2))]
     # The drawn extra setting joins the BARE KEYS rather than being appended to
     # the rendered config, because `compose_config` emits table blocks last and
     # a key written after a `[table]` header belongs to that table. Appending
     # it put `path_pointer` inside `[extant.consistency.*]`, where it parses as
     # a different setting and reads as the tool ignoring its own configuration.
     extra = rng.choices(CONFIG_SHAPES, weights=CONFIG_WEIGHTS)[0].strip()
-    base = ('primary_doc = "NEXT_SESSION.md"', f'trunk = "{trunk}"')
+    # A SUITE COMMAND THAT RUNS WITHOUT A PROJECT INTERPRETER, always.
+    #
+    # The default is `["{python}", "-m", "pytest", "-q"]`, and `{python}`
+    # resolves against a `.venv` no generated repository has or ever will - so
+    # `--collect` declined at that same point in every repository, and a mode
+    # that refuses every time exercises argument parsing rather than the 350
+    # lines of collect.py behind it.
+    #
+    # Fixed rather than drawn, deliberately. Adding `--collect` to MODES found
+    # that the missing-interpreter path raised an UNHANDLED RuntimeError with a
+    # carefully written message inside the traceback; that is fixed, and the
+    # regression belongs in tests/test_fuzz_findings.py where findings from
+    # this harness live, not in a coin flip that reaches it one run in two.
+    base = ('primary_doc = "NEXT_SESSION.md"', f'trunk = "{trunk}"',
+            'suite_command = ["git", "--version"]')
     if extra:
         base = base + (extra,)
+    # Bare keys, joining `base` rather than being appended to the rendered
+    # config, for the reason stated above `extra`: TOML ends the bare-key
+    # section at the first table header, so a key emitted after one silently
+    # belongs to that table instead.
+    # DECIDED BEFORE THE CONFIG AXES RUN, and that ordering is the fix to a
+    # real defect rather than tidiness. A broken config REPLACES the whole file
+    # - `base` and every key an axis contributed are discarded - so a
+    # config-phase axis applied first reported itself applied while its keys
+    # went nowhere. The raising axis then recorded which rule it had silenced,
+    # nothing raised, and the ledger reported `raising-rule: applied, and the
+    # run contradicts it` for a third time from a third cause.
+    #
+    # Declining up front puts it in the "could not build" column, where a shape
+    # that was not tested belongs, instead of in the results.
     broken = rng.random() < 0.08
+    if broken:
+        for axis in drawn_axes:
+            if axis.phase == "config":
+                recipe.could_not(f"axis {axis.name}",
+                                 "the config is deliberately broken, so its "
+                                 "keys are discarded")
+        axis_config, axis_prose, axis_entry = (), (), ()
+    else:
+        axis_config, axis_prose, axis_entry = _apply_axes(
+            axis_build, drawn_axes, "config", recipe)
+    base = base + axis_config
+    # The raising axis supplies the CLAIM its own pattern has to match, and
+    # `_RAISE_SITES` says why: `.group(1)` is reached only on a match, so a
+    # pattern with no capture group raises nothing unless the document holds
+    # text of that shape.
+    #
+    # AT THE FRONT, ahead of the noise, and that is the fix to a fourth way
+    # this axis was silently doing nothing. One noise shape is an UNCLOSED CODE
+    # FENCE, and `strip_code` blanks a fence to the end of the document - so a
+    # claim appended after the noise was inside that fence whenever it was
+    # drawn, correctly invisible to every rule, and the ledger reported
+    # `raising-rule: applied, and the run contradicts it` over the tool
+    # behaving exactly as documented.
+    #
+    # Placing it here rather than loosening the verdict is deliberate. The
+    # alternative - treat "the rule examined nothing" as no-opportunity - would
+    # have made the axis unable to report the very failure it had just had.
+    preamble = list(axis_prose) + list(merged_pre.prose) + noise_lines
     config = (rng.choice(BROKEN_CONFIG_SHAPES) if broken
               else shapes.compose_config(base, merged_pre))
     (repo / ".extant.toml").write_text(config, encoding="utf-8")
     (repo / "NEXT_SESSION.md").write_text(
-        shapes.compose_document(preamble, merged_pre.entry), encoding="utf-8")
+        shapes.compose_document(preamble,
+                                list(merged_pre.entry) + list(axis_entry)),
+        encoding="utf-8")
     recipe.did(f"{len(drawn)} feature(s), config "
                f"{'deliberately broken' if broken else 'valid'}")
 
@@ -763,8 +1000,18 @@ def build_from_plan(pkg: Path, arena: Path,
         (repo / ".extant.toml").write_text(
             shapes.compose_config(base, merged), encoding="utf-8")
     (repo / "NEXT_SESSION.md").write_text(
-        shapes.compose_document(list(merged.prose) + preamble[len(merged_pre.prose):],
-                                merged.entry), encoding="utf-8")
+        shapes.compose_document(
+            list(axis_prose) + list(merged.prose) + noise_lines,
+            list(merged.entry) + list(axis_entry)),
+        encoding="utf-8")
+    # AFTER THE LAST WRITE OF THE DOCUMENT AND BEFORE THE COMMIT. Both halves
+    # matter. Applied earlier, the post-feature rewrite above would overwrite
+    # the encoding with ordinary text and the axis would silently do nothing;
+    # applied after the commit, the committed bytes and the working-tree bytes
+    # would differ, and `--sweep` reads HEAD's tree while the gating modes read
+    # the working tree - so the two would be answering about different
+    # documents and every mode-comparing oracle would fault on it.
+    _apply_axes(axis_build, drawn_axes, "document", recipe)
     must(recipe, repo, "git", "add", "-A")
     must(recipe, repo, "git", "commit", "-qm", "the claims")
 
@@ -791,6 +1038,29 @@ def build_from_plan(pkg: Path, arena: Path,
             except (OSError, ValueError) as exc:
                 recipe.could_not(f"finalize {feature.name}", type(exc).__name__)
 
+    # The git-shape axes, last, for the reason `Feature.finalize` runs last: a
+    # later `git add -A` would re-stage what they changed. They act on the
+    # ORIGIN, and each declines in the states that do not carry the origin's
+    # refs - see `_KEEPS_ORIGIN_REFS`.
+    _apply_axes(axis_build, drawn_axes, "final", recipe)
+    # And the axis finalizers, mirroring the feature ones above: work that
+    # needs a commit to exist, from an axis whose visible contribution had to
+    # be placed much earlier.
+    for axis in drawn_axes:
+        # ONLY FOR AXES THAT ACTUALLY APPLIED. `recipe.axes` is the record of
+        # which ones got that far; the drawn list is not, because an axis can
+        # decline - the config phase declines every config axis when the config
+        # is deliberately broken. Running the finalizer regardless wrote a
+        # commit-map into a repository whose matching CLAIM had been discarded,
+        # which is half a shape: the file exists, nothing cites it, and the
+        # axis is not even judged because it never applied.
+        if axis.finalize is None or axis.name not in recipe.axes:
+            continue
+        try:
+            axis.finalize(axis_build)
+        except (OSError, ValueError) as exc:
+            recipe.could_not(f"finalize axis {axis.name}", type(exc).__name__)
+
     # a submodule, when the transport allows one
     if rng.random() < 0.35:
         inner = arena / f"sub{index:03d}"
@@ -804,6 +1074,7 @@ def build_from_plan(pkg: Path, arena: Path,
         # so this repository's own `git add` was still failing with "unable to
         # create temporary file: Filename too long" once init had been fixed.
         sh(inner, "git", "config", "core.longpaths", "true")
+        sh(inner, "git", "config", "core.autocrlf", "false")
         (inner / "README.md").write_text("# inner\n\nSee `gone.py`.\n",
                                          encoding="utf-8")
         sh(inner, "git", "add", "-A")
@@ -820,8 +1091,6 @@ def build_from_plan(pkg: Path, arena: Path,
                              if r.stderr else "git refused")
 
     # git states: detached HEAD, a linked worktree, a shallow copy
-    if state is None:
-        state = rng.choice(GIT_STATES)
     if state == "detached":
         sh(repo, "git", "checkout", "-q", "--detach", "HEAD")
         recipe.did("detached HEAD")
@@ -847,6 +1116,7 @@ def build_from_plan(pkg: Path, arena: Path,
             # over it, and `-c` covers only the command it is given to.
             sh(cloned, "git", "config", "core.longpaths", "true")
             sh(cloned, "git", "config", "filter.lfs.required", "false")
+            sh(cloned, "git", "config", "core.autocrlf", "false")
             shutil.copytree(pkg / "plugin/skills/extant/payload",
                             cloned / "tools", dirs_exist_ok=True)
             recipe.did("shallow clone (validated instead of the origin)")
@@ -857,7 +1127,7 @@ def build_from_plan(pkg: Path, arena: Path,
         bare = arena / f"empty{index:03d}"
         _rmtree(bare)
         bare.mkdir(parents=True)
-        sh(bare, "git", *LONGPATHS, "init", "-q", "-b", "main")
+        sh(bare, "git", *SAFE_GIT, "init", "-q", "-b", "main")
         shutil.copytree(pkg / "plugin/skills/extant/payload", bare / "tools")
         (bare / "NEXT_SESSION.md").write_text(
             shapes.compose_document(preamble, merged.entry), encoding="utf-8")
@@ -912,6 +1182,45 @@ def _denominator_faults(out: str, counts: dict, label: str):
     return faults
 
 
+# One finding, three renderings. The text format writes `line 3: [kind] ...`,
+# the github format an `::error file=...` annotation, and SARIF a `results`
+# array - and "did this run print a finding" has to be asked of whichever one
+# is on, not of the text spelling alone.
+#
+# THIS WAS A REAL FALSE POSITIVE, not a precaution. Stage 6 put the format axis
+# on the gating modes, and the very first run reported `EXIT: --verify
+# --format=github: exited 1 with no finding printed` - against a run that had
+# printed findings perfectly well, as annotations. A property whose detector
+# knows one format would have called every github and sarif gating run a
+# violation, which is a gate that fails on correct behaviour and gets turned
+# off within a week.
+_TEXT_FINDING = re.compile(r"^(?:.*: )?line \d+: \[", re.M)
+_GITHUB_FINDING = re.compile(r"^::(?:error|notice|warning) file=", re.M)
+
+
+def _findings_printed(out: str, mode: list, stdout: str) -> bool:
+    """Did this run report at least one finding, in whatever format it drew?
+
+    `stdout` separately from `out`, because SARIF is the one format that has
+    to be read from stdout ALONE. Measured: `--verify --format=sarif` writes
+    the JSON to stdout and the denominator line to stderr, so the merged text
+    every other check reads never parses as JSON - which is the same reason
+    the SARIF oracle already stands aside on merged output.
+    """
+    if "--format=github" in mode:
+        return bool(_GITHUB_FINDING.search(out))
+    if "--format=sarif" in mode:
+        # Parsed rather than pattern-matched: `"results"` appears in the SARIF
+        # scaffolding whether or not there are any, so a substring test would
+        # answer yes for every run.
+        try:
+            doc = json.loads(stdout)
+        except (json.JSONDecodeError, ValueError):
+            return False
+        return any(run.get("results") for run in doc.get("runs", []))
+    return bool(_TEXT_FINDING.search(out))
+
+
 def refused_early(done) -> bool:
     """Did this run DECLINE to start, rather than run and conclude?
 
@@ -923,6 +1232,90 @@ def refused_early(done) -> bool:
     """
     return bool(done.returncode != 0 and not (done.stdout or "").strip()
                 and (done.stderr or "").strip())
+
+
+def _argv(repo: Path, mode) -> list:
+    """The command line, in ONE place.
+
+    `run_mode` and `run_concurrently` must invoke identically or the
+    CONCURRENT property compares two different questions - which is the same
+    "one claim, two scanners" defect this harness keeps finding, and it would
+    be invisible here because both spellings look right.
+    """
+    return [PY, str(repo / "tools/extant_collect.py"), *mode,
+            "--repo", str(repo)]
+
+
+def _stdin_for(repo: Path, mode):
+    """What to feed a mode that reads a document from stdin, or None."""
+    if not (mode and mode[0] in STDIN_MODES):
+        return None
+    # The real document, so `--check-text` checks what `--validate` would.
+    # Feeding it something invented would make the two modes answer about
+    # different inputs, and every comparison between them meaningless.
+    try:
+        return (repo / "NEXT_SESSION.md").read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+# How many processes the CONCURRENT property starts at once. Two, because two
+# is what actually happens: `post-commit` and `post-merge` are both installed
+# hooks and a merge fires both, so the contention this reaches is the one real
+# installs reach. More would test the operating system rather than the tool.
+CONCURRENT_RUNS = 2
+
+
+def concurrency_applies(mode, refused: bool) -> bool:
+    """Does the CONCURRENT property have anything to say about this run?
+
+    ONE DEFINITION, TWO READERS. `check` asks it to decide whether to start the
+    pair, and the driver asks it to count how many repositories actually did -
+    and the gap audit is why that count exists at all. Without it, a guard that
+    silently stopped matching anything would leave the run printing exactly
+    what it prints now: no violations, and nothing anywhere saying the property
+    had been inert. That is the fail-open shape this harness exists to refuse,
+    and it was sitting in the property added last.
+
+    Two readers of one function is fine; two spellings of one predicate is the
+    defect, and that is what this exists to prevent.
+    """
+    return bool(mode) and mode[0] not in MUTATING_MODES and not refused
+
+
+def run_concurrently(repo: Path, mode: list[str], count: int = CONCURRENT_RUNS):
+    """Start `count` runs of one mode AT ONCE and collect them all.
+
+    `subprocess.run` cannot express this: it waits. So the processes are
+    started in one loop and drained in a second, which is what makes them
+    overlap rather than queue - getting that backwards produces a test that
+    passes because nothing was ever concurrent.
+
+    A run that exceeds the budget comes back as None, exactly as `run_mode`
+    reports one, so the caller distinguishes "did not finish" from "finished
+    and disagreed" rather than folding the two together.
+    """
+    fed = _stdin_for(repo, mode)
+    started = []
+    for _ in range(count):
+        started.append(subprocess.Popen(
+            _argv(repo, mode), cwd=str(repo),
+            stdin=subprocess.PIPE if fed is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace"))
+    done = []
+    for proc in started:
+        try:
+            out, err = proc.communicate(input=fed, timeout=TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            done.append(None)
+        else:
+            done.append(subprocess.CompletedProcess(
+                proc.args, proc.returncode, out, err))
+    return done
 
 
 def run_mode(repo: Path, mode: list[str]):
@@ -942,9 +1335,8 @@ def run_mode(repo: Path, mode: list[str]):
     """
     try:
         return subprocess.run(
-            [PY, str(repo / "tools/extant_collect.py"), *mode,
-             "--repo", str(repo)],
-            cwd=str(repo),
+            _argv(repo, mode),
+            cwd=str(repo), input=_stdin_for(repo, mode),
             capture_output=True, text=True, timeout=TIMEOUT,
             encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
@@ -969,6 +1361,22 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     if first.returncode not in (0, 1, 2):
         faults.append(("EXIT", f"{' '.join(mode)}: exit {first.returncode}"))
 
+    # ONE DEFINITION OF A REFUSAL, CONSULTED BEFORE ANYTHING THAT ASSUMES A
+    # RESULT. It used to be read only down beside the SARIF check, so the
+    # findings-versus-exit-code test below ran against runs that had produced
+    # no result to compare - two properties on either side of one predicate,
+    # which is the "one claim, two scanners" shape this project keeps finding.
+    #
+    # Latent until Stage 6, and reached by the encoding axis. Every refusal
+    # the generator could previously build came from an unreadable config and
+    # exited 2, which the test below does not look at. A UTF-16 primary
+    # document is a refusal that exits 1: extant declines it by name - "not
+    # valid UTF-8 (invalid start byte at byte 0)" - on stderr, with nothing on
+    # stdout, which is correct and useful and is not a finding. The test would
+    # have read that as "exited 1 with no finding printed" and failed the run
+    # over the tool being right.
+    refused = refused_early(first)
+
     # ERRORED: a run naming a rule that RAISED never exits 0. Stated in
     # `registry.py`, printed by `session.report_rule_errors`, enforced in
     # `gate.py` with the comment that a partial answer reporting success is the
@@ -981,12 +1389,23 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     # pass for any mode, so a run that printed findings and exited 0 would have
     # gone unremarked. Gating modes only: `--sweep` surveys and reports without
     # gating, which is its documented job.
-    if mode[0] in ("--validate", "--verify"):
-        printed = bool(re.search(r"^(?:.*: )?line \d+: \[", out, re.M))
+    if mode[0] in ("--validate", "--verify") and not refused:
+        printed = _findings_printed(out, mode, first.stdout or "")
         if printed and first.returncode == 0:
             faults.append(("EXIT", f"{' '.join(mode)}: findings printed and "
                                    f"the run exited 0"))
-        if not printed and first.returncode == 1:
+        # A RULE THAT RAISED MAKES EXIT 1 CORRECT WITH NOTHING PRINTED, and
+        # `gate.py` forces exactly that, with the comment that a partial answer
+        # reporting success "is the failure this whole project exists to
+        # prevent". Only this half is exempt: findings printed against exit 0
+        # is still wrong however many rules raised.
+        #
+        # The same assumption lived in the BASELINE oracle, and both were
+        # untestable until Stage 6 - nothing this generator built had ever made
+        # a rule raise. The `raising-rule` axis made them false within one
+        # corpus of each other. `ERRORED` owns this question and asserts the
+        # other direction, so nothing is lost by standing aside here.
+        if not printed and first.returncode == 1 and "ERRORED:" not in out:
             faults.append(("EXIT", f"{' '.join(mode)}: exited 1 with no "
                                    f"finding printed"))
     counts = _rule_counts(out)
@@ -1001,19 +1420,65 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     # behaviour. Faulting on the absence alone reported those runs, which is
     # the harness crying wolf about the case it already agreed was correct.
     # Keyed on findings existing instead, which has no such exemption to make.
-    findings_printed = re.search(r"^(?:.*: )?line \d+: \[", out, re.M)
+    findings_printed = _findings_printed(out, mode, first.stdout or "")
     if findings_printed and not counts and mode[0] in MODES_WITH_DENOMINATOR:
         faults.append(("HARNESS",
                        f"{' '.join(mode)}: findings printed with no "
                        f"denominator line, so DENOMINATOR checked nothing"))
 
-    # metamorphic: nothing changed, so nothing may change
-    second = run_mode(repo, mode)
-    if second is None:
-        faults.append(("HANG", f"{' '.join(mode)}: second run did not finish"))
-    elif (second.stdout or "") != (first.stdout or ""):
-        faults.append(("UNSTABLE",
-                       f"{' '.join(mode)}: two runs, two answers"))
+    # metamorphic: nothing changed, so nothing may change.
+    #
+    # Skipped for a mode that CHANGES THE REPOSITORY. The premise of this
+    # property is in its own comment - "nothing changed" - and for `--archive`
+    # that is false by construction: the first run rewrites the document, so
+    # the second reads a different one and a difference between them is the
+    # mode working. See MUTATING_MODES.
+    if mode[0] not in MUTATING_MODES:
+        second = run_mode(repo, mode)
+        if second is None:
+            faults.append(("HANG",
+                           f"{' '.join(mode)}: second run did not finish"))
+        elif (second.stdout or "") != (first.stdout or ""):
+            faults.append(("UNSTABLE",
+                           f"{' '.join(mode)}: two runs, two answers"))
+
+    # CONCURRENT: two processes at once answer what one answers alone.
+    #
+    # THE SHAPE REAL INSTALLS REACH. extant ships as git hooks, `post-commit`
+    # and `post-merge` are both installed, and a merge fires both - so two runs
+    # over one repository, contending for `index.lock`, is ordinary operation
+    # rather than an exotic case. This harness had never built it.
+    #
+    # Compared against the SOLO run above rather than against each other. Two
+    # concurrent runs that agree with each other and disagree with the solo
+    # answer are the interesting case, and comparing the pair alone would miss
+    # it entirely.
+    #
+    # stdout AND stderr, unlike UNSTABLE, which compares stdout only and is
+    # recorded in the design document as failing open because of it. Every
+    # diagnostic, every denominator on a sarif run, and every rule error is
+    # written to stderr, so a concurrency defect that only showed there would
+    # be invisible to a stdout comparison.
+    #
+    # Skipped for a MUTATING mode and for a refusal, for the reasons those two
+    # exemptions already exist: `--archive` rewrites the document, so the
+    # second run does not meet the input the first did, and a run that produced
+    # no result cannot be held to reproduce one.
+    if concurrency_applies(mode, refused):
+        for done in run_concurrently(repo, mode):
+            if done is None:
+                faults.append(("CONCURRENT",
+                               f"{' '.join(mode)}: one of "
+                               f"{CONCURRENT_RUNS} simultaneous runs did not "
+                               f"finish in {TIMEOUT}s"))
+                break
+            if ((done.stdout or "") != (first.stdout or "")
+                    or (done.stderr or "") != (first.stderr or "")):
+                faults.append(("CONCURRENT",
+                               f"{' '.join(mode)}: a run sharing the "
+                               f"repository with another answered differently "
+                               f"from the same run alone"))
+                break
 
     # metamorphic: SARIF is JSON, and counts what the text output counted
     # A run that REFUSED is exempt, and the distinction is the whole point.
@@ -1030,7 +1495,6 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     # Recognised structurally rather than by message: nothing on stdout, a
     # diagnostic on stderr, a non-zero exit. Refusals are counted and printed
     # so the exemption stays visible instead of quietly widening.
-    refused = refused_early(first)
     if refused:
         faults.append(("refused", f"{' '.join(mode)}: declined to run"))
         return [f for f in faults if f[0] != "refused"] or [("refused", "")]
@@ -1060,7 +1524,53 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     return faults
 
 
-def all_faults(repo: Path, mode):
+def _axis_verdicts(repo: Path, recipe: Recipe, probe_out: str):
+    """Judge every axis this repository applied. Returns (faults, verdicts).
+
+    CALLED FROM `all_faults` AND NOWHERE ELSE, which is the whole reason it
+    takes a recipe rather than reading the driver's accumulators. It lived in
+    the driver loop for one draft, and that is precisely the defect the Stage 2
+    audit records: `check` was the shrinker's definition of a violation while
+    the driver reported extra faults of its own, so those faults were invisible
+    to `_still_fails`, every subset answered False, and ddmin reported that no
+    feature could be dropped. One predicate, or the shrinker bisects on a
+    different question from the one that failed.
+
+    A `False` verdict is a property violation about EXTANT, not about the
+    harness, which is why it is returned as a fault here rather than left to
+    the aggregate check at the end. The two axes that can produce one both do
+    it by finding a TRUE claim reported dead - an annotated tag read as a dead
+    release, a packed ref read as a branch that never existed - and a false
+    positive on the most ordinary git shapes there are is worth failing on in
+    the repository that produced it.
+
+    The aggregate case is the opposite failure and belongs at the end: an axis
+    applied over and over and never once confirmed has stopped working, which
+    no single repository can tell you.
+    """
+    faults: list = []
+    verdicts: dict = {}
+    for name in recipe.axes:
+        axis = axes.axis_by_name(name)
+        if axis is None:
+            continue
+        try:
+            verdict = axis.confirm(repo, probe_out, recipe.axis_facts)
+        except (OSError, ValueError, UnicodeError) as exc:
+            # An axis whose own evidence check raised decided nothing, and
+            # must not be read as one that confirmed.
+            verdicts[name] = None
+            faults.append(("HARNESS", f"axis {name}: evidence check raised "
+                                      f"{type(exc).__name__}: {exc}"[:110]))
+            continue
+        verdicts[name] = verdict
+        if verdict is False:
+            faults.append(("AXIS", f"{name}: applied, and the run contradicts "
+                                   f"it - {axis.widens}"))
+    return faults, verdicts
+
+
+def all_faults(repo: Path, mode, recipe: "Recipe" = None):
     """Every fault the run counts, from ONE function, plus the sweep probe.
 
     The driver and the shrinker have to judge by the same predicate, and the
@@ -1076,10 +1586,18 @@ def all_faults(repo: Path, mode):
     the harness written to find it. Returns (faults, probed counts, probe
     output) so the driver still gets the ledger numbers it needs.
     """
+    # A MUTATING MODE IS PROBED BEFORE IT RUNS. The probe is what the reach
+    # ledger and every axis's evidence are read from, so for `--archive` -
+    # which rewrites the status document - probing afterwards would describe
+    # the repository the mode LEFT rather than the one the plan built, and the
+    # ledger would quietly be measuring a different corpus from the one it
+    # names.
+    early = (run_mode(repo, ["--sweep"])
+             if mode and mode[0] in MUTATING_MODES else None)
     found = check(repo, list(mode))
     if found and found[0][0] == "refused":
-        return found, {}, "", {}
-    probe = run_mode(repo, ["--sweep"])
+        return found, {}, "", {}, {}
+    probe = early if early is not None else run_mode(repo, ["--sweep"])
     probe_out = ((probe.stdout or "") + (probe.stderr or "")
                  if probe is not None else "")
     probed = _rule_counts(probe_out)
@@ -1093,7 +1611,14 @@ def all_faults(repo: Path, mode):
     if ORACLES_ON:
         more, skipped = oracles.run_all(run_mode, repo)
         found = found + more
-    return found, probed, probe_out, skipped
+    # The Stage 6 axes, judged here rather than in the driver so that the
+    # driver, the shrinker and `--replay` all reach them through the ONE
+    # predicate - the same reason the oracles moved here.
+    verdicts: dict = {}
+    if recipe is not None:
+        axis_faults, verdicts = _axis_verdicts(repo, recipe, probe_out)
+        found = found + axis_faults
+    return found, probed, probe_out, skipped, verdicts
 
 
 # --- shrinking --------------------------------------------------------
@@ -1108,7 +1633,13 @@ def all_faults(repo: Path, mode):
 # A violation of either is reported at full size, and says so.
 SHRINKABLE = ("CRASH", "DENOMINATOR", "EXIT", "FORMATS", "SARIF", "HARNESS",
               "ERRORED", "FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
-              "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE", "GITHUB")
+              "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE", "GITHUB",
+              # AXIS bisects over FEATURES while the axes are held fixed -
+              # `RepoPlan.without` carries them through untouched, and that
+              # file says why. So the reduction answers "which claims, given
+              # this git shape, make the tool contradict it", which is the
+              # readable half; the axis itself is already named in the detail.
+              "AXIS")
 
 # Rebuilds are not free. Each one is a whole repository plus the four or so
 # process spawns `all_faults` makes, which is roughly ten seconds on Windows -
@@ -1134,6 +1665,15 @@ def fault_signature(kind: str, detail: str) -> tuple:
     Kind plus the rule named in the detail. Faults that name no rule - CRASH,
     EXIT - fall back to kind alone, which is the right granularity for them.
     """
+    # An AXIS fault names an axis, never a rule, so the rule scan below finds
+    # nothing and every axis would share the signature `("AXIS", "")`. Two
+    # consequences, and the second is the worse one: two different axis faults
+    # on one repository overwrite a single `--save` file, which is the exact
+    # defect the Stage 2 audit fixed for the other kinds - and `_still_fails`
+    # would accept ANY axis violation as reproducing the one being bisected,
+    # which is the `DENOMINATOR`-shrinks-to-`consistency` mistake again.
+    if kind == "AXIS":
+        return (kind, detail.split(":", 1)[0].strip())
     for rule in shapes.RULE_KINDS:
         if rule in detail:
             return (kind, rule)
@@ -1161,7 +1701,7 @@ def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, signature: tuple):
         return None
     if recipe.broken:
         return None
-    found, _probed, _out, _skipped = all_faults(repo, plan.mode)
+    found, _probed, _out, _skipped, _v = all_faults(repo, plan.mode, recipe)
     for found_kind, found_detail in found:
         if fault_signature(found_kind, found_detail) == signature:
             return True
@@ -1263,12 +1803,13 @@ def run_replay(pkg: Path, arena: Path, path: Path) -> int:
           f"mode {' '.join(plan.mode)}")
     print(f"  {len(plan.features)} feature(s): "
           f"{', '.join(n for n, _ in plan.features) or 'none'}")
+    print(f"  {len(plan.axes)} axis/axes: {', '.join(plan.axes) or 'none'}")
     repo, recipe = build_from_plan(pkg, arena, plan)
     if recipe.broken:
         print(f"  UNBUILT: {recipe.broken[0]}")
         return 2
     print(f"  built at {repo}")
-    found, _probed, _out, _skipped = all_faults(repo, plan.mode)
+    found, _probed, _out, _skipped, _v = all_faults(repo, plan.mode, recipe)
     found = [f for f in found if f[0] != "refused"]
     if not found:
         print("  no property violation - this plan does not reproduce one")
@@ -1344,6 +1885,7 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
     findings_seen = 0
     examined_seen = 0
     mismatched = 0
+    timed_out = 0
     for index, (state, planned_mode) in enumerate(plan):
         repo_plan = draw_plan(rng, index, state, planned_mode, head_digest)
         repo, recipe = build_from_plan(pkg, arena, repo_plan)
@@ -1363,12 +1905,22 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
         # non-core git steps lost a race produces a repository missing a ref,
         # and comparing outputs across that pair blames the versions for the
         # build. `fingerprint` carries the instance this was found by.
+        if head_report.timed_out:
+            timed_out += 1
+            print(f"  [{index:03d}] TIMEOUT   head did not finish, so this "
+                  f"pair was not compared")
+            continue
         if differential.fingerprint(head_repo) != differential.fingerprint(repo):
             mismatched += 1
             print(f"  [{index:03d}] BUILD     the two builds differ as "
                   f"repositories, so this pair was not compared")
             continue
         base_report = differential.observe(repo, planned_mode, run_mode)
+        if base_report.timed_out:
+            timed_out += 1
+            print(f"  [{index:03d}] TIMEOUT   base did not finish, so this "
+                  f"pair was not compared")
+            continue
 
         compared += 1
         for report in (head_report, base_report):
@@ -1380,13 +1932,141 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
             print(f"  [{index:03d}] {kind:<9} {detail}")
 
     differential.summarise(differences, compared, unbuilt, base_label,
-                           (findings_seen, examined_seen), mismatched)
+                           (findings_seen, examined_seen), mismatched,
+                           timed_out)
     # A run that compared nothing is a harness fault, not a clean result - the
     # same distinction CORPUS_FLOOR draws for the main driver. Without it an
     # arena the builds cannot use reports "0 differences" and reads as green.
     if not compared:
         return 2
     return 1 if differences else 0
+
+
+def run_self_check(pkg: Path, arena: Path) -> int:
+    """`--self-check`: break each property on purpose and confirm it goes red.
+
+    Stage 5. ONE repository, built once with every feature drawn both ways so
+    that every rule has something to read, and only the payload text changes
+    between the silent run and the red one. Each property is judged by
+    `all_faults` - the harness's own predicate, not a copy of it - so a
+    property this reports as observable is observable to the driver and the
+    shrinker too.
+
+    Both halves are required and the first is not ceremony: a property already
+    firing on the clean build would be "confirmed" by a breakage that did
+    nothing at all, which is exactly how a breakage that failed to apply reads
+    as a success. See fuzz_selfcheck.py.
+    """
+    arena.mkdir(parents=True, exist_ok=True)
+    features = tuple((f.name, "both") for f in shapes.FEATURES)
+    # TWO AXES, NOT ALL SIX, and the omissions are deliberate rather than
+    # unfinished. This one repository is the corpus every other property is
+    # measured against, so an axis that changes what can be READ changes
+    # whether eighteen unrelated breakages are observable:
+    #
+    #   encoding        draws UTF-16 one time in four, which extant correctly
+    #                   refuses - after which no breakage to anything is
+    #                   observable, and every row would read NOT OBSERVED for
+    #                   a reason that has nothing to do with the breakage.
+    #   generated-site  suppresses link findings by design, which is most of
+    #                   what the document scanners' breakages are watched on.
+    #   commit-map      rewrites the text of every dead-sha finding.
+    #   raising-rule    declines here anyway: every feature is drawn, so no
+    #                   candidate rule is free. See `_raise_a_rule`.
+    #
+    # The two kept are the two that change no document and suppress nothing,
+    # and they are the two whose evidence can go red - which is what the AXIS
+    # breakage below needs.
+    self_axes = ("annotated-tag", "packed-refs")
+    plan = RepoPlan(repo_seed=20260901, index=0, state="attached",
+                    mode=("--verify",), features=features, axes=self_axes,
+                    payload=payload_digest(pkg))
+    print("building one repository with every feature drawn both ways")
+    repo, recipe = build_from_plan(pkg, arena, plan)
+    if recipe.broken:
+        print(f"UNBUILT: {recipe.broken[0]}")
+        return 2
+    print(f"  built at {repo}")
+
+    # ANCHORS FIRST, ALL OF THEM, BEFORE ANY OF THEM RUNS. A stale anchor is a
+    # harness fault and there is no point measuring anything until it is fixed;
+    # reporting it per-breakage would bury it among the results it invalidates.
+    unlisted = selfcheck.unlisted_properties(
+        SHRINKABLE, [name for name, _fn in oracles.ORACLES])
+    if unlisted:
+        print()
+        print("HARNESS FAULT: this harness can report fault kinds the "
+              "self-check does not\ncover, so they are not known to hold "
+              "anything. Add a breakage, or\nname the exemption:")
+        for name in unlisted:
+            print(f"  UNCHECKED  {name}")
+        return 2
+
+    stale = selfcheck.check_anchors(repo)
+    if stale:
+        print()
+        print("HARNESS FAULT: a breakage cannot be applied, so the "
+              "property it names was not tested. Retarget it at the "
+              "code that replaced what it named.")
+        for note in stale:
+            print(f"  STALE  {note}")
+        return 2
+    print(f"  {len(selfcheck.BREAKAGES)} breakage(s), every anchor matching "
+          f"exactly once")
+    print()
+
+    # ONE PROPERTY AT A TIME, not the whole predicate. `all_faults` runs
+    # `check`, the sweep probe and all ten oracles, which is fifteen or so
+    # extant invocations; doing that twice per breakage timed out at ten
+    # minutes before it reported anything. Each half is still the harness's
+    # OWN code - `check` for the core properties and `oracles.run_all(only=)`
+    # for the oracles - so a property observable here is observable to the
+    # driver and the shrinker, which is the part that had to stay true.
+    def observe(mode: list) -> list:
+        if item.prop in selfcheck.ORACLE_PROPERTIES:
+            faults, _skipped = oracles.run_all(run_mode, repo,
+                                               only={item.prop})
+            return faults
+        global ORACLES_ON
+        was, ORACLES_ON = ORACLES_ON, False
+        try:
+            faults, _p, _o, _s, _v = all_faults(repo, mode, recipe)
+        finally:
+            ORACLES_ON = was
+        return faults
+
+    rows: list[tuple[str, str, str]] = []
+    covered = set()
+    for item in selfcheck.BREAKAGES:
+        covered.add(item.prop)
+        mode = list(item.mode)
+        print(f"  [{item.prop}] ...", flush=True)
+        clean = observe(mode)
+        if selfcheck.observed(clean, item.prop):
+            # The breakage proves nothing here: the property is already firing
+            # on the clean payload, so its firing afterwards says nothing about
+            # the breakage. Reported rather than counted as a pass.
+            rows.append((item.prop, "CANNOT JUDGE",
+                         "already fires on the clean payload"))
+            print(f"  [{item.prop}] CANNOT JUDGE - fires before the breakage")
+            continue
+        saved = selfcheck.apply(repo, item)
+        try:
+            broken = observe(mode)
+        finally:
+            selfcheck.restore(saved)
+        if selfcheck.observed(broken, item.prop):
+            rows.append((item.prop, "observed",
+                         "contrived" if item.contrived else item.why[:58]))
+            print(f"  [{item.prop}] observed")
+        else:
+            rows.append((item.prop, "NOT OBSERVED",
+                         f"broke {item.paths} and nothing reported it"))
+            print(f"  [{item.prop}] NOT OBSERVED - broke {item.paths} and the "
+                  f"property stayed silent")
+
+    unwritten = [p for p in selfcheck.ALL_PROPERTIES if p not in covered]
+    return selfcheck.summarise(rows, unwritten)
 
 
 # --- driver -----------------------------------------------------------
@@ -1404,6 +2084,9 @@ def main() -> int:
                     help="report a violation at full size, without ddmin")
     ap.add_argument("--no-oracles", action="store_true",
                     help="skip the metamorphic oracles (they cost runs)")
+    ap.add_argument("--self-check", action="store_true",
+                    help="break each property on purpose and confirm it goes "
+                         "red; a property that cannot be provoked is a fault")
     ap.add_argument("--differential", nargs="?", const="", default=None,
                     metavar="REF|DIR",
                     help="diff this package's findings against another "
@@ -1418,6 +2101,9 @@ def main() -> int:
         return run_replay(args.pkg, args.arena, args.replay)
 
     seed = args.seed if args.seed is not None else random.randrange(2 ** 31)
+
+    if args.self_check:
+        return run_self_check(args.pkg, args.arena)
 
     if args.differential is not None:
         return run_differential(args.pkg, args.arena, args.differential,
@@ -1436,6 +2122,15 @@ def main() -> int:
     oracle_skips: dict = {}
     broken_builds: list = []
     drawn_features: dict[str, int] = {}
+    # THE AXIS LEDGER, three-state for the reason fuzz_axes.py states at
+    # length: an axis that offered no way to tell is not an axis that failed,
+    # and collapsing the two makes one of them invisible whichever way it is
+    # collapsed.
+    axes_applied: dict[str, int] = {}
+    axes_confirmed: dict[str, int] = {}
+    axes_silent: dict[str, int] = {}
+    modes_seen: dict[str, int] = {}
+    concurrent_repos = 0
     modes_run = 0
     examined_somewhere = 0
     refusals = 0
@@ -1488,11 +2183,38 @@ def main() -> int:
         built += 1
         mode = planned_mode
         pairs_seen.add((state, " ".join(mode)))
+        key = " ".join(mode)
+        modes_seen[key] = modes_seen.get(key, 0) + 1
         modes_run += 1
-        found, probed, _probe_out, skipped = all_faults(repo, mode)
+        # Axis evidence is judged inside `all_faults`, against the SWEEP
+        # PROBE rather than the drawn mode: the probe is the one run every
+        # repository makes whatever it drew, so an axis is judged by the same
+        # instrument everywhere. Judging it against the drawn mode would make
+        # `--collect`, which executes no rule, report every axis unconfirmed.
+        found, probed, probe_out, skipped, verdicts = all_faults(
+            repo, mode, recipe)
+        # COUNTED FROM THE VERDICTS, NOT FROM `recipe.axes`, so a repository
+        # whose run REFUSED contributes nothing here - `all_faults` returns
+        # before judging any axis there, and rightly, since a run that
+        # produced no result cannot show one took effect.
+        #
+        # That makes this the denominator AXIS_FLOOR actually wants: how often
+        # an axis was applied AND judgeable, rather than how often it was
+        # drawn. Counting draws would let a run of refusals push an axis past
+        # the floor and fail it for never being confirmed in repositories that
+        # never answered.
+        for name, verdict in verdicts.items():
+            axes_applied[name] = axes_applied.get(name, 0) + 1
+            if verdict is True:
+                axes_confirmed[name] = axes_confirmed.get(name, 0) + 1
+            elif verdict is None:
+                axes_silent[name] = axes_silent.get(name, 0) + 1
         for name, why in skipped.items():
             oracle_skips[name] = oracle_skips.get(name, 0) + 1
-        if found and found[0][0] == "refused":
+        was_refused = bool(found) and found[0][0] == "refused"
+        if concurrency_applies(mode, was_refused):
+            concurrent_repos += 1
+        if was_refused:
             refusals += 1
             found = []
         if probed:
@@ -1543,7 +2265,7 @@ def main() -> int:
                 # last, not the one reported above. Rebuild the saved plan so
                 # what is left in the arena matches what the file describes.
                 build_from_plan(args.pkg, args.arena, saved)
-            elif kind in ("UNSTABLE", "HANG"):
+            elif kind in ("UNSTABLE", "HANG", "CONCURRENT"):
                 print(f"           not shrunk: {kind} is not deterministic, "
                       f"and bisecting on it would follow noise")
             if args.save:
@@ -1570,6 +2292,16 @@ def main() -> int:
           f"counts, so the generator reached the rules")
     print(f"  {len(pairs_seen)} of {pairs_possible} (git state, mode) pairs "
           f"exercised")
+    # THE MODE LEDGER. Stage 6 added seven modes, and the product is no longer
+    # exhausted at the CI repository count - so "which modes did this run
+    # actually execute" stopped being answerable from the arithmetic and has to
+    # be reported. A mode nobody runs is a mode whose crash this gate cannot
+    # find, which is what four of the nine were before this stage.
+    never_run = [" ".join(m) for m in MODES if " ".join(m) not in modes_seen]
+    if never_run:
+        print(f"    modes NOT run at this repo count: {'; '.join(never_run)}")
+    print(f"  {concurrent_repos} of {built} repositories ran two processes at "
+          f"once, so CONCURRENT had something to compare")
     print(f"  {refusals} run(s) declined to start - a config conflict or an "
           f"unreadable config, reported and not counted as a fault")
     if len(pairs_seen) < pairs_possible:
@@ -1579,7 +2311,8 @@ def main() -> int:
         print("  shapes this platform would NOT build, so they were NOT tested:")
         for shape, n in sorted(unbuildable.items()):
             print(f"    {n:3}  {shape}")
-        print("  (the CI job runs on Linux, where these build)")
+        print("  (CI builds these: measured, both its legs construct every "
+              "shape, so a count here is this machine's privileges)")
     else:
         print("  every shape built on this platform")
     # The reach ledger, printed whether or not it fails, because the number is
@@ -1604,6 +2337,20 @@ def main() -> int:
         for kind in aimed:
             if kind in KNOWN_UNREACHABLE:
                 print(f"      {kind}: exempt - {KNOWN_UNREACHABLE[kind]}")
+    # THE AXIS LEDGER. The Stage 6 counterpart of the reach ledger above, and
+    # it exists for the same reason: an axis that quietly stops taking effect
+    # should turn this job red rather than print `ok` forever.
+    print(f"  {len(axes_confirmed)} of {len(axes.AXES)} axes confirmed "
+          f"somewhere - applied, and the run showed it")
+    for axis in axes.AXES:
+        n_applied = axes_applied.get(axis.name, 0)
+        n_ok = axes_confirmed.get(axis.name, 0)
+        n_quiet = axes_silent.get(axis.name, 0)
+        if not n_applied:
+            print(f"    {axis.name}: never applied at this repo count")
+            continue
+        print(f"    {axis.name}: {n_ok} confirmed, {n_quiet} with no way to "
+              f"tell, of {n_applied} judged")
     undrawn = [f.name for f in shapes.FEATURES if f.name not in drawn_features]
     if undrawn:
         # Separates "the swarm never drew it" from "it was drawn and did not
@@ -1692,6 +2439,30 @@ def main() -> int:
               f"was drawn and none of them examined anything. The feature has "
               f"stopped firing; fix it, or exempt it in KNOWN_UNREACHABLE with "
               f"the reason.")
+        return 2
+    # An axis APPLIED and never once CONFIRMED across the whole corpus. The
+    # same failure the reach ledger catches one level down, and the same
+    # argument for failing rather than printing the number: the release shape
+    # sat in this harness matching nothing for its entire life because nothing
+    # was watching a number that already said so.
+    #
+    # Aggregate, never per repository. Most axes cannot be confirmed in every
+    # repository - `commit-map` needs a dead SHA to have been claimed, and
+    # `annotated-tag` needs a release claim - so a per-repository requirement
+    # would redden the run over a draw that simply had nothing to show.
+    inert = sorted(name for name in axes_applied
+                   if not axes_confirmed.get(name))
+    thin = [n for n in inert if axes_applied[n] < AXIS_FLOOR]
+    dead = [n for n in inert if axes_applied[n] >= AXIS_FLOOR]
+    for name in thin:
+        print(f"    {name}: judged {axes_applied[name]} time(s) and never "
+              f"confirmed - too few to conclude, raise --repos")
+    if dead:
+        print(f"HARNESS FAULT: {', '.join(dead)} - each was judged at least "
+              f"{AXIS_FLOOR} times and NEVER confirmed. The axis has stopped "
+              f"taking effect, or its evidence no longer matches what the tool "
+              f"prints. Do not lower this by deleting the axis; find out which "
+              f"of the two it is.")
         return 2
     # Raise REACH_FLOOR deliberately, with a reason, never quietly.
     if len(reached) < REACH_FLOOR:

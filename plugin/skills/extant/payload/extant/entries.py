@@ -24,6 +24,7 @@ from collections import Counter
 from pathlib import Path
 
 from extant.config import Config
+from extant.text import lone_cr_to_lf
 
 __all__ = ["archive", "split_entries"]
 
@@ -51,6 +52,11 @@ def split_entries(text: str,
             f"{type(config).__name__}. Build one with Config.build(status), "
             f"or pass ctx.config / session.context(repo).config."
         )
+    # The same normalisation `prose` applies, for the callers that do not go
+    # through it: two counters in cli.py and the probe scanner all hand raw
+    # document text straight here. Idempotent and length-preserving, so it
+    # changes nothing for a caller that already normalised.
+    text = lone_cr_to_lf(text)
     base_match = config.base_header.search(text)
     base_start = base_match.start() if base_match else len(text)
     body, base = text[:base_start], text[base_start:]

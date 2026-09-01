@@ -404,10 +404,11 @@ detached, a linked worktree, a shallow copy, and no commits at all.
 has no known right answer, but these hold whatever the answer is: no traceback,
 an answer inside the budget, a documented exit code, findings never exceeding
 the denominator for their rule, two runs of an unchanged repository printing
-the same thing, and SARIF parsing and agreeing with the text output on the
-count. The last two are metamorphic - extant compared against ITSELF under a
-change that must not matter - and they are what let a fuzzer find wrong answers
-rather than only crashes.
+the same thing, two SIMULTANEOUS runs answering what one run answers alone, and
+SARIF parsing and agreeing with the text output on the count. The last three
+are metamorphic - extant compared against ITSELF under a change that must not
+matter - and they are what let a fuzzer find wrong answers rather than only
+crashes.
 
 **The generator is a catalogue, not a list of strings.** The shapes live in
 `tests/harnesses/fuzz_shapes.py`, one feature per rule, each offering a claim
@@ -438,6 +439,36 @@ and an LFS blob at once, and features suppressed one another, because an
 unparseable config silences everything downstream. The hand-tuned weighting
 that used to compensate is gone.
 
+**Two runs at once must answer what one run answers alone.** `CONCURRENT`
+starts two processes over the same repository simultaneously and compares each
+against the solo answer. That is ordinary operation rather than an exotic case:
+extant ships as git hooks, `post-commit` and `post-merge` are both installed,
+and a merge fires both, so contention over `index.lock` is what a real install
+does on an ordinary day. It compares stdout AND stderr, unlike the
+unchanged-repository check beside it, because every diagnostic and every rule
+error is written to stderr. It is not shrinkable - ddmin assumes a
+deterministic property, and bisecting on a race follows noise.
+
+**Axes are the conditions, features are the claims.** A feature writes a claim
+and names the rule it wants to make examine something. An axis
+(`tests/harnesses/fuzz_axes.py`) names no rule, because it changes what every
+rule reads under: the encoding the document arrives in, whether a generator
+compiles the tree into routes, whether a tag is annotated, whether refs are
+packed, whether the repository remembers a history rewrite, and whether a rule
+can run at all. Forcing these into the feature catalogue would have meant
+entries declaring `rules=()`, which turns that file's own check off for them.
+
+**An axis has to be confirmed, not merely applied**, and it answers in three
+states rather than two: the run showed it took effect, the run contradicts it,
+or this repository offered no way to tell. The third is the whole design - two
+states force the undecidable case to be called something, and either choice is
+wrong somewhere. An axis applied often and never once confirmed fails the run,
+which is the reach ledger's argument one level up: a thing that quietly stops
+being exercised should turn the job red rather than print `ok` forever. That
+caught two bugs in the axes themselves on the first real run, including a
+raising-rule axis whose pattern could never match, because it was carefully
+aimed at the one rule whose claim the document did not contain.
+
 **The reach ledger is this harness's own denominator.** It records which rules
 actually EXAMINED something across the corpus and fails below a floor. The old
 count - how many repositories produced rule counts of any kind - was the same
@@ -446,20 +477,35 @@ how 8 of 13 rules went unreached with nothing saying so. It separates a rule no
 feature aims at from one a feature aims at and misses, because those are
 different failures with different fixes.
 
-**Coverage is walked, not drawn.** The five git states times the seven modes
-are thirty-five pairs, and the harness covers each once before spending any
-remaining budget at random. That is not tidiness. The first genuine finding
-here was an empty SARIF document from a repository with no tracked markdown,
-and while selection was random the fixed CI seed never drew that state together
-with that format - so re-running it against the unfixed code reported zero
-violations. A gate that cannot reach the bug it already found is not evidence.
-The pair count is printed for the same reason every other number here is.
+**Coverage is walked, not drawn.** The harness walks the (git state, mode)
+product once before spending any remaining budget at random. That is not
+tidiness. The first genuine finding here was an empty SARIF document from a
+repository with no tracked markdown, and while selection was random the fixed
+CI seed never drew that state together with that format - so re-running it
+against the unfixed code reported zero violations. A gate that cannot reach the
+bug it already found is not evidence. The pair count is printed for the same
+reason every other number here is.
+
+**The product is no longer exhausted, and the mode ledger is what replaced
+that.** It used to be five states times seven modes - thirty-five pairs, which
+is exactly the repository count CI passes, so the plan was walked to completion
+with zero random draws and the job was a deterministic scenario suite. Stage 6
+added seven modes, four of which had never been run at all, and five times
+fourteen is seventy. At thirty-five repositories the harness now samples, its
+existing warning about that fires, and "which modes did this run actually
+execute" stopped being answerable from the arithmetic - so it is printed. A
+mode nobody runs is a mode whose crash this gate cannot find, which is what
+`--collect`, `--search`, `--check-text` and `--archive` were before.
 
 **"Could not build" is its own column.** Symlinks need a privilege Windows
 withholds and submodules need a transport some sandboxes refuse. When a shape
 will not construct, the case was NOT TESTED and the harness says so rather than
-counting it as a pass. The CI job runs on Linux, where both build, so that job
-is the only place that coverage is actually held.
+counting it as a pass. The column is a DEVELOPER-MACHINE phenomenon, and
+measured: on GitHub's runners both CI legs build every shape including
+symlinks, and the two report identical columns. So the second leg buys no extra
+shape coverage there - what it buys is the shapes that only matter on Windows,
+CRLF and a case-insensitive filesystem and MAX_PATH, which were fuzzed nowhere
+before Stage 6.
 
 **A refusal is not a fault.** A run that declines to start - an unreadable
 config, or one excluding the document it is told to gate on - produces no
@@ -518,6 +564,53 @@ SyntaxError, never ran, and the oracle looked hollow when the BREAKAGE was
 broken. The first `PROCESS` breakage removed the document path, which broke
 `--verify` and `--validate` identically - so the two agreed, and a symmetric
 break cannot test an oracle that compares two things.
+
+**`--self-check` asks whether the properties can fire at all.**
+
+```sh
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --self-check
+```
+
+A fuzz property asserts that something did NOT happen, over repositories
+nobody looked at, and the healthy output of every one of them is silence. A
+property that can never fire produces exactly the output of a property that
+holds - across the whole corpus, forever. Eight of these were watched failing
+once, by hand, against a payload in a scratch directory that no longer exists;
+that is a measurement, not a gate, and it says nothing after the next refactor
+moves the code out from under it.
+
+It builds one repository with every feature drawn both ways, then for each
+property runs a silent/red pair: the clean payload must NOT produce it, and the
+broken payload must. The first half is not ceremony - a property already firing
+on the clean build would be confirmed by a breakage that did nothing at all,
+which is how a breakage that fails to apply reads as a success. An anchor that
+does not match is a HARNESS FAULT rather than a skip, the same rule `mutate.py`
+states for the same reason.
+
+**19 of 19 properties are observed going red**, including the four the Stage 3
+audit recorded as never watched, and `HARNESS`, which an audit of this stage
+found had been left out of the list entirely. Three need contrived breakages and are marked
+as such in the output, because "this property can be made to fire" and "this
+property guards something somebody might really write" are different claims and
+only the first is being made. `MONOTONE`'s is tautological - it keys on the
+oracle's own probe file - which shows the comparison works and is not
+structurally inert, and shows nothing about what it guards.
+
+**Two of its own breakages were broken, and both are recorded rather than
+quietly fixed.** `ERRORED` asserts that a run naming a rule which RAISED never
+exits 0, so making a rule raise does not provoke it - the gate then correctly
+exits non-zero, which is the property holding. It needs a raising rule AND a
+gate that ignores it. And the `UNSTABLE` anchor was written with four spaces of
+indentation where the real line has eight, so it matched as a SUBSTRING,
+exactly once, applied cleanly, and edited a SARIF-only path that `--verify`
+never reaches; the property was reported unobservable, which was true of the
+breakage and false of the property. `check_anchors` refuses a mid-line match
+now - counting cannot catch that one, because the count is 1 either way.
+
+A later audit found a third: a breakage that left the payload UNPARSEABLE
+satisfied `CRASH` without the crash path ever running, which is the Stage 3
+audit's own lesson verbatim. Every edited file is compiled after the edit now,
+and a hollow breakage rolls back with its syntax error named.
 
 **`--differential` asks the one question the properties cannot.** Every other
 check here holds whatever the right answer is, which is what makes them usable

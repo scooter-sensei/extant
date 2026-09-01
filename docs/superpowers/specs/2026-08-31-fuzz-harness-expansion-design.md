@@ -436,11 +436,35 @@ whose verification was not performed is not done.
   156 denominators; a deliberately silenced `dead-md-link` is caught at exit 1;
   the real `v0.25.0` comparison reports 16 differences, all of them fixes that
   shipped after the tag. See "Stage 4 as built" below.
-- **Stage 5**: `--self-check` reports every property as observable. It is the
-  stage that makes the other verifications repeatable rather than one-time.
-- **Stage 6**: each new axis raises the reach ledger, the refusal count, or the
-  count of shapes the platform declined to build - and if it raises none of the
-  three, it added nothing and comes out.
+- **Stage 5**: DONE. `--self-check` reports 18 of 18 properties observed going
+  red, including `RELOCATE`, `MONOTONE`, `MODE-AGREE` and `ERRORED` - the four
+  Stage 3 recorded as never watched. Three need contrived breakages and say so;
+  `MONOTONE`'s is tautological and says that too. Two of its own breakages were
+  themselves broken, which is the fourth time this campaign has found that
+  shape in the harness. Audited afterwards, which found three more and took it
+  to 19 of 19 - see "Stage 5 as built" and "What the Stage 4 and 5 audit
+  found" below.
+- **Stage 6**: BUILT, with the criterion CHANGED and the change argued under
+  "Stage 6 as built" below. The stated one cannot be met: it asks each axis to
+  raise the reach ledger, which was 5 of 13 when that was written and is 13 of
+  13 now, or the refusal count, or the count of shapes the platform declined to
+  build - and the latter two are costs rather than achievements. What replaced
+  it is the reach ledger's own argument one level up: an axis must be DRAWN AND
+  CONFIRMED somewhere, and one applied often and never confirmed fails the run.
+  Six of six axes are confirmed at the pinned seed, `--self-check` reports 21
+  of 21 properties watched going red including the new `AXIS` and `CONCURRENT`,
+  and the run is green at 0 violations, in 725 seconds against Stage 3's 704.
+  Six defects were found on the way, four of them the shape this project keeps
+  refusing - a check that could not reach its subject returning the value that
+  means all clear - and three of those four were in machinery written during
+  this stage and caught by the ledger written beside it. AUDITED afterwards,
+  which found seven more gaps and one product defect - a CR-only document
+  losing two rules entirely, reported as a denominator of zero. Four of the
+  seven were the reassuring-answer shape again, all four inside the Stage 6
+  machinery itself; every fix is in the code and in
+  `tests/test_fuzz_findings.py`, and the write-up was deliberately kept out of
+  this repository. Bare repositories and `--sha-map` are NOT done and are
+  listed under "What is not done" above.
 
 ## Stage 1 as built
 
@@ -709,6 +733,521 @@ exercised.
 This mode is NOT wired into CI. It needs a baseline ref, it doubles the build
 cost, and its output is meant to be read rather than gated on - a difference is
 not a failure. It is a release-time check, run by hand before tagging.
+
+## Stage 5 as built
+
+### What it does
+
+One repository, built with every feature drawn both ways so that every rule has
+something to read, and only the payload text changing between the two halves of
+each experiment:
+
+  silent  the clean payload must NOT produce the property
+  red     the broken payload must
+
+The first half is the one that earns its place. A property already firing on the
+clean build is "confirmed" by any breakage at all, including one that did
+nothing - which is precisely how a breakage that failed to apply reads as a
+success. The Stage 3 audit caught two breakages that were themselves broken,
+one leaving a SyntaxError so extant never ran, and a run that never ran produces
+no finding of any kind.
+
+Each property is judged by the harness's OWN predicate - `check` for the core
+properties, `oracles.run_all(only=)` for the oracles - so a property observable
+here is observable to the driver and the shrinker. Running the whole of
+`all_faults` per breakage was the first attempt and timed out at ten minutes
+before reporting anything.
+
+### The result
+
+18 of 18, including all four Stage 3 listed as unproven. `HANG`, `RELOCATE` and
+`MONOTONE` need contrived breakages and are marked as such in the output.
+
+`MONOTONE`'s is worse than contrived, it is TAUTOLOGICAL: it keys on the
+oracle's own probe file. A count threshold was tried first and observed
+nothing, for a reason worth keeping - the maximal repository already carries
+more than two markdown files, so the rule was silent before the oracle added
+its document as well as after, and a break that changes nothing changes
+nothing. What the tautology proves is bounded: MONOTONE's comparison WORKS and
+is not structurally inert, which is the failure this stage exists to rule out.
+It does not show the oracle guards a defect anybody would write. Stage 3
+predicted this one would need contriving; needing a tautology is the sharper
+version of that answer.
+
+### Two of its own breakages were broken
+
+`ERRORED` was reported unobservable and the diagnosis was wrong about which
+half had failed. The property asserts that a run naming a rule which RAISED
+never exits 0 - so a raising rule alone does not provoke it, because the gate
+then correctly exits non-zero, which is the property HOLDING. It takes a
+raising rule AND a gate that swallows the consequence. The table carries
+multi-edit breakages because of this one.
+
+`UNSTABLE`'s anchor was written with four spaces of indentation where the real
+statement has eight. Being a SUBSTRING of the real line, it matched exactly
+once, applied cleanly, and edited a SARIF-only path that `--verify` never
+reaches. The property was reported unobservable - true of the breakage, false
+of the property. `check_anchors` now refuses an anchor that begins mid-line;
+counting alone cannot catch this, because the count is 1 either way.
+
+That is the fourth time this campaign has found the project's own defect inside
+the machinery built to find it: a check that could not reach its subject
+returning the value that means all clear.
+
+### What is not done
+
+`--self-check` is not wired into CI. It costs a full timeout to observe `HANG`
+- there is no way to watch a deadline missed without missing it - and it
+rewrites the installed payload in place, which is safe in a disposable arena
+and is not something to run against a tree anybody is holding. It is a
+release-time check, run by hand, exactly like `--differential`.
+
+The properties list is written out rather than discovered, so a property added
+to the harness and not to that list is not checked and nothing says so. That is
+the obvious next gap and the same shape as every other one here.
+
+## What the Stage 4 and 5 audit found
+
+Six gaps, and two guards that turned out to hold. Everything below was settled
+by running something. Three of the six are the same defect this project exists
+to refuse - a check that cannot reach its subject returning the value that
+means all clear - which makes them the fifth, sixth and seventh instances found
+inside the machinery built to find it. Two are verbatim repeats of failures
+already written down in the Stage 3 audit above.
+
+### The baseline was a mixture of two versions
+
+`materialise` extracted over whatever the directory already held. Extraction is
+a merge: `tar` writes the files the archive carries and leaves every other file
+alone. Running `--differential v0.25.0` and then `--differential v0.24.0` in one
+arena therefore left SIX files the newer tag ships and the older one does not,
+`extant/gate.py` among them - so the second run compared HEAD against a payload
+that was neither version and labelled the result with the tag.
+
+Measured, then fixed, then measured again: 6 surviving files before, 0 after.
+The removal is checked rather than passed `ignore_errors`, because a directory
+that survives its own deletion is the case this must not continue past.
+
+### Two timed-out runs compared equal
+
+`observe` gave a timed-out run the same placeholder text, the same empty
+findings and the same empty denominators on both sides, so `compare` returned
+`[]` and the repository was counted as compared and agreeing. This is the
+`_text(None)` defect from the Stage 3 audit - "a hang read as clean", where
+four oracles passed while nothing ran - reproduced in the stage written after
+it, by the person who had just read it.
+
+A pair where either side did not finish is NOT COMPARED now, and the count is
+printed beside the build-mismatch count.
+
+### A hollow breakage satisfied a property
+
+`--self-check` did not check that a breakage left the payload parseable.
+Measured: replacing `def format_github(` with `def format_github((` makes the
+harness report exactly `['CRASH']` - so the CRASH row was satisfiable by a
+breakage that never ran the code it names, and every other property would read
+as "not observable" for the same reason.
+
+This is the Stage 3 audit's own lesson verbatim: "the first EXIT breakage left
+a paren unclosed, so extant raised a SyntaxError, never ran, and the oracle
+looked hollow when the BREAKAGE was hollow." `apply` compiles every edited file
+now and rolls back with the syntax error named.
+
+### The property list was hand-written and short
+
+`ALL_PROPERTIES` had no mechanical cross-check, and `HARNESS` was excluded with
+a note saying it is a property of the harness rather than of extant. True, and
+beside the point: it is a fault kind the driver reports and `SHRINKABLE`
+bisects on, and it fires on the fail-open case where the denominator loop
+iterates nothing and reports success.
+
+It is checked now, and the list is cross-checked against `SHRINKABLE` and
+`ORACLES` DIRECTLY rather than by scraping source. That distinction is not
+theoretical: the throwaway regex written to perform this audit reported `CRASH`
+as never emitted, a false positive, because `CRASH` is returned rather than
+appended. The audit tool had the same defect class as everything it was
+auditing.
+
+### The HARNESS breakage then found something about `gate.py`
+
+Dropping the denominator line did not provoke the property, because the
+denominator is PRINTED FROM TWO PLACES: `report_denominators` writes it for the
+primary document and a separate `diag` writes it per extra document. Removing
+one left `checked README.md: ...` behind, `_rule_counts` still parsed eleven
+entries, and the property could not fire.
+
+The breakage drops both now. The observation about `gate.py` outlives it: one
+claim - what this run examined - emitted by two statements that can be changed
+apart. Not a defect today, since both spell it identically, and worth knowing:
+if either changed format the harness would silently parse fewer denominators
+and DENOMINATOR would cover less without saying so.
+
+### Two guards held, and are now watched rather than assumed
+
+The `BUILD` fingerprint added at the end of Stage 4 had never been observed
+firing. Both halves are now measured: a deleted tag changes the fingerprint,
+and an untracked payload file does NOT - which is the half that matters, since
+a fingerprint including the payload would fire on every differential run.
+
+And the self-check's single repository reaches 13 of 13 rules, so no property
+rests on a corpus that fails to exercise it. That concern was unfounded.
+
+### Smaller
+
+`FINDING` output is capped per direction with the remainder counted, because a
+silenced rule printed one line per lost finding and buried every other
+difference. And `restore` verifies the bytes went back, since a restore that
+silently did not take would leave every later property judged against a payload
+still carrying the previous breakage.
+
+### What this audit did not close
+
+The reach floor for `--differential` is still missing: corpus size is the
+sensitivity of that check and nothing reports how weak a small run is. It
+remains the honest gap named under "Stage 4 as built".
+
+## Stage 6 as built
+
+### The stated criterion could not be met, and the replacement is the ledger
+
+"Each new axis raises the reach ledger, the refusal count, or the count of
+shapes the platform declined to build." The ledger stood at 5 of 13 when that
+was written and stands at 13 of 13 now, so nothing can raise it. The other two
+are costs: this document says itself that a corpus which mostly refuses is a
+corpus mostly testing argument parsing, and a platform declining more shapes is
+worse coverage rather than better.
+
+So the criterion is the one the reach ledger already makes one level down. An
+axis is DRAWN, APPLIED and then CONFIRMED - the run has to behave as though the
+axis were present - and an axis applied often and never once confirmed fails
+the run, exactly as a feature that fires no rule does.
+
+Confirmation is THREE-STATE, and that is the part worth keeping. `True` the run
+showed it; `False` the run contradicts it; `None` this repository offered no
+way to tell. Two states force the third case to be called something and either
+choice is wrong somewhere - counted as confirmed it hides an axis that has
+stopped working, counted as failed it reddens the run over a draw that simply
+had nothing to show.
+
+### What it added
+
+`tests/harnesses/fuzz_axes.py` holds six axes: the document's encoding (CRLF, a
+BOM, a bare CR, UTF-16), a config pattern that makes a rule RAISE, a generator
+marker declaring the tree a site, an annotated tag, packed refs, and a
+`filter-repo` commit-map. `fuzz.py` draws them beside the features, applies
+them at four declared build phases, and prints an axis ledger.
+
+A `CONCURRENT` property joined the core set, taking the properties from 20 to
+21. Seven modes joined `MODES`. Three put the format axis on the GATING modes,
+which it had never been on - `--validate --format=sarif` had never been
+executed by this harness at all. Four are the modes that were never run:
+`--collect`, `--search`, `--check-text` and `--archive`. And the fuzz CI job
+grew a Windows leg, so the shapes that only matter there - CRLF, a
+case-insensitive filesystem, MAX_PATH - are fuzzed somewhere rather than
+nowhere.
+
+THE OTHER HALF OF THAT ARGUMENT DID NOT SURVIVE MEASUREMENT, and is corrected
+here rather than left reading better than it is. It said each leg reports its
+own "could not build" column, so between them the two say what is actually
+held. Measured on the first run: GitHub's Windows runners CAN create symlinks,
+so both legs build every shape and the two columns are IDENTICAL. The differing
+column is a developer-machine phenomenon - this machine skips 21 symlink shapes
+and the runner skips none - so the second leg adds no shape coverage in CI.
+
+What the identical results do buy is unplanned and better. Both legs reached 25
+of 35 repositories, the same ledgers and the same counts from one seed: direct
+evidence that `core.autocrlf` is now pinned. Before that fix the two platforms
+would have built different corpora from the same seed, and nothing would have
+said so.
+
+### How it was verified
+
+Every number here is from a run, on Windows, against a `git archive` extract
+rather than the working tree.
+
+| | |
+|:---|:---|
+| `--self-check` | 21 of 21 properties watched going red, `AXIS` and `CONCURRENT` among them |
+| reach ledger | 13 of 13 rules examined something |
+| axis ledger | 6 of 6 axes applied and confirmed |
+| `mutate.py --check-only` | 157 of 157 anchors match exactly once |
+| `smoke.py` | 31 probes, 47 observations, 0 new flags and 0 missing |
+| `scenarios.py` | 25 scenarios, 213 of 213 assertions |
+| `--verify` and `--selftest` on this repo | clean, 7 fired and 0 silent |
+| `fuzz.py --seed 20260824 --repos 35` | 0 property violations, exit 0 |
+| the same, on CI, both legs | 0 violations; 104s on Linux, 421s on Windows |
+
+THE PINNED CI SEED IS UNCHANGED, and that was not a given. Drawing axes
+consumes the generator differently, so seed 20260824 builds a different corpus
+than it did before this stage - the risk this document names under Risks. It
+had to be re-run rather than assumed, and it was, three times: the first two
+runs found the `MODE-AGREE`, `BASELINE`, `EXIT` and `--archive` defects above.
+The third is the one in the table.
+
+At 35 repositories it now covers 35 of 70 (git state, mode) pairs rather than
+exhausting them, which is the trade this document predicted under Budget: the
+product stops being walked to completion and the harness reverts to sampling
+it, with its existing warning firing and the new mode ledger reporting which
+modes actually ran. 25 of 35 repositories reached the rules and 3 runs
+declined.
+
+WHERE THE TIME ACTUALLY GOES, measured rather than reasoned, because Budget
+asks for it and leaves it open: "Reducing spawns is worth more than reducing
+repositories ... Worth measuring before accepting the cut."
+
+One repository costs 50 extant spawns and about 31 seconds:
+
+| | spawns | seconds |
+|:---|---:|---:|
+| core properties, plus the sweep probe | 8 | 5.6 |
+| the ten metamorphic oracles | 42 | ~25 |
+
+So the ORACLE LAYER is 84 per cent of the spawns and roughly 80 per cent of the
+time, and that is inherent rather than wasteful: an oracle compares extant
+against itself under a change that must not matter, so each needs a before run,
+an after run, and the runs to restore and cross-check - four apiece, ten of
+them, every repository. At 35 repositories that is about 1,750 process starts,
+and a Python start plus importing extant is roughly 0.4 seconds on Windows,
+which is the whole of the 725.
+
+The lever Budget was looking for is therefore the oracle layer, not the
+repository count, and not this stage: `CONCURRENT` is 2 spawns of the 50.
+Anything that let one process answer several oracles - a mode that took a list
+of documents, or a harness that reused one interpreter - buys back far more
+than dropping repositories would, and dropping repositories would cost the
+(git state, mode) coverage that is already only half walked.
+
+THE WALL CLOCK HELD, which is what Budget asked for. Stage 3 recorded this
+invocation at 704 seconds on Windows; two runs of this stage's code measured
+725 and 617. The spread between those two is larger than any difference from
+Stage 3, so the honest claim is the weak one: six axes, seven modes and two
+extra processes per repository did not multiply the cost, and no repository
+count was traded away. A tighter number would need a quiet machine, and this
+was not measured on one.
+
+That it did not multiply is explicable rather than lucky: the concurrent pair
+runs in PARALLEL, so it costs one process start rather than two, and the added
+modes replace drawn ones rather than joining them.
+
+The `AXIS` breakage is worth its own line, because its FIRST version was
+aimed at `ref_table`, where `commit = peeled or obj` peels annotated tags and
+which reads like the obvious site. It applied cleanly, matched exactly once,
+and changed nothing: `ref_table` keys tags by SHORT name while the rule asks
+about `refs/tags/v1.0`, which misses that table and falls through to a
+`rev-parse`. The property read as unobservable when the BREAKAGE was aimed at
+a path the rule does not take - the same mistake Stage 5 made twice and wrote
+down both times, made a third time by someone who had just read both.
+
+### Concurrency, and the breakage that had to be specific
+
+`CONCURRENT` starts two runs of one mode AT ONCE and requires each to answer
+what the same run answers alone. That is the shape real installs reach rather
+than an exotic one: extant ships as git hooks, `post-commit` and `post-merge`
+are both installed, and a merge fires both - so two runs contending for
+`index.lock` is ordinary operation, and this harness had never built it.
+
+Three decisions in it are worth stating.
+
+It compares against the SOLO run, not the pair against each other. Two
+concurrent runs that agree with each other and disagree with the solo answer
+are the interesting case, and comparing only the pair would miss it entirely.
+
+It compares stdout AND stderr, where `UNSTABLE` compares stdout alone - which
+this document already records as failing open, because every diagnostic, every
+denominator on a sarif run and every rule error is written to stderr.
+
+And the breakage is contrived DELIBERATELY rather than conveniently. The easy
+one - put a PID in the output - fires the property while proving nothing about
+concurrency, because a sequential pair would differ too and `UNSTABLE` already
+owns that. The one written instead creates a fixed-name file, holds it, and
+removes it inside a single invocation, so a run with the repository to itself
+never meets it and only an overlapping run does. Watched failing: silent on the
+clean payload, and `CONCURRENT` was the ONLY fault on the broken one, which is
+the sharpest form of the two-halves test this campaign uses.
+
+The sleep in that breakage is load-bearing and says so beside itself. Without
+it the first run releases the name before the second looks, the breakage does
+nothing, and the property reads as unobservable when the BREAKAGE was what
+failed - the mistake this stage's own audit records three other instances of.
+
+`CONCURRENT` is NOT shrinkable, alongside `UNSTABLE` and `HANG`, for the reason
+this document gives under Risks: ddmin assumes a deterministic property, and
+bisecting on a race follows noise and reports a minimal set that reproduces
+nothing.
+
+### The design document proposed a mechanism that does not work
+
+For the raising rule it suggested "a config naming a consistency pattern that
+cannot compile". Measured: `_compile_consistency` catches that at load and the
+run exits 2 with "cannot read configuration", which is a REFUSAL - no rule runs
+at all, so it produces the opposite of what the axis needs.
+
+What does work is a pattern that COMPILES and then misbehaves inside the rule.
+`release_tag` and `branch_token` are both user-settable and both read with
+`.group(1)`, so a pattern with no capture group raises `IndexError: no such
+group` from inside the rule, `ERRORED:` is printed and the gate exits 1. It is
+also a mistake a real project makes, which a payload edit is not.
+
+### What it found
+
+**`--collect` crashed in every repository, which is why it was never fuzzed.**
+An unhandled `RuntimeError` with a carefully written paragraph inside the
+traceback. `run_suite`'s own docstring says the point of raising was to replace
+"an uncaught FileNotFoundError crashing /extant step 1" with something
+actionable; the message became actionable and the crash did not go away,
+because nothing caught it. Every generated repository lacks a `.venv`, so this
+was not an edge case there - it was the mode's ONLY behaviour. Fixed at the CLI
+boundary, reported at exit 2 like every other "this run cannot proceed", with
+both halves pinned in `tests/test_fuzz_findings.py`.
+
+**The EXIT property was not exempted for refusals, while the SARIF one was.**
+Two properties on either side of one predicate, which is the "one claim, two
+scanners" shape this project keeps finding. Latent until the encoding axis
+reached it: every refusal the generator could previously build came from an
+unreadable config and exited 2, which that test does not look at. A UTF-16
+primary document is a refusal that exits 1 - extant declines it by name, "not
+valid UTF-8 (invalid start byte at byte 0)", on stderr with nothing on stdout -
+so the harness would have reported "exited 1 with no finding printed" and
+failed the run over the tool being right.
+
+**The EXIT property could only see findings in one format.** Putting the format
+axis on the gating modes produced `EXIT: --verify --format=github: exited 1
+with no finding printed` on the first run, against output that had printed its
+findings perfectly well as annotations. One finding has three renderings and
+the detector knew the text spelling; it now reads whichever format is on, and
+parses SARIF from stdout ALONE, because the merged stream the other checks read
+never parses as JSON.
+
+**`MODE-AGREE` guarded one side of a two-sided comparison.** It asked whether
+`--verify` had actually read the document - a guard added after verify was
+caught comparing against a document it never read, and which the Stage 3 audit
+recorded `MODE-AGREE` as needing "for the same reason" as `PROCESS`. It got one
+half. `--sweep` can decline too: `exclude_paths` covering the very document
+`primary_doc` names makes the sweep refuse with a CONFLICT, while verify
+proceeds - correctly, because you asked it to gate on that file. The sweep then
+reports nothing and every finding verify printed reads as one the sweep LOST.
+
+Reached at seed 20260824, which is the PINNED CI SEED: the shape has been
+reachable since `exclude_paths` joined the config shapes, and adding the axes
+changed the draw enough to reach it. The guard is now symmetric - a sweep that
+ran prints a denominator and one that declined prints a diagnostic - and
+`MODE-AGREE` was re-checked as still firing on its own breakage afterwards,
+because a guard that silences the property it protects is worse than the gap.
+
+**`--archive` crashed on a document that is not UTF-8**, which is the finding
+this stage most deserved: the ONE MODE THAT REWRITES THE DOCUMENT was the one
+not checking it. `--validate`, `--verify`, `--selftest` and `--check-text` all
+guard that read and refuse with "not valid UTF-8"; `entries.archive` let the
+exception out, so a UTF-16 status document met the only irreversible file
+write in the product with an unhandled traceback.
+
+Nothing had been written when it raised - the read is the first thing
+`archive` does - so the file was intact either way. What is wrong is that a
+crash is not an answer, and this mode's crash is indistinguishable from one
+that failed halfway through a rewrite. It needed BOTH halves of Stage 6 to
+reach: `--archive` was one of the four never-run modes, and no generated
+repository had ever carried a document that was not UTF-8. Found at the pinned
+CI seed, fixed to refuse at exit 1 like its siblings, and pinned in
+`tests/test_fuzz_findings.py` with an assertion that the document is unchanged.
+
+**`core.autocrlf` was an input nobody had declared**, which is the arena-path
+lesson again in a place nobody looked. It is `true` at SYSTEM level on a
+default Windows git install and on GitHub's Windows runners, and every
+generated repository inherited it. Under it a CRLF document becomes LF in the
+committed blob and CRLF again on checkout - measured directly, working tree and
+HEAD blob differing by exactly that - so `--sweep`, which reads HEAD's tree,
+and the gating modes, which read the working tree, would answer about
+DIFFERENT BYTES, and the encoding axis would be judged against a document git
+had quietly normalised back.
+
+The platform-dependence is the worse half, and it is what makes this a
+reproducibility defect rather than a tuning one: Linux leaves the setting off,
+so one seed would build two different corpora on the two CI legs and neither
+leg would say so. Pinned to `false` on every repository this harness creates,
+including clones, which inherit nothing. Measured after: all four encodings now
+reach the commit byte-for-byte.
+
+**Two checks assumed zero findings means exit zero.** It does not when a rule
+RAISED: `gate.py` forces a non-zero exit there deliberately, with the comment
+that a partial answer reporting success "is the failure this whole project
+exists to prevent". `BASELINE` reported a baseline that had suppressed
+everything correctly as a baseline failure, and `EXIT` reported "exited 1 with
+no finding printed" - both accusing the tool of the opposite of what it did.
+
+Neither assumption had ever been TESTABLE. Nothing this generator built had
+ever made a rule raise, which is the hole the `raising-rule` axis exists to
+fill, so the first corpora drawing both found them one after the other. The
+exemptions cost no coverage: `ERRORED` owns exactly this question and asserts
+the other direction, that such a run must never exit 0. Only that half of
+`EXIT` stands aside - findings printed against exit 0 is still wrong however
+many rules raised.
+
+That two independent checks carried the same false assumption is the point
+worth keeping. It was not a mistake either author made; it was a fact about
+extant that no corpus could contradict, so both encoded it and neither could be
+wrong until an axis made the case reachable.
+
+**Two of the axes were themselves broken, and the axis ledger is what said so.**
+The raising axis chose a site whose FEATURE was not drawn, to keep it off any
+rule the reach ledger was watching - which is exactly the condition
+guaranteeing the document held no claim of that shape, so `.group(1)` was never
+reached and no rule ever raised. It reported `raising-rule: applied, and the
+run contradicts it`. Each site now carries and writes the claim its own pattern
+needs. The second was the floor: `runnable-suite` was applied 8 times and
+confirmed 0, and the fault was the DENOMINATOR - applications are not
+opportunities, because that axis showed only in a `--collect` run. It was
+removed in favour of a fixed `suite_command` in the generated config, so
+`--collect` reaches the 350 lines of `collect.py` every time rather than one
+run in two.
+
+That is the fifth and sixth time this campaign has found a check that could not
+reach its subject returning the value that means all clear - both inside the
+machinery built to find it, and both caught by a ledger written in the same
+stage.
+
+**The `empty` state carries none of the build.** `build_from_plan` answers that
+state by creating a SEPARATE repository - `git init`, the payload, a freshly
+composed document - and returning that one. It has no `.extant.toml`, none of
+the written files and none of the commits, so an encoding written to the
+original is not the document extant reads and a config key was never written
+anywhere. Every axis applied there reported itself applied and did nothing.
+Applicability is DECLARED per axis now and the driver declines before running
+it, so the decline lands in the "could not build" column where an untested
+shape belongs.
+
+**A hang that was reachable all along.** `path_pointer = "(a+)+$"` against a
+5000-character run of `a`s is catastrophic backtracking, and both halves have
+been in this generator since Stage 1 - the config shape and the noise shape.
+They had simply never been drawn together with a mode slow enough to exceed the
+90-second budget. It is not a Stage 6 regression and it is not fixed here:
+`consistency.py` records the trade for user-supplied patterns - that process
+isolation is the only mechanism that works and costs a spawn per pattern - and
+`path_pointer` has the same argument.
+
+It is also already KNOWN AND ACCEPTED, which settles the question rather than
+leaving it to judgement: `smoke.py` carries `HANG  pathological user regex` in
+its EXPECTED flag ledger, so that harness asserts the behaviour rather than
+tolerating it. Worth knowing here only because a pinned CI seed has to be
+chosen against it - one that draws the bait together with a slow mode fails on
+the clock, and the failure names the budget rather than the cause.
+
+### What is not done
+
+- **Bare repositories**, and the `--sha-map` mode. The commit-map axis builds
+  the file `--sha-map` reads, and confirms `dead-sha` names the replacement it
+  records, but the flag itself is never passed - it REWRITES documents, so it
+  needs the care `--archive` got rather than a line in `MODES`.
+- **Nine flags** are still never passed: `--full`, `--suggest-fixes`, `--out`,
+  `--suite-json`, `--sha-map`, and the three baseline flags, which the
+  `BASELINE` oracle exercises but the mode list does not. `--as-path` is passed
+  now, with `--check-text`.
+- **The Windows CI leg is written and has never run as a job.** Every number
+  in this section came from a Windows developer machine, so the HARNESS is well
+  exercised there; what is unverified is the workflow - the matrix, the shared
+  `bash` shell, and whether `C:/fzarena` stays under MAX_PATH on a GitHub
+  runner. The first push is where that gets answered. The Linux figure this
+  stage's cost should be judged against was never measured either, which was
+  already named as debt under Budget.
 
 ## What the Stage 2 audit found
 
