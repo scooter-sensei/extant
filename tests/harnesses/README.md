@@ -409,6 +409,43 @@ count. The last two are metamorphic - extant compared against ITSELF under a
 change that must not matter - and they are what let a fuzzer find wrong answers
 rather than only crashes.
 
+**The generator is a catalogue, not a list of strings.** The shapes live in
+`tests/harnesses/fuzz_shapes.py`, one feature per rule, each offering a claim
+that is TRUE and one that is FALSE. It was twelve hard-coded content strings,
+and measuring them against the rules is what forced this rewrite: five of the
+twelve reached a rule at all, the corpus exercised 5 of the 13 rules, and two
+strings were dead in the way this project keeps warning about. One wrote
+`Merged` followed by the branch where `merge_claim` needs `merged` then `to` or
+`into`, so `false-merge-claim` had never fired here. The other wrote a release
+sentence in the spelling `release_tag` does not read - the same distinction
+that left ten status entries unread for six releases. Both had matched nothing
+since the day the harness was written, and nothing could say so, because a
+shape that stops firing is invisible when shapes are strings.
+
+**True claims are half of it.** Every document the old generator wrote was
+already wrong, which cost more than coverage of the clean path: `--selftest`
+was a no-op across the entire corpus, reporting `0 fired, 13 had nothing to
+corrupt`, because a probe corrupts an ACTUAL match and there were none to
+corrupt. A feature therefore offers both spellings and the draw picks `true`,
+`false` or `both`.
+
+**Features are drawn swarm-style.** Each repository omits a random subset of
+features outright rather than drawing every feature independently at a tuned
+probability - Groce et al.'s feature-omission diversity. Both mechanisms that
+technique addresses were present here: features competed for space, because one
+content shape was chosen per document so no repository could hold a merge claim
+and an LFS blob at once, and features suppressed one another, because an
+unparseable config silences everything downstream. The hand-tuned weighting
+that used to compensate is gone.
+
+**The reach ledger is this harness's own denominator.** It records which rules
+actually EXAMINED something across the corpus and fails below a floor. The old
+count - how many repositories produced rule counts of any kind - was the same
+number for a repository exercising one rule and one exercising twelve, which is
+how 8 of 13 rules went unreached with nothing saying so. It separates a rule no
+feature aims at from one a feature aims at and misses, because those are
+different failures with different fixes.
+
 **Coverage is walked, not drawn.** The five git states times the seven modes
 are thirty-five pairs, and the harness covers each once before spending any
 remaining budget at random. That is not tidiness. The first genuine finding
@@ -428,6 +465,59 @@ is the only place that coverage is actually held.
 config, or one excluding the document it is told to gate on - produces no
 result, and emitting a report there would assert a scan that never happened.
 Those are counted and printed separately rather than exempted quietly.
+
+**A saved failure is a repository, not a note.** `--save` writes a plan and
+`--replay FILE` rebuilds exactly that repository and rechecks it. What it wrote
+before was prose - sentences describing what a repository had contained, which
+CI uploaded as an artifact nothing could consume, and the only way back to
+repository 25 was `--seed N` rebuilding all thirty-five. That was structural
+rather than lazy: deciding and building were one loop, so a repository was
+defined by its position in an RNG stream and there was nothing to write down.
+Now `draw_plan` decides and `build_from_plan` builds, and a single `repo_seed`
+owns every choice inside a repository so the file stays small.
+
+**And it shrinks.** A violation arrives carrying whatever the swarm drew, often
+nine features with one responsible. ddmin bisects the feature set while the
+property still holds - the features are the atoms, so dropping one is a legal
+repository and no shrinking-specific machinery is needed. Measured on a
+`manifest-floor-mismatch` denominator violation: 9 features to 1 in 7 rebuilds.
+It runs only on a violation, and only on the deterministic properties;
+`UNSTABLE` exists because a run disagreed with itself, so bisecting on it would
+follow noise and report a minimal set that reproduces nothing.
+
+**Metamorphic oracles.** `tests/harnesses/fuzz_oracles.py` compares extant
+against itself under changes that must not matter: junk inside a code fence, a
+line inserted at the top, LF rewritten to CRLF, the document under another
+name, an unrelated document added, a baseline recorded and then honoured, one
+process reading two documents against two reading one, and the sweep against
+verify. Plus the cheap ones that need no extra run - findings and the exit code
+agreeing, and a raised rule never exiting 0.
+
+The mutable regions are chosen from what the tool GUARANTEES: `strip_code`
+blanks a fence with spaces so every character offset survives, so what is
+inside one cannot be a claim. That contract broke once on CRLF and cost 1627
+characters, which is why two of these oracles aim straight at it.
+
+**An oracle that stands aside says so.** A document with an unclosed fence
+cannot be given another one without changing what is code, and a repository
+whose `primary_doc` does not exist has a `--verify` that reads nothing to
+compare. Those are printed as skips with counts, on the same argument as the
+"could not build" column: not tested is not the same as passed.
+
+**Watched failing, which is the only thing that makes them worth having.**
+Eight of the twelve have been observed going red against a deliberately broken
+payload - line numbers pinned to 1, fences no longer blanked, a bogus SARIF
+denominator, CRLF counted as two breaks, an annotation dropped from the github
+format, a baseline that suppresses nothing, a gate that exits 0 anyway, and a
+rule memoised with no key. `RELOCATE`, `MONOTONE`, `MODE-AGREE` and `ERRORED`
+have NOT been, and are therefore not yet known to hold anything.
+
+Two of those eight took a second attempt, and both failures are worth keeping:
+the first `EXIT` breakage left a paren unclosed, so extant raised a
+SyntaxError, never ran, and the oracle looked hollow when the BREAKAGE was
+broken. The first `PROCESS` breakage removed the document path, which broke
+`--verify` and `--validate` identically - so the two agreed, and a symmetric
+break cannot test an oracle that compares two things.
 
 **Findings do not stay here.** Each is reduced to a case in
 `tests/test_fuzz_findings.py`, which the suite runs on every commit rather than

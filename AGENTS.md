@@ -59,6 +59,36 @@ identically, so a broken check is indistinguishable from a clean result. State
 what was examined. This project hit that failure repeatedly, and reading the
 code caught none of them, because the defect is an absence.
 
+**One claim, one scanner.** The recurring shape of that absence is a rule whose
+`check` and whose `examined` walk the document separately - two readers of one
+pattern, which drift. `false-merge-claim` and `dead-release-tag` each had it,
+and `dead-md-anchor` had it in the severe direction: `check` judges a fragment
+naming a heading in ANOTHER file, the denominator counted same-document
+fragments alone, and a real finding was therefore reported against zero
+examined while the run named that rule among the ones that examined nothing at
+all. That is worse than a missing denominator - it prints as coverage that was
+never provided, about the one rule that had just spoken. Give a rule ONE
+function returning the sites it can decide, and have both callers read it.
+
+**A caller can lose the claim the same way.** `--sweep` passed the document
+path into `validate()`, which scopes it to that call and restores the ambient
+document on the way out - so `count_examined()` ran against a document with no
+path, and every rule keying on WHICH file it reads counted nothing.
+`manifest-floor-mismatch` printed a README's contradiction and zero examined in
+one survey. `--verify` sets the path on the document instead and was right,
+which is what let the survey stay wrong: the rule worked, and only its
+denominator could not see the file.
+
+**And a caller can report one claim twice.** `--sweep` runs the
+repository-scoped rules once in a pass of its own, attributed to the file that
+declares them, and went on running them for the primary document as well - so
+one raw LFS blob printed twice, bare and again under `.gitattributes`, against
+a denominator that counts the governed file once. `inconsistent-artifact` has
+the same shape and did the same. The exclusion was already written on the
+sweep's denominator by hand while the findings loop had no way to say it, which
+is the two-readers defect one layer up from the rules: `rule_applies` carries
+the argument now, and both halves read the one predicate.
+
 **Watch a check fail before you trust it.** Mutate the thing it guards and
 confirm it goes red. A test that has never failed pins nothing.
 `tests/harnesses/mutate.py` does this mechanically.

@@ -367,7 +367,8 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
     return lines, fired, unprobeable, errored
 
 
-def rule_applies(rule: Rule, in_archive: bool, has_entries: bool) -> bool:
+def rule_applies(rule: Rule, in_archive: bool, has_entries: bool, *,
+                 repository_rules: bool = True) -> bool:
     """Whether `rule` reads a document in this position.
 
     ONE definition, because two callers ask the question: the loop that
@@ -377,14 +378,24 @@ def rule_applies(rule: Rule, in_archive: bool, has_entries: bool) -> bool:
     that was never provided, which is the reassuring number rather than the
     honest one, and is precisely the failure a denominator exists to prevent.
 
+    They drifted anyway, over the one clause this signature did not carry.
+    The sweep's denominator excluded repository-scoped rules by hand while
+    the findings loop had no way to say so, so `--sweep` ran `raw-lfs-blob`
+    for its primary document AND again in its own repository pass: one
+    repository fault printed twice, against a denominator that counts the
+    governed file once. `repository_rules=False` is a caller saying it runs
+    those itself, and both halves now read this one predicate rather than
+    one of them restating half of it.
+
     Reads the current document's FORMAT, so the caller must set the document
     in hand before asking.
     """
     primary = not in_archive and has_entries
-    if rule.scope == "repository" and not primary:
+    if rule.scope == "repository" and not (primary and repository_rules):
         # Repository-wide, so it must not be repeated for the archive and
         # every extra document; the disagreement is the same one. A sweep
-        # runs these once outside its document loop instead.
+        # runs these once outside its document loop instead, and says so
+        # with `repository_rules=False` rather than leaving this to notice.
         return False
     if (in_archive or not has_entries) and not rule.in_archive:
         return False
@@ -447,7 +458,8 @@ def run_scope() -> Iterator[RunScope]:
 
 def validate(repo: Path, text: str, *, in_archive: bool = False,
              has_entries: bool = True, base: Path | None = None,
-             doc: str | None = None) -> list[Finding]:
+             doc: str | None = None,
+             repository_rules: bool = True) -> list[Finding]:
     """Run every rule that applies to this KIND of document.
 
     The caller says what the document IS; the registry decides which rules
@@ -470,6 +482,14 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     document such as a README or CLAUDE.md has no dated entries at all, so
     "the newest entry" names nothing and the entry-scoped rules would be
     reasoning about an empty string. They are skipped for the same reason.
+
+    `repository_rules` is False when the CALLER runs the repository-scoped
+    rules itself. Only `--sweep` does: it runs them once outside its document
+    loop, because a repository-wide disagreement must not be repeated per
+    document. Left True it also ran them for whichever document was primary,
+    so the same fault was reported twice - once attributed to the status
+    document and once to the file that actually declares it. See
+    `rule_applies`.
 
     `base` is the DIRECTORY the text came from, because a relative markdown link
     resolves against its own file rather than against the repository root. The
@@ -534,7 +554,8 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     try:
         findings: list[Finding] = []
         for rule in RULES:
-            if not rule_applies(rule, in_archive, has_entries):
+            if not rule_applies(rule, in_archive, has_entries,
+                                repository_rules=repository_rules):
                 continue
             try:
                 findings += rule.check(ctx, text)      # type: ignore[operator]

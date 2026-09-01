@@ -1086,8 +1086,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # 1600 files, on every repository carrying a conf.py.
         ("the project anchor union goes back to being built eagerly",
          rules / "md_anchor.py",
-         "                if fragment in own or fragment in ambient_anchors():",
-         "                if fragment in (own | ambient_anchors()):"),
+         "            if fragment in own or fragment in ambient_anchors():",
+         "            if fragment in (own | ambient_anchors()):"),
         # Hugo's fragment convention, and the guard that keeps it Hugo's. Without
         # the `_` test every page in the project becomes an ambient anchor
         # source, which is the project-wide union arriving through the back door.

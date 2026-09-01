@@ -106,3 +106,211 @@ def test_a_sweep_that_does_find_documents_is_untouched(git_repo) -> None:
     results = doc["runs"][0]["results"]
     assert len(results) == 1, results
     assert results[0]["ruleId"] == "dead-path-pointer", results[0]
+
+
+# --- seed 20260824, property DENOMINATOR: found > examined --------------
+
+
+def _examined(doc: dict) -> dict:
+    """The per-rule denominators out of a SARIF run, wherever they are."""
+    run = doc["runs"][0]
+    return (run.get("properties", {}).get("examined")
+            or (run.get("invocations") or [{}])[0]
+            .get("properties", {}).get("examined"))
+
+
+def _anchor_repo(git_repo, link: str) -> Path:
+    repo, commit = git_repo
+    commit("docs/note.md", "# Note\n\n## A real heading\n\ntext\n",
+           "docs: a note with one heading")
+    commit("NEXT_SESSION.md", f"# S\n\nJump to {link}.\n",
+           "docs: a document that links into it")
+    return repo
+
+
+def test_a_cross_file_anchor_is_counted_by_the_rule_that_judges_it(
+        git_repo) -> None:
+    """A finding against a denominator of zero says two opposite things.
+
+    `dead-md-anchor` judges `[x](docs/note.md#heading)` and its denominator
+    counted only bare `#fragment` links, so a cross-file anchor was reported
+    while the same run said the rule examined nothing and named it in the
+    "these rules examined nothing anywhere here" list. That is the severe
+    direction of the one-claim-one-scanner defect: not a rule that is quiet,
+    but a rule that speaks and is then reported as never having looked.
+
+    Catches a fix that reports the finding without counting the site.
+    """
+    repo = _anchor_repo(git_repo, "[x](docs/note.md#no-such-heading)")
+    doc = json.loads(_sweep(repo, "--format=sarif").stdout)
+
+    found = [r for r in doc["runs"][0]["results"]
+             if r["ruleId"] == "dead-md-anchor"]
+    assert len(found) == 1, doc["runs"][0]["results"]
+    examined = _examined(doc)
+    assert examined["dead-md-anchor"] >= len(found), examined
+
+    note = [line for line in _sweep(repo).stderr.splitlines()
+            if "examined nothing anywhere here" in line]
+    assert not [line for line in note if "dead-md-anchor" in line], note
+
+
+def test_the_widened_denominator_counts_sites_rather_than_hashes(
+        git_repo) -> None:
+    """Both callers must read the sites the rule can DECIDE, not every `#`.
+
+    A denominator that counted anchors the rule declines to judge would be
+    the same defect pointed the other way: coverage reported where none was
+    provided. A cross-file anchor that resolves is examined and clean; one
+    whose file is not there is `dead-md-link`'s finding, so this rule neither
+    reports it nor counts it.
+
+    Catches a fix that made `examined` count every fragment link it saw.
+    """
+    live = _anchor_repo(git_repo, "[x](docs/note.md#a-real-heading)")
+    doc = json.loads(_sweep(live, "--format=sarif").stdout)
+    assert not [r for r in doc["runs"][0]["results"]
+                if r["ruleId"] == "dead-md-anchor"], doc["runs"][0]["results"]
+    assert _examined(doc)["dead-md-anchor"] == 1, _examined(doc)
+
+
+def test_an_anchor_on_a_file_that_is_not_there_is_still_not_counted(
+        git_repo) -> None:
+    """The other half of the same property, in its own case.
+
+    `dead-md-link` owns a target that does not resolve, and this rule has
+    always declined to judge one. A denominator that counted it would claim
+    the anchor had been checked against a file nothing read.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# S\n\nJump to [x](docs/gone.md#heading).\n",
+           "docs: an anchor on a file that is not there")
+    doc = json.loads(_sweep(repo, "--format=sarif").stdout)
+
+    kinds = [r["ruleId"] for r in doc["runs"][0]["results"]]
+    assert kinds == ["dead-md-link"], kinds
+    assert _examined(doc)["dead-md-anchor"] == 0, _examined(doc)
+
+
+def _floor_repo(git_repo, stated: str) -> Path:
+    repo, commit = git_repo
+    commit("pyproject.toml", '[project]\nname = "w"\nrequires-python = ">=3.9"\n',
+           "chore: a manifest that declares a floor")
+    commit("README.md", f"# Widget\n\nRequires Python {stated} or later.\n",
+           "docs: a README that states one")
+    commit("NEXT_SESSION.md", "# S\n\nNothing.\n", "docs: a status document")
+    return repo
+
+
+def test_a_sweep_counts_the_manifest_floor_claims_it_reports(git_repo) -> None:
+    """The same conflation reached through the survey rather than the rule.
+
+    `manifest-floor-mismatch` keys on WHICH document it is reading, and a
+    sweep passed the path to `validate` alone - which scopes it to that call
+    and puts the ambient document back. `count_examined` then ran against a
+    document with no path, so the survey printed the README's contradiction
+    and `manifest-floor-mismatch 0` beside it. `--verify` was already right,
+    which is what made this survive: the rule works, and only the survey's
+    denominator could not see it.
+
+    Catches a fix applied to the rule instead of to the caller that lost the
+    document.
+    """
+    repo = _floor_repo(git_repo, "3.7")
+    doc = json.loads(_sweep(repo, "--format=sarif").stdout)
+
+    found = [r for r in doc["runs"][0]["results"]
+             if r["ruleId"] == "manifest-floor-mismatch"]
+    assert len(found) == 1, doc["runs"][0]["results"]
+    examined = _examined(doc)
+    assert examined["manifest-floor-mismatch"] >= len(found), examined
+
+
+def test_a_sweep_counts_a_floor_the_manifest_agrees_with(git_repo) -> None:
+    """Examined is the population, not the findings.
+
+    A denominator that only appeared when the rule spoke would report perfect
+    coverage of exactly what was wrong and nothing else. The agreeing README
+    is examined and clean, which is the number a reader needs to tell a quiet
+    rule from a blind one.
+    """
+    repo = _floor_repo(git_repo, "3.9")
+    doc = json.loads(_sweep(repo, "--format=sarif").stdout)
+
+    assert not [r for r in doc["runs"][0]["results"]
+                if r["ruleId"] == "manifest-floor-mismatch"], (
+        doc["runs"][0]["results"])
+    assert _examined(doc)["manifest-floor-mismatch"] == 1, _examined(doc)
+
+
+# --- seed 20260824, property DENOMINATOR: one fault reported twice ------
+
+
+def _lfs_repo(git_repo) -> Path:
+    """A raw blob at a path `.gitattributes` routes through an LFS filter.
+
+    Written past the filter with `hash-object --no-filters` and straight into
+    the index, because `git add` cannot produce this shape on a machine with
+    git-lfs installed: the clean filter converts the file on the way in and a
+    correct pointer reaches the tree, so the rule finds nothing and the test
+    passes without testing anything. `_lfs_finalize` in
+    tests/harnesses/fuzz_shapes.py records the two configurations that fail
+    more quietly still.
+    """
+    repo, commit = git_repo
+    commit(".gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n",
+           "chore: route the binaries through LFS")
+    commit("NEXT_SESSION.md", "# S\n\nNothing to see.\n",
+           "docs: a status document with no claims")
+    blob = repo / "asset-raw.bin"
+    blob.write_bytes(b"not a pointer, just bytes\n" + b"x" * 300)
+    run = ["git", "-C", str(repo)]
+    sha = subprocess.run(run + ["hash-object", "-w", "--no-filters", "--",
+                                "asset-raw.bin"],
+                         capture_output=True, text=True).stdout.strip()
+    subprocess.run(run + ["update-index", "--add", "--cacheinfo",
+                          f"100644,{sha},asset-raw.bin"], capture_output=True)
+    subprocess.run(run + ["commit", "-qm", "chore: a raw blob under a filter"],
+                   capture_output=True)
+    return repo
+
+
+def test_a_repository_rule_reports_its_one_fault_once(git_repo) -> None:
+    """One repository, one raw blob, one finding.
+
+    A repository-scoped rule reads no document, and `--sweep` ran it twice:
+    once inside the pass for whichever document was primary, and once in its
+    own repository pass. The same blob printed bare and again under
+    `.gitattributes:`, against a denominator that counts the governed file
+    once - so found was 2 from examined 1. `inconsistent-artifact` is the same
+    rule shape and did the same.
+
+    Catches a fix that leaves the rule running twice.
+    """
+    repo = _lfs_repo(git_repo)
+    doc = json.loads(_sweep(repo, "--format=sarif").stdout)
+
+    found = [r for r in doc["runs"][0]["results"]
+             if r["ruleId"] == "raw-lfs-blob"]
+    assert len(found) == 1, doc["runs"][0]["results"]
+    assert _examined(doc)["raw-lfs-blob"] >= len(found), _examined(doc)
+
+
+def test_that_fault_is_attributed_to_the_file_that_declares_it(
+        git_repo) -> None:
+    """WHERE the surviving copy points, which is the half a count cannot see.
+
+    The two copies were not interchangeable: one was attributed to the status
+    document that happens to be primary, and one to `.gitattributes`, which is
+    the file the answer actually lives in. Dropping either would have made the
+    count right; only one of them sends a reader to the right file.
+
+    Catches a fix that de-duplicated by keeping the document-attributed copy,
+    and one that dropped the repository pass instead of the per-document run.
+    """
+    repo = _lfs_repo(git_repo)
+    lines = [line for line in _sweep(repo).stdout.splitlines()
+             if "[raw-lfs-blob]" in line]
+
+    assert len(lines) == 1, lines
+    assert lines[0].startswith(".gitattributes:"), lines[0]
