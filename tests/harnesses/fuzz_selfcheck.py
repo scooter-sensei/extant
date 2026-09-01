@@ -68,16 +68,44 @@ from pathlib import Path
 # should fail this list instead of quietly reducing what is checked - the same
 # argument `registry.py` makes for a denominator that raises.
 #
-# `refused` and `HARNESS` are deliberately absent. Neither is a property of
-# extant: `refused` records that a run declined to start, and `HARNESS` fires
-# when this harness's own denominator check had nothing to iterate. Breaking
-# the payload cannot produce either honestly.
+# `HARNESS` WAS EXCLUDED HERE AND THE EXCLUSION WAS WRONG. The note said it
+# is not a property of extant but of this harness - true, and beside the
+# point. It is a fault kind the driver reports and `SHRINKABLE` bisects on,
+# and it fires on a real shape: findings printed with no denominator line at
+# all, which is the fail-open case where the DENOMINATOR loop iterates nothing
+# and reports success. A gate nobody has watched fail is a hypothesis whoever
+# it belongs to.
+#
+# `refused` stays out, and that one is genuine: it records that a run declined
+# to START, so no breakage to the payload produces it honestly.
 CORE_PROPERTIES = ("CRASH", "HANG", "EXIT", "ERRORED", "DENOMINATOR",
-                   "UNSTABLE", "SARIF", "FORMATS")
+                   "UNSTABLE", "SARIF", "FORMATS", "HARNESS")
 ORACLE_PROPERTIES = ("FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
                      "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE",
                      "GITHUB")
 ALL_PROPERTIES = CORE_PROPERTIES + ORACLE_PROPERTIES
+
+# Names this list is NOT required to carry, each with the reason, so the
+# cross-check below stays readable rather than becoming a lowered floor.
+EXEMPT = {
+    # A run that declined to start. No payload edit produces it honestly.
+    "refused",
+}
+
+
+def unlisted_properties(shrinkable, oracle_names) -> list[str]:
+    """Fault kinds the harness can report that this file does not check.
+
+    DERIVED FROM THE HARNESS'S OWN DATA, never scraped from its source. The
+    ad-hoc regex written to audit this list reported `CRASH` as never emitted -
+    a false positive, because `CRASH` is RETURNED rather than appended - which
+    is the argument for reading `SHRINKABLE` and `ORACLES` directly instead.
+
+    A hand-written list that silently shrinks to whatever happens to be covered
+    is the reassuring number again, one level up from the rules.
+    """
+    known = set(ALL_PROPERTIES) | EXEMPT
+    return sorted((set(shrinkable) | set(oracle_names)) - known)
 
 
 @dataclass(frozen=True)
@@ -277,6 +305,35 @@ BREAKAGES = (
         contrived=True,
     ),
 
+    Breakage(
+        prop="HARNESS",
+        why="findings printed with no denominator line at all, so the "
+            "DENOMINATOR loop iterates nothing and reports success",
+        # The fail-open case, and the one this harness is least able to notice
+        # about itself: with no `checked X: ...` line the per-rule loop has
+        # nothing to walk, so every denominator comparison passes vacuously
+        # while findings print normally.
+        #
+        # TWO EDITS, because the denominator is PRINTED FROM TWO PLACES.
+        # `report_denominators` writes it for the primary document and a
+        # separate `diag` writes it per extra document, so dropping one leaves
+        # `checked README.md: ...` behind, `_rule_counts` still parses eleven
+        # entries, and the property cannot fire. The first attempt at this
+        # breakage dropped only the first and was reported NOT OBSERVED.
+        #
+        # That is the same two-writers shape the rules keep producing, one
+        # layer up and in the OUTPUT rather than the counting: one claim -
+        # what this run examined - emitted by two statements that can be
+        # changed apart. Worth knowing about `gate.py` independently of this
+        # breakage needing it.
+        edits=(("extant/gate.py",
+                '    diag(f"checked {name}: {summary}")',
+                '    pass  # denominator line dropped'),
+               ("extant/gate.py",
+                """        diag(f"checked {relative}: {checked or 'nothing applicable'}")""",
+                '        pass  # the extra-document denominator, dropped too'),),
+    ),
+
     # --- the two the Stage 3 audit predicted would need contriving -----
     Breakage(
         prop="RELOCATE",
@@ -395,13 +452,45 @@ def apply(repo: Path, item: Breakage) -> list:
                              f"{path}, so nothing was tested")
         target.write_text(patched, encoding="utf-8")
         saved.append((target, original))
+    # THE BREAKAGE MUST STILL BE PYTHON. An edit that leaves a SyntaxError
+    # stops extant running at all, and a tool that never ran reports a
+    # traceback - which satisfies CRASH without the crash path ever executing,
+    # and leaves every other property silent so it reads as "not observable".
+    # Measured: replacing `def format_github(` with `def format_github((`
+    # makes `check` report exactly ['CRASH'].
+    #
+    # The Stage 3 audit recorded this once already - "the first EXIT breakage
+    # left a paren unclosed, so extant raised a SyntaxError, never ran, and the
+    # oracle looked hollow when the BREAKAGE was hollow" - and this file
+    # reproduced it. A hollow breakage is a harness fault, not a result.
+    for target, _original in saved:
+        try:
+            compile(target.read_text(encoding="utf-8"), str(target), "exec")
+        except SyntaxError as exc:
+            for done, text in saved:
+                done.write_text(text, encoding="utf-8")
+            raise ValueError(f"{item.prop}: the breakage left {target.name} "
+                             f"unparseable ({exc.msg} at line {exc.lineno}), "
+                             f"so extant would not run and no property was "
+                             f"tested") from None
     return saved
 
 
 def restore(saved: list) -> None:
-    """Put the payload back, byte for byte, in reverse order."""
+    """Put the payload back, and CONFIRM it went back.
+
+    Verified rather than assumed, because the cost of being wrong compounds:
+    a restore that silently did not take leaves every later property judged
+    against a payload still carrying the previous breakage, and those results
+    would be reported as ordinary rows. The failure would present as several
+    unrelated properties behaving oddly rather than as one bad write.
+    """
     for target, original in reversed(saved):
         target.write_text(original, encoding="utf-8")
+        if target.read_text(encoding="utf-8") != original:
+            raise ValueError(f"{target} did not restore, so every property "
+                             f"after this one would be measured against a "
+                             f"payload that is still broken")
 
 
 def observed(faults, prop: str) -> bool:

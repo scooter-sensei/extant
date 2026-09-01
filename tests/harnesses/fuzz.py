@@ -1346,6 +1346,7 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
     findings_seen = 0
     examined_seen = 0
     mismatched = 0
+    timed_out = 0
     for index, (state, planned_mode) in enumerate(plan):
         repo_plan = draw_plan(rng, index, state, planned_mode, head_digest)
         repo, recipe = build_from_plan(pkg, arena, repo_plan)
@@ -1365,12 +1366,22 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
         # non-core git steps lost a race produces a repository missing a ref,
         # and comparing outputs across that pair blames the versions for the
         # build. `fingerprint` carries the instance this was found by.
+        if head_report.timed_out:
+            timed_out += 1
+            print(f"  [{index:03d}] TIMEOUT   head did not finish, so this "
+                  f"pair was not compared")
+            continue
         if differential.fingerprint(head_repo) != differential.fingerprint(repo):
             mismatched += 1
             print(f"  [{index:03d}] BUILD     the two builds differ as "
                   f"repositories, so this pair was not compared")
             continue
         base_report = differential.observe(repo, planned_mode, run_mode)
+        if base_report.timed_out:
+            timed_out += 1
+            print(f"  [{index:03d}] TIMEOUT   base did not finish, so this "
+                  f"pair was not compared")
+            continue
 
         compared += 1
         for report in (head_report, base_report):
@@ -1382,7 +1393,8 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
             print(f"  [{index:03d}] {kind:<9} {detail}")
 
     differential.summarise(differences, compared, unbuilt, base_label,
-                           (findings_seen, examined_seen), mismatched)
+                           (findings_seen, examined_seen), mismatched,
+                           timed_out)
     # A run that compared nothing is a harness fault, not a clean result - the
     # same distinction CORPUS_FLOOR draws for the main driver. Without it an
     # arena the builds cannot use reports "0 differences" and reads as green.
@@ -1421,6 +1433,17 @@ def run_self_check(pkg: Path, arena: Path) -> int:
     # ANCHORS FIRST, ALL OF THEM, BEFORE ANY OF THEM RUNS. A stale anchor is a
     # harness fault and there is no point measuring anything until it is fixed;
     # reporting it per-breakage would bury it among the results it invalidates.
+    unlisted = selfcheck.unlisted_properties(
+        SHRINKABLE, [name for name, _fn in oracles.ORACLES])
+    if unlisted:
+        print()
+        print("HARNESS FAULT: this harness can report fault kinds the "
+              "self-check does not\ncover, so they are not known to hold "
+              "anything. Add a breakage, or\nname the exemption:")
+        for name in unlisted:
+            print(f"  UNCHECKED  {name}")
+        return 2
+
     stale = selfcheck.check_anchors(repo)
     if stale:
         print()

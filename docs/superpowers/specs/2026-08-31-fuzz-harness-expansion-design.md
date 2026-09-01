@@ -441,7 +441,9 @@ whose verification was not performed is not done.
   Stage 3 recorded as never watched. Three need contrived breakages and say so;
   `MONOTONE`'s is tautological and says that too. Two of its own breakages were
   themselves broken, which is the fourth time this campaign has found that
-  shape in the harness. See "Stage 5 as built" below.
+  shape in the harness. Audited afterwards, which found three more and took it
+  to 19 of 19 - see "Stage 5 as built" and "What the Stage 4 and 5 audit
+  found" below.
 - **Stage 6**: each new axis raises the reach ledger, the refusal count, or the
   count of shapes the platform declined to build - and if it raises none of the
   three, it added nothing and comes out.
@@ -785,6 +787,106 @@ release-time check, run by hand, exactly like `--differential`.
 The properties list is written out rather than discovered, so a property added
 to the harness and not to that list is not checked and nothing says so. That is
 the obvious next gap and the same shape as every other one here.
+
+## What the Stage 4 and 5 audit found
+
+Six gaps, and two guards that turned out to hold. Everything below was settled
+by running something. Three of the six are the same defect this project exists
+to refuse - a check that cannot reach its subject returning the value that
+means all clear - which makes them the fifth, sixth and seventh instances found
+inside the machinery built to find it. Two are verbatim repeats of failures
+already written down in the Stage 3 audit above.
+
+### The baseline was a mixture of two versions
+
+`materialise` extracted over whatever the directory already held. Extraction is
+a merge: `tar` writes the files the archive carries and leaves every other file
+alone. Running `--differential v0.25.0` and then `--differential v0.24.0` in one
+arena therefore left SIX files the newer tag ships and the older one does not,
+`extant/gate.py` among them - so the second run compared HEAD against a payload
+that was neither version and labelled the result with the tag.
+
+Measured, then fixed, then measured again: 6 surviving files before, 0 after.
+The removal is checked rather than passed `ignore_errors`, because a directory
+that survives its own deletion is the case this must not continue past.
+
+### Two timed-out runs compared equal
+
+`observe` gave a timed-out run the same placeholder text, the same empty
+findings and the same empty denominators on both sides, so `compare` returned
+`[]` and the repository was counted as compared and agreeing. This is the
+`_text(None)` defect from the Stage 3 audit - "a hang read as clean", where
+four oracles passed while nothing ran - reproduced in the stage written after
+it, by the person who had just read it.
+
+A pair where either side did not finish is NOT COMPARED now, and the count is
+printed beside the build-mismatch count.
+
+### A hollow breakage satisfied a property
+
+`--self-check` did not check that a breakage left the payload parseable.
+Measured: replacing `def format_github(` with `def format_github((` makes the
+harness report exactly `['CRASH']` - so the CRASH row was satisfiable by a
+breakage that never ran the code it names, and every other property would read
+as "not observable" for the same reason.
+
+This is the Stage 3 audit's own lesson verbatim: "the first EXIT breakage left
+a paren unclosed, so extant raised a SyntaxError, never ran, and the oracle
+looked hollow when the BREAKAGE was hollow." `apply` compiles every edited file
+now and rolls back with the syntax error named.
+
+### The property list was hand-written and short
+
+`ALL_PROPERTIES` had no mechanical cross-check, and `HARNESS` was excluded with
+a note saying it is a property of the harness rather than of extant. True, and
+beside the point: it is a fault kind the driver reports and `SHRINKABLE`
+bisects on, and it fires on the fail-open case where the denominator loop
+iterates nothing and reports success.
+
+It is checked now, and the list is cross-checked against `SHRINKABLE` and
+`ORACLES` DIRECTLY rather than by scraping source. That distinction is not
+theoretical: the throwaway regex written to perform this audit reported `CRASH`
+as never emitted, a false positive, because `CRASH` is returned rather than
+appended. The audit tool had the same defect class as everything it was
+auditing.
+
+### The HARNESS breakage then found something about `gate.py`
+
+Dropping the denominator line did not provoke the property, because the
+denominator is PRINTED FROM TWO PLACES: `report_denominators` writes it for the
+primary document and a separate `diag` writes it per extra document. Removing
+one left `checked README.md: ...` behind, `_rule_counts` still parsed eleven
+entries, and the property could not fire.
+
+The breakage drops both now. The observation about `gate.py` outlives it: one
+claim - what this run examined - emitted by two statements that can be changed
+apart. Not a defect today, since both spell it identically, and worth knowing:
+if either changed format the harness would silently parse fewer denominators
+and DENOMINATOR would cover less without saying so.
+
+### Two guards held, and are now watched rather than assumed
+
+The `BUILD` fingerprint added at the end of Stage 4 had never been observed
+firing. Both halves are now measured: a deleted tag changes the fingerprint,
+and an untracked payload file does NOT - which is the half that matters, since
+a fingerprint including the payload would fire on every differential run.
+
+And the self-check's single repository reaches 13 of 13 rules, so no property
+rests on a corpus that fails to exercise it. That concern was unfounded.
+
+### Smaller
+
+`FINDING` output is capped per direction with the remainder counted, because a
+silenced rule printed one line per lost finding and buried every other
+difference. And `restore` verifies the bytes went back, since a restore that
+silently did not take would leave every later property judged against a payload
+still carrying the previous breakage.
+
+### What this audit did not close
+
+The reach floor for `--differential` is still missing: corpus size is the
+sensitivity of that check and nothing reports how weak a small run is. It
+remains the honest gap named under "Stage 4 as built".
 
 ## What the Stage 2 audit found
 

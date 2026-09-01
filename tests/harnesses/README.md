@@ -541,8 +541,9 @@ which is how a breakage that fails to apply reads as a success. An anchor that
 does not match is a HARNESS FAULT rather than a skip, the same rule `mutate.py`
 states for the same reason.
 
-**18 of 18 properties are observed going red**, including the four the Stage 3
-audit recorded as never watched. Three need contrived breakages and are marked
+**19 of 19 properties are observed going red**, including the four the Stage 3
+audit recorded as never watched, and `HARNESS`, which an audit of this stage
+found had been left out of the list entirely. Three need contrived breakages and are marked
 as such in the output, because "this property can be made to fire" and "this
 property guards something somebody might really write" are different claims and
 only the first is being made. `MONOTONE`'s is tautological - it keys on the
@@ -559,6 +560,11 @@ exactly once, applied cleanly, and edited a SARIF-only path that `--verify`
 never reaches; the property was reported unobservable, which was true of the
 breakage and false of the property. `check_anchors` refuses a mid-line match
 now - counting cannot catch that one, because the count is 1 either way.
+
+A later audit found a third: a breakage that left the payload UNPARSEABLE
+satisfied `CRASH` without the crash path ever running, which is the Stage 3
+audit's own lesson verbatim. Every edited file is compiled after the edit now,
+and a hollow breakage rolls back with its syntax error named.
 
 **`--differential` asks the one question the properties cannot.** Every other
 check here holds whatever the right answer is, which is what makes them usable
