@@ -100,9 +100,12 @@ real SHAs into its documents; the clock is pinned now. And the walk built all
 which at the count CI uses dropped an entire mode in 147 of 300 seeds, one of
 them the mode added to find crashes in modes nobody runs.
 
-**What is not closed, and is not hidden.** `--archive` still crashes on one
-input in roughly one seed in five; it is a live finding the gate reports and
-nobody has fixed. Five flags are never fuzzed, of which `--suggest-fixes` is
+**What is not closed, and is not hidden.** The one live finding the gate
+reported IS closed: `--archive` crashed when `primary_doc` named a document
+that is not there, which is the second way into the crash the encoding fix
+closed, and it reached the only irreversible write in the product. It refuses
+by name now, the way `--validate` refuses the same input, and the seed that
+produced it reports no violations. Five flags are never fuzzed, of which `--suggest-fixes` is
 the substantial one. The walk covers 35 of 75 pairs at the count CI uses -
 every mode and every state now, but half the product. And two of the six axes
 still report "no way to tell" more often than a reader would like, for reasons

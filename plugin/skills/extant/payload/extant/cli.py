@@ -400,8 +400,32 @@ def run_collect(repo: Path, args: argparse.Namespace,
     return 0
 
 
-def run_archive(repo: Path) -> int:
+def run_archive(repo: Path, status: StatusConfig) -> int:
     """`--archive`: split old entries out of the primary document."""
+    # A DOCUMENT THAT IS NOT THERE WAS THE SECOND WAY INTO THE SAME CRASH.
+    #
+    # `run_validate` refuses this input three functions away, and says what
+    # to do about it: `entries.archive` opens `primary_doc` as the first
+    # thing it does, so a config naming a document that does not exist -
+    # a typo, a file not created yet, a `primary_doc` left pointing at a
+    # renamed one - met the only irreversible write in the product with an
+    # unhandled FileNotFoundError.
+    #
+    # Reported the way the sibling reports it, naming the setting and where
+    # it was read from, because "no such file" alone does not tell anyone
+    # WHICH of the two - the config or the document - is the thing to fix.
+    #
+    # Found by fuzzing `--archive` against a deliberately broken config,
+    # which is the same mode and the same generator that found the encoding
+    # crash below, one shape later.
+    target = repo / session.context(repo).config.primary_doc
+    if not target.is_file():
+        print(f"no such document: {target}", file=sys.stderr)
+        print(f"  primary_doc is '{status.primary_doc}', from "
+              f"{status.source}", file=sys.stderr)
+        print("  set primary_doc in .extant.toml, or create the document",
+              file=sys.stderr)
+        return 1
     # THE ONE MODE THAT REWRITES THE DOCUMENT WAS THE ONE NOT CHECKING IT.
     #
     # `entries.archive` opens the primary document as UTF-8 and every other
@@ -544,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.collect:
         return run_collect(repo, args, status)
     if args.archive:
-        return run_archive(repo)
+        return run_archive(repo, status)
     if args.deleted_since:
         return run_deleted_since(repo, args.deleted_since, args.format)
     if args.sweep:

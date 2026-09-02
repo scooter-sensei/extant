@@ -1387,9 +1387,21 @@ claim.
 
 ### What the follow-on did not close
 
-`--archive` still crashes on one input in roughly one seed in five. It is a
-live finding the gate reports and nobody has fixed, and it is the first thing
-to take.
+`--archive` crashed on one input in roughly one seed in five, and that one is
+now FIXED - `primary_doc` naming a document that is not there reached the only
+irreversible write in the product with an unhandled FileNotFoundError, where
+`run_validate` refuses the same input and says which of the two things to
+change. It is the second way into the crash the encoding guard closed, and it
+needed the deliberately broken config as well, which is a different draw.
+Measured after: the seed that produced it reports no violations, and five seeds
+at 35 repositories report none between them.
+
+THE DIFFERENTIAL COULD NOT SEE THAT FIX, which is worth recording because the
+number looks like evidence. It reports 0 differences over 75 pairs, and its
+`--archive` pairs are at indices 5, 20, 35, 50 and 65 while the repositories
+carrying a missing `primary_doc` are 32, 54 and 72 - the combination was never
+drawn. The 0 means no regression anywhere else, and nothing about the fix; the
+evidence for that is the reproduction and the two pinned tests.
 
 Five flags are never passed by the harness - `--suggest-fixes`,
 `--baseline-check`, `--full`, `--out` and `--suite-json` - of which the first is

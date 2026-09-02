@@ -739,3 +739,69 @@ def test_search_still_finds_entries_when_both_documents_are_readable(
 
     assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
     assert "Phase 1" in done.stdout, done.stdout
+
+
+def test_archive_on_a_missing_document_reports_rather_than_crashes(
+        git_repo) -> None:
+    """`primary_doc` naming a file that is not there, at the irreversible write.
+
+    `entries.archive` opens `primary_doc` as the first thing it does, and
+    nothing above the call looked. So a config naming a document that does not
+    exist - a typo, a file not created yet, a `primary_doc` left pointing at one
+    that was renamed - reached the only irreversible file operation in the
+    product with an unhandled FileNotFoundError.
+
+    `run_validate` refuses the same input three functions away and says which of
+    the two things to fix, naming the setting AND where it was read from. "No
+    such file" alone does not tell anyone whether the config or the document is
+    wrong.
+
+    This is the SECOND way into the same crash. The first was an undecodable
+    document, above, found when `--archive` joined the fuzzer's modes; this one
+    needs the deliberately broken config as well, which is a different draw. It
+    reproduced at about one seed in five and was the last property violation the
+    harness reported against the shipped tool.
+
+    Catches a fix that lets the exception back out, and one that reports without
+    naming the setting.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "missing-on-purpose.md"\ntrunk = "main"\n',
+        encoding="utf-8")
+
+    done = _archive(repo)
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    assert done.returncode == 1, (done.returncode, done.stdout, done.stderr)
+    assert "no such document" in done.stderr, done.stderr
+    assert "missing-on-purpose.md" in done.stderr, done.stderr
+    # The SETTING and its SOURCE, not just the path: the reader has to be able
+    # to tell which of the two is the thing to change.
+    assert "primary_doc is" in done.stderr, done.stderr
+    assert ".extant.toml" in done.stderr, done.stderr
+    # Structurally a refusal - nothing on stdout - because `fuzz.py` recognises
+    # one that way, and because this mode's stdout carries `retained=/archived=`.
+    assert not done.stdout.strip(), done.stdout
+
+
+def test_archive_still_archives_when_the_document_is_there(git_repo) -> None:
+    """The other half: guarding the read must not have disabled the write.
+
+    A guard that refused for every input would pass the test above and silently
+    stop archiving - the fail-open shape one level up, in the one operation here
+    that cannot be undone.
+    """
+    repo, commit = git_repo
+    entries = "\n".join(
+        [f"## Phase {n} - x\n\nWork {n}.\n" for n in range(9, 0, -1)])
+    commit("NEXT_SESSION.md", f"# Status\n\n{entries}", "docs: many entries")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+
+    done = _archive(repo)
+
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
+    assert "retained=" in done.stdout, done.stdout
+    assert "archived=" in done.stdout, done.stdout

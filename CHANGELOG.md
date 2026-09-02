@@ -56,6 +56,10 @@ with a traceback instead of a sentence, and all three now print the same one:
 - `--sha-map` naming a map that is not there. The invocation in the README
   names a path that does not exist until somebody has run `git filter-repo`,
   so this is the ordinary way to reach the flag rather than an exotic one.
+- `--archive` again, by a second route: `primary_doc` naming a document that
+  is not there. It reports which setting is wrong and where it was read from,
+  because "no such file" alone does not say whether the config or the document
+  is the thing to fix.
 
 One encoding now gets one answer across `--validate`, `--verify`, `--archive`
 and `--search`.
