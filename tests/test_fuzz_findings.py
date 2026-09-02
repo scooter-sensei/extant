@@ -533,3 +533,209 @@ def test_normalising_a_bare_cr_does_not_move_any_offset(git_repo) -> None:
     assert lines["lf"] == [5, 6], lines
     assert lines["crlf"] == lines["lf"], lines
     assert lines["cr"] == lines["lf"], lines
+
+
+def _sha_map_run(repo: Path, map_path: str, *extra: str):
+    """Drive `--sha-map` through the real entry point, as a consumer would."""
+    return subprocess.run(
+        [sys.executable, str(_installed(repo)), "--validate",
+         "NEXT_SESSION.md", "--sha-map", map_path, *extra,
+         "--repo", str(repo)],
+        cwd=str(repo),
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def test_sha_map_naming_a_missing_file_reports_rather_than_crashes(
+        git_repo) -> None:
+    """`--sha-map` opened its path directly, so a map that is not there crashed.
+
+    `load_sha_map` called `open()` with no handler above it, so naming a map
+    that does not exist exited with an uncaught FileNotFoundError, a stack
+    trace, and nothing a reader could act on. `run_validate` argues one screen
+    above that "a traceback here is a poor answer to a common situation" for a
+    missing document; this flag had the opposite behaviour for the same shape
+    of mistake.
+
+    It is a COMMON situation rather than an exotic one. The README's own
+    invocation is `--sha-map .git/filter-repo/commit-map`, and that path does
+    not exist until somebody has actually run `git filter-repo` - so copying
+    the documented line before rewriting anything reaches this, as does running
+    it from the wrong directory.
+
+    It survived because `--sha-map` was a flag `fuzz.py` never passed. The
+    `commit-map` axis had been writing a map and confirming that `dead-sha`
+    consults it, which is the rule's half; nothing had ever exercised the
+    rewriter's half. Adding the mode found this on the first run.
+
+    Catches a fix that removes the message, and one that lets the exception
+    back out.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+
+    done = _sha_map_run(repo, ".git/filter-repo/commit-map")
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    assert done.returncode == 2, (done.returncode, done.stdout, done.stderr)
+    assert "cannot read the rewrite map" in done.stderr, done.stderr
+    # A REFUSAL IS STRUCTURAL, not just a message: nothing on stdout, the
+    # diagnostic on stderr, a non-zero exit. `fuzz.py` recognises a refusal by
+    # exactly that shape, so a fix that printed this to stdout would be counted
+    # as a run that concluded.
+    assert not done.stdout.strip(), done.stdout
+
+
+def test_check_text_refuses_an_unreadable_sha_map_the_same_way(
+        git_repo) -> None:
+    """The second call site, which is the half that makes this one finding.
+
+    `--validate` and `--check-text` both read `--sha-map`, and both opened it
+    directly. Fixing one would leave the other crashing on the same input -
+    "one claim, two scanners", which is the defect this project keeps finding
+    and which hides especially well here because both call sites looked right.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+
+    done = subprocess.run(
+        [sys.executable, str(_installed(repo)), "--check-text",
+         "--as-path", "NEXT_SESSION.md", "--sha-map", "nowhere/commit-map",
+         "--repo", str(repo)],
+        cwd=str(repo), input=DOC,
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    assert done.returncode == 2, (done.returncode, done.stdout, done.stderr)
+    assert "cannot read the rewrite map" in done.stderr, done.stderr
+    assert not done.stdout.strip(), done.stdout
+
+
+def test_sha_map_still_rewrites_the_document_when_the_map_is_there(
+        git_repo) -> None:
+    """The other half of the fix: refusing must not have cost the repair.
+
+    A guard that turned a crash into a refusal for EVERY input would pass the
+    two tests above and silently disable the flag - the fail-open shape one
+    level up. So this pins the success path: a dead SHA claimed, a real
+    commit-map beside it, and the document rewritten in place to name the
+    replacement.
+    """
+    repo, commit = git_repo
+    dead = "deadbeef1234" + "0" * 28
+    doc = (f"# Status\n\nRecorded at `{dead[:12]}` in the log.\n\n"
+           f"## Phase 1 - x\n\nWork.\n")
+    commit("NEXT_SESSION.md", doc, "docs: a status document")
+    (repo / ".extant.toml").write_text(
+        'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n', encoding="utf-8")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo),
+                          capture_output=True, text=True).stdout.strip()
+    map_dir = repo / ".git" / "filter-repo"
+    map_dir.mkdir(parents=True, exist_ok=True)
+    (map_dir / "commit-map").write_text(f"old new\n{dead} {head}\n",
+                                        encoding="utf-8")
+
+    done = _sha_map_run(repo, str(map_dir / "commit-map"))
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    rewritten = (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")
+    assert head[:12] in rewritten, rewritten
+    assert dead[:12] not in rewritten, rewritten
+
+
+def _search(repo: Path, needle: str = "Phase"):
+    """Drive `--search` through the real entry point, as a consumer would."""
+    return subprocess.run(
+        [sys.executable, str(_installed(repo)), "--search", needle,
+         "--repo", str(repo)],
+        cwd=str(repo),
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+CONFIG = 'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n'
+
+
+def test_search_on_a_utf16_document_reports_rather_than_crashes(
+        git_repo) -> None:
+    """`--search` read its documents with no handler, so UTF-16 killed it.
+
+    The same finding as `--archive` above, one mode over and found the same
+    way. `search_entries` opened both documents with `encoding="utf-8"` and
+    nothing above the call, so a status document that is not UTF-8 exited with
+    a UnicodeDecodeError out of `codecs` rather than the sentence `--validate`
+    prints for the same file.
+
+    It survived because the pairing needs a mode and an encoding that had never
+    been drawn together: `--search` was one of the four modes `fuzz.py` never
+    ran until Stage 6, and the encoding axis is what first built a document
+    that was not UTF-8. Adding `--sha-map` reshuffled the (git state, mode)
+    walk, the pair came up, and the fuzzer reported CRASH.
+
+    Catches a fix that lets the exception back out, and one that reads with
+    errors="replace" - which would search silently corrupted text and report
+    matches against bytes that are not there.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(CONFIG, encoding="utf-8")
+    (repo / "NEXT_SESSION.md").write_bytes(DOC.encode("utf-16"))
+
+    done = _search(repo)
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    assert done.returncode == 1, (done.returncode, done.stdout, done.stderr)
+    assert "not valid UTF-8" in done.stderr, done.stderr
+    assert "NEXT_SESSION.md" in done.stderr, done.stderr
+    # A refusal is STRUCTURAL, not just a message: `fuzz.py` recognises one by
+    # a non-zero exit with nothing on stdout and a diagnostic on stderr, so a
+    # fix that printed this to stdout would be counted as a run that concluded.
+    assert not done.stdout.strip(), done.stdout
+
+
+def test_search_names_the_archive_when_the_archive_is_the_bad_one(
+        git_repo) -> None:
+    """It must name the document that failed, not the one it guessed.
+
+    `--search` reads TWO documents - the live one and the archive - which is
+    the whole reason it beats `grep`, and it is also why the `--archive` fix
+    could not simply be copied. That one catches the bare UnicodeDecodeError at
+    the CLI boundary and names `primary_doc`, which is safe only because it
+    reads one document; done here it would report the live document as
+    undecodable whenever the ARCHIVE was the unreadable one.
+
+    A diagnostic naming the wrong file is a false claim about the repository,
+    which is the one thing this tool exists not to make - so the path travels
+    out with the error.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(CONFIG, encoding="utf-8")
+    archive = repo / "docs" / "status-archive.md"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    archive.write_bytes(DOC.encode("utf-16"))
+
+    done = _search(repo)
+
+    assert "Traceback (most recent call last)" not in done.stderr, done.stderr
+    assert done.returncode == 1, (done.returncode, done.stdout, done.stderr)
+    assert "status-archive.md" in done.stderr, done.stderr
+
+
+def test_search_still_finds_entries_when_both_documents_are_readable(
+        git_repo) -> None:
+    """The other half: refusing must not have cost the search.
+
+    A guard that refused for every input would pass both tests above and
+    silently disable the mode - the fail-open shape one level up.
+    """
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", DOC, "docs: a status document")
+    (repo / ".extant.toml").write_text(CONFIG, encoding="utf-8")
+
+    done = _search(repo)
+
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
+    assert "Phase 1" in done.stdout, done.stdout

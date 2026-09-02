@@ -490,12 +490,55 @@ reason every other number here is.
 that.** It used to be five states times seven modes - thirty-five pairs, which
 is exactly the repository count CI passes, so the plan was walked to completion
 with zero random draws and the job was a deterministic scenario suite. Stage 6
-added seven modes, four of which had never been run at all, and five times
-fourteen is seventy. At thirty-five repositories the harness now samples, its
-existing warning about that fires, and "which modes did this run actually
-execute" stopped being answerable from the arithmetic - so it is printed. A
-mode nobody runs is a mode whose crash this gate cannot find, which is what
-`--collect`, `--search`, `--check-text` and `--archive` were before.
+added seven modes, four of which had never been run at all, and the follow-on
+added `--sha-map` as an eighth, so five times fifteen is seventy-five. At
+thirty-five repositories the harness now samples, its existing warning about
+that fires, and "which modes did this run actually execute" stopped being
+answerable from the arithmetic - so it is printed. A mode nobody runs is a mode
+whose crash this gate cannot find, which is what `--collect`, `--search`,
+`--check-text` and `--archive` were before - and `--sha-map` proved the point
+again on its first run, arriving with an uncaught FileNotFoundError whenever
+the map it names is not there.
+
+**`--sha-map` is the one mode whose draw is COUPLED to an axis.** Every other
+mode is drawn independently of everything else. This one needs a commit-map to
+read, the `commit-map` axis is the only thing that writes one, and the axis
+draws at odds 0.35 - so left independent the mode would have found no map in
+about two repositories in three. The alternative was writing a map into every
+repository, which deletes the axis's own variation. Coupling costs one
+special case in `draw_plan`; not coupling costs most of the mode's budget. The
+no-map path is not lost to the coupling: it is a refusal now rather than a
+crash, and `tests/test_fuzz_findings.py` pins it deterministically, which is
+better coverage than a coin flip was.
+
+**And here is what the coupling actually buys, measured rather than argued.**
+Five seeds, this mode forced in every git state:
+
+| state | map on disk | translated | refused |
+|:---|---:|---:|---:|
+| attached | 4/5 | 4 | 1 |
+| detached | 5/5 | 4 | 1 |
+| worktree | 5/5 | 5 | 0 |
+| shallow | 0/5 | 0 | 5 |
+| empty | 0/5 | 0 | 5 |
+
+`shallow` and `empty` refuse by construction: `commit-map` declares
+`_KEEPS_ORIGIN_REFS`, so the axis declines there and the coupling can only add
+a name to the plan, not a file to the disk. Those ten are not wasted - they are
+the (state, mode) pairs that exercise the refusal - but they mean the honest
+claim is narrower than "the coupling fixed it": the mode does its real work in
+**13 of the 15 repositories whose state can carry a map**, and the other two
+are the deliberate broken-config decline.
+
+THE `worktree` ROW READ 2/5 UNTIL THIS WAS MEASURED, and the cause is worth
+keeping. `commit_map_path` is documented as the single function the writer and
+the reader both go through, so that they cannot disagree about where the map
+is - and it resolved a worktree's `.git` pointer without the `commondir` hop,
+landing on the checkout's own git directory instead of the shared one. Sharing
+the function bought nothing on the one path where the two could differ, because
+the WRITER is only ever handed the origin and never takes that branch at all.
+One function with a branch only one caller reaches is two functions wearing
+one name.
 
 **"Could not build" is its own column.** Symlinks need a privilege Windows
 withholds and submodules need a transport some sandboxes refuse. When a shape
@@ -506,6 +549,28 @@ symlinks, and the two report identical columns. So the second leg buys no extra
 shape coverage there - what it buys is the shapes that only matter on Windows,
 CRLF and a case-insensitive filesystem and MAX_PATH, which were fuzzed nowhere
 before Stage 6.
+
+**A step the repository cannot exist without is CHECKED, and retried.** `must`
+covers every one of them now, and until recently it did not: the scaffold that
+creates `claude/real-work`, `claude/already-merged`, the merge and `v1.0` all
+dropped their return codes, so a lost race produced a repository quietly
+missing a ref - and every feature claiming that ref then drew a finding the
+tool was right to report about a repository the harness had not built.
+
+Three attempts with a 50ms backoff, because the failure this is for is a file
+held for a moment by a scanner or an indexer and not a broken command; a step
+still failing after three tries is reported UNBUILT. A retry that was NEEDED is
+printed in the recipe rather than absorbed, so contention stays visible instead
+of becoming a thing that only shows up as a strange result later. Watched on
+all three cases: no failure builds cleanly, one injected failure is absorbed
+and the tag really is there afterwards, and a permanent one turns the
+repository UNBUILT.
+
+Two places stay unchecked on purpose - the hostile refs and tags, where git is
+MEANT to refuse some of those names, and the inner repository of a submodule,
+whose failure has to degrade to "no submodule" rather than to a broken build.
+That degrading is itself checked, one level up, where `submodule add` reports
+it into the column below.
 
 **A refusal is not a fault.** A run that declines to start - an unreadable
 config, or one excluding the document it is told to gate on - produces no
@@ -633,14 +698,43 @@ than pooled: FINDING is a change in what the tool reports, EXAMINED is a
 denominator that moved, and folding them together would bury the first in the
 second on any release that narrows a count.
 
-**Zero differences means nothing until the control has run.** Two builds of one
-plan cannot share commit SHAs - the committed `tools/` differs and `git commit`
-stamps the time - so hex runs are normalised away before anything is compared,
-and a comparison that over-normalises reports agreement. `--differential HEAD`
-compares the working package against an extract of HEAD: same payload, two
-builds, and zero differences is the only correct outcome. The run also states
-how many findings and denominators were on the table, because two silences
-compare equal and print exactly like two versions agreeing.
+**Zero differences means nothing until the control has run.** Two builds
+carrying DIFFERENT payloads cannot share commit SHAs, because the committed
+`tools/` is part of the first tree - so hex runs are normalised away before
+anything is compared, and a comparison that over-normalises reports agreement.
+`--differential HEAD` compares the working package against an extract of HEAD:
+same payload, two builds, and zero differences is the only correct outcome. The
+run also states how many findings and denominators were on the table, because
+two silences compare equal and print exactly like two versions agreeing.
+
+**It was intermittent, and two separate faults made it so.** Both are worth
+recording because the second is the more embarrassing.
+
+The first was the CLOCK. `git commit` stamps the time into the SHA, so every
+rebuild produced new commit SHAs - and the generator writes real ones into the
+document. `looks_like_sha` requires a letter as well as a digit, so whether a
+citation was examined at all depended on the value, at roughly one draw in two
+hundred per token. Measured over all 75 pairs: one run reported two `dead-sha`
+differences on `--deleted-since` and `--archive` - modes the payload change
+never touched - and a repeat of the same seed reported neither. `GIT_CLOCK`
+pins both dates, so a plan now builds byte-identically under one payload and
+the comparison is reproducible.
+
+The second was `fingerprint`, the guard that exists to catch exactly this and
+had never once been able to. Both builds land at ONE arena path, so the base
+build deletes the head build before the comparison runs - and the code held the
+head PATH and fingerprinted it afterwards, reading the base build twice and
+comparing it with itself. It could only ever return "the same". The head
+fingerprint is taken before the rebuild now.
+
+It also compared PATHS and not CONTENT, which is the half that would have
+caught the SHA lottery anyway: two builds can carry the same files, the same
+refs and the same commit count while the text inside differs. It compares the
+file contents under the same `normalise` the outputs go through - raw bytes
+would be wrong in the other direction, since the SHAs a document cites differ
+by design between two payloads, and a strict comparison would exclude nearly
+every repository. Watched on all three: equal across payloads, unequal when a
+branch is dropped, unequal when a document is edited.
 
 Watched failing, on both halves. The control reports 0 differences over 292
 findings and 156 denominators at seed 20260824 over 6 repositories. Silencing
@@ -683,6 +777,93 @@ instead of a report reading zero. Six other reports that run produced were the
 harness being wrong, each one sharpening a property: exit 2 is a documented
 code, a path may contain spaces, a finding in the primary document prints
 without its path, and a refusal is not a result.
+
+### Where the budget actually goes, and why no cut was taken
+
+The oracle layer is the lever, and it was measured before anything was cut.
+Counted by wrapping `run_mode`, which is the one function every run goes
+through, over eight repositories at seed 20260824:
+
+| layer | spawns/repo | sec/repo |
+|:---|---:|---:|
+| core: the drawn mode, the CONCURRENT pair, the sweep probe | 4.8 | 2.97 |
+| the ten metamorphic oracles | 16.9 | 11.66 |
+| axis verdicts | 0 | 0 |
+| **total extant spawns** | **21.6** | **14.63** |
+| building the repository itself | - | 4.03 |
+| **wall clock** | - | **18.75** |
+
+So the oracles are **78 per cent of spawns and 80 per cent of the time spent
+inside extant**. It is inherent rather than wasteful: each oracle compares
+extant against itself, so each needs a before, an after, and the runs that
+restore and cross-check. The axis verdicts are free - they read the sweep probe
+the core already paid for, which is why they were put there.
+
+**THE FIRST VERSION OF THIS TABLE SAID 85 PER CENT, AND THE INSTRUMENT WAS
+WRONG.** It counted by wrapping `run_mode`, on the reasoning that every run
+goes through one function - and `run_concurrently` does not. It builds its own
+command line through `_argv` and starts its own processes, so the CONCURRENT
+property's pair, roughly 1.8 spawns per repository, was invisible to a count
+that called itself the total. Counting part of something and reporting it as
+the whole is the defect this file is largely about, and it turned up in the
+measurement written to justify a cut. The row above now wraps both.
+
+**TWO DENOMINATORS, AND THEY ARE NOT THE SAME NUMBER.** The 80 per cent is of
+extant's own time, which is the right denominator for a spawn budget and the
+wrong one for "how long does this job take". Measured end to end, 35
+repositories with the oracles and shrinking both on take **10m26s**, or 17.9s
+per repository - agreeing with the 18.75s the instrument above sees. The 14.6s
+of spawns sits alongside about 4s of building the repository itself, which no
+oracle change touches. Against wall time the oracle layer is **62 per cent, not
+80**. Quoting the larger share against the smaller question is how a lever gets
+adopted for a saving it cannot deliver.
+
+Per oracle, so a cut has somewhere to aim: `BASELINE` is the dearest at 2.6
+spawns and 1.73s; `PROCESS` the cheapest at 1.0 and 0.47s; the rest sit between
+1.2 and 1.8 spawns.
+
+**The two candidate levers were then measured against each other, and the
+cheap-looking one is the worse one.**
+
+| measurement | seconds |
+|:---|---:|
+| bare interpreter (`python -c pass`) | 0.040 |
+| plus importing `extant.cli` | 0.218 |
+| one `--validate` on a built repository | 0.485 |
+| one MORE document inside a process already running | 0.143 |
+
+*Reusing one interpreter* would save the 0.218s of startup and import on each
+of 21.6 spawns - about 4.7s per repository, which is 25 per cent of wall time
+and would take the job from 10m26s to roughly 7m50s. That is the bigger number,
+and it buys the least defensible thing: `run_mode` exists to drive the real
+entry point "so the test sees what a consumer sees", and the `PROCESS` oracle
+exists to check that two SEPARATE processes agree. An in-process harness
+deletes the isolation one of its own properties is about, and leaves `session`,
+`scope` and `RULE_ERRORS` to be reset by hand between runs - module-level state
+this project has repeatedly found bugs in. A quarter of the wall time is a bad
+price for that in a gate whose only product is trust.
+
+*A mode answering about several documents in one process* is the honest lever
+and the smaller one. A second document costs 0.143s where a second spawn costs
+0.485s, so batching saves 0.34s - about 70 per cent - each time it applies. But
+it only applies to the oracles that vary the DOCUMENT while holding the mode -
+`FENCE`, `SHIFT`, `CRLF`, `MONOTONE` - which is roughly four spawns per
+repository, or 1.4s of 18.75: **7 per cent**, or 10m26s down to about 9m42s.
+And it changes what those oracles compare, because several rules key on the
+document's PATH - which is why `RELOCATE` is a property at all - so an "after"
+written as a second file is not the same question as an "after" written in
+place.
+
+**Note the arithmetic the earlier framing got wrong**, because it is the reason
+this ends in no cut. Python startup was taken to be ~0.4s per spawn; measured,
+a bare interpreter is **0.040s**, and it is the `extant.cli` IMPORT that brings
+it to 0.218s. One repository costs 17.9s end to end rather than ~31s. The
+budget is roughly half what it was thought to be, and at that price neither
+lever is worth what it costs - the big one costs a property this harness
+checks, and the small one buys 7 per cent for the meaning of four comparisons.
+
+The numbers are recorded here so the next person deciding this starts from a
+measurement rather than from the same estimate.
 
 ## `corpus.py` - what does it say about somebody else's repository?
 
