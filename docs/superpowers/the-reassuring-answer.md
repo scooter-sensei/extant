@@ -52,9 +52,11 @@ in the harness built to find them.
 | `dead-md-anchor` | a finding against a denominator of zero, plus a note naming that rule as having examined nothing |
 | `manifest-floor-mismatch` | sweep printed the finding, printed `0` examined, and named the rule among those that examined nothing anywhere |
 | `raw-lfs-blob` | one violation printed twice, against a denominator counting the file once |
+| six rules at once | denominators counting sites the rule REFUSES to judge - coverage reported on a run with no findings, which is the direction nobody investigates |
+| a CR-only document | `^` in a multiline pattern follows a newline and a bare `CR` is not one, so two rules examined zero candidates and printed `0` beside every other rule's honest count |
 
-The last three were found by the rebuilt fuzz harness. The first two were found
-earlier and are recorded in `AGENTS.md`, which states the remedy for this
+All but the first two were found by the rebuilt fuzz harness. Those two were
+found earlier and are recorded in `AGENTS.md`, which states the remedy for this
 sub-shape: give a rule ONE function returning the sites it can decide, and have
 both callers read it.
 
@@ -73,6 +75,13 @@ both callers read it.
 | `_text(None)` returned `""` on timeout | empty output compares equal to empty output, so four metamorphic oracles passed while nothing ran at all |
 | `run_mode` never passed `cwd` | one of seven modes validated the WRONG DOCUMENT for an entire session, reporting `ok` throughout |
 | a patch applied with `.replace()` and no assert | the edit silently did not apply, twice |
+| `generated-site` wrote a marker and no route | nothing observable changed, so the axis had no evidence to offer - and its docstring described the missing half AND pointed at an oracle nobody had written |
+| `encoding` and `generated-site` could not report a contradiction | their `confirm` returned True or None and nothing else, so a ledger row that read as a verdict was an attendance record |
+| two axes confirmed through another feature's draw | a document claiming `v9.9.9` and never `v1.0` returned "confirmed" from a run that never looked at an annotated tag |
+| `commit_map_path` shared a function whose worktree branch only the READER took | the writer is only ever handed the origin, so "one function, two callers" gave no protection on the single path where they could disagree |
+| `fingerprint` held the head repository's PATH | the base build overwrote that directory first, so the guard compared a repository with itself and could only ever answer "the same" |
+| the budget instrument wrapped `run_mode` | `run_concurrently` starts its own processes, so part of the spawns was counted and reported as the total |
+| a differential quoted at `0 differences` | its 30-repository corpus contained no `--sha-map` pair at all, so it could not have seen the change it was cited for |
 
 ## The four shapes it takes
 
@@ -93,6 +102,13 @@ This is why every denominator in this project exists.
 **A check whose subject moved.** The anchor still matches something, or matches
 nothing and says so quietly. `mutate.py` exists because six mutation anchors
 once pointed at code that had been replaced, and all six reported success.
+
+**And its mirror, which is rarer and reads as diligence.** A check that cannot
+reach its subject and returns the value meaning FAULT. The raising axis aimed a
+claim at a rule, one noise shape blanked the entry it sat in, nothing raised,
+and the ledger reported `applied, and the run contradicts it` - blaming the tool
+for the harness. It is the same defect: the check could not see its subject and
+answered anyway. It is easier to catch only because somebody chases a red run.
 
 ## The diagnostic question
 

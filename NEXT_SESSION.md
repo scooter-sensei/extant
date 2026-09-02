@@ -6,6 +6,108 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 27 - Six stages of fuzzer, and the same defect inside every one of them (unreleased, 2026-09-02)
+
+**Status.** Suite is 806 tests across 51 files, all passing. Thirteen rules,
+unchanged: nothing in this stretch adds one. The tool remained released as
+0.25.0 and everything here sits above that tag, unreleased. Merged to `main` at
+`0a5167d`. The harness is twelve files under `tests/harnesses/`, and taken
+together they are now larger than the package they test - 11,757 lines against
+10,580. The fuzzer is half of that on its own.
+
+**What started it.** The design at
+`docs/superpowers/specs/2026-08-31-fuzz-harness-expansion-design.md`. The fuzzer
+built hostile repositories and reported no violations, and nothing in its output
+said whether that meant the tool was correct or the corpus was empty. It was
+mostly the second: twelve hard-coded content strings, of which five reached a
+rule at all, exercising 5 of the 13 rules.
+
+**What changed, in six stages.**
+
+*A feature catalogue.* One feature per rule, each offering a claim that is TRUE
+and one that is FALSE, and a reach ledger checking every feature against what
+the run actually examined. Thirteen of thirteen rules are reached now. Two of
+the old strings were dead in the way this project keeps warning about - one
+wrote `Merged` before the branch where the pattern needs `merged` then `into`,
+so `false-merge-claim` had never once fired here.
+
+*Executable recipes.* A plan is written down before anything touches the disk,
+so a repository that fails comes back as a file rather than as a position in an
+RNG stream. `--replay` rebuilds one, and ddmin bisects the feature set: measured
+on a `manifest-floor-mismatch` violation, 9 features to 1 in 7 rebuilds.
+
+*Metamorphic oracles.* Ten of them, comparing extant against ITSELF under a
+change that must not matter - junk inside a fence, inserted lines, rewritten
+line endings, a relocated document, an added claim, a baseline, two processes,
+three modes, the denominators across them, and the github format. They are what
+let a fuzzer find WRONG ANSWERS rather than only crashes.
+
+*A differential.* The same corpus through two versions, which is the only check
+here that notices a rule going quiet - a rule reporting nothing is
+self-consistent under every metamorphic comparison the others make.
+
+*`--self-check`.* Each property broken on purpose and confirmed to go red. A
+property that cannot be provoked is a fault, and it reports 21 of 21.
+
+*Six axes.* The conditions every rule reads UNDER rather than the claims a
+document makes: the encoding it arrives in, whether a generator compiles the
+tree into routes, whether a tag is annotated, whether refs are packed, whether
+the repository remembers a history rewrite, and whether a rule can run at all.
+An axis names no rule, so it needed its own ledger and its own three-state
+verdict - confirmed, contradicted, or no way to tell.
+
+**What it found in the tool.** Every payload fix in this stretch came from the
+harness rather than from anybody reading the code.
+
+Eight denominators were wrong in both directions. Six counted sites their rules
+REFUSE to judge, which reports coverage on a run with no findings and is the
+direction nobody investigates; two printed a finding beside "examined nothing",
+after which the run named the rule that had just spoken among those that never
+looked. `--sweep` also ran the repository-scoped rules twice, so one raw LFS
+blob printed bare and again under `.gitattributes:` against a denominator that
+counts the governed file once.
+
+A carriage-return-only document lost two rules entirely. `^` in a multiline
+pattern follows a newline and a bare `CR` is not one, so `split_entries` found
+no sections and every rule reading the newest entry examined zero candidates -
+printed beside every other rule's honest count, where a reader takes it to mean
+the document makes no such claims.
+
+And three modes crashed where every sibling refuses by name: `--archive` and
+`--search` on a document that is not UTF-8, and `--sha-map` naming a map that
+is not there. One encoding now gets one answer across four modes.
+
+**What it found in itself, which is most of it.** Five audits, and the same
+finding in all five: a check that cannot reach its subject returning the value
+that means all clear. It has now been found in the reach ledger, in the axis
+ledger, in the oracles, in the self-check, in the differential, and in the
+measurement written to decide whether to cut the oracles.
+
+The sharpest instances are worth keeping because none of them looked wrong.
+`generated-site` wrote a marker with no route beside it, so it changed nothing
+observable, and its docstring both described the missing half and pointed at an
+oracle that was never written. Two axes confirmed themselves through another
+feature's draw, so a document claiming `v9.9.9` and never `v1.0` returned
+"confirmed" having never looked at an annotated tag. The differential's own
+guard against reporting noise held the head repository's PATH and fingerprinted
+it after the base build had overwritten that directory - it compared a
+repository with itself, and could only ever answer "the same".
+
+Two more were arithmetic rather than logic. The corpus was not reproducible
+because commit SHAs carry the committer timestamp, and the generator writes
+real SHAs into its documents; the clock is pinned now. And the walk built all
+75 (git state, mode) pairs, shuffled, and truncated to the repository count -
+which at the count CI uses dropped an entire mode in 147 of 300 seeds, one of
+them the mode added to find crashes in modes nobody runs.
+
+**What is not closed, and is not hidden.** `--archive` still crashes on one
+input in roughly one seed in five; it is a live finding the gate reports and
+nobody has fixed. Five flags are never fuzzed, of which `--suggest-fixes` is
+the substantial one. The walk covers 35 of 75 pairs at the count CI uses -
+every mode and every state now, but half the product. And two of the six axes
+still report "no way to tell" more often than a reader would like, for reasons
+that are honest each time.
+
 ## Phase 26 - A dead SHA is usually a rewrite casualty, and the repository already knows (shipped, 2026-08-31)
 
 **Status.** Suite is 777 tests across 50 files, all passing. This work shipped

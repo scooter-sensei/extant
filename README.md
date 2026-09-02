@@ -718,6 +718,15 @@ every run; rewriting a document never happens unless you ask. A prefix that two
 old commits share is left alone rather than resolved by guess - a wrong SHA
 reads as correct, where a dead one is visibly broken.
 
+That path does not exist until somebody has actually run `git filter-repo`, so
+naming a map that is not there is the ordinary way to get this flag wrong. It
+says so and stops, rather than rewriting anything:
+
+```console
+$ python tools/extant_collect.py --verify --sha-map .git/filter-repo/commit-map
+cannot read the rewrite map at .git/filter-repo/commit-map (FileNotFoundError).
+```
+
 ### Search across the archive
 
 If you keep a status document, old entries get archived so the live file stays

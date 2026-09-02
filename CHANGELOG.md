@@ -1,5 +1,65 @@
 # Changelog
 
+## Unreleased
+
+Nothing here adds a rule or a flag. Everything is a denominator that lied, a
+document shape that lost its rules, or a mode that crashed where its siblings
+refuse - and every one of them was found by the fuzz harness rather than by a
+person reading the code.
+
+**Six denominators counted sites their rules refuse to judge.** The quiet
+direction of this project's recurring defect, and the worse of the two: a
+denominator that overstates reports coverage on a run with no findings at all,
+and nobody investigates a clean run. `dead-md-link` counted `@ref` macros and
+`.html` targets, both refused whatever is on disk, so a document made only of
+them printed `dead-md-link 2` beside no findings. `stale-live-claim` counted
+branch tokens in an entry making no live claim, having returned before reading
+one. `false-merge-claim` counted claims whose commit does not resolve, which
+`dead-sha` owns - 5 over this repository's own status document where the rule
+could settle 3. `dead-release-tag` counted unresolvable versions with
+`release_claims_name_our_tags` off, which is the default.
+
+**And two printed a finding beside "examined nothing"**, which is the loud
+direction of the same thing: the run named a rule that had just spoken among
+those that never looked. `dead-md-anchor` judged cross-file fragments while its
+denominator counted only bare `#fragment` links, so a document whose one anchor
+link pointed at another file reported found=1 against examined=0. The two
+passes are one now. `manifest-floor-mismatch` was right and the survey lost the
+file's path.
+
+**`--sweep` ran the repository-scoped rules twice.** One raw blob under an LFS
+filter printed twice - bare, and again under `.gitattributes:` - against a
+denominator that counts the governed file once. `inconsistent-artifact` is the
+same shape and did the same. Attributed to the file that answers rather than
+de-duplicated, because the two copies were not interchangeable and suppressing
+the second would leave the rule running twice and free to disagree with itself.
+
+**A carriage-return-only document lost two rules entirely.** `^` in a multiline
+pattern follows a newline, and a bare `CR` is not one, so `split_entries` found
+no sections and every rule reading the newest entry examined zero candidates.
+Measured on one document written twice: LF reports `stale-live-claim 2,
+unknown-branch 2`, and CR-only reports 0 and 0 - printed beside every other
+rule's honest count, where a reader takes them to mean the document makes no
+such claims. It makes two. The normalisation is length-preserving, because
+collapsing `CRLF` as well would shift every offset computed against the result.
+
+**Three modes crashed where every sibling refuses by name.** All three exited
+with a traceback instead of a sentence, and all three now print the same one:
+
+- `--archive` on a document that is not UTF-8, which is the one mode that
+  rewrites the document. Nothing had been written when it raised, so the file
+  was intact either way - but that crash is indistinguishable from one that
+  failed halfway through a rewrite.
+- `--search` on the same input, out of `codecs`. It names WHICH of the two
+  documents it reads failed rather than guessing, since naming the wrong file
+  is a false claim about the repository.
+- `--sha-map` naming a map that is not there. The invocation in the README
+  names a path that does not exist until somebody has run `git filter-repo`,
+  so this is the ordinary way to reach the flag rather than an exotic one.
+
+One encoding now gets one answer across `--validate`, `--verify`, `--archive`
+and `--search`.
+
 ## 0.25.0 (2026-08-31)
 
 Four features, and the one that matters most is not a new rule: **a dead SHA

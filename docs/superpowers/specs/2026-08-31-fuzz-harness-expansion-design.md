@@ -408,10 +408,10 @@ whose verification was not performed is not done.
   matching, and `--selftest` on a generated repository reports 9 fired where it
   reported `0 fired, 13 had nothing to corrupt` before. The ledger was WATCHED
   FAILING: restoring the dead merge spelling on purpose makes it report
-  `AIMED AT AND NOT REACHED: false-merge-claim` and exit 2. What is NOT done is
-  the corpus reproducibility described below; the harness can still build a
-  degraded corpus, and `CORPUS_FLOOR` only stops that being read as a clean
-  one.
+  `AIMED AT AND NOT REACHED: false-merge-claim` and exit 2. The corpus
+  reproducibility recorded below as unfixed IS fixed now, by three separate
+  changes; `CORPUS_FLOOR` stays anyway, because it stops a degraded corpus
+  being read as a clean one whatever the cause.
 - **Stage 2**: DONE, and audited afterwards, which found seven gaps and two
   confident wrong answers. ddmin reduces a `raw-lfs-blob` violation to
   `lfs-blob` and a `manifest-floor-mismatch` one to `manifest-floor`; a saved
@@ -463,8 +463,13 @@ whose verification was not performed is not done.
   seven were the reassuring-answer shape again, all four inside the Stage 6
   machinery itself; every fix is in the code and in
   `tests/test_fuzz_findings.py`, and the write-up was deliberately kept out of
-  this repository. Bare repositories and `--sha-map` are NOT done and are
-  listed under "What is not done" above.
+  this repository. Bare repositories are NOT done and are listed under "What
+  is not done" above; `--sha-map` is done, under the follow-on below.
+- **Stage 6 follow-on**: DONE, and audited, which found six more gaps - three
+  of them in the follow-on itself. Two axes were made self-sufficient, a
+  fifteenth mode was added, the budget lever was measured and REFUSED, and the
+  differential's intermittency was chased to two separate faults. See "Stage 6
+  follow-on as built" below.
 
 ## Stage 1 as built
 
@@ -539,7 +544,7 @@ and `REACH_FLOOR` is 13 - at the measurement rather than below it, which is a
 deliberate loss of margin justified by CI pinning the seed and by the
 drawn-but-silent check failing independently.
 
-### The corpus is not reproducible, and that is not fixed
+### The corpus was not reproducible, and it took three fixes
 
 Two identical invocations - same seed, same package, same machine - reached
 the rules in 6 of 35 repositories on one run and 0 of 35 on the next, where a
@@ -566,6 +571,32 @@ and that is the leading suspect. Two things it is NOT: it is not the payload,
 since the merged tree carrying the fixed payload runs healthy; and it is not
 the shape in isolation, which built twelve times out of twelve. It needs the
 whole generator to reproduce, and it is intermittent.
+
+**DIAGNOSED AND FIXED, and the suspect above was right.** A clone is a brand new
+repository that inherits nothing from its origin, so the origin carried
+`filter.lfs.required = false` and the clone did not - a `shallow` repository
+holding an LFS pointer smudged it under the system-wide `required = true`,
+git-lfs asked the network for a fabricated oid, and the answer depended on
+timing. `SAFE_GIT` passes the three settings on the command line to every
+command that CREATES a repository. Measured over six runs after: 20 to 27 of 35
+repositories reach the rules, against a floor of 35 per cent and a healthy 25.
+
+**A SECOND CAUSE SURVIVED THAT ONE and was found much later, by the
+differential.** A commit SHA hashes the tree, the parents and the committer
+TIMESTAMP, so two builds of one plan agreed about everything except every SHA
+in them - and the generator writes real SHAs into its documents. That is
+invisible within a single run and fatal to a comparison: `looks_like_sha`
+requires a letter as well as a digit, so whether a citation was examined at all
+depended on which SHA the build happened to draw. `GIT_CLOCK` pins both dates,
+and two builds of one plan are byte-identical now.
+
+**A THIRD is inherent to comparing two payloads and is handled rather than
+fixed.** Two builds cannot share commit SHAs when their `tools/` differs,
+because it sits in the first tree - so head and base cite different real SHAs
+whatever the clock does. Claims about a real commit therefore cite the full
+forty-character object name, where all-digits is about one in a billion.
+Abbreviations are still fuzzed by the claims meant to be dead, which are
+constant and identical on both sides.
 
 ### The change that made the harness able to see them
 
@@ -1248,6 +1279,125 @@ the clock, and the failure names the budget rather than the cause.
   runner. The first push is where that gets answered. The Linux figure this
   stage's cost should be judged against was never measured either, which was
   already named as debt under Budget.
+
+## Stage 6 follow-on as built
+
+Three pieces of work the Stage 6 audit left open, and the audit on them.
+
+### The two axes that could pass without looking
+
+`annotated-tag` and `packed-refs` both confirmed through `_true_claim_survived`,
+which returns True when the rule examined ANY claim and no finding names the
+subject. That is weaker than it reads. A repository drawing `release-tag`
+spelled `false` claims `v9.9.9` and never `v1.0`, and `live-claim` names
+`claude/still-open`, a DIFFERENT branch - so both axes returned "confirmed"
+having never once looked at an annotated tag or a packed ref.
+
+Each writes its own claim now, in the preamble and in the newest entry
+respectively, and does its git work in `finalize`. Measured over five seeds at
+35 repositories:
+
+| axis | before | after |
+|:---|---:|---:|
+| `annotated-tag` | 18 of 47 | 27 of 36 |
+| `packed-refs` | 24 of 39 | 28 of 35 |
+
+`annotated-tag` also has to emit `release_claims_name_our_tags`, and the reason
+is sharper than wanting a claim: with that key off, a release whose tag does not
+resolve is dropped from the DENOMINATOR rather than reported, so the check could
+only ever answer "no way to tell" about the defect it exists for. Three things
+now want that key and TOML allows one, so `_release_gate` emits it at most once;
+all three branches were measured as taken, 20 and 20 and 3, never duplicated.
+
+### `--sha-map`, the fifteenth mode
+
+The `commit-map` axis had been writing a map and confirming that `dead-sha`
+consults it. That is the rule's half. `--sha-map` is the other half - the flag
+that takes the same file and REWRITES the document, the only place this tool
+edits anyone's prose - and nothing had ever passed it.
+
+It is the one mode whose draw is COUPLED to an axis, because it needs a map and
+only that axis writes one; uncoupled it would find none in two repositories out
+of three. `mode_mutates` replaces the `mode[0] in MUTATING_MODES` test, which
+answers False for a flag sitting fourth and would have had `UNSTABLE` compare a
+rewriting run against itself.
+
+What the coupling buys, measured per git state: the mode does real work in 13 of
+the 15 repositories whose state CAN carry a map. `shallow` and `empty` refuse by
+construction, since `commit-map` declares `_KEEPS_ORIGIN_REFS`.
+
+### The budget lever, measured and refused
+
+| layer | spawns/repo | sec/repo |
+|:---|---:|---:|
+| core: drawn mode, CONCURRENT pair, sweep probe | 4.8 | 2.97 |
+| the ten oracles | 16.9 | 11.66 |
+| building the repository | - | 4.03 |
+| wall clock | - | 18.75 |
+
+The oracles are 78 per cent of spawns and 80 per cent of extant's time - but 62
+per cent of WALL CLOCK, and quoting the larger share against the smaller
+question is how a lever gets adopted for a saving it cannot deliver.
+
+Both candidates were measured and both refused. Reusing one interpreter saves
+the 0.218s of startup and import on each of 21.6 spawns, a quarter of the run,
+and costs process isolation - which is exactly what the `PROCESS` oracle
+checks. Answering about several documents in one process saves 0.34s where it
+applies, but applies to four spawns and changes what four comparisons mean,
+because several rules key on the document's PATH. Two numbers the earlier
+framing had wrong: Python startup is 0.040s rather than 0.4s, and one
+repository costs 17.9s rather than 31s. The budget is about half what it was
+thought to be, and at that price neither lever is worth what it costs.
+
+### What the follow-on audit found
+
+Six gaps, three of them in the follow-on itself, and the recurring shape again
+in four of the six.
+
+`commit_map_path` is documented as the ONE function the writer and the reader
+both go through so they cannot disagree about where the map is - and it
+resolved a linked worktree's `.git` pointer without the `commondir` hop,
+landing on the checkout's own git directory rather than the shared one. Sharing
+the function bought nothing on the single path where the two could differ,
+because the WRITER is only ever handed the origin and never takes that branch.
+Worktree maps found went from 2 of 5 to 5 of 5, and the two that worked before
+were the ones where `git worktree add` had FAILED.
+
+The budget instrument counted `run_mode` and called it the total;
+`run_concurrently` builds its own command line and starts its own processes, so
+the CONCURRENT pair was invisible. The oracle share of spawns moved from 85 to
+78 per cent. Counting part of something and reporting it as the whole, inside
+the measurement written to justify a cut.
+
+The differential was quoted for something it could not see: `0 differences` over
+30 repositories, from a corpus that contained no `--sha-map` pair at all. Run
+over all 75 pairs it does see them.
+
+And its intermittency was two faults. The clock, above. And `fingerprint`, the
+guard written for exactly this, which held the head repository's PATH and
+fingerprinted it AFTER the base build had overwritten that directory - it
+compared a repository with itself and could only ever answer "the same". It
+also compared paths and not content. Four consecutive runs now report the same
+four differences and the control reports none.
+
+Two guards held and were recorded as held rather than assumed, with what was
+searched: `_release_gate`'s three branches, and `_packed`'s inability to return
+True without its subject over the 18 repositories where a fence blanks its
+claim.
+
+### What the follow-on did not close
+
+`--archive` still crashes on one input in roughly one seed in five. It is a
+live finding the gate reports and nobody has fixed, and it is the first thing
+to take.
+
+Five flags are never passed by the harness - `--suggest-fixes`,
+`--baseline-check`, `--full`, `--out` and `--suite-json` - of which the first is
+the substantial one at 59 lines of `suggest_renames` generating a patch.
+
+The walk covers 35 of 75 pairs at the repository count CI uses. It is stratified
+by mode now, so every mode and every state appears rather than 147 seeds in 300
+dropping one, but half the product is still a sample.
 
 ## What the Stage 2 audit found
 
