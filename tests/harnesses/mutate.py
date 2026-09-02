@@ -610,17 +610,21 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    return 1 if gone else 0"),
 
         # --- search --------------------------------------------------------------
+        # Retargeted when the read gained a `try:` for the undecodable case -
+        # the lines are the same, one indent deeper.
         ("search only looks at the live document", cli,
          "    for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
-         "        with open(path, encoding=\"utf-8\", newline=\"\") as fh:",
+         "        try:\n"
+         "            with open(path, encoding=\"utf-8\", newline=\"\") as fh:",
          "    for relative in (session.PRIMARY_DOC,):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
-         "        with open(path, encoding=\"utf-8\", newline=\"\") as fh:"),
+         "        try:\n"
+         "            with open(path, encoding=\"utf-8\", newline=\"\") as fh:"),
         ("search becomes case-sensitive", cli,
          "    needle = query.lower()",
          "    needle = query"),

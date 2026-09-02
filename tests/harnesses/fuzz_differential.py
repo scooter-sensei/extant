@@ -188,12 +188,13 @@ def fingerprint(repo: Path) -> tuple:
 
     THE CONTROL WENT RED ONCE, UNDER LOAD, AND THIS IS WHY IT COULD. Two builds
     of one plan are only identical if every git command in both of them
-    succeeded, and `build_from_plan` checks return codes on the CORE steps
-    only - `must()` covers init, add and commit, while the hostile refs, the
-    tags and the scaffold go through `sh()`, which does not look. On a busy
-    machine one of those can lose a race with an index lock, and the result is
-    a repository missing a branch or a tag: a real difference in what the two
-    versions were asked about, reported as a difference in what they answered.
+    succeeded, and `build_from_plan` used to check return codes on the CORE
+    steps only: `must()` covered init, add and commit, while the scaffold that
+    creates every branch, the merge and `v1.0` went through `sh()`, which does
+    not look. On a busy machine one of those can lose a race with an index
+    lock, and the result is a repository missing a branch or a tag: a real
+    difference in what the two versions were asked about, reported as a
+    difference in what they answered.
 
     Observed once during a run concurrent with a 35-repository fuzz campaign -
     FINDING 1, EXAMINED 1, OUTPUT 1, one rule in one repository - and not
@@ -202,11 +203,40 @@ def fingerprint(repo: Path) -> tuple:
     that is broken outright: it teaches whoever runs it to discount a red
     result, which is the only signal it has.
 
+    THE SCAFFOLD IS CHECKED NOW, so that race is caught where it happens rather
+    than inferred here: `must` covers every step of it, retries three times for
+    the contention this describes, and reports UNBUILT if it still fails. Two
+    unchecked places remain by design - the hostile refs and tags, where git is
+    MEANT to refuse, and the inner repository of a submodule, whose failure has
+    to degrade to "no submodule". This stays regardless. A guard that is
+    removed once its known cause is fixed only protects against the causes
+    somebody already thought of.
+
     So the two repositories are compared to each other BEFORE their outputs
     are. Ref and tag NAMES rather than their SHAs, because the SHAs must differ
     and the names must not. Tracked paths with `tools/` removed, because that
     is the payload and differing is its whole purpose. The commit count,
     because a lost commit changes every ancestry question in the tool.
+
+    IT COMPARED PATHS AND NOT CONTENT, AND THAT IS WHAT IT MISSED. Two builds
+    can carry the same files, the same refs and the same number of commits and
+    still put different TEXT in them, because the generator cites real commit
+    SHAs. `looks_like_sha` requires a letter as well as a digit - an all-digit
+    run is a number, a blind spot the tool documents and costs at about 4% for
+    a seven-character SHA - so whether a citation was EXAMINED depended on the
+    value, and the run blamed the payload for it. Measured over 75 pairs: two
+    `dead-sha` differences in one run, none in a repeat of the same seed.
+
+    So the file CONTENT is compared, under the same `normalise` the outputs go
+    through. Raw bytes would be wrong in the other direction: the two builds
+    commit different `tools/`, so their first commit differs, so the SHAs the
+    document CITES differ by design - and a strict comparison would exclude
+    every repository carrying a `sha` or `merge-claim` claim, which is most of
+    them. Normalised, a payload-driven SHA is `<SHA>` on both sides and a lost
+    ref or a missing document is still a difference.
+
+    `tools/` is filtered out for the reason it always was: the payload is the
+    one thing that MUST differ.
     """
     def git(*args: str) -> str:
         done = subprocess.run(["git", *args], cwd=str(repo),
@@ -220,8 +250,23 @@ def fingerprint(repo: Path) -> tuple:
     tracked = sorted(line.strip() for line in
                      git("ls-tree", "-r", "--name-only", "HEAD").splitlines()
                      if line.strip() and not line.strip().startswith("tools/"))
+    texts = []
+    for relative in tracked:
+        try:
+            raw = (repo / relative).read_bytes()
+        except OSError:
+            # Named rather than skipped: a document that vanished between the
+            # listing and the read is a difference in the repository.
+            texts.append((relative, "<unreadable>"))
+            continue
+        try:
+            texts.append((relative, normalise(raw.decode("utf-8"), repo)))
+        except UnicodeDecodeError:
+            # The generator writes one deliberately undecodable file. Its
+            # LENGTH still distinguishes two builds that disagree about it.
+            texts.append((relative, f"<binary {len(raw)}>"))
     commits = git("rev-list", "--all", "--count").strip()
-    return (tuple(refs), tuple(tracked), commits)
+    return (tuple(refs), tuple(texts), commits)
 
 
 def _sarif_examined(run: dict) -> dict:

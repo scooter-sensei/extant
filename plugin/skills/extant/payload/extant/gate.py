@@ -179,6 +179,46 @@ def _diagnostic_stream(args: argparse.Namespace):
             else sys.stdout)
 
 
+def _sha_map(args: argparse.Namespace):
+    """The `--sha-map` mapping: (mapping or None, whether the run may go on).
+
+    A TRACEBACK IS A POOR ANSWER TO A COMMON SITUATION. `run_validate` makes
+    that argument one screen below for a document that is not there, and this
+    flag had the opposite behaviour: `load_sha_map` opened the path directly,
+    so naming a map that does not exist exited with FileNotFoundError, a stack
+    trace, and nothing a reader could act on.
+
+    Naming one that is not there is the ORDINARY way to reach this flag rather
+    than an exotic one. The README's own invocation is
+    `--sha-map .git/filter-repo/commit-map`, and that path does not exist until
+    somebody has actually run `git filter-repo` - so a user who copies the
+    documented line before rewriting anything, or who runs it from the wrong
+    directory, gets the traceback rather than the sentence.
+
+    ONE FUNCTION, TWO CALLERS, because `--validate` and `--check-text` both
+    read this flag and must refuse identically. Two spellings of one refusal is
+    the "one claim, two scanners" shape this project keeps finding, and here it
+    would be invisible: both call sites looked correct.
+
+    The exit code the callers use for a refusal is 2, which the CLI already
+    documents as "the configuration is unreadable" - a map named on the command
+    line and not readable is that, not a finding and not a clean run.
+    """
+    if not args.sha_map:
+        return None, True
+    try:
+        return load_sha_map(args.sha_map), True
+    except (OSError, UnicodeDecodeError) as exc:
+        # REPORTS WHAT IT CAUGHT, which is the one shape a wide handler is
+        # allowed in here: the degraded path names itself rather than printing
+        # what a healthy one prints.
+        print(f"cannot read the rewrite map at {args.sha_map} "
+              f"({exc.__class__.__name__}). --sha-map takes the commit-map "
+              f"that `git filter-repo` writes, usually at "
+              f".git/filter-repo/commit-map.", file=sys.stderr)
+        return None, False
+
+
 def _open_baseline(repo: Path, args: argparse.Namespace):
     """(recorded entries, resolved path), or (None, path) if it would not load.
 
@@ -320,7 +360,9 @@ def run_validate(repo: Path, args: argparse.Namespace,
         return 1
     # Relative links resolve against the document, not the repo root.
     session.set_document(link_base=target.parent)
-    mapping = load_sha_map(args.sha_map) if args.sha_map else None
+    mapping, readable = _sha_map(args)
+    if not readable:
+        return 2
     if mapping is not None:
         text, changed = translate_shas(text, mapping)
         if changed:
@@ -600,7 +642,9 @@ def run_check_text(repo: Path, args: argparse.Namespace,
         link_base=(repo / relative).parent if relative else None,
         doc_path=relative,
         doc_format=format_for(relative) if relative else "markdown")
-    mapping = load_sha_map(args.sha_map) if args.sha_map else None
+    mapping, readable = _sha_map(args)
+    if not readable:
+        return 2
     if mapping is not None:
         text, changed = translate_shas(text, mapping)
         if changed:

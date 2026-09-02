@@ -42,7 +42,29 @@ from extant.registry import RULE_ERRORS
 from extant.report import BASELINE_NAME, FORMATS
 from extant.sweep import run_deleted_since, run_sweep
 
-__all__ = ["build_parser", "cli", "main", "search_entries"]
+__all__ = ["build_parser", "cli", "main", "search_entries",
+           "UndecodableDocument"]
+
+
+class UndecodableDocument(Exception):
+    """A document `--search` had to read is not valid UTF-8.
+
+    Carries the PATH, which `UnicodeDecodeError` does not. `--archive` catches
+    the bare error at the CLI boundary and names `primary_doc`, which is safe
+    there because it reads exactly one document. `--search` reads TWO - the
+    live document and the archive - so the same shortcut would name a guess,
+    and a diagnostic naming the wrong file is a false claim, which is the one
+    thing this tool exists not to make.
+
+    Public because `search_entries` is: a caller that can be made to raise has
+    to be able to name what it raises.
+    """
+
+    def __init__(self, relative: str, exc: UnicodeDecodeError) -> None:
+        super().__init__(relative)
+        self.relative = relative
+        self.reason = exc.reason
+        self.start = exc.start
 
 
 def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
@@ -65,8 +87,19 @@ def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
         path = repo / relative
         if not path.is_file():
             continue
-        with open(path, encoding="utf-8", newline="") as fh:
-            text = fh.read()
+        try:
+            with open(path, encoding="utf-8", newline="") as fh:
+                text = fh.read()
+        except UnicodeDecodeError as exc:
+            # REPORTED, NEVER SKIPPED. A document that could not be read is not
+            # a document with no matching entries, and `--search` printing "0
+            # match(es)" for one is exactly the conflation this tool exists to
+            # remove - the same argument `_scan_one` in sweep.py makes for
+            # counting an unreadable file rather than passing over it.
+            #
+            # Raised rather than handled here because the exit code is the CLI
+            # layer's to choose, and `search_entries` is also called directly.
+            raise UndecodableDocument(relative, exc) from exc
         _, segments, _ = split_entries(text, config)
         for kind, entry in segments:
             if kind != "phase" or needle not in entry.lower():
@@ -230,7 +263,19 @@ def run_search(repo: Path, parser: argparse.ArgumentParser,
     """
     if not args.search.strip():
         parser.error("--search needs something to look for")
-    results = search_entries(repo, args.search)
+    try:
+        results = search_entries(repo, args.search)
+    except UndecodableDocument as bad:
+        # THE SAME SENTENCE `--validate` AND `--archive` PRINT for the same
+        # input, so one encoding gets one answer whichever mode meets it.
+        # Before this, `--validate` refused a UTF-16 document by name while
+        # `--search` exited with a traceback out of `codecs`, and the fuzzer
+        # reported the second as a CRASH the moment the encoding axis and this
+        # mode were drawn together. Same finding as `--archive`, one mode over.
+        print(f"{repo / bad.relative}: not valid UTF-8 ({bad.reason} at byte "
+              f"{bad.start}). The status document must be a text file.",
+              file=sys.stderr)
+        return 1
     for relative, header, entry in results:
         print(f"{relative}: {header}")
         body = entry.splitlines()[1:]

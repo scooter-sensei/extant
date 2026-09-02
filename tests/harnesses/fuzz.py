@@ -143,12 +143,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
 import shutil
 import stat
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -237,6 +239,20 @@ BROKEN_CONFIG_SHAPES = [
 # driver can walk them rather than draw them, for the reason below.
 GIT_STATES = ["attached", "detached", "worktree", "shallow", "empty"]
 
+# The placeholder a mode writes for "THIS repository's commit-map", resolved in
+# `_argv` against the repository it is about to run in.
+#
+# A LITERAL PATH CANNOT WORK HERE, and that is not a nicety. `--sha-map` takes
+# a path, and the map lives under the COMMON git directory - which in a linked
+# worktree is not `.git/filter-repo/commit-map`, because `.git` there is a FILE
+# pointing elsewhere. A literal would have refused in every worktree
+# repository while reading exactly like the tool declining, so the mode would
+# have been measuring this harness's path arithmetic rather than the rewriter.
+#
+# Resolved through `axes.commit_map_path`, which is the same function the axis
+# WRITES the map through, so the reader and the writer cannot drift apart.
+COMMIT_MAP = "{commit-map}"
+
 MODES = [
     ["--sweep"],
     ["--verify"],
@@ -260,6 +276,14 @@ MODES = [
     ["--search", "phase"],
     ["--check-text", "--as-path", "NEXT_SESSION.md"],
     ["--archive"],
+    # THE REWRITER, which had a map written for it and was never once asked to
+    # read it. The `commit-map` axis has been writing `.git/filter-repo/
+    # commit-map` and confirming that `dead-sha` NAMES the replacement - which
+    # is the rule consulting the map on its own. `--sha-map` is the other half:
+    # the flag that takes the same file and REWRITES the document with it, and
+    # the only place this tool edits anyone's prose. Nothing here had ever
+    # passed it.
+    ["--validate", "NEXT_SESSION.md", "--sha-map", COMMIT_MAP],
 ]
 
 # Modes that CHANGE THE REPOSITORY, so a second run does not answer the same
@@ -272,7 +296,34 @@ MODES = [
 # property must not compare them. Exempting the PROPERTY rather than skipping
 # the mode keeps the crash, exit and denominator checks on it, which are the
 # ones that can still say something true about a mutating run.
-MUTATING_MODES = ("--archive",)
+#
+# `--sha-map` is the second, and it mutates harder: `translate_shas` rewrites
+# the document IN PLACE and `gate.py` calls it "the one place this tool
+# rewrites your prose". Measured on one repository - `Recorded at
+# `deadbeef1234`` became `Recorded at `e5a53bc26aa5`` and the file on disk
+# changed - so a second run meets a document with no dead SHA left in it and
+# answers a different question from the first.
+MUTATING_MODES = ("--archive", "--sha-map")
+
+
+def mode_mutates(mode) -> bool:
+    """Does this mode CHANGE the repository, so a second run asks something else?
+
+    ONE PREDICATE, THREE READERS - the UNSTABLE property, `concurrency_applies`
+    and the early sweep probe in `all_faults` - for the reason
+    `concurrency_applies` sets out below: two spellings of one predicate is the
+    defect, and two readers of one function is not.
+
+    ANY TOKEN, NOT `mode[0]`, and that distinction is the whole of this
+    function. `--archive` is a MODE and sits first, so a `mode[0]` test served
+    it; `--sha-map` is a FLAG ON `--validate` and sits fourth, so the same test
+    answers False for it. Left that way the UNSTABLE property would have
+    compared a rewriting run against itself and reported a violation for the
+    mode doing exactly what it exists to do - and the sweep probe would have
+    run AFTER the rewrite, describing a document the mode had already repaired
+    rather than the one the plan built.
+    """
+    return any(token in MUTATING_MODES for token in (mode or ()))
 
 # Modes that read a document from stdin rather than from disk. Without this
 # `--check-text` inherits whatever stdin the harness was started with, reads
@@ -418,9 +469,59 @@ def _rmtree(path: Path) -> None:
         raise OSError(f"could not remove {path}")
 
 
+# THE COMMIT CLOCK, PINNED, and it is the last of the residual nondeterminism
+# the note above `SAFE_GIT` describes.
+#
+# A commit SHA is a hash of the tree, the parents and the committer TIMESTAMP,
+# so two builds of one plan produced repositories that agreed about everything
+# except every SHA in them. That is not cosmetic here, because the generator
+# writes REAL SHAs into the document: `_sha` and `_merge_claim` both cite
+# `head[:12]`.
+#
+# And `looks_like_sha` requires a LETTER as well as a digit, deliberately -
+# "an all-digit run is a number", a blind spot the tool documents and costs at
+# about 4% for a seven-character SHA. So whether a citation was EXAMINED AT ALL
+# depended on which SHA that particular build happened to produce. The
+# differential builds each plan twice and attributes every difference to the
+# payload, so it blamed the tool for the generator's dice.
+#
+# Measured over all 75 (state, mode) pairs: one run reported two `dead-sha`
+# differences on `--deleted-since` and `--archive` - modes the payload change
+# never touched - and a repeat of the same seed against the same refs reported
+# neither, while the control reported none. Roughly 1.7 all-digit tokens are
+# expected per 150 builds, which is the rate observed.
+#
+# Pinned rather than made rare: with the clock fixed the two builds are
+# byte-identical and both versions are asked exactly the same question.
+GIT_CLOCK = {
+    "GIT_AUTHOR_DATE": "2026-01-01T00:00:00+00:00",
+    "GIT_COMMITTER_DATE": "2026-01-01T00:00:00+00:00",
+}
+
+
 def sh(cwd: Path, *args: str, check: bool = False):
+    # The clock goes in the ENVIRONMENT rather than on the command line
+    # because git takes these two only that way - there is no `-c` for them -
+    # and every git call the generator makes has to carry them, not just the
+    # commits: a step that writes a ref from a commit it creates itself would
+    # otherwise reintroduce exactly what this removes.
+    env = dict(os.environ)
+    env.update(GIT_CLOCK)
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
-                          check=check, encoding="utf-8", errors="replace")
+                          check=check, encoding="utf-8", errors="replace",
+                          env=env)
+
+
+# How many times a step the repository cannot be built without is attempted
+# before the build is called broken, and how long it waits between tries.
+#
+# THREE, not "until it works". A step that fails three times across a tenth of
+# a second is not contending, it is broken - and a harness that retries until
+# something succeeds cannot tell those apart, which is the one distinction this
+# file exists to keep. The backoff is short for the same reason: this is a
+# file-handle held for a moment, not a service coming up.
+MUST_ATTEMPTS = 3
+MUST_BACKOFF = 0.05
 
 
 def must(recipe: "Recipe", cwd: Path, *args: str):
@@ -437,21 +538,42 @@ def must(recipe: "Recipe", cwd: Path, *args: str):
     repositories instead of 25 looked like nondeterminism, because the thing
     that actually failed never said so. A harness that cannot tell a
     construction failure from a construction is not measuring anything.
+
+    RETRIED, AND THE RETRY IS NARROW. Every command routed through here
+    succeeds on a healthy machine every time, so the only reason to run one
+    again is that something outside this process held a file for a moment: a
+    scanner on the objects git has just written, an indexer on the worktree,
+    another git still holding `index.lock`. `fingerprint` records the one
+    observation - the differential's control went red under load, with a
+    repository missing a ref that every other run of the same plan had.
+
+    A retry that was needed is REPORTED rather than absorbed, because
+    contention that never shows up is contention nobody can measure later.
     """
-    done = sh(cwd, *args)
-    if done.returncode == 0:
-        return done
-    # "nothing to commit" is not a failure, and treating it as one threw away a
-    # working repository. The second commit carries the claims that needed a
-    # ref or a tag to exist first; when the draw produced no such feature the
-    # document is byte-identical to the one already committed, git exits 1, and
-    # the repository is exactly as intended.
-    #
-    # It is invisible on stderr - git says so on STDOUT - which is why the
-    # first version of this check reported it as `git commit -qm: exit 1` with
-    # no detail at all, and discarded repository 025 of a clean run.
-    if "nothing to commit" in (done.stdout or ""):
-        return done
+    for attempt in range(MUST_ATTEMPTS):
+        done = sh(cwd, *args)
+        if done.returncode == 0:
+            if attempt:
+                recipe.did(f"{' '.join(args[:3])} succeeded on attempt "
+                           f"{attempt + 1} - the machine was contending")
+            return done
+        # "nothing to commit" is not a failure, and treating it as one threw
+        # away a working repository. The second commit carries the claims that
+        # needed a ref or a tag to exist first; when the draw produced no such
+        # feature the document is byte-identical to the one already committed,
+        # git exits 1, and the repository is exactly as intended.
+        #
+        # It is invisible on stderr - git says so on STDOUT - which is why the
+        # first version of this check reported it as `git commit -qm: exit 1`
+        # with no detail at all, and discarded repository 025 of a clean run.
+        #
+        # CHECKED INSIDE THE LOOP AND RETURNED, never retried: it is a settled
+        # answer, and running it again would produce the same one three times
+        # before reporting a failure that is not a failure.
+        if "nothing to commit" in (done.stdout or ""):
+            return done
+        if attempt + 1 < MUST_ATTEMPTS:
+            time.sleep(MUST_BACKOFF)
     detail = " ".join((done.stderr or "").split())[:120]
     recipe.broke(f"{' '.join(args[:3])}: {detail or 'exit ' + str(done.returncode)}")
     return done
@@ -625,6 +747,54 @@ def _feature_by_name(name: str):
     return None
 
 
+def walk_plan(rng: random.Random, repos: int) -> list:
+    """The (git state, mode) pairs this run will build, in the order it builds.
+
+    ONE FUNCTION, TWO CALLERS - the driver and `--differential` - because the
+    two must agree. tests/harnesses/README.md promises that
+    `--differential --seed N` and `--seed N` build the same repositories, and
+    that was held by two copies of this code being the same, which is the
+    "one claim, two scanners" shape this project keeps finding. It survived
+    only because nobody had yet edited one of them.
+
+    STRATIFIED BY MODE, and that is the whole change. The old walk built the
+    full product, shuffled it, and truncated to `repos` - so at CI's 35 of 75
+    pairs an entire MODE could fall outside the window. Measured at the pinned
+    seed the moment `--sha-map` was added: fourteen of fifteen modes ran, and
+    the fifteenth was the one just added, so the gate could not have found a
+    crash in the mode added to find crashes. "A mode nobody runs is a mode
+    whose crash this gate cannot find" is the argument this file already makes
+    for adding modes; it applies just as well to drawing them.
+
+    The ordering is a rotation rather than a second shuffle. Mode `i` takes
+    state `(i + k) % len(states)` on round `k`, so:
+
+      - round 0 is one pair PER MODE, which is every mode inside the first
+        `len(MODES)` repositories;
+      - the states rotate across that round, so all five appear there too
+        rather than merely being likely to;
+      - over all rounds each (state, mode) pair appears EXACTLY ONCE, so the
+        full product is still walked when the budget allows it.
+
+    Both lists are shuffled first, so which mode leads and which state pairs
+    with it still vary by seed. What no longer varies is whether a mode
+    appears at all.
+    """
+    states = list(GIT_STATES)
+    modes = list(MODES)
+    rng.shuffle(states)
+    rng.shuffle(modes)
+    plan = [(states[(i + k) % len(states)], mode)
+            for k in range(len(states))
+            for i, mode in enumerate(modes)]
+    # Padding only once the product is exhausted, exactly as before: below that
+    # the walk is a sample of a known set, and above it there is nothing left
+    # to be systematic about.
+    while len(plan) < repos:
+        plan.append((rng.choice(GIT_STATES), rng.choice(MODES)))
+    return plan[:repos]
+
+
 def draw_plan(rng: random.Random, index: int, state: str, mode,
               payload: str = "") -> RepoPlan:
     """Decide one repository. Draws from the run generator, builds nothing."""
@@ -635,6 +805,34 @@ def draw_plan(rng: random.Random, index: int, state: str, mode,
     # same order for the same reason it discards the feature draw: the local
     # generator's position is what every later choice reads.
     drawn_axes = axes.draw_axes(local)
+    # THE ONE COUPLED DRAW HERE, and it is worth stating why it is coupled
+    # rather than left independent like everything else.
+    #
+    # `--sha-map` needs a map to read; the `commit-map` axis is the only thing
+    # that writes one; and MODES is drawn independently of axes. Left alone the
+    # mode would have found no map in about two repositories in three - the
+    # axis draws at odds 0.35 - and refused, which is a mode spending most of
+    # its budget on argument handling rather than on the rewriter. That is the
+    # objection this file already makes to drawing UTF-16 uniformly and to
+    # drawing the pathological `exclude_paths` shapes uniformly.
+    #
+    # THE UNCOUPLED PATH IS NOT LOST BY THIS, which was the cost the choice
+    # seemed to carry. Measured before writing any of it: `--sha-map` naming a
+    # map that is not there did not refuse, it CRASHED - an uncaught
+    # FileNotFoundError out of `load_sha_map`, exit 1, nothing on stdout, a
+    # traceback on stderr. So the no-map path was never a path worth sampling
+    # at a third of this mode's draws; it was a bug. It is fixed in `gate.py`
+    # and pinned in tests/test_fuzz_findings.py, where a deterministic test
+    # covers it far better than a coin flip ever did - exactly what happened
+    # when `--collect` joined MODES and its missing-interpreter crash moved
+    # into that file.
+    #
+    # Appended AFTER the draw, so it consumes no randomness and
+    # `build_from_plan`'s discarded replay of `draw_axes` still lands the
+    # generator in the same place. `RepoPlan.without` carries axes through
+    # untouched, so ddmin still bisects features against a fixed axis set.
+    if COMMIT_MAP in mode and "commit-map" not in drawn_axes:
+        drawn_axes = drawn_axes + ("commit-map",)
     return RepoPlan(repo_seed=repo_seed, index=index, state=state,
                     mode=tuple(mode), features=features, axes=drawn_axes,
                     payload=payload)
@@ -701,6 +899,19 @@ def _apply_axes(build, drawn, phase: str, recipe: Recipe) -> tuple:
                          f"belongs in `config`, with any late work in "
                          f"`finalize`")
             continue
+        # AN AXIS MAY NOT OPEN A CODE FENCE IN THE PREAMBLE, and this guard is
+        # what keeps `entry_is_blanked` honest rather than merely true today.
+        # That flag is computed from the noise and the feature prose BEFORE the
+        # axes run, so an axis contributing an unclosed fence would blank every
+        # entry below it while the flag still read False - and the raising axis
+        # would go back to being blamed for a claim the harness had hidden.
+        # Loud here rather than rediscovered from a ledger row later.
+        if axes.opens_a_fence(effect.prose):
+            recipe.broke(f"axis {axis.name} contributed prose leaving a code "
+                         f"fence open, which blanks every entry below it - "
+                         f"`entry_is_blanked` is decided before the axes run "
+                         f"and would be wrong")
+            continue
         lines.extend(effect.config)
         said.extend(effect.prose)
         entry.extend(effect.entry)
@@ -709,7 +920,8 @@ def _apply_axes(build, drawn, phase: str, recipe: Recipe) -> tuple:
     return tuple(lines), tuple(said), tuple(entry)
 
 
-def _git_scaffold(repo: Path, trunk: str, rng: random.Random) -> None:
+def _git_scaffold(recipe: "Recipe", repo: Path, trunk: str,
+                  rng: random.Random) -> None:
     """The refs the post-commit features name.
 
     Built unconditionally rather than per feature, because two features name
@@ -717,26 +929,39 @@ def _git_scaffold(repo: Path, trunk: str, rng: random.Random) -> None:
     cites is harmless. `claude/already-merged` really is merged and
     `claude/still-open` really is not, so a claim about either has a definite
     answer rather than an accidental one.
+
+    EVERY STEP IS CHECKED, and it is the gap `fingerprint` named. These
+    all used to drop their return code, so a lost race produced a
+    repository quietly missing a branch, a tag or a merge - and every
+    feature writing a claim about that ref then reported a finding the tool
+    was right to make about a repository the harness had not built. `must`
+    turns that into an UNBUILT, which is the one column it can be read
+    from.
+
+    The hostile refs and tags in `build_from_plan` stay unchecked, and
+    must: git is EXPECTED to reject some of those names, which is exactly
+    why they are there.
     """
-    sh(repo, "git", "branch", "claude/real-work")
-    sh(repo, "git", "branch", "claude/still-open")
-    sh(repo, "git", "checkout", "-q", "-b", "side-work")
+    must(recipe, repo, "git", "branch", "claude/real-work")
+    must(recipe, repo, "git", "branch", "claude/still-open")
+    must(recipe, repo, "git", "checkout", "-q", "-b", "side-work")
     (repo / "side.txt").write_text("side\n", encoding="utf-8")
-    sh(repo, "git", "add", "-A")
-    sh(repo, "git", "commit", "-qm", "side work, off the trunk")
-    sh(repo, "git", "checkout", "-q", trunk)
-    sh(repo, "git", "checkout", "-q", "-b", "claude/already-merged")
+    must(recipe, repo, "git", "add", "-A")
+    must(recipe, repo, "git", "commit", "-qm", "side work, off the trunk")
+    must(recipe, repo, "git", "checkout", "-q", trunk)
+    must(recipe, repo, "git", "checkout", "-q", "-b", "claude/already-merged")
     (repo / "merged.txt").write_text("merged\n", encoding="utf-8")
-    sh(repo, "git", "add", "-A")
-    sh(repo, "git", "commit", "-qm", "work that was merged")
-    sh(repo, "git", "checkout", "-q", trunk)
-    sh(repo, "git", "merge", "-q", "--no-ff", "-m", "merge", "claude/already-merged")
-    sh(repo, "git", "tag", "v1.0")
+    must(recipe, repo, "git", "add", "-A")
+    must(recipe, repo, "git", "commit", "-qm", "work that was merged")
+    must(recipe, repo, "git", "checkout", "-q", trunk)
+    must(recipe, repo, "git", "merge", "-q", "--no-ff", "-m", "merge",
+         "claude/already-merged")
+    must(recipe, repo, "git", "tag", "v1.0")
     # more commits, so ancestry rules have something to walk
     for i in range(rng.randint(0, 4)):
         (repo / f"f{i}.txt").write_text(f"{i}\n", encoding="utf-8")
-        sh(repo, "git", "add", "-A")
-        sh(repo, "git", "commit", "-qm", f"c{i}")
+        must(recipe, repo, "git", "add", "-A")
+        must(recipe, repo, "git", "commit", "-qm", f"c{i}")
 
 
 def build_from_plan(pkg: Path, arena: Path,
@@ -772,9 +997,9 @@ def build_from_plan(pkg: Path, arena: Path,
     _rmtree(repo)
     repo.mkdir(parents=True)
     trunk = rng.choice(["main", "master", "trunk"])
-    sh(repo, "git", *LONGPATHS, "init", "-q", "-b", trunk)
-    sh(repo, "git", "config", "user.email", "t@t")
-    sh(repo, "git", "config", "user.name", "T")
+    must(recipe, repo, "git", *LONGPATHS, "init", "-q", "-b", trunk)
+    must(recipe, repo, "git", "config", "user.email", "t@t")
+    must(recipe, repo, "git", "config", "user.name", "T")
     # WINDOWS MAX_PATH, and the reason this harness was unreadable for a while.
     #
     # A generated repository carries `tools/extant/rules/*.py` and a full
@@ -789,7 +1014,7 @@ def build_from_plan(pkg: Path, arena: Path,
     # characters and 9 of 12 at 222. That is what looked like a fuzzer whose
     # corpus varied run to run - it varied by arena NAME, which nobody was
     # treating as an input.
-    sh(repo, "git", "config", "core.longpaths", "true")
+    must(recipe, repo, "git", "config", "core.longpaths", "true")
     # git-lfs must not reach the network, and by default it does. `lfs-blob`
     # commits a file whose content is a valid LFS pointer with a fabricated
     # oid; any later checkout asks git-lfs to smudge it, git-lfs asks whatever
@@ -801,7 +1026,7 @@ def build_from_plan(pkg: Path, arena: Path,
     # content through, which is what this harness wants: the pointer is data,
     # not something to resolve. The no-network guarantee this project makes
     # about the tool should hold for the harness that tests it.
-    sh(repo, "git", "config", "filter.lfs.required", "false")
+    must(recipe, repo, "git", "config", "filter.lfs.required", "false")
     # core.autocrlf IS AN INPUT NOBODY HAD DECLARED, and it is the same class
     # of unnoticed input as the arena path above.
     #
@@ -817,7 +1042,7 @@ def build_from_plan(pkg: Path, arena: Path,
     # Worse than wrong: platform-dependent. Linux leaves it off, so one seed
     # would build two different corpora on the two CI legs and neither would
     # say so.
-    sh(repo, "git", "config", "core.autocrlf", "false")
+    must(recipe, repo, "git", "config", "core.autocrlf", "false")
     shutil.copytree(pkg / "plugin/skills/extant/payload", repo / "tools")
 
     # A NAME THAT NO LONGER RESOLVES IS A BROKEN BUILD, NOT AN EMPTY ONE.
@@ -873,6 +1098,20 @@ def build_from_plan(pkg: Path, arena: Path,
     # fact about list order masquerading as a fact about content, and it broke
     # silently the moment anything was inserted at the front.
     noise_lines = [rng.choice(noise) for _ in range(rng.randint(0, 2))]
+    # WHETHER THE NEWEST ENTRY IS ABOUT TO BE BLANKED, decided here because
+    # this is the only point at which both halves are known: the noise has just
+    # been drawn, and the config axes that may want to write an entry claim
+    # have not run yet. One noise shape is an unclosed code fence, `strip_code`
+    # blanks a fence to the end of the document, and an entry claim underneath
+    # one is invisible to every rule - which is how the raising axis came to
+    # report a contradiction the tool had not earned.
+    #
+    # `merged_pre.prose` is included rather than only the noise because a
+    # FEATURE writes a fence too - the ```yaml consistency block - and while
+    # that one is balanced, deciding this from the noise alone would be a fact
+    # about today's catalogue dressed up as a fact about the document.
+    axis_build.entry_is_blanked = axes.opens_a_fence(
+        list(merged_pre.prose) + noise_lines)
     # The drawn extra setting joins the BARE KEYS rather than being appended to
     # the rendered config, because `compose_config` emits table blocks last and
     # a key written after a `[table]` header belongs to that table. Appending
@@ -989,7 +1228,7 @@ def build_from_plan(pkg: Path, arena: Path,
     must(recipe, repo, "git", "add", "-A")
     must(recipe, repo, "git", "commit", "-qm", "initial")
 
-    _git_scaffold(repo, trunk, rng)
+    _git_scaffold(recipe, repo, trunk, rng)
 
     # post features: the ones naming a commit, a tag or a branch, which have to
     # exist before the claim about them can be written
@@ -1062,6 +1301,15 @@ def build_from_plan(pkg: Path, arena: Path,
             recipe.could_not(f"finalize axis {axis.name}", type(exc).__name__)
 
     # a submodule, when the transport allows one
+    #
+    # THE INNER REPOSITORY IS DELIBERATELY UNCHECKED, and it is one of only two
+    # places left that are. A submodule is a shape this platform may refuse -
+    # `protocol.file.allow` is policy on some machines - so a failure here has
+    # to degrade to "no submodule" rather than to a broken build. It does,
+    # honestly: whatever goes wrong in here makes `submodule add` below fail,
+    # and THAT is checked and recorded in the "could not build" column. The
+    # other unchecked place is the hostile refs and tags, where git is meant to
+    # refuse. Everything else in this function now goes through `must`.
     if rng.random() < 0.35:
         inner = arena / f"sub{index:03d}"
         _rmtree(inner)
@@ -1082,8 +1330,12 @@ def build_from_plan(pkg: Path, arena: Path,
         r = sh(repo, "git", "-c", "protocol.file.allow=always",
                "submodule", "add", "-q", inner.as_uri(), "vendor")
         if r.returncode == 0:
-            sh(repo, "git", "add", "-A")
-            sh(repo, "git", "commit", "-qm", "submodule")
+            # CHECKED, unlike the inner repository above. A submodule this
+            # platform will not add is a shape declined and recorded; one
+            # added and then not committed is a staged, dirty tree that
+            # every mode would answer about differently.
+            must(recipe, repo, "git", "add", "-A")
+            must(recipe, repo, "git", "commit", "-qm", "submodule")
             recipe.did("submodule")
         else:
             recipe.could_not("submodule",
@@ -1092,7 +1344,7 @@ def build_from_plan(pkg: Path, arena: Path,
 
     # git states: detached HEAD, a linked worktree, a shallow copy
     if state == "detached":
-        sh(repo, "git", "checkout", "-q", "--detach", "HEAD")
+        must(recipe, repo, "git", "checkout", "-q", "--detach", "HEAD")
         recipe.did("detached HEAD")
     elif state == "worktree":
         linked = arena / f"wt{index:03d}"
@@ -1114,9 +1366,10 @@ def build_from_plan(pkg: Path, arena: Path,
             # Persisted as well as passed: the clone is checked out again by
             # anything that touches it later, including `--replay` rebuilding
             # over it, and `-c` covers only the command it is given to.
-            sh(cloned, "git", "config", "core.longpaths", "true")
-            sh(cloned, "git", "config", "filter.lfs.required", "false")
-            sh(cloned, "git", "config", "core.autocrlf", "false")
+            must(recipe, cloned, "git", "config", "core.longpaths", "true")
+            must(recipe, cloned, "git", "config",
+                 "filter.lfs.required", "false")
+            must(recipe, cloned, "git", "config", "core.autocrlf", "false")
             shutil.copytree(pkg / "plugin/skills/extant/payload",
                             cloned / "tools", dirs_exist_ok=True)
             recipe.did("shallow clone (validated instead of the origin)")
@@ -1127,7 +1380,7 @@ def build_from_plan(pkg: Path, arena: Path,
         bare = arena / f"empty{index:03d}"
         _rmtree(bare)
         bare.mkdir(parents=True)
-        sh(bare, "git", *SAFE_GIT, "init", "-q", "-b", "main")
+        must(recipe, bare, "git", *SAFE_GIT, "init", "-q", "-b", "main")
         shutil.copytree(pkg / "plugin/skills/extant/payload", bare / "tools")
         (bare / "NEXT_SESSION.md").write_text(
             shapes.compose_document(preamble, merged.entry), encoding="utf-8")
@@ -1241,9 +1494,32 @@ def _argv(repo: Path, mode) -> list:
     CONCURRENT property compares two different questions - which is the same
     "one claim, two scanners" defect this harness keeps finding, and it would
     be invisible here because both spellings look right.
+
+    Which is also why `COMMIT_MAP` is resolved HERE rather than where the mode
+    is drawn: it is a per-repository path, and resolving it in one of the two
+    callers would give the concurrent runs a different command line from the
+    single one.
     """
-    return [PY, str(repo / "tools/extant_collect.py"), *mode,
+    return [PY, str(repo / "tools/extant_collect.py"),
+            *(_resolve(repo, token) for token in mode),
             "--repo", str(repo)]
+
+
+def _resolve(repo: Path, token: str) -> str:
+    """Substitute a per-repository placeholder, or hand the token back.
+
+    THE UNRESOLVED CASE IS PASSED THROUGH RATHER THAN DROPPED, and that is
+    deliberate. Dropping `--sha-map` and its argument when no map can be found
+    would turn this mode into a plain `--validate` while the run still reported
+    `--sha-map` as the mode it had exercised - a mode silently becoming a
+    different mode, which is the reassuring answer this harness exists to
+    refuse. Passed through, extant refuses by name and the refusal is counted
+    as one.
+    """
+    if token != COMMIT_MAP:
+        return token
+    found = axes.commit_map_path(repo)
+    return str(found) if found is not None else token
 
 
 def _stdin_for(repo: Path, mode):
@@ -1281,7 +1557,7 @@ def concurrency_applies(mode, refused: bool) -> bool:
     Two readers of one function is fine; two spellings of one predicate is the
     defect, and that is what this exists to prevent.
     """
-    return bool(mode) and mode[0] not in MUTATING_MODES and not refused
+    return bool(mode) and not mode_mutates(mode) and not refused
 
 
 def run_concurrently(repo: Path, mode: list[str], count: int = CONCURRENT_RUNS):
@@ -1433,7 +1709,7 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     # that is false by construction: the first run rewrites the document, so
     # the second reads a different one and a difference between them is the
     # mode working. See MUTATING_MODES.
-    if mode[0] not in MUTATING_MODES:
+    if not mode_mutates(mode):
         second = run_mode(repo, mode)
         if second is None:
             faults.append(("HANG",
@@ -1593,7 +1869,7 @@ def all_faults(repo: Path, mode, recipe: "Recipe" = None):
     # ledger would quietly be measuring a different corpus from the one it
     # names.
     early = (run_mode(repo, ["--sweep"])
-             if mode and mode[0] in MUTATING_MODES else None)
+             if mode_mutates(mode) else None)
     found = check(repo, list(mode))
     if found and found[0][0] == "refused":
         return found, {}, "", {}, {}
@@ -1870,12 +2146,7 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
     print(f"building {repos} repository(s) twice each\n")
 
     rng = random.Random(seed)
-    plan: list[tuple[str, list[str]]] = [(s, m) for s in GIT_STATES
-                                         for m in MODES]
-    rng.shuffle(plan)
-    while len(plan) < repos:
-        plan.append((rng.choice(GIT_STATES), rng.choice(MODES)))
-    plan = plan[:repos]
+    plan = walk_plan(rng, repos)
 
     differences: list[tuple[int, str, str]] = []
     compared = 0
@@ -1894,7 +2165,20 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
             print(f"  [{index:03d}] UNBUILT head  {recipe.broken[0][:80]}")
             continue
         head_report = differential.observe(repo, planned_mode, run_mode)
-        head_repo = repo
+        # TAKEN NOW, BECAUSE THE NEXT LINE DESTROYS THE REPOSITORY IT DESCRIBES.
+        #
+        # Both builds land at ONE arena path - that is the whole point of
+        # building twice rather than swapping `tools/` - so the base build
+        # `_rmtree`s the head build and puts its own there. This used to hold
+        # the head PATH and fingerprint it afterwards, which read the base
+        # build both times and compared it with itself. The guard could
+        # therefore never fire, and the two `dead-sha` differences it exists to
+        # suppress were reported as findings about the tool.
+        #
+        # A check that cannot reach its subject returning the value that means
+        # all clear, in the guard written to stop this comparison reporting
+        # noise.
+        head_print = differential.fingerprint(repo)
 
         repo, recipe = build_from_plan(base_pkg, arena, repo_plan)
         if recipe.broken:
@@ -1910,7 +2194,7 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
             print(f"  [{index:03d}] TIMEOUT   head did not finish, so this "
                   f"pair was not compared")
             continue
-        if differential.fingerprint(head_repo) != differential.fingerprint(repo):
+        if head_print != differential.fingerprint(repo):
             mismatched += 1
             print(f"  [{index:03d}] BUILD     the two builds differ as "
                   f"repositories, so this pair was not compared")
@@ -1974,9 +2258,17 @@ def run_self_check(pkg: Path, arena: Path) -> int:
     #   raising-rule    declines here anyway: every feature is drawn, so no
     #                   candidate rule is free. See `_raise_a_rule`.
     #
-    # The two kept are the two that change no document and suppress nothing,
-    # and they are the two whose evidence can go red - which is what the AXIS
+    # The two kept are the two that suppress nothing and ADD NO FINDING, and
+    # they are the two whose evidence can go red - which is what the AXIS
     # breakage below needs.
+    #
+    # "Change no document" is what this said, and it stopped being true when
+    # these two were made to write their own claims rather than depend on a
+    # co-drawn feature. Each now adds one line - a true `v1.0` release claim
+    # and a true `claude/real-work` branch claim - and the distinction that
+    # actually matters here survived the change: a TRUE claim produces no
+    # finding, so the eighteen breakages below are still measured against the
+    # same set of findings they were before.
     self_axes = ("annotated-tag", "packed-refs")
     plan = RepoPlan(repo_seed=20260901, index=0, state="attached",
                     mode=("--verify",), features=features, axes=self_axes,
@@ -2149,12 +2441,7 @@ def main() -> int:
     # Walking the product also gives this harness a denominator it can print:
     # how many of the pairs it actually exercised, rather than how many
     # repositories it happened to build.
-    plan: list[tuple[str, list[str]]] = [(s, m) for s in GIT_STATES
-                                         for m in MODES]
-    rng.shuffle(plan)
-    while len(plan) < args.repos:
-        plan.append((rng.choice(GIT_STATES), rng.choice(MODES)))
-    plan = plan[:args.repos]
+    plan = walk_plan(rng, args.repos)
     pairs_possible = len(GIT_STATES) * len(MODES)
     pairs_seen: set[tuple[str, str]] = set()
 
