@@ -747,6 +747,54 @@ def _feature_by_name(name: str):
     return None
 
 
+def walk_plan(rng: random.Random, repos: int) -> list:
+    """The (git state, mode) pairs this run will build, in the order it builds.
+
+    ONE FUNCTION, TWO CALLERS - the driver and `--differential` - because the
+    two must agree. tests/harnesses/README.md promises that
+    `--differential --seed N` and `--seed N` build the same repositories, and
+    that was held by two copies of this code being the same, which is the
+    "one claim, two scanners" shape this project keeps finding. It survived
+    only because nobody had yet edited one of them.
+
+    STRATIFIED BY MODE, and that is the whole change. The old walk built the
+    full product, shuffled it, and truncated to `repos` - so at CI's 35 of 75
+    pairs an entire MODE could fall outside the window. Measured at the pinned
+    seed the moment `--sha-map` was added: fourteen of fifteen modes ran, and
+    the fifteenth was the one just added, so the gate could not have found a
+    crash in the mode added to find crashes. "A mode nobody runs is a mode
+    whose crash this gate cannot find" is the argument this file already makes
+    for adding modes; it applies just as well to drawing them.
+
+    The ordering is a rotation rather than a second shuffle. Mode `i` takes
+    state `(i + k) % len(states)` on round `k`, so:
+
+      - round 0 is one pair PER MODE, which is every mode inside the first
+        `len(MODES)` repositories;
+      - the states rotate across that round, so all five appear there too
+        rather than merely being likely to;
+      - over all rounds each (state, mode) pair appears EXACTLY ONCE, so the
+        full product is still walked when the budget allows it.
+
+    Both lists are shuffled first, so which mode leads and which state pairs
+    with it still vary by seed. What no longer varies is whether a mode
+    appears at all.
+    """
+    states = list(GIT_STATES)
+    modes = list(MODES)
+    rng.shuffle(states)
+    rng.shuffle(modes)
+    plan = [(states[(i + k) % len(states)], mode)
+            for k in range(len(states))
+            for i, mode in enumerate(modes)]
+    # Padding only once the product is exhausted, exactly as before: below that
+    # the walk is a sample of a known set, and above it there is nothing left
+    # to be systematic about.
+    while len(plan) < repos:
+        plan.append((rng.choice(GIT_STATES), rng.choice(MODES)))
+    return plan[:repos]
+
+
 def draw_plan(rng: random.Random, index: int, state: str, mode,
               payload: str = "") -> RepoPlan:
     """Decide one repository. Draws from the run generator, builds nothing."""
@@ -2098,12 +2146,7 @@ def run_differential(pkg: Path, arena: Path, spec: str, seed: int,
     print(f"building {repos} repository(s) twice each\n")
 
     rng = random.Random(seed)
-    plan: list[tuple[str, list[str]]] = [(s, m) for s in GIT_STATES
-                                         for m in MODES]
-    rng.shuffle(plan)
-    while len(plan) < repos:
-        plan.append((rng.choice(GIT_STATES), rng.choice(MODES)))
-    plan = plan[:repos]
+    plan = walk_plan(rng, repos)
 
     differences: list[tuple[int, str, str]] = []
     compared = 0
@@ -2398,12 +2441,7 @@ def main() -> int:
     # Walking the product also gives this harness a denominator it can print:
     # how many of the pairs it actually exercised, rather than how many
     # repositories it happened to build.
-    plan: list[tuple[str, list[str]]] = [(s, m) for s in GIT_STATES
-                                         for m in MODES]
-    rng.shuffle(plan)
-    while len(plan) < args.repos:
-        plan.append((rng.choice(GIT_STATES), rng.choice(MODES)))
-    plan = plan[:args.repos]
+    plan = walk_plan(rng, args.repos)
     pairs_possible = len(GIT_STATES) * len(MODES)
     pairs_seen: set[tuple[str, str]] = set()
 

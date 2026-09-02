@@ -486,6 +486,30 @@ against the unfixed code reported zero violations. A gate that cannot reach the
 bug it already found is not evidence. The pair count is printed for the same
 reason every other number here is.
 
+**And the walk is STRATIFIED BY MODE, because walking the product is not the
+same as covering it once the budget runs out.** The old order was: build all 75
+pairs, shuffle, truncate to `--repos`. At CI's 35 that drops 40 of them, and
+nothing stopped an entire MODE landing outside the window. Measured over 300
+seeds at 35 repositories, the old order missed at least one mode in **147 of
+them - 49 per cent** - and at the pinned CI seed the mode it missed was
+`--sha-map`, which had just been added. The gate could not have found a crash
+in the mode added to find crashes.
+
+Mode `i` now takes state `(i + k) % 5` on round `k`, which is a rotation rather
+than a second shuffle. Round 0 is one pair per mode, so every mode appears
+inside the first fifteen repositories and the five states rotate across that
+round rather than merely being likely to; over all rounds each pair still
+appears exactly once, so the full product is walked when the budget allows.
+Both lists are shuffled first, so which mode leads and which state it draws
+still vary by seed. What no longer varies is whether a mode appears at all:
+0 of 300 seeds miss one, against 147.
+
+`walk_plan` is also the ONE copy of that walk. There were two - the driver's
+and `--differential`'s - and this file promises that `--differential --seed N`
+and `--seed N` build the same repositories. That promise was held by the two
+copies happening to match, which is the shape this harness keeps finding
+elsewhere; it would have broken silently the first time somebody edited one.
+
 **The product is no longer exhausted, and the mode ledger is what replaced
 that.** It used to be five states times seven modes - thirty-five pairs, which
 is exactly the repository count CI passes, so the plan was walked to completion

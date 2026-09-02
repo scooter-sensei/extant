@@ -317,6 +317,33 @@ def _pinned_ref(b: Build, truth: str) -> Contribution:
 
 # --- post-commit features ---------------------------------------------
 
+# WHY A CLAIM ABOUT A REAL COMMIT CITES THE FULL OBJECT NAME.
+#
+# `looks_like_sha` requires a LETTER as well as a digit, deliberately - "an
+# all-digit run is a number" - and states the cost at about 4% for a
+# seven-character SHA. A generated document citing one is not examined at all,
+# and that is INVISIBLE in a single run: an unexamined claim produces neither a
+# finding nor a denominator, so nothing says the claim was skipped.
+#
+# It surfaces only when two versions are compared, because two builds cannot
+# share commit SHAs when their payloads differ - the committed `tools/` is in
+# the first tree, so pinning the clock does not reach this. Measured:
+# `--differential` reported `dead-sha: head 4 vs base 3` where head cited
+# `99a24b186956` and base cited `636616897095`, the same claim, one all digits.
+# A difference about this generator's dice, offered as a difference about the
+# tool.
+#
+# EXTENDING THE PREFIX UNTIL IT QUALIFIES WAS THE FIRST FIX AND WAS WORSE. It
+# makes the citation's LENGTH depend on its value, so the two sides wrote 12
+# and 15 characters, every column after it moved, and an EXAMINED difference
+# became an OUTPUT one. Head and base must agree on length as well as on
+# shape, and no fixed SHORT length is always examinable - the probability is
+# small, never zero. At the full 40 it is about one in a billion.
+#
+# ABBREVIATIONS ARE STILL FUZZED, by the claims that are meant to be dead:
+# `deadbeef1234` here and `_DEAD_SHA` in the axes are twelve characters,
+# constant, and identical on both sides. What changes is only the claims naming
+# a commit that really exists.
 def _sha(b: Build, truth: str) -> Optional[Contribution]:
     yes, no = _wants(truth)
     prose = []
@@ -324,7 +351,7 @@ def _sha(b: Build, truth: str) -> Optional[Contribution]:
         head = b.head()
         if not head:
             return None
-        prose.append(f"Recorded at `{head[:12]}` in the log.")
+        prose.append(f"Recorded at `{head}` in the log.")
     if no:
         prose.append("Recorded at `deadbeef1234` in the log.")
     return Contribution(prose=tuple(prose))
@@ -347,13 +374,13 @@ def _merge_claim(b: Build, truth: str) -> Optional[Contribution]:
         head = b.head()
         if not head:
             return None
-        prose.append(f"Merged into `{b.trunk}` at `{head[:12]}`.")
+        prose.append(f"Merged into `{b.trunk}` at `{head}`.")
     if no:
         done = b.git("rev-parse", "--verify", "-q", "refs/heads/side-work")
         stray = (getattr(done, "stdout", "") or "").strip()
         if not stray:
             return None
-        prose.append(f"Merged into `{b.trunk}` at `{stray[:12]}`.")
+        prose.append(f"Merged into `{b.trunk}` at `{stray}`.")
     return Contribution(prose=tuple(prose))
 
 
