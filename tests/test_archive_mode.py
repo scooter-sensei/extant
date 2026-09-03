@@ -190,3 +190,57 @@ def test_split_entries_refuses_the_raw_settings_object() -> None:
     message = str(caught.value)
     assert "StatusConfig" in message, message
     assert "Config.build" in message, message
+
+
+def test_a_crash_between_the_two_writes_cannot_lose_an_entry(
+        git_repo, monkeypatch) -> None:
+    """The conservation guard proves a VALUE; this proves the WRITE ORDER.
+
+    `archive()` calls itself the only irreversible file operation in the
+    system, and it asserts multiset conservation of every line before writing
+    anything. That assertion is about two strings in memory. It says nothing
+    about a process that dies between the two `open(..., "w")` calls that put
+    them on disk, and there is no ordering of those two writes the Counter
+    could distinguish.
+
+    Truncating the primary FIRST leaves a window in which the retired entries
+    are in neither file - the one outcome the whole function exists to make
+    impossible, reached by a route its own guard cannot see. Writing the
+    archive first leaves the same crash duplicating them instead, and a
+    duplicate is something a reader can repair.
+
+    The crash is injected rather than waited for: the second write-mode open
+    raises, which is what a full disk, a revoked permission or a killed
+    process all look like from here.
+    """
+    import builtins
+
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", FIVE_ENTRIES, "docs: five entries")
+
+    real_open = builtins.open
+    writes = []
+
+    def failing_open(file, mode="r", *args, **kwargs):
+        if "w" in mode:
+            writes.append(str(file))
+            if len(writes) == 2:
+                raise OSError("no space left on device")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", failing_open)
+
+    from extant import entries, session
+    config = session.context(repo).config
+    with pytest.raises(OSError):
+        entries.archive(repo, 3, config)
+
+    monkeypatch.undo()
+
+    # Whatever else happened, Phase 1 and Phase 2 still exist somewhere.
+    live = _read(repo / "NEXT_SESSION.md")
+    archive_path = repo / "docs" / "status-archive.md"
+    archived = _read(archive_path) if archive_path.exists() else ""
+    for entry in ("## Phase 1", "## Phase 2"):
+        assert entry in live or entry in archived, (
+            entry + " survived neither write; " + str(writes))

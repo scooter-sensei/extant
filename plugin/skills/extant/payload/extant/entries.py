@@ -208,8 +208,17 @@ def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:
             f"examples: {list(lost)[:3]}"
         )
 
-    with open(doc, "w", encoding="utf-8", newline="") as fh:
-        fh.write(remaining.replace("\n", newline))
+    # ADDITIVE WRITE FIRST, destructive second, and the order is the whole
+    # of the crash-safety here. The conservation check above proves the two
+    # output texts hold every input line, but it proves it about VALUES in
+    # memory; it says nothing about a process that dies between the two
+    # writes. Written the other way round - the primary truncated first -
+    # that window leaves the retired entries in NEITHER file, which is the
+    # one outcome this function exists to make impossible, reached by a
+    # route the Counter cannot see. This way the same crash leaves them in
+    # BOTH, and a duplicated entry is something a reader can fix.
     with open(archive_path, "w", encoding="utf-8", newline="") as fh:
         fh.write(archived_text.replace("\n", newline))
+    with open(doc, "w", encoding="utf-8", newline="") as fh:
+        fh.write(remaining.replace("\n", newline))
     return {"retained": retain, "archived": len(moved)}
