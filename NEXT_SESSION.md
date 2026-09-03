@@ -11,8 +11,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 **Status.** Suite is 831 tests across 52 files: 830 passing and 1 skipped.
 Thirteen rules, unchanged - nothing here adds one, widens a pattern or moves an
 exit code. The tool remained released as 0.25.0 and everything in this stretch
-sits above that tag, unreleased. Not merged: this work is still on its own
-branch and nothing has been pushed.
+sits above that tag, unreleased. Merged to `main` at `7619935`.
 
 **What started it.** A measured gap, not a hunch. A first `--sweep` over 50
 pinned public repositories prints 54,790 findings, and 4,431 of them are in
