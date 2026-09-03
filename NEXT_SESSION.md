@@ -8,7 +8,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 28 - The 92 per cent of a first run that nobody would act on (unreleased, 2026-09-03)
 
-**Status.** Suite is 831 tests across 52 files: 830 passing and 1 skipped.
+**Status.** Suite is 837 tests across 52 files: 836 passing and 1 skipped.
 Thirteen rules, unchanged - nothing here adds one, widens a pattern or moves an
 exit code. The tool remained released as 0.25.0 and everything in this stretch
 sits above that tag, unreleased. Merged to `main` at `7619935`.
@@ -84,16 +84,39 @@ is very often a project's live blog; labelling that `historical-record` would
 push live documentation into a stratum readers filter out. The filename anchor
 is what keeps that honest, and a test pins it so nobody "fixes" it by accident.
 
-**What is deliberately not done.** No de-duplication. Collapsing bazel's twelve
-copies of one defect takes the corpus from 4,431 to 3,468, a further 1.3x, but
-it needs findings grouped ACROSS documents, which is an analysis-time concern
-and a much larger change. Labelling alone buys 12.4x of the available 15.8x.
-The path pattern the apparatus keys on today is also the wrong key for it,
-measured: it catches 100 per cent of bazel's duplicate files, 87 per cent of
-`facebook/docusaurus`'s and none of `withastro/astro`'s, whose 99 duplicates
-are test fixtures rather than release snapshots. Content identity measures
-DUPLICATION and the path pattern measures PER-RELEASE SNAPSHOTTING; they are
-different questions, and only the first is a de-duplication key.
+**What is deliberately not done, in the tool.** No de-duplication. Collapsing
+bazel's twelve copies of one defect needs findings grouped ACROSS documents,
+which is an analysis-time concern: doing it here would change what a finding
+IS, and the exit code with it. Labelling alone buys 12.4x of the available
+15.9x, and the rest belongs where the measurement lives.
+
+**It was then done at analysis time, and the measurement contradicted the
+reason for wanting it.** The apparatus now unions a CONTENT key with the
+stripped-path key. Three figures are worth carrying forward, because an earlier
+draft of this entry had the first of them backwards:
+
+- **The remaining 1.3x was already delivered by the path key**, which existed
+  before any of this: 4,429 ordinary findings collapse to 3,466 on path alone.
+  Content keying takes that to 3,451 - **15 findings, 0.34 per cent** - and not
+  the further 1.3x it was expected to be worth.
+- **Content keying ALONE is a regression**, measured over all findings: 13,093
+  distinct against the path key's 11,860. A per-release snapshot carries the
+  version string, so it is near-identical and not byte-identical, and a hash
+  separates what a reader calls one defect. Only the UNION never loses -
+  11,867 overall and 3,451 ordinary, a 15.9x reduction from 54,790 as swept.
+- **Content identity still measures DUPLICATION and the path pattern still
+  measures PER-RELEASE SNAPSHOTTING**, which is why neither subsumes the other.
+  Re-measured rather than quoted: the path pattern catches 100 per cent of
+  bazel's 936 duplicate files, 84 per cent of `facebook/docusaurus`'s 1,115 and
+  none of `withastro/astro`'s 99, and corpus-wide only 63 per cent of 3,155.
+
+Three rules came out of cases in the corpus rather than from taste. **Empty
+content never merges** - babel checks in 28 byte-identical zero-length
+`README.md` fixtures, and grouping on emptiness is not evidence of anything.
+**Never merge across repositories** - worth one finding, and it would report one
+project's defect as another's. **Never merge across strata** - it moved 25
+findings and made the headline depend on iteration order, which the partition
+exists to prevent.
 
 Reading each document for a do-not-edit marker is deferred with its price
 rather than half-built: it would move 503 further findings from ordinary to
@@ -107,7 +130,7 @@ git - `read_plan` globs `plans_dir` on the filesystem - so `--collect` still
 finds the current plan. Verified against a clone with no `docs/` directory at
 all: `--verify` still exits 0 there.
 
-**The gate.** Full suite 830 passed and 1 skipped; 157 of 157 mutation anchors
+**The gate.** Full suite 836 passed and 1 skipped; 157 of 157 mutation anchors
 match; smoke 0 new and 0 missing; scenarios 213 of 213 assertions; fuzz 0
 property violations with 13 of 13 rules reached and 6 of 6 axes confirmed;
 `--verify` exit 0 both here and against a clone; `--selftest` 7 fired and 0
