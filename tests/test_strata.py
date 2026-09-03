@@ -100,3 +100,47 @@ def test_sarif_results_carry_the_stratum(tmp_path):
                                   run_kind="sweep"))
     got = [r["properties"]["stratum"] for r in doc["runs"][0]["results"]]
     assert got == ["historical-record", "ordinary"]
+
+
+from extant.strata import ORDER as STRATA_ORDER
+
+
+def test_summary_breaks_findings_out_by_stratum(capsys):
+    """The visible payoff. 54,790 findings and 4,431 of them ordinary is the
+    gap this whole change exists to close, and a summary that prints only the
+    first number is the misleading one."""
+    from extant.sweep import summarise_strata
+
+    items = [
+        Located("CHANGELOG.md", Finding(1, "dead-md-link", "a"),
+                primary=False, stratum="historical-record"),
+        Located("CHANGELOG.md", Finding(2, "dead-md-link", "b"),
+                primary=False, stratum="historical-record"),
+        Located("docs/guide.md", Finding(3, "dead-md-link", "c"),
+                primary=False, stratum="ordinary"),
+    ]
+    lines = summarise_strata(items, ["CHANGELOG.md", "docs/guide.md",
+                                     "docs/untouched.md"])
+    assert lines[0] == "  1 finding(s) in ordinary documents; 2 elsewhere:"
+    assert "    historical-record  2 finding(s) in 1 of 1 document(s)" in lines
+
+
+def test_summary_is_silent_when_everything_is_ordinary():
+    """A repository with nothing to separate should not gain a table saying
+    so. The breakdown earns its space only when it changes the number."""
+    from extant.sweep import summarise_strata
+
+    items = [Located("docs/a.md", Finding(1, "dead-md-link", "a"),
+                     primary=False, stratum="ordinary")]
+    assert summarise_strata(items, ["docs/a.md"]) == []
+
+
+def test_summary_orders_strata_by_the_declared_precedence():
+    from extant.sweep import summarise_strata
+
+    items = [Located("x.md", Finding(1, "k", "d"), primary=False,
+                     stratum=name)
+             for name in ("historical-record", "vendored", "generated")]
+    lines = summarise_strata(items, ["x.md"])
+    names = [ln.split()[0] for ln in lines[1:]]
+    assert names == [n for n in STRATA_ORDER if n in names]
