@@ -64,6 +64,50 @@ with a traceback instead of a sentence, and all three now print the same one:
 One encoding now gets one answer across `--validate`, `--verify`, `--archive`
 and `--search`.
 
+**Every finding now says what KIND of document it came from.** A first
+`--sweep` over 50 pinned public repositories prints 54,790 findings, and 4,431
+of them are in ordinary documents. The other 92 per cent come from four kinds
+of tree a reader would not call documentation-with-claims: per-release
+snapshots, changelogs and machine-written allowlists, vendored code, and
+generated API references. `bazelbuild/bazel` keeps twelve per-release copies of
+one documentation tree, so a single dead link written once is reported twelve
+times.
+
+A new module, `extant/strata.py`, maps a path to one of five names -
+`vendored`, `version-snapshot`, `generated`, `historical-record`, `ordinary` -
+and `Located` carries the answer. The sweep summary leads with the ordinary
+count and breaks the rest out with a denominator on every row; each SARIF
+result carries `stratum` in its `properties` bag beside `gates`, so code
+scanning can filter without the tool having decided for it.
+
+- **Labels, not exclusions.** `exclude_paths` hides; a stratum labels. A rule
+  that goes quiet because a tree was excluded is indistinguishable from a rule
+  that broke, which is the ambiguity the denominator exists to remove. Nothing
+  disappears from the output: every finding is still reported and still
+  counted.
+- **Exit codes are unchanged.** `--sweep` already reported without gating,
+  which is where the problem lives, and a project that has deliberately
+  configured a CHANGELOG as an `extra_doc` should keep gating on it.
+- **Baselines are unaffected.** The field is on `Located` and not on `Finding`,
+  because the baseline fingerprint hashes `(path, kind, detail)` off `Finding`.
+  A baseline that stops matching does not fail loudly; it quietly re-raises
+  findings a project agreed to leave alone. Nothing recorded anywhere is
+  invalidated.
+- **Configuration does not solve this**, which is why it is not left to
+  configuration. Three configuration passes over the same corpus moved the
+  headline by under one per cent, and `install.py` refuses 35 of those 50
+  repositories unaided, so the settings that would fix it never get written.
+  Whether a tree is vendored or a per-release snapshot is visible FROM THE
+  REPOSITORY.
+
+**The historical-record pattern reads every suffix the sweep reads.** It was
+anchored on `.md` and `.mdx` while the sweep gathers `md`, `markdown`, `mdx`
+and `rst`, so reStructuredText changelogs were counted as ordinary - the one
+stratum that matters most. A changelog-shaped DIRECTORY still does not make its
+contents historical: `Misc/NEWS.d/` in cpython stays ordinary on purpose,
+because a directory called `news/` is very often a live blog, and a suppression
+that fires wrongly deletes signal silently.
+
 ## 0.25.0 (2026-08-31)
 
 Four features, and the one that matters most is not a new rule: **a dead SHA

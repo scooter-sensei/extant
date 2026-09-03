@@ -546,6 +546,55 @@ with no result, and fails the run: a file the survey lost is not a file with no
 findings, and exiting 0 there would report a clean run for work that never
 happened. That is the one thing a sweep gates on besides a configured finding.
 
+### A finding says what kind of document it came from
+
+A first sweep of a large repository can print an alarming number, and most of
+it is usually not about your documentation. Measured over 50 pinned public
+repositories: **54,790 findings, of which 4,431 are in ordinary documents.**
+The rest come from trees nobody would call documentation-with-claims - and
+`bazelbuild/bazel` keeps twelve per-release copies of one documentation tree,
+so a single dead link written once is reported twelve times.
+
+So every finding carries a **stratum**, and the summary leads with the number
+you would act on:
+
+```console
+swept 3 markdown file(s): 0 configured (0 finding(s)), 3 unreviewed (3 finding(s))
+  1 finding(s) in ordinary documents; 2 elsewhere:
+    vendored  1 finding(s) in 1 of 1 document(s)
+    historical-record  1 finding(s) in 1 of 1 document(s)
+```
+
+| stratum | what it is |
+|:---|:---|
+| `vendored` | somebody else's code, checked in - `node_modules`, `vendor`, `third_party` |
+| `version-snapshot` | documentation kept as one directory per release |
+| `generated` | machine-written trees - `api`, `reference`, `_build`, `dist` |
+| `historical-record` | changelogs, release notes, and machine-maintained allowlists |
+| `ordinary` | everything else. This is the number that matters |
+
+**A changelog entry naming a file that has since moved is not a claim that
+rotted.** It is an accurate record of what was true at that release. The same
+goes for an allowlist of test-case paths in someone else's suite.
+
+Three things this deliberately is not:
+
+- **It is not an exclusion.** Excluding hides; a stratum labels. Every finding
+  is still reported and still counted, because a rule that goes quiet after a
+  tree was excluded is indistinguishable from a rule that broke.
+  `exclude_paths` still exists and answers a different question.
+- **It does not change your exit code.** A sweep already reported without
+  gating, and a project that deliberately configured a CHANGELOG as an
+  `extra_doc` keeps gating on it.
+- **It does not invalidate a baseline.** The label lives beside the finding
+  rather than inside its identity, so every fingerprint you have recorded still
+  matches.
+
+Each row carries its own denominator for the reason the section above exists:
+"2 historical-record findings" and "2 findings from the only changelog in this
+repository" are different facts and would otherwise print identically. The
+table appears only when there is something to separate.
+
 ### It can prove its own checks fire
 
 The worry above deserves more than a warning, so there is a command:
@@ -626,6 +675,12 @@ a sweep exits 0 and cannot gate. Each result also carries `properties.gates`, so
 a policy can filter on it without parsing severities. Before 0.20.0 everything
 was published as `error`, which contradicted the exit code the same command
 returned.
+
+**And what kind of document it came from.** `properties.stratum` is one of
+`vendored`, `version-snapshot`, `generated`, `historical-record` or `ordinary`,
+beside `gates` and for the same reason: a consumer should be able to filter on
+it without the tool having decided by hiding the result. See
+[the strata section](#a-finding-says-what-kind-of-document-it-came-from).
 
 **The alert shows the claim, not a line number.** Each result carries the cited
 line as a snippet, and the column range points at the token itself - the SHA,

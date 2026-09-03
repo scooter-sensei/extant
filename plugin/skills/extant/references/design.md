@@ -770,6 +770,81 @@ line ending in `::` and run until the indentation returns, `>>>` opens a
 doctest, and ``` ``inline literals`` ``` are code. Left in place, numpy's
 `float64('1e10000')` was read as a commit.
 
+## Strata: a property of the document, not a setting to configure
+
+A first sweep over 50 pinned public repositories prints **54,790 findings, of
+which 4,431 are in ordinary documents**. The other 92 per cent come from four
+kinds of tree - per-release snapshots (39,698), changelogs and machine-written
+allowlists (4,765), vendored code (4,175) and generated references (1,721).
+`bazelbuild/bazel` keeps twelve per-release copies of one documentation tree,
+so one dead link written once is reported twelve times; `angular`'s
+`zone.js/CHANGELOG.md` supplies 391 on its own, and `babel`'s two allowlists
+343 between them, whose entries are test-case paths in an EXTERNAL suite and
+were never document links at all.
+
+**`exclude_paths` already existed and did not close it.** Three configuration
+passes over the same corpus moved the headline by under one per cent - 3,468,
+3,470, 3,438 - and `install.py` refuses 35 of the 50 repositories unaided, so
+the configuration that would fix it is never written and the adopter never sees
+the prompt. The conclusion is not that adopters are lazy: whether a tree is
+vendored or a per-release snapshot is visible FROM THE REPOSITORY, so it should
+not have to be configured at all.
+
+**Labels, not exclusions**, and the distinction is the same one the denominator
+is built on. Excluding hides; a stratum labels. A rule that goes quiet because
+a tree was excluded is indistinguishable from a rule that broke. Both
+mechanisms stay and answer different questions.
+
+**The field is on `Located`, not on `Finding`.** The baseline fingerprint
+hashes `(path, kind, detail)` off `Finding`, and a baseline that stops matching
+does not fail loudly - it quietly re-raises findings a project agreed to leave
+alone, and a reader learns to stop reading the output. A stratum is a property
+of the PATH, and `Located` is already the type that pairs a finding with its
+path, so it belongs there on the merits too. It also keeps the rules leaves: if
+each rule stamped its own, `strata.py` would become a sixth shared module every
+rule imports for a fact none of them uses.
+
+**The strata are a PARTITION, so precedence is load-bearing.** A path can be
+generated AND version-snapshotted - bazel's `docs/versions/8.6.0/reference/` is
+both - and a fixed first-match order is the only thing that stops it being
+counted twice. Vendored wins over everything, because a vendored tree is
+somebody else's repository whatever shape it has inside.
+
+**Path only, and the alternative is priced rather than guessed at.** Reading
+each document for a do-not-edit marker would move 503 further findings from
+`ordinary` to `generated` - 11 per cent of that stratum, across 71 documents.
+It is not done because the text is not in scope where `Located` is built: the
+sweep receives findings back from a worker process, not document text. The
+number is recorded because a deferral without one is indistinguishable from an
+oversight.
+
+Two failures found after the first version shipped, both worth keeping:
+
+- **The pattern must read every suffix the sweep reads.** It was anchored on
+  `.md|.mdx` while `refs.py` gathers `md`, `markdown`, `mdx` and `rst`, so
+  reStructuredText changelogs fell through to `ordinary`. That is the dangerous
+  direction: a missed vendored tree only fails to shrink the headline, while a
+  missed changelog puts a historical record INTO the number a reader acts on.
+- **A changelog-shaped DIRECTORY does not make its contents historical.**
+  cpython's `Misc/NEWS.d/*.rst` are per-release news fragments and stay
+  `ordinary`. Widening to directory names would have been tuned on the corpus
+  being measured, which the admission bar refuses, and a directory called
+  `news/` is very often a project's live blog - labelling that would be a
+  suppression firing wrongly, which deletes signal silently rather than
+  appearing in the output for somebody to argue with.
+
+**De-duplication is not here, and the reason is not squeamishness.** Collapsing
+bazel's twelve copies needs findings grouped ACROSS documents, which would
+change what a finding IS and move exit codes with it. Measured at analysis time
+instead: the stripped-path key takes 4,429 ordinary findings to 3,466 and a
+content hash takes it to 3,451, so content identity is worth 15 findings on top
+of the path pattern rather than the further 1.3x it was expected to be. Content
+keying ALONE is worse over all findings - 13,093 distinct against 11,860 -
+because a per-release snapshot carries the version string and so is
+near-identical rather than byte-identical. Content identity measures
+DUPLICATION and the path pattern measures PER-RELEASE SNAPSHOTTING; they are
+different questions, and neither subsumes the other.
+
 ## Cache scope: one call, and the one place it widens
 
 Every answer git or the filesystem gives is held for the duration of ONE

@@ -108,6 +108,18 @@ same denominator the text output prints, because a machine consumer seeing
 zero results otherwise cannot tell a clean repository from one where nothing
 ran.
 
+**Every finding says what KIND of document it came from**, as
+`properties.stratum` and as a labelled breakdown under the sweep summary: one
+of `vendored`, `version-snapshot`, `generated`, `historical-record` or
+`ordinary`. Measured over 50 pinned public repositories, a first sweep prints
+54,790 findings and 4,431 of them are in ordinary documents; the rest are
+per-release snapshots, changelogs, vendored trees and generated references. A
+changelog entry naming a file that has since moved is an accurate record of
+what was true at that release, not a claim that rotted. This LABELS and never
+hides - nothing is excluded, no exit code moves, and the baseline fingerprint
+is untouched, because a rule that goes quiet is indistinguishable from a rule
+that broke.
+
 **After a history rewrite.** `git filter-repo` renames every commit at once, so
 every document citing one goes wrong in the same instant - measured on one real
 agent-written project as 12 of its 12 dead SHAs, none of them findable in the
