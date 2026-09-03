@@ -80,3 +80,23 @@ def test_fingerprint_ignores_the_stratum():
             primary=False, stratum="historical-record")
     after = fingerprint("CHANGELOG.md", "dead-md-link", detail)
     assert before == after
+
+
+import json
+
+from extant.report import format_sarif
+
+
+def test_sarif_results_carry_the_stratum(tmp_path):
+    """Code scanning should be able to filter without the tool deciding for
+    it, which is the same reason `gates` is already published."""
+    items = [
+        Located("CHANGELOG.md", Finding(1, "dead-md-link", "x"),
+                primary=False, stratum="historical-record"),
+        Located("docs/guide.md", Finding(2, "dead-md-link", "y"),
+                primary=True, stratum="ordinary"),
+    ]
+    doc = json.loads(format_sarif(items, tmp_path, examined={},
+                                  run_kind="sweep"))
+    got = [r["properties"]["stratum"] for r in doc["runs"][0]["results"]]
+    assert got == ["historical-record", "ordinary"]
