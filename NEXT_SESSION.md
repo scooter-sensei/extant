@@ -6,6 +6,96 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 28 - The 92 per cent of a first run that nobody would act on (unreleased, 2026-09-03)
+
+**Status.** Suite is 831 tests across 52 files: 830 passing and 1 skipped.
+Thirteen rules, unchanged - nothing here adds one, widens a pattern or moves an
+exit code. The tool remained released as 0.25.0 and everything in this stretch
+sits above that tag, unreleased. Not merged: this work is still on its own
+branch and nothing has been pushed.
+
+**What started it.** A measured gap, not a hunch. A first `--sweep` over 50
+pinned public repositories prints 54,790 findings, and 4,431 of them are in
+ordinary documents. The other 92 per cent come from four kinds of tree a reader
+would not call documentation-with-claims: per-release snapshots, changelogs and
+machine-written allowlists, vendored code, and generated API references.
+`bazelbuild/bazel` keeps twelve per-release copies of one documentation tree,
+so a single dead link written once is reported twelve times.
+
+Configuration does not close it. Three configuration passes over the same
+corpus moved the headline by under one per cent, and `install.py` refuses 35 of
+those 50 repositories unaided, so the configuration that would fix it never
+gets written. The conclusion is that whether a tree is vendored or a
+per-release snapshot is visible FROM THE REPOSITORY and should not have to be
+configured at all.
+
+**What changed.** One new leaf module, `plugin/skills/extant/payload/extant/strata.py`,
+mapping a path to one of five names - vendored, version-snapshot, generated,
+historical-record, ordinary. It imports nothing from the package, so it cannot
+be half of an import cycle and no rule needs to know it exists. `Located` gains
+a `stratum` field, stamped at its four construction sites: `Findings.record` in
+`report.py`, and `run_sweep` twice plus `deleted_claims` in `sweep.py`. Each
+SARIF result carries `stratum` in its `properties` bag beside `gates`. The
+sweep summary now leads with the ordinary count and breaks the rest out in
+precedence order.
+
+**LABELS, NOT EXCLUSIONS,** which is the whole design. `exclude_paths` hides; a
+stratum labels. A rule that goes quiet because a tree was excluded is
+indistinguishable from a rule that broke, which is the ambiguity the
+denominator exists to remove. Nothing disappears from the output - every
+finding is still reported and still counted.
+
+**The field is on `Located` and not on `Finding`, deliberately.** The baseline
+fingerprint hashes (path, kind, detail) off `Finding`. A baseline that stops
+matching does not fail loudly; it quietly re-raises findings a project agreed
+to leave alone, and a reader learns to stop reading the output. Nothing
+recorded in any project is invalidated by this change, and
+`test_fingerprint_ignores_the_stratum` asserts that invariant rather than
+pinning a digest that would have to be edited whenever the hash changed for a
+legitimate reason.
+
+**Every summary row carries its denominator.** "2 historical-record findings"
+and "2 findings from the only changelog in this repository" print identically
+without one, and the second is the one that says whether to care. That is the
+same omission `contract.py` makes fatal for rules.
+
+**What the plan did not know about.** A gap audit had already found six defects
+in it before implementation began. A seventh appeared during the work:
+`test_package_shape.py` freezes the field list of `Located`, and the plan
+predicted that any failure at that step would mean a construction site was
+missed. It did not - the shape test is a deliberate gate, and its own docstring
+states the rule for passing it, that anything added must say which side of the
+fingerprint it is on. The pin now carries that justification beside it.
+
+**What is deliberately not done.** No de-duplication. Collapsing bazel's twelve
+copies of one defect takes the corpus from 4,431 to 3,468, a further 1.3x, but
+it needs findings grouped ACROSS documents, which is an analysis-time concern
+and a much larger change. Labelling alone buys 12.4x of the available 15.8x.
+The path pattern the apparatus keys on today is also the wrong key for it,
+measured: it catches 100 per cent of bazel's duplicate files, 87 per cent of
+`facebook/docusaurus`'s and none of `withastro/astro`'s, whose 99 duplicates
+are test fixtures rather than release snapshots. Content identity measures
+DUPLICATION and the path pattern measures PER-RELEASE SNAPSHOTTING; they are
+different questions, and only the first is a de-duplication key.
+
+Reading each document for a do-not-edit marker is deferred with its price
+rather than half-built: it would move 503 further findings from ordinary to
+generated, 11 per cent of that stratum across 71 documents. The text is not in
+scope at the call sites, which receive findings back from a worker process.
+
+**One repository change worth knowing.** `docs/` is now gitignored and
+untracked by request, so the plan and design spec for this work are local
+working documents and are not in the repository. Nothing reads them through
+git - `read_plan` globs `plans_dir` on the filesystem - so `--collect` still
+finds the current plan. Verified against a clone with no `docs/` directory at
+all: `--verify` still exits 0 there.
+
+**The gate.** Full suite 830 passed and 1 skipped; 157 of 157 mutation anchors
+match; smoke 0 new and 0 missing; scenarios 213 of 213 assertions; fuzz 0
+property violations with 13 of 13 rules reached and 6 of 6 axes confirmed;
+`--verify` exit 0 both here and against a clone; `--selftest` 7 fired and 0
+stayed silent.
+
 ## Phase 27 - Six stages of fuzzer, and the same defect inside every one of them (unreleased, 2026-09-02)
 
 **Status.** Suite is 806 tests across 51 files, all passing. Thirteen rules,

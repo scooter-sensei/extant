@@ -97,3 +97,17 @@ class Located:
     #
     # Defaults True so every caller that gates on everything is unchanged.
     gating: bool = True
+    # What KIND of document this came from: vendored, version-snapshot,
+    # generated, historical-record or ordinary. See extant/strata.py.
+    #
+    # On `Located` and not on `Finding`, and the reason is the baseline. The
+    # fingerprint hashes (path, kind, detail) off `Finding`; folding a sixth
+    # field into that type risks the one failure a baseline has - it does not
+    # break loudly, it quietly re-raises findings a project agreed to leave
+    # alone, and a reader learns to stop reading the output.
+    #
+    # A stratum is a property of the PATH, and `Located` is already the type
+    # that pairs a finding with its path, so it belongs here on the merits too.
+    #
+    # Defaults to "ordinary" so every existing caller is unchanged.
+    stratum: str = "ordinary"

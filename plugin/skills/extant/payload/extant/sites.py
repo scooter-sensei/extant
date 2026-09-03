@@ -183,6 +183,23 @@ _SITE_CONFIGS = (
     # `fern.config.json` is the signature rather than `docs.yml`, which is too
     # generic a filename to treat as one.
     "fern.config.json",
+    # Google's devsite/g3doc compiles a tree into routes and drops the
+    # extension, so `[Convert](convert)` is a real link to `convert.md`.
+    # Measured on a 50-repository corpus: `bazelbuild/bazel` declares
+    # `site/en/_book.yaml` and reported 2 of its own extensionless routes as
+    # dead files. `_book.yaml` is the site definition and `_toc.yaml` its
+    # table of contents; both are devsite-specific enough to be signatures,
+    # where `_index.yaml` is not - Hugo uses that name for ordinary content.
+    #
+    # This does NOT reach `tensorflow/tensorflow`, which keeps its manifests
+    # at `tensorflow/lite/g3doc/_book.yaml` - three levels down, under a
+    # top-level directory that is the project rather than a site. It reported
+    # 478 such routes, 10.4% of every `dead-md-link` finding in that corpus's
+    # ordinary stratum, and reaching them needs a scoping change rather than a
+    # filename: `_site_scopes` returns TOP-LEVEL directories on purpose,
+    # because scoping wider silenced six real defects in astro and
+    # llama_index. Left undone deliberately rather than fixed over-broadly.
+    "_book.yaml", "_toc.yaml",
 )
 
 

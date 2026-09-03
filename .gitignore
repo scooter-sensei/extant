@@ -12,3 +12,12 @@ status_bundle.json
 *.egg-info/
 dist/
 build/
+
+# Working design documents - plans and specs - kept LOCAL by request. They are
+# still read from the filesystem, so nothing breaks: `read_plan` globs
+# `plans_dir` (default `docs/superpowers/plans`) directly rather than asking
+# git, so `--collect` still finds the current plan's checkboxes here.
+#
+# Untracked, not deleted. The four files that were tracked stay on disk and
+# their history is preserved in the commits that added them.
+docs/

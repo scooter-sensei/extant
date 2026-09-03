@@ -203,8 +203,15 @@ def test_finding_fields_are_frozen_and_ordered() -> None:
             == fingerprint("p.md", decorated.kind, decorated.detail))
     assert decorated.message() != plain.message(), (
         "a repair that changes no output is not being shown to anyone")
+    # `stratum` states its side of the fingerprint, as this docstring requires:
+    # it is on `Located` and NOT on `Finding`, so it sits OUTSIDE the key. The
+    # fingerprint reads (path, kind, detail) off `Finding`, and labelling a
+    # finding with the kind of document it came from must not re-raise
+    # findings a project already agreed to leave alone. `stratum` is a
+    # property of the PATH, and `Located` is the type that pairs a finding
+    # with its path, so it belongs on this side on the merits too.
     assert [f.name for f in dataclasses.fields(Located)] == [
-        "path", "finding", "primary", "gating"]
+        "path", "finding", "primary", "gating", "stratum"]
     try:
         Finding(1, "k", "d").line = 2
     except dataclasses.FrozenInstanceError:

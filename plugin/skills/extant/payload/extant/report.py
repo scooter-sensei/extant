@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 
 from extant import registry as _registry
+from extant import strata
 from extant.finding import Finding, Located
 
 __all__ = [
@@ -162,7 +163,8 @@ class Collector:
         """
         new = 0
         for finding in items:
-            item = Located(path, finding, primary)
+            item = Located(path, finding, primary,
+                           stratum=strata.classify(path))
             mark = fingerprint(path, finding.kind, finding.detail)
             if mark in self.baselined:
                 # Bounded by what was recorded. An entry written before counts
@@ -333,7 +335,10 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
                 "statusClaim/v1": fingerprint(
                     item.path, item.finding.kind, item.finding.detail),
             },
-            "properties": {"gates": item.gating},
+            # `stratum` beside `gates` for the same reason `gates` is here: a
+            # consumer should be able to filter on what kind of document this
+            # was without the tool having decided for it by hiding the result.
+            "properties": {"gates": item.gating, "stratum": item.stratum},
             "locations": [{
                 "physicalLocation": {
                     "artifactLocation": {"uri": item.path},
