@@ -663,10 +663,30 @@ def load_config(repo: Path) -> StatusConfig:
             )
         return float(raw)
 
+    def compiled(key: str, pattern: str, flags: int = 0) -> re.Pattern[str]:
+        """A configured pattern, or a ValueError naming the setting that broke.
+
+        `_compile_consistency` above has done this for the consistency block
+        since it was written. The settings below were left compiling bare, and
+        `re.error` is NOT a subclass of ValueError - so nothing that guards
+        configuration loading catches it, and what reaches the operator is a
+        message about a character position in a pattern they cannot see,
+        naming neither the file nor the key they mistyped.
+
+        The timing is worse than the message. extant/session.py loads the
+        configuration at IMPORT, so the traceback arrives before any mode has
+        begun, out of this module, for a typo in theirs.
+        """
+        try:
+            return re.compile(pattern, flags)
+        except re.error as exc:
+            raise ValueError(
+                f"{source}: {key} does not compile: {exc}") from exc
+
     def optional(key: str) -> re.Pattern[str] | None:
         """A disableable pattern: empty means off, not 'use the default'."""
         raw = values[key]
-        return re.compile(str(raw)) if raw else None
+        return compiled(key, str(raw)) if raw else None
 
     return StatusConfig(
         primary_doc=str(values["primary_doc"]),
@@ -682,24 +702,28 @@ def load_config(repo: Path) -> StatusConfig:
         pointer_prefix=str(values["pointer_prefix"]),
         venv_python=str(values["venv_python"]),
         suite_command=tuple(values["suite_command"]),          # type: ignore[arg-type]
-        suite_passed=re.compile(str(values["suite_passed"])),
-        suite_failed=re.compile(str(values["suite_failed"])),
-        suite_duration=re.compile(str(values["suite_duration"])),
+        suite_passed=compiled("suite_passed", str(values["suite_passed"])),
+        suite_failed=compiled("suite_failed", str(values["suite_failed"])),
+        suite_duration=compiled("suite_duration", str(values["suite_duration"])),
         code_suffixes=tuple(values["code_suffixes"]),          # type: ignore[arg-type]
         todo_exclude_files=tuple(values["todo_exclude_files"]),  # type: ignore[arg-type]
         todo_exclude_dirs=tuple(values["todo_exclude_dirs"]),    # type: ignore[arg-type]
         exclude_paths=tuple(values["exclude_paths"]),            # type: ignore[arg-type]
         extra_docs=tuple(values["extra_docs"]),                  # type: ignore[arg-type]
-        release_tag=re.compile(str(values["release_tag"]), re.IGNORECASE),
+        release_tag=compiled("release_tag", str(values["release_tag"]),
+                             re.IGNORECASE),
         consistency=_compile_consistency(values["consistency"], path),
-        base_header=re.compile(str(values["base_header"]), re.MULTILINE),
+        base_header=compiled("base_header", str(values["base_header"]),
+                             re.MULTILINE),
         phase_task=optional("phase_task"),
         phase_bare=optional("phase_bare"),
-        branch_token=re.compile(str(values["branch_token"])),
-        live_phrases=re.compile(str(values["live_phrases"]), re.IGNORECASE),
-        merge_claim=re.compile(merge_src, re.IGNORECASE),
-        path_pointer=re.compile(str(values["path_pointer"]), re.IGNORECASE),
-        todo_markers=re.compile(str(values["todo_markers"])),
+        branch_token=compiled("branch_token", str(values["branch_token"])),
+        live_phrases=compiled("live_phrases", str(values["live_phrases"]),
+                              re.IGNORECASE),
+        merge_claim=compiled("merge_claim", merge_src, re.IGNORECASE),
+        path_pointer=compiled("path_pointer", str(values["path_pointer"]),
+                              re.IGNORECASE),
+        todo_markers=compiled("todo_markers", str(values["todo_markers"])),
         source=source,
         warnings=tuple(warnings),
     )

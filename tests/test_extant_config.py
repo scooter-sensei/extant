@@ -382,3 +382,55 @@ def test_a_config_file_with_no_parser_names_the_remedy(tmp_path) -> None:
     assert "pip install tomli" in combined, combined
     assert "3.11" in combined, combined
     assert ".extant.toml" in combined, combined
+
+
+def test_a_pattern_that_does_not_compile_names_the_setting(tmp_path) -> None:
+    """A typo in a configured regex must say WHICH regex, in WHOSE file.
+
+    `_compile_consistency` has always done this for the consistency block. The
+    ten settings compiled beside it were left bare, and `re.error` is not a
+    subclass of ValueError - so nothing guarding a config load caught it, and
+    what the operator got was a character position in a pattern they never
+    see, naming neither their file nor the key they mistyped.
+
+    The timing made it worse than the wording. extant/session.py loads the
+    configuration at IMPORT, so the traceback arrived out of the package
+    before any mode had begun, for a typo in `.extant.toml`.
+    """
+    import pytest
+
+    from extant.config import load_config
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".extant.toml").write_text(
+        chr(10).join(["[extant]", 'branch_token = "claude/(unclosed"']),
+        encoding="utf-8")
+
+    with pytest.raises(ValueError) as caught:
+        load_config(tmp_path)
+
+    message = str(caught.value)
+    assert "branch_token" in message
+    assert ".extant.toml" in message
+
+
+def test_every_configured_pattern_reports_its_own_name(tmp_path) -> None:
+    """Each one, not just the first. A helper applied to nine of ten settings
+    leaves the tenth failing exactly the way this test was written to stop."""
+    import pytest
+
+    from extant.config import load_config
+
+    (tmp_path / ".git").mkdir()
+    settings = ["suite_passed", "suite_failed", "suite_duration",
+                "release_tag", "base_header", "branch_token", "live_phrases",
+                "merge_claim", "path_pointer", "todo_markers"]
+    for name in settings:
+        (tmp_path / ".extant.toml").write_text(
+            chr(10).join(["[extant]", name + ' = "(unclosed"']),
+            encoding="utf-8")
+
+        with pytest.raises(ValueError) as caught:
+            load_config(tmp_path)
+
+        assert name in str(caught.value), name
