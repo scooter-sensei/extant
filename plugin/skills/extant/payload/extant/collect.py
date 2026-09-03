@@ -267,15 +267,20 @@ def run_suite(repo: Path, suite_json: str | None,
         command = [part.replace("{python}", str(python)) for part in command]
 
     try:
-        proc = subprocess.run(
-            command, cwd=repo, capture_output=True, text=True, encoding="utf-8",
-        )
+        proc = subprocess.run(command, cwd=repo, capture_output=True)
     except FileNotFoundError as exc:
         raise RuntimeError(
             f"suite_command not runnable: {' '.join(command)} ({exc}). "
             "Check the command exists on PATH, or pass --suite-json."
         ) from exc
-    result = parse_pytest_summary(proc.stdout, status)
+    # Decoded here rather than by `text=True` - see `_git` in extant/git.py for
+    # why that decodes in a place the caller cannot reach. This is the sharpest
+    # instance of it in the package: the command is CONFIGURED, so the text
+    # being decoded is some other project's test runner writing whatever its
+    # console encoding is. The summary parsed out of it is ASCII digits either
+    # way, so replacing a byte that will not decode costs nothing, while the
+    # None that `text=True` yields on Windows costs the whole measurement.
+    result = parse_pytest_summary(proc.stdout.decode("utf-8", "replace"), status)
     result["source"] = "measured"
     result["exit_code"] = proc.returncode
     return result

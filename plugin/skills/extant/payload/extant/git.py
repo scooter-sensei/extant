@@ -227,7 +227,47 @@ def rewrite_map_path(repo: Path) -> Path | None:
 
 
 def _git(repo: Path, *args: str) -> str:
-    """Run a git command in `repo`, returning stdout. Raises on non-zero."""
-    return subprocess.run(
-        ["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8", check=True
-    ).stdout
+    """Run a git command in `repo`, returning stdout. Raises on non-zero.
+
+    BYTES, decoded here, and the reason is the one `_document_at` in
+    extant/sweep.py already writes at its own call site - it just never
+    reached this function, which is the one every rule asks its questions
+    through. `text=True` moves the decode INSIDE subprocess, and where it
+    happens there is not the same on every platform:
+
+    * On Windows a reader THREAD decodes. A byte git emits that is not valid
+      UTF-8 kills that thread, `communicate()` hands back None, and this
+      function returns None to callers annotated `str`. `_git_soft` cannot
+      catch it because nothing was raised here to catch.
+    * On POSIX the decode happens in this thread, at the end of
+      `Popen._communicate`, and raises UnicodeDecodeError - which
+      `_git_soft` does not list either, so the tolerant path is not tolerant
+      of it.
+
+    One silent wrong answer and one crash, out of the same line, decided by
+    the operating system. The silent one is the worse of the two: a rule
+    handed None finds nothing, and nothing prints exactly like a clean
+    document.
+
+    Neither is hypothetical. Any repository carrying pre-UTF-8 history - a
+    latin-1 or Shift-JIS commit subject with no `encoding` header - emits
+    such bytes from `git log`, and sweeping other people's repositories is
+    what this tool is for.
+
+    `errors="replace"` is right HERE and wrong one module over. This returns
+    git's own METADATA - ref names, object ids, commit subjects - where a
+    replaced character costs a garbled name inside a message. `_document_at`
+    returns the DOCUMENT, where the same substitution would have every rule
+    checking text the file does not contain, so that one decodes strictly
+    and reports what it caught. Same bytes, different question, different
+    answer.
+
+    The newline translation is what `text=True` was doing - it is
+    `subprocess._translate_newlines` verbatim - so a caller that splits on
+    newlines sees exactly what it saw before.
+    """
+    done = subprocess.run(
+        ["git", *args], cwd=repo, capture_output=True, check=True
+    )
+    decoded = done.stdout.decode("utf-8", "replace")
+    return decoded.replace("\r\n", "\n").replace("\r", "\n")

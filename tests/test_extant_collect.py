@@ -1498,3 +1498,37 @@ def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(git_repo):
         "every rule must report a denominator; missing: "
         f"{ {r.kind for r in RULES} - set(counts) }"
     )
+
+
+def test_a_suite_whose_output_is_not_utf8_is_still_measured(tmp_path) -> None:
+    """`suite_command` runs SOMEBODY ELSE'S runner, so its bytes are the least
+    predictable text this package decodes.
+
+    A runner that prints a filename in the console codepage rather than UTF-8
+    is enough, and on Windows that is the default rather than the exception.
+    Left to `text=True` the decode happened on a reader thread, so the byte
+    killed the thread and `proc.stdout` came back as None - and the measured
+    path then reported whatever `parse_pytest_summary` makes of None instead
+    of the green suite that had just run.
+
+    The counts being parsed are ASCII digits either way, which is what makes
+    replacing the offending byte the right answer here: nothing the rule reads
+    is lost, and the alternative loses the whole measurement.
+    """
+    import dataclasses
+    import sys
+
+    from extant import collect, session
+
+    program = (
+        "import sys;"
+        "sys.stdout.buffer.write(bytes([0xE9]));"
+        "sys.stdout.buffer.write(b' 7 passed in 1.23s')"
+    )
+    status = dataclasses.replace(
+        session.CONFIG, suite_command=(sys.executable, "-c", program))
+
+    result = collect.run_suite(tmp_path, None, status)
+
+    assert result["source"] == "measured"
+    assert result["passed"] == 7
