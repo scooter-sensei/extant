@@ -1052,6 +1052,103 @@ Before concluding a rule is too narrow, count how often anyone writes the form
 it reads. That is cheaper than any widening and it is what the denominator line
 exists to make visible.
 
+## Where a decode happens is a decision, not a default
+
+`plugin/skills/extant/payload/extant/git.py` ran every git command with
+`text=True`. That reads as "give me a string" and means "decode this somewhere
+I have not named", and where that somewhere is differs by platform:
+
+- On Windows `Popen._communicate` decodes on a reader THREAD. A byte git emits
+  that is not valid UTF-8 kills that thread, `communicate()` hands back None,
+  and `_git` returns None to callers annotated `-> str`. `_git_soft` cannot
+  catch it, because nothing was raised for it to catch.
+- On POSIX the decode happens in the caller's own thread at the end of the
+  same function and raises `UnicodeDecodeError` - which `_git_soft` does not
+  list either, so the path documented to return the empty string rather than
+  raise, raises.
+
+One silent wrong answer and one crash, out of one line, chosen by the operating
+system. The silent half is the one that matters here: a rule handed None finds
+nothing, and finding nothing prints exactly what a clean document prints.
+
+**It was already diagnosed, one call site away.** `_document_at` in
+`plugin/skills/extant/payload/extant/sweep.py` carries a paragraph describing
+this mechanism exactly, because that mode hit it and was repaired there by
+capturing bytes. What a fix in that position cannot do is repair the module
+every rule asks its questions through.
+
+**The reachable case is a path, not a commit message.** `tracked_markdown` in
+`plugin/skills/extant/payload/extant/refs.py` decides which documents a sweep
+looks at AT ALL, and it runs `ls-tree -r -z --name-only`. The `-z` turns OFF
+the `core.quotePath` escaping that would otherwise render unusual bytes as
+ASCII, so the raw bytes arrive on every platform and under every
+configuration. Against a repository holding one tracked file whose path is not
+valid UTF-8, `--sweep` - the mode a first-time reader runs - exited with
+`AttributeError: 'NoneType' object has no attribute 'split'`. That function's
+own docstring calls a listing which comes back short "the worst shape available
+- a silent all-clear on a repository nobody checked", and this was the route to
+one it did not anticipate.
+
+Pre-UTF-8 history is not exotic. A latin-1 or Shift-JIS commit subject written
+before an `encoding` header was routine emits such bytes from `git log`, and
+reading other people's repositories is what this tool is for.
+
+**`errors="replace"` is right here and stays wrong one module over,** which is
+why this is a decision and not a default to apply wherever the same call shape
+appears. `_git` returns git's own METADATA - ref names, object ids, commit
+subjects - where a replaced character costs a garbled name inside a message
+nobody validates. `_document_at` returns the DOCUMENT, where the same
+substitution would have every rule checking text the file does not contain, so
+that one decodes strictly and reports what it caught. Same bytes, different
+question, different answer. The newline translation is
+`subprocess._translate_newlines` verbatim, so a caller splitting on newlines
+sees what it saw before.
+
+**Two sites with the same shape were left alone, and the reason is
+reachability rather than oversight.** `_batch_shas` in
+`plugin/skills/extant/payload/extant/refs.py` feeds `cat-file --batch-check` a
+string, so what git echoes back for a missing object is valid UTF-8 by
+construction; the `_search_with_limit` child in
+`plugin/skills/extant/payload/extant/rules/consistency.py` speaks JSON in both
+directions, and `ensure_ascii` keeps that pure ASCII whatever the pattern
+holds. A fix neither reachable nor falsifiable is a change nobody can watch
+fail, which is the shape this project refuses everywhere else.
+
+## The conservation check proves a value, not a write
+
+`archive()` in `plugin/skills/extant/payload/extant/entries.py` calls itself
+the only irreversible file operation in the system and asserts multiset
+conservation of every line before writing anything. That assertion is about
+two strings in memory. It says nothing about a process that dies between the
+two `open(..., "w")` calls that put them on disk, and no ordering of those two
+writes changes what the Counter sees.
+
+The primary was truncated first and the archive written second, so the window
+between them held the retired entries in NEITHER file - the one outcome the
+function exists to make impossible, reached by a route its own guard cannot
+observe. Writing the additive file first inverts the failure: the same crash
+leaves the entries in both, and a duplicate is something a reader can repair.
+
+The general form is worth keeping: a guard that runs before the writes bounds
+the VALUES being written, and ordering is the only thing that bounds the
+partial states. Where both matter, both have to be stated.
+
+## A configured pattern that will not compile should name itself
+
+`_compile_consistency` in `plugin/skills/extant/payload/extant/config.py` has
+always wrapped a bad consistency pattern into a `ValueError` naming the file
+and the setting. The other configured patterns beside it compiled bare, and
+`re.error` is NOT a subclass of `ValueError` - so nothing guarding a
+configuration load caught it, and what reached the operator was a message about
+a character position inside a pattern they never see.
+
+The timing was worse than the wording. Settings load at IMPORT, so the
+traceback arrived out of this package before any mode had begun, for a typo in
+theirs. All of them route through one helper now, and the test asserts each
+setting names itself rather than checking one and trusting the rest - a helper
+applied to nine of ten leaves the tenth failing in exactly the way the test was
+written to stop.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

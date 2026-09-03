@@ -262,6 +262,15 @@ an isolated copy is what makes that irrelevant.
 - Narrow exception handlers. Bare `except:` and `except Exception:` hide the
   failures this project exists to surface.
 
+- Capture bytes from a subprocess and decode them yourself. `text=True`
+  decodes inside `subprocess`, and WHERE that happens depends on the platform:
+  Windows uses a reader thread, so a byte that will not decode kills the thread
+  and the call hands back `None` instead of raising, while POSIX raises in the
+  caller. A function annotated `-> str` then returns `None` on one and raises
+  on the other, and a caller written for either is wrong on one of them.
+  Decide replace-or-raise per call site: git metadata can afford a replacement
+  character, a document being checked cannot.
+
 ## Cutting a release
 
 Bump the version in four manifests - `.claude-plugin/marketplace.json`,

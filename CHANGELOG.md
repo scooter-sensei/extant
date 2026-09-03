@@ -4,8 +4,10 @@
 
 Nothing here adds a rule or a flag. Everything is a denominator that lied, a
 document shape that lost its rules, or a mode that crashed where its siblings
-refuse - and every one of them was found by the fuzz harness rather than by a
-person reading the code.
+refuse. Most were found by the fuzz harness rather than by a person reading
+the code; the last four came the other way, from a review of the git seam, the
+settings load and the one irreversible file write - each then reproduced and
+watched failing before it was fixed.
 
 **Six denominators counted sites their rules refuse to judge.** The quiet
 direction of this project's recurring defect, and the worse of the two: a
@@ -107,6 +109,41 @@ stratum that matters most. A changelog-shaped DIRECTORY still does not make its
 contents historical: `Misc/NEWS.d/` in cpython stays ordinary on purpose,
 because a directory called `news/` is very often a live blog, and a suppression
 that fires wrongly deletes signal silently.
+
+**The git seam returned None on Windows and raised on POSIX, out of one line.**
+Every git command ran with `text=True`, which decodes inside `subprocess` - and
+inside `subprocess` is not one place. Windows decodes on a reader thread, so a
+byte that is not valid UTF-8 kills the thread and `communicate()` hands back
+None; POSIX decodes in the caller's thread and raises `UnicodeDecodeError`.
+Neither is catchable by `soft()`, which is documented to return the empty
+string rather than raise. The reachable case is a PATH, not a commit message:
+`tracked_markdown` decides which documents a sweep reads AT ALL and runs
+`ls-tree -r -z`, whose `-z` turns off the escaping that would otherwise render
+unusual bytes as ASCII. Against a repository holding one tracked file whose
+path is not valid UTF-8, `--sweep` exited with `AttributeError: 'NoneType'
+object has no attribute 'split'`. Bytes are captured and decoded in the caller
+now, keeping the newline translation `text=True` performed, verbatim.
+
+**`--collect` lost a suite measurement to the same line.** `suite_command` is
+configured, so what it decodes is some other project's test runner writing
+whatever its console encoding is - the least predictable text this package
+reads. On Windows a runner printing in the console codepage produced None where
+the summary should have been.
+
+**A configured pattern that will not compile now names itself.** `re.error` is
+not a subclass of `ValueError`, so nothing guarding a configuration load caught
+one, and what reached the operator was a character position inside a pattern
+they never see. Settings load at import, so the traceback arrived out of the
+package before any mode had begun, for a typo in theirs. Ten settings route
+through one helper now, beside the consistency block that always did.
+
+**`--archive` wrote the destructive file first.** The conservation check proves
+the two output texts hold every input line, which is a property of two strings
+in memory; it says nothing about a process that dies between the two writes.
+Truncating the primary first left a window in which the retired entries were in
+NEITHER file - the outcome that function exists to make impossible, by a route
+its own guard cannot see. The additive write goes first now, so the same crash
+duplicates them instead, and a duplicate is something a reader can repair.
 
 ## 0.25.0 (2026-08-31)
 

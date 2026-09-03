@@ -6,6 +6,102 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 29 - The line that decoded somewhere nobody named (unreleased, 2026-09-04)
+
+**Status.** Suite is 846 tests across 53 files: 845 passing and 1 skipped.
+Thirteen rules, unchanged - nothing here adds one, widens a pattern or moves an
+exit code. The tool remained released as 0.25.0 and this work sits above that
+tag, unreleased and not yet on the trunk.
+
+**What started it.** A code-quality review of the whole package rather than a
+reported failure, which is worth saying because it changes what the numbers
+below are worth: none of these had ever been reported by anybody, here or
+anywhere the tool is installed. A scan of every module for the mechanical
+shapes - bare handlers, mutable defaults, runtime asserts - returned clean.
+The shape that did not was a strict decode across a process boundary, at four
+sites, of which two proved reachable. The other two defects came from reading
+the code that writes files and the code that loads settings, which no scan
+would have flagged.
+
+**The defect, and why it is this project's own failure mode.** The git seam ran
+every command with `text=True`. That reads as "give me a string" and means
+"decode this somewhere I have not named", and the somewhere differs by
+platform. On Windows `Popen._communicate` decodes on a reader THREAD, so a byte
+git emits that is not valid UTF-8 kills the thread, `communicate()` returns
+None, and `_git` hands None to callers annotated `-> str`; `soft()` cannot
+catch that, because nothing was raised for it to catch. On POSIX the decode
+happens in the caller's thread and raises `UnicodeDecodeError`, which `soft()`
+does not list either. One silent wrong answer and one crash, out of one line,
+chosen by the operating system - and the silent one is the failure this whole
+project exists to refuse, because a rule handed None finds nothing and finding
+nothing prints what clean prints.
+
+**It had already been diagnosed one call site away.** `_document_at` in
+`plugin/skills/extant/payload/extant/sweep.py` carries a paragraph describing
+this mechanism exactly and captures bytes to avoid it. What a repair in that
+position cannot do is reach the module every rule asks its questions through.
+
+**The reachable case is a path, not a commit message.** `tracked_markdown` in
+`plugin/skills/extant/payload/extant/refs.py` decides which documents a sweep
+looks at AT ALL, and runs `ls-tree -r -z --name-only`. The `-z` turns OFF the
+`core.quotePath` escaping that would render unusual bytes as ASCII, so raw
+bytes arrive on every platform and under every configuration. Against a
+repository holding one tracked file whose path is not valid UTF-8, `--sweep` -
+the mode a first-time reader runs, with nothing configured - exited with
+`AttributeError: 'NoneType' object has no attribute 'split'`. That function's
+own docstring calls a listing which comes back short "the worst shape available
+- a silent all-clear on a repository nobody checked".
+
+**Three more, each smaller and each the same shape of silence.** `--collect`
+decodes some other project's test runner through the same construct and lost
+the whole measurement to it. A configured pattern that will not compile raised
+`re.error`, which is not a `ValueError`, so nothing guarding a configuration
+load caught it and the message named a character position rather than the
+setting; settings load at import, so it arrived before any mode had begun.
+`archive()` in `plugin/skills/extant/payload/extant/entries.py` wrote the
+truncated primary BEFORE the archive, so a process dying between the two writes
+left the retired entries in neither file - which its conservation guard cannot
+see, because that guard bounds two strings in memory and nothing bounds the
+partial states but the ordering.
+
+**Two sites with the same shape were left, and the reason is reachability.**
+`_batch_shas` feeds `cat-file --batch-check` a string, so git's echo is valid
+UTF-8 by construction, and the `consistency` child speaks JSON in both
+directions where `ensure_ascii` keeps it ASCII whatever the pattern holds. Both
+were fixed, measured as unreachable, and reverted. A change nobody can watch
+fail is the arrangement this project refuses everywhere else, and it is not
+worth less here for being small.
+
+**What was NOT fixed, with its number.** Eight sites number lines with
+`splitlines()` and two with `line_number_at`. Python splits more separators
+than the `LINE_BREAK` pattern does - a form feed, a vertical tab, NEL, U+2028
+and U+2029 - so on a document holding any of them two rules report different
+line numbers for one position, measured at 3 against 4 across a single form
+feed. It is left alone because the obvious repair is wrong: splitting on
+`LINE_BREAK` instead appends a phantom trailing line to every document ending
+in a newline, which is nearly all of them. That is its own change with its own
+measurement, not a rider on this one.
+
+**Nine tests, and eight of them were watched failing first.** Each fix has a
+test that goes red with the fix reverted, which is the only thing that
+distinguishes a regression test from a comment. The ninth asserts the
+denominators still hold end to end and passes either way; it is kept as a guard
+and is not claimed as coverage. The undecodable repositories are built with
+`hash-object --literally` and `mktree`, because `git commit` transcodes its
+input from the locale encoding and would have produced valid UTF-8 on the
+machine under test - a fixture that quietly proves nothing, which is the same
+failure one level up.
+
+**Measurement.** Every gate re-run against the change: the suite, `--verify`
+byte-identical to the trunk's output, `--selftest` unchanged at seven fired and
+none silent, all 157 mutation anchors still matching exactly once, `smoke` with
+no new or missing flags, `scenarios` at 213 assertions, and `fuzz` over 35
+generated repositories with no property violation. The one that settles it is
+`fuzz --differential`, which runs one corpus through both versions and diffs
+per repository: 614 findings and 858 denominators on the table, and no
+difference. It is the only oracle here that notices a rule going quiet, which
+is the risk this change carried.
+
 ## Phase 28 - The 92 per cent of a first run that nobody would act on (unreleased, 2026-09-03)
 
 **Status.** Suite is 837 tests across 52 files: 836 passing and 1 skipped.

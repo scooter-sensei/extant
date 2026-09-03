@@ -142,6 +142,32 @@ in its setup document), and fixing gitflow with a trunk list (a merge claim
 names its own ref, which is strictly more precise). A no-op that looks like a
 feature is the expensive kind, because nothing ever reports it.
 
+## Decode at a boundary you control
+
+`text=True` on a subprocess reads as "give me a string" and means "decode this
+somewhere I have not named". That somewhere is not the same on every platform:
+Windows decodes on a reader thread, so a byte that will not decode kills the
+thread and `communicate()` returns None; POSIX decodes in the caller's thread
+and raises. One silent wrong answer and one crash, out of one line, chosen by
+the operating system - and the silent one is worse, because a caller handed
+None finds nothing, and nothing prints what clean prints. It reached
+`--sweep` through `ls-tree -z`, whose `-z` turns off the path escaping that
+would have kept the bytes ASCII.
+
+Capture bytes and decode where the caller can see it. Whether to replace or to
+raise is then a decision made per call site rather than a default:
+`plugin/skills/extant/payload/extant/git.py` returns git's own metadata and
+replaces, because a garbled character in a ref name costs nothing this project
+checks; `_document_at` in
+`plugin/skills/extant/payload/extant/sweep.py` returns the document itself and
+decodes strictly, because the same substitution would have every rule checking
+text the file does not contain.
+
+Two sites keep the plain form on purpose - `_batch_shas` and the child in
+`plugin/skills/extant/payload/extant/rules/consistency.py` - because a string
+payload and a JSON envelope put invalid UTF-8 out of reach there. A fix nobody
+can watch fail does not belong here either.
+
 ## The admission test for a new rule
 
 A rule belongs only if all four hold:
