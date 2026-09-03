@@ -49,3 +49,34 @@ def test_order_lists_every_stratum_once_in_precedence_order():
     assert ORDER == ("vendored", "version-snapshot", "generated",
                      "historical-record", "ordinary")
     assert len(set(ORDER)) == len(ORDER)
+
+
+from extant.finding import Finding, Located
+from extant.report import fingerprint
+
+
+def test_located_carries_a_stratum_and_defaults_to_ordinary():
+    item = Located("README.md", Finding(1, "dead-md-link", "x"), primary=True)
+    assert item.stratum == "ordinary"
+
+
+def test_located_accepts_an_explicit_stratum():
+    item = Located("CHANGELOG.md", Finding(1, "dead-md-link", "x"),
+                   primary=False, stratum="historical-record")
+    assert item.stratum == "historical-record"
+
+
+def test_fingerprint_ignores_the_stratum():
+    """The stratum sits on `Located`, not `Finding`, and the fingerprint keys
+    on (path, kind, detail). A baseline that stops matching does not fail
+    loudly - it quietly re-raises findings a project agreed to leave alone.
+
+    This asserts the INVARIANT rather than a hard-coded digest, which would
+    have to be edited whenever the hash changed for a legitimate reason.
+    """
+    detail = "links to `gone.md`, which does not exist"
+    before = fingerprint("CHANGELOG.md", "dead-md-link", detail)
+    Located("CHANGELOG.md", Finding(1, "dead-md-link", detail),
+            primary=False, stratum="historical-record")
+    after = fingerprint("CHANGELOG.md", "dead-md-link", detail)
+    assert before == after

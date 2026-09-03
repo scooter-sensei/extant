@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 
 from extant import registry as _registry
+from extant import strata
 from extant.finding import Finding, Located
 
 __all__ = [
@@ -162,7 +163,8 @@ class Collector:
         """
         new = 0
         for finding in items:
-            item = Located(path, finding, primary)
+            item = Located(path, finding, primary,
+                           stratum=strata.classify(path))
             mark = fingerprint(path, finding.kind, finding.detail)
             if mark in self.baselined:
                 # Bounded by what was recorded. An entry written before counts

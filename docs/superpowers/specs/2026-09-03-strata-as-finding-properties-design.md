@@ -76,7 +76,10 @@ pairs a finding with its path. Three consequences, all of them the reason:
   stamp the stratum themselves, `strata.py` would become a sixth shared module
   every rule depends on for a fact none of them uses.
 - **There are four construction sites, and they all already know the path**:
-  `report.py:165` and `sweep.py:350, 387, 644`. The change is four call sites
+  `report.py`'s `Findings.record`, and `sweep.py`'s `run_sweep` (twice) and
+  `deleted_claims`. Named by function rather than by line, because this change
+  moves those lines and a pointer that rots is what this repository exists to
+  catch. The change is four call sites
   and one new module, not thirteen rules.
 
 ## The classification rules

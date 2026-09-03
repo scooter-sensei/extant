@@ -33,6 +33,7 @@ from extant import refs, session
 # AttributeError on a str several lines later rather than anything
 # naming the import.
 from extant import text as markup
+from extant import strata
 from extant.finding import Located
 from extant.registry import RULE_ERRORS
 from extant.report import format_text, render_findings
@@ -348,7 +349,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
                     # as a note rather than an error.
                     results[label].extend(
                         Located(relative, f, primary=(relative == primary),
-                                gating=_gates)
+                                gating=_gates,
+                                stratum=strata.classify(relative))
                         for f in findings)
                     for kind, count in doc_examined.items():
                         examined[kind] += count
@@ -385,7 +387,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
                     produced = []
                 results["repository"].extend(
                     Located(rule.subject_file or ".", finding, primary=False,
-                            gating=False)
+                            gating=False,
+                            stratum=strata.classify(rule.subject_file or "."))
                     for finding in produced)
                 examined[rule.kind] = repository_examined[rule.kind]
         finally:
@@ -642,7 +645,8 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
             # and returns 0. Every other format honoured that and the machine
             # ones did not, publishing a report as an error.
             found.append(Located(relative, finding, primary=False,
-                                 gating=False))
+                                 gating=False,
+                                 stratum=strata.classify(relative)))
     return found, examined, skipped, undecodable
 
 
