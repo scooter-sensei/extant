@@ -144,3 +144,62 @@ def test_summary_orders_strata_by_the_declared_precedence():
     lines = summarise_strata(items, ["x.md"])
     names = [ln.split()[0] for ln in lines[1:]]
     assert names == [n for n in STRATA_ORDER if n in names]
+
+
+def test_every_stratum_count_sums_to_the_total():
+    """The property that catches an overlapping pattern.
+
+    If two patterns can both claim a path and the precedence is wrong, the
+    per-stratum counts stop summing to the total - and a table that does not
+    add up is the one failure a reader would not notice, because each row
+    looks reasonable alone.
+    """
+    paths = [
+        "node_modules/pkg/docs/v2/api.md",
+        "docs/versions/8.6.0/reference/cli.mdx",
+        "docs/api/client.md",
+        "CHANGELOG.md",
+        "docs/guide.md",
+        "third_party/x/CHANGELOG.md",
+        "versioned_docs/version-3.1/api/index.md",
+    ]
+    items = [Located(p, Finding(1, "k", "d"), primary=False,
+                     stratum=classify(p)) for p in paths]
+    counts = {name: sum(1 for i in items if i.stratum == name)
+              for name in ORDER}
+    assert sum(counts.values()) == len(items)
+    assert set(counts) == set(ORDER)
+
+
+def test_a_sweep_stamps_the_stratum_it_should(tmp_path):
+    """Runs the real entry point, because the bug this guards against is a
+    construction site nobody updated - and every unit test would still pass
+    with `Located(...)` left unchanged at one of the four.
+
+    The `stratum` field defaults to "ordinary", so a missed site reports a
+    FALSE CLEAN: findings from a changelog would be counted in the headline
+    the change exists to protect. Only a run through the real entry point
+    can tell the difference.
+    """
+    import pathlib
+    import subprocess
+    import sys
+
+    repo = tmp_path / "r"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "CHANGELOG.md").write_text(
+        "# Changelog\n\nSee [gone](docs/gone.md).\n", encoding="utf-8")
+    (repo / "docs" / "guide.md").write_text(
+        "# Guide\n\nSee [also-gone](also-gone.md).\n", encoding="utf-8")
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"]):
+        subprocess.run(["git", *args], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
+                    "commit", "-qm", "x"], cwd=repo, check=True)
+
+    shim = (pathlib.Path(__file__).resolve().parent.parent / "plugin"
+            / "skills" / "extant" / "payload" / "extant_collect.py")
+    done = subprocess.run([sys.executable, str(shim), "--repo", str(repo),
+                           "--sweep"], capture_output=True, text=True)
+    combined = done.stdout + done.stderr
+    assert "historical-record" in combined, combined
+    assert "1 finding(s) in ordinary documents" in combined, combined
