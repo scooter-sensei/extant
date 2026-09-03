@@ -66,6 +66,24 @@ missed. It did not - the shape test is a deliberate gate, and its own docstring
 states the rule for passing it, that anything added must say which side of the
 fingerprint it is on. The pin now carries that justification beside it.
 
+**One correction, found after merging and fixed on `main`.** `refs.py` sweeps
+four suffixes - `md`, `markdown`, `mdx` and `rst` - and the historical-record
+pattern was anchored on `.md|.mdx` alone, so reStructuredText changelogs fell
+through to `ordinary`. That is the dangerous direction: a missed vendored tree
+only fails to shrink the headline, while a missed changelog puts a historical
+record INTO the number a reader acts on. The pattern now covers every swept
+suffix, which moves 2 findings on the corpus - pytest's `doc/en/changelog.rst`
+and its `release-2.5.2.rst` - so ordinary reads 4,429 rather than the 4,431
+quoted above, and the reduction is 12.4x either way.
+
+A further ELEVEN findings sit under changelog-ish DIRECTORIES rather than
+filenames - ten in cpython's `Misc/NEWS.d/`, one in uv - and they deliberately
+stay `ordinary`. Widening to directory names would be tuned on the very corpus
+being measured, which the admission bar refuses, and a directory called `news/`
+is very often a project's live blog; labelling that `historical-record` would
+push live documentation into a stratum readers filter out. The filename anchor
+is what keeps that honest, and a test pins it so nobody "fixes" it by accident.
+
 **What is deliberately not done.** No de-duplication. Collapsing bazel's twelve
 copies of one defect takes the corpus from 4,431 to 3,468, a further 1.3x, but
 it needs findings grouped ACROSS documents, which is an analysis-time concern

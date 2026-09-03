@@ -203,3 +203,48 @@ def test_a_sweep_stamps_the_stratum_it_should(tmp_path):
     combined = done.stdout + done.stderr
     assert "historical-record" in combined, combined
     assert "1 finding(s) in ordinary documents" in combined, combined
+
+
+@pytest.mark.parametrize("path", [
+    "doc/en/changelog.rst",
+    "doc/en/announce/release-2.5.2.rst",
+    "CHANGELOG.markdown",
+    "HISTORY.rst",
+    "NEWS.rst",
+])
+def test_historical_records_are_found_in_every_swept_suffix(path):
+    """The tool sweeps md, markdown, mdx AND rst - see the suffix set in
+    `refs.py` - so a pattern anchored on `.md|.mdx` silently drops the other
+    two into `ordinary`.
+
+    That is the dangerous direction. A missed vendored tree only fails to
+    shrink the headline; a missed CHANGELOG puts a historical record INTO the
+    number a reader acts on, which is the one stratum this whole change exists
+    to keep honest. Measured on the corpus: cpython's `Misc/NEWS.d/*.rst` and
+    pytest's `doc/en/changelog.rst` were being counted as ordinary.
+    """
+    assert classify(path) == "historical-record"
+
+
+def test_a_changelog_DIRECTORY_does_not_make_its_contents_historical():
+    """Deliberate, and the reason is the admission bar rather than an oversight.
+
+    `Misc/NEWS.d/3.10.0a1.rst` in cpython is a per-release news fragment, and a
+    reader would call it a historical record. Eleven findings on the measured
+    corpus sit under such a directory - ten in cpython, one in uv - and they
+    stay `ordinary`.
+
+    Widening the pattern to changelog-ish DIRECTORY names would move them, and
+    would be tuned on the very corpus being measured, which `design.md` refuses:
+    a rule has to be quiet on repositories it was NOT designed on. A directory
+    called `news/` is very often a project's live blog, and labelling that
+    `historical-record` would push live documentation into a stratum readers
+    filter out - a suppression firing wrongly, which deletes signal silently
+    instead of appearing in the output for somebody to argue with.
+
+    The filename anchor is what keeps this honest, so it is pinned here.
+    """
+    assert classify("Misc/NEWS.d/3.10.0a1.rst") == "ordinary"
+    assert classify("docs/news/2026-01-release.md") == "ordinary"
+    # ...while the filename form is still caught, in every swept suffix.
+    assert classify("Misc/NEWS.rst") == "historical-record"

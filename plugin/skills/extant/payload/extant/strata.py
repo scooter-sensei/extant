@@ -61,10 +61,17 @@ _GENERATED_PATH = re.compile(
 # between them. An allowlist is a machine-maintained list of test-case paths in
 # an EXTERNAL suite and was never a document link at all: babel's two supply
 # 343.
+# EVERY SWEPT SUFFIX, not just the markdown ones. `refs.py` gathers `md`,
+# `markdown`, `mdx` AND `rst`, and this pattern originally ended `.(md|mdx)$`,
+# so reStructuredText changelogs fell through to `ordinary` - cpython's
+# `Misc/NEWS.d/*.rst` and pytest's `doc/en/changelog.rst` among them. That is
+# the dangerous direction to be wrong in: a missed vendored tree only fails to
+# shrink the headline, while a missed changelog puts a historical record INTO
+# the number a reader acts on. Keep this set in step with the one in `refs.py`.
 _HISTORICAL = re.compile(
     r"(^|/)(CHANGELOG|CHANGES|HISTORY|NEWS|RELEASES?|RELEASE[-_]NOTES|"
     r"[\w.-]*allowlist|[\w.-]*denylist|[\w.-]*blocklist|[\w.-]*whitelist)"
-    r"[\w.-]*\.(md|mdx)$", re.IGNORECASE)
+    r"[\w.-]*\.(md|markdown|mdx|rst)$", re.IGNORECASE)
 
 
 def classify(path: str) -> str:
