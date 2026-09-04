@@ -7,6 +7,7 @@ process and no way to say so.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -14,8 +15,9 @@ from pathlib import Path
 # declared here transitionally, because the shim re-exported them by name and
 # five test sites wrapped them to count calls; both are back to being private
 # implementation, called by SubprocessGit and named nowhere outside this file.
-__all__ = ["Git", "SubprocessGit", "CountingGit", "common_git_dir",
-           "is_shallow", "rewrite_map_path"]
+__all__ = ["Git", "SubprocessGit", "CountingGit",
+           "_PLAIN_VALUE", "_UNSETTLED_BY", "_names_remote", "_own_git_dir",
+           "common_git_dir", "is_shallow", "remote_url", "rewrite_map_path"]
 
 
 class Git:
@@ -165,6 +167,35 @@ def common_git_dir(repo: Path) -> Path | None:
     pointer = repo / ".git"
     if pointer.is_dir():
         return pointer
+    gitdir = _own_git_dir(repo)
+    if gitdir is None:
+        return None
+    common = gitdir / "commondir"
+    if not common.is_file():
+        return _normal(gitdir)
+    try:
+        shared = Path(common.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeDecodeError):
+        return None
+    return _normal(shared if shared.is_absolute() else gitdir / shared)
+
+
+def _own_git_dir(repo: Path) -> Path | None:
+    """THIS CHECKOUT's git directory, which is not always the shared one.
+
+    The split matters because git keeps two different populations in the two
+    places, and `common_git_dir` above is about the shared half. Everything
+    per-worktree lives here instead: HEAD, the rebase state, and
+    `config.worktree`, which is the file that can make the shared config's
+    `remote.origin.url` not be the answer.
+
+    Same three shapes `common_git_dir` documents, stopping one step earlier: a
+    plain checkout's `.git` DIRECTORY is its own git directory, and a linked
+    worktree or a submodule keeps a `.git` FILE naming one.
+    """
+    pointer = repo / ".git"
+    if pointer.is_dir():
+        return pointer
     if not pointer.is_file():
         return None
     try:
@@ -174,16 +205,7 @@ def common_git_dir(repo: Path) -> Path | None:
     if not content.startswith("gitdir:"):
         return None
     gitdir = Path(content.split(":", 1)[1].strip())
-    if not gitdir.is_absolute():
-        gitdir = repo / gitdir
-    common = gitdir / "commondir"
-    if not common.is_file():
-        return _normal(gitdir)
-    try:
-        shared = Path(common.read_text(encoding="utf-8").strip())
-    except (OSError, UnicodeDecodeError):
-        return None
-    return _normal(shared if shared.is_absolute() else gitdir / shared)
+    return gitdir if gitdir.is_absolute() else repo / gitdir
 
 
 def _normal(path: Path) -> Path:
@@ -199,6 +221,157 @@ def _normal(path: Path) -> Path:
     path the caller gave into a different one by following a symlink.
     """
     return Path(os.path.normpath(path))
+
+
+# Anything in a config file that means the URL git reports is not the URL
+# written under `[remote "<name>"]`. Matched as a SUBSTRING of the whole
+# lowercased file, which over-refuses - a repository whose remote URL happens
+# to contain one of these words pays a spawn it did not need - and that is the
+# right direction to be wrong in here.
+#
+#   insteadof       `url.<base>.insteadOf` rewrites the URL git hands back.
+#                   The caller reduces it to `owner/name`, so a rewrite that
+#                   changes only the HOST lands on an identical answer - but
+#                   one that changes the PATH does not, and nothing here can
+#                   tell which kind it is looking at without becoming git.
+#   include         `include.path` and `includeIf` pull in another file, which
+#                   may define the remote or redefine it. NOT a corner case: a
+#                   GitHub Actions runner writes four
+#                   `[includeIf "gitdir:..."]` sections into every checkout,
+#                   so this path declines on CI and the spawn is paid there.
+#                   Measured from a failing run, not assumed.
+#
+# `extensions.worktreeConfig` belongs to the same family and is deliberately
+# NOT in this list, because refusing on the word alone made this change worth
+# nothing on the repository that motivated it: extant's own config sets it, as
+# does any repository where `git worktree` has enabled it, and this project
+# does phase work in worktrees by convention. The extension does not override
+# anything by itself - `config.worktree` does - so `remote_url` stats for that
+# file instead, which is one stat and an exact question rather than a word
+# match and a guess.
+_UNSETTLED_BY = ("insteadof", "include")
+
+# A value that is simply its own text. `configparser` was tried and is NOT a
+# git config parser: it disagrees with git on three real syntaxes, and each
+# disagreement survives into a wrong `owner/name` rather than into an error.
+#
+#     quoted value      git=owner/name   configparser="https://.../name.git"
+#     inline ; comment  git=owner/name   configparser=https://... ; c
+#     inline # comment  git=owner/name   configparser=https://... # c
+#
+# A quote preserves whitespace and escapes, `#` and `;` open an inline comment,
+# and a backslash escapes the next character or continues the line onto the
+# next. git handles every one of those; this refuses them, which turns each
+# into a spawn instead of into a wrong answer.
+#
+# WHITESPACE INSIDE THE VALUE IS ALLOWED, and rejecting it was a real defect
+# rather than caution. git strips only the whitespace SURROUNDING an unquoted
+# value and keeps what is inside, so with quotes already refused there is
+# nothing left to be ambiguous about - and `git clone` writes the source path
+# verbatim, so every clone of a checkout living under a directory with a space
+# in its name declined and paid the spawn. That is most of them on Windows.
+# Found by running the suite against a fresh clone rather than the working
+# tree, which is the check this project's own instructions ask for.
+_PLAIN_VALUE = re.compile(r"^[^\"'#;\\]+$")
+
+
+def remote_url(repo: Path, name: str) -> str | None:
+    """The URL configured for remote `name`, read from the config file.
+
+    None means THIS FILE COULD NOT SETTLE IT - ask git - and never "there is no
+    such remote". The caller must treat it as a miss and spawn, because the
+    same None covers an unreadable file, a syntax this declines to parse, a
+    remote defined in the global config, and a repository that genuinely has no
+    origin. Collapsing those into an absence is the shape that made
+    `dead-pinned-ref` examine nothing and report clean once already.
+
+    Read rather than spawned for the two reasons `is_shallow` and
+    `common_git_dir` above give - it is one read, and a failed `rev-parse` has
+    to be interpreted - and for a third this pair does not have: `--verify`
+    opens one RunScope per document, so this repository-level fact was asked
+    once per file. Measured on this machine, Windows: `git remote get-url
+    origin` costs 28.92 ms (median of 20) and this read costs 0.19 ms (median
+    of 200), a factor of 156, five times per `--verify` over this repository.
+
+    WHERE IT DOES NOT FIRE, stated because the saving is otherwise easy to
+    overclaim: a GitHub Actions checkout carries four `[includeIf "gitdir:..."]`
+    sections and a `config.worktree`, and either alone is enough for this to
+    decline. So CI keeps paying the five spawns, and this is a developer-machine
+    win rather than a universal one. That was measured from a red CI run whose
+    spawn budget said 8 where a developer checkout says 5 - the guard doing
+    exactly what it is for, on a config nobody here writes by hand.
+
+    Through `common_git_dir`, which is what makes it work in a LINKED WORKTREE.
+    A worktree's `.git` is a FILE pointing elsewhere, so a naive
+    `repo/".git"/"config"` finds nothing there - and phase work in this project
+    happens in worktrees by convention, so the naive version would have
+    declined on every run a contributor actually makes: correct, and silently
+    paying the spawn it was written to remove.
+
+    WHERE THIS TECHNIQUE STOPS, because the next reader will be tempted by the
+    ref lookups next door: this is ONE well-defined key with a validating
+    guard, and a value git itself writes in one shape. Ref resolution is
+    precedence between tags and heads, loose refs against `packed-refs`,
+    symrefs, and peeling - reimplementing git rather than consulting it, with a
+    wrong answer at the end of every corner missed. `refs.py` batches those
+    into one `for-each-ref` instead, which is git answering once rather than
+    this file guessing many times. Nothing here reads `.git/refs` or
+    `packed-refs`, and nothing should.
+    """
+    shared = common_git_dir(repo)
+    if shared is None:
+        return None
+    try:
+        text = (shared / "config").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if any(word in text.lower() for word in _UNSETTLED_BY):
+        return None
+    # A per-worktree config can override what the shared one says, and it is
+    # per WORKTREE, so it is looked for in this checkout's own git directory
+    # rather than in the shared one this config came from.
+    own = _own_git_dir(repo)
+    if own is None or (own / "config.worktree").is_file():
+        return None
+    found: list[str] = []
+    in_section = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            if "]" not in line:
+                return None       # unparseable header: trust nothing after it
+            in_section = _names_remote(line[1:line.index("]")], name)
+            continue
+        if not in_section or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        # Case-insensitive, because git's key names are: `URL` and `url` are
+        # the same key, and a config somebody hand-edited may carry either.
+        if key.strip().lower() != "url":
+            continue
+        value = value.strip()
+        if not _PLAIN_VALUE.match(value):
+            return None           # a spelling this refuses to guess at
+        found.append(value)
+    # Exactly one, or nothing. `git remote get-url` without `--all` reports the
+    # FIRST of several, and a second `url` line is unusual enough that being
+    # sure is worth the 27 ms rather than being nearly sure for free.
+    return found[0] if len(found) == 1 else None
+
+
+def _names_remote(head: str, name: str) -> bool:
+    """Does this section header name remote `name`?
+
+    Both spellings git accepts, with the case rules git applies to each: the
+    SECTION word is case-insensitive in both, the subsection is case-SENSITIVE
+    inside quotes and case-insensitive in the dotted form. Getting that
+    backwards would read `[remote "Origin"]` as origin, which git does not.
+    """
+    head = head.strip()
+    lowered = head.lower()
+    if lowered.startswith("remote "):
+        return head[len("remote "):].strip() == '"%s"' % name
+    return lowered == "remote.%s" % name.lower()
 
 
 def rewrite_map_path(repo: Path) -> Path | None:

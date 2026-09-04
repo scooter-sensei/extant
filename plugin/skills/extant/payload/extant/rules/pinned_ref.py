@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import re
-import subprocess
 
 from extant.contract import Rule
 from extant.finding import Finding
+from extant.git import remote_url
+from extant.refs import resolve_ref
 from extant.scope import Context
 
 __all__ = ["RULE", "check", "examined", "probe"]
@@ -46,11 +47,27 @@ def _own_remote(ctx: Context) -> str | None:
     A remote cannot change while a process runs, and every mode here is a
     single short-lived process. `None` is a real answer, meaning no origin, so
     membership decides rather than truthiness.
+
+    THE MEMO IS NOT THE WHOLE ANSWER, because its lifetime is one RunScope and
+    `--verify` opens one per DOCUMENT - so this repository-level fact was still
+    asked five times per run here, at 28.92 ms each (median of 20). `remote_url`
+    reads it out of the config file in 0.19 ms instead, and falls back for any
+    syntax it declines to parse. That is deliberately not the same thing as
+    widening the scope to share one answer across documents: every field on
+    RunScope states that a repository change between calls must be visible, and
+    an `own_remote` cached without a lifetime is precisely the wrong answer
+    this one already produced once. Reading the file buys the same five spawns
+    and changes no lifetime at all.
     """
     key = str(ctx.repo)
     if key not in ctx.run.own_remote:
+        # `or`, because `remote_url` returning None means IT could not settle
+        # the question - not that there is no origin. Every one of those falls
+        # through to git, which is the only thing here that can tell a
+        # repository with no origin from a config this refuses to guess at.
         ctx.run.own_remote[key] = _normalise_remote(
-            ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))
+            remote_url(ctx.repo, "origin")
+            or ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))
     return ctx.run.own_remote[key]
 
 
@@ -114,9 +131,12 @@ def check(ctx: Context, text: str) -> list[Finding]:
     """
     findings: list[Finding] = []
     for number, ref in _pinned_refs(ctx, text):
-        try:
-            ctx.git.run(ctx.repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
-        except (subprocess.CalledProcessError, OSError):
+        # Through `resolve_ref` rather than a `rev-parse` of its own. It is the
+        # same question with the same tags-before-heads precedence git itself
+        # uses, and it answers from the ref table one `for-each-ref` already
+        # built - so a README pinning several revs of this repository stops
+        # paying a 36 ms process for each of them.
+        if resolve_ref(ctx, ref) is None:
             findings.append(Finding(
                 number, "dead-pinned-ref",
                 f"install snippet pins `{ref}`, which does not exist here; "

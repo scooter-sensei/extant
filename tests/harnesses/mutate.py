@@ -237,9 +237,34 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # `refs/heads/`. Reading the table heads-first resolves a repository
         # holding a branch and a tag of the same name to a different commit
         # than `rev-parse` does.
+        # Retargeted when qualified refs started resolving from the table too.
+        # The precedence line moved into `_from_table` and became a `return`;
+        # nothing about the property changed, and the anchor reported STALE
+        # rather than passing, which is the only reason it was noticed.
         ("a bare ref name resolves heads before tags", refs,
-         "    resolved = tags.get(ref) or heads.get(ref)",
-         "    resolved = heads.get(ref) or tags.get(ref)"),
+         "    return tags.get(ref) or heads.get(ref)",
+         "    return heads.get(ref) or tags.get(ref)"),
+        # The other half of the same change, and the one with a wrong ANSWER
+        # rather than a slow one behind it: a qualified ref looked up in either
+        # table resolves `refs/tags/x` to a branch called `x` on a repository
+        # carrying both.
+        ("a qualified ref resolves in whichever table has the name", refs,
+         '    if ref.startswith("refs/tags/"):\n'
+         '        return tags.get(ref[len("refs/tags/"):])\n'
+         '    if ref.startswith("refs/heads/"):\n'
+         '        return heads.get(ref[len("refs/heads/"):])',
+         '    for _prefix in ("refs/tags/", "refs/heads/"):\n'
+         "        if ref.startswith(_prefix):\n"
+         "            ref = ref[len(_prefix):]"),
+        # The peel now records a ref only when what it would return IS a
+        # commit. Dropped, a tag naming a tree or a blob resolves to that
+        # object's id - which is not a commit, appears in no rev-list, and is
+        # the divergence from `^{commit}` this table used to claim it did not
+        # have.
+        ("the ref table stops checking what kind of object it peeled to", refs,
+         '            if (peeled_kind or kind) != "commit":\n'
+         "                continue",
+         "            pass"),
         # A cost contract: one ref scan answers what `tag -l`, a second
         # `for-each-ref` and per-ref `rev-parse` each asked. 8 spawns per
         # validate became 6, and 261 ms became 214.
@@ -1122,14 +1147,27 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # would put back a 70 percent slowdown nobody could date afterwards.
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
+        # Retargeted again when the remote started being READ rather than
+        # spawned for. The memo is unchanged and so is what this probes; the
+        # expression it wraps gained a fast path in front of the spawn, so the
+        # anchor named a line that no longer exists.
         ("the remote is fetched once per document again", rules / "pinned_ref.py",
          "    key = str(ctx.repo)\n"
-         "    if key not in ctx.run.own_remote:\n"
-         "        ctx.run.own_remote[key] = _normalise_remote(\n"
-         '            ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))\n'
-         "    return ctx.run.own_remote[key]",
-         "    return _normalise_remote(\n"
-         '        ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))'),
+         "    if key not in ctx.run.own_remote:",
+         "    key = str(ctx.repo)\n"
+         "    if True:"),
+        # The guard on the config fast path, which is the whole of why reading
+        # the file is not a one-line change. `configparser` disagrees with git
+        # about quoted values and inline comments, and so does anything that
+        # takes the text after `=` at face value - and the disagreement
+        # survives `_normalise_remote` into a WRONG `owner/name` rather than
+        # into an error, which is a rule silently checking somebody else's
+        # repository.
+        ("the config fast path answers for syntax it cannot parse",
+         collect.parent / "extant/git.py",
+         "        if not _PLAIN_VALUE.match(value):\n"
+         "            return None           # a spelling this refuses to guess at",
+         "        pass"),
         # `None` means "no origin", which is an ANSWER. Probed by truthiness it
         # is a miss forever, so the cache silently stops working on exactly the
         # repositories that have no remote.

@@ -2,8 +2,8 @@
 
 Nothing in this project has ever counted them, and the cost is on the record:
 one `git remote get-url` per document went unnoticed until it was 70 per cent
-of a sweep. A rule that adds one call per document costs 30 ms x N and no
-correctness test notices.
+of a sweep. A rule that adds one call per document costs about 28 ms x N -
+measured here, median of 20 - and no correctness test notices.
 
 Counted at the subprocess boundary, not at the wrapper. `_git_soft` delegates
 to `_git`, so counting wrapper entries double-counts every soft call, and that
@@ -52,7 +52,23 @@ sys.path.insert(0, str(PAYLOAD))
 # Against the code as it stood at cad97bb this fixture spawns 8, so both
 # assertions below have been watched failing on real code rather than only on
 # a mutation.
-MEASURED = 6
+#
+# FOUR SINCE THE SPAWN WORK, and it is lowered here rather than left passing.
+# The assertion is `<=`, so three of these four could have gone away in silence
+# and left this green - which is exactly the spare the paragraph above refuses,
+# arriving by omission instead of by decision. What went:
+#
+#   -2  `rev-parse --verify --quiet <ref>^{commit}`. `resolve_ref` looks a
+#       QUALIFIED ref up in the table it already built, and `dead-pinned-ref`
+#       asks `resolve_ref` instead of asking git itself. On this repository's
+#       own document that was 14 of 24 spawns.
+#   -1  `remote get-url origin`, read out of the config file by `remote_url`
+#       with a guard that falls back to the spawn for any syntax it declines
+#       to parse.
+#   +1  `log --diff-filter=R`, which is new COVERAGE rather than a new cost -
+#       see the dead pointer in `_document` below and the note there on why
+#       the fixture grew instead of the floor shrinking.
+MEASURED = 4
 CEILING = MEASURED
 
 
@@ -68,7 +84,19 @@ def _document(sha: str, claim_only: str, dead: str) -> str:
       and the ancestry `rev-list`;
     * "shipped in v1.0.0" reaches `dead-release-tag`, which is the tag lookup;
     * the pre-commit block reaches `dead-pinned-ref`, which is `remote
-      get-url`, and which `count_examined` asks for a second time.
+      get-url`, and which `count_examined` asks for a second time;
+    * the missing design document reaches `dead-path-pointer`, which asks
+      `renamed_to` where the file went and is the `log --diff-filter=R` scan.
+
+    THE LAST ONE IS NEW, and it is a re-fixturing rather than an addition for
+    its own sake. Answering the remote from the config file took this document
+    from four spawns to three, and the duplicate-pinning test below asserts a
+    FLOOR of four so that it cannot report "no repeats" about a fixture that
+    reached nothing. Lowering that floor would have kept the suite green by
+    making the guard weaker, which is the move it exists to prevent - so the
+    document gained a rule instead. `dead-path-pointer` was not covered here at
+    all before, and it is the only remaining rule in this package that spawns a
+    process of its own.
 
     `claim_only` is the load-bearing one and is the reason this fixture is not
     smaller. It appears ONLY inside a fully backticked phrase, copied in shape
@@ -88,7 +116,8 @@ def _document(sha: str, claim_only: str, dead: str) -> str:
         f"- The work was merged to `main` at `{sha}`.\n"
         f"- Shipped in v1.0.0 that week.\n"
         f"- See `{sha}` and bare {dead} for the detail.\n"
-        f"- `PR #1 merged into main at {claim_only}`\n\n"
+        f"- `PR #1 merged into main at {claim_only}`\n"
+        f"- **Design:** `docs/gone.md`\n\n"
         f"```yaml\n"
         f"repos:\n"
         f"  - repo: https://github.com/acme/widget\n"
@@ -160,7 +189,7 @@ def test_a_single_validation_stays_within_its_spawn_budget(
     for cmd in spawns:
         print(f"    git {cmd}")
     assert len(spawns) <= CEILING, (
-        f"{len(spawns)} git processes for one document. Each costs about 30 ms "
+        f"{len(spawns)} git processes for one document. Each costs about 28 ms "
         f"on Windows and this multiplies by every file in a sweep. If the new "
         f"call is necessary, raise CEILING here and say why in the commit.")
 
@@ -204,6 +233,52 @@ def test_the_same_question_is_not_asked_twice(monkeypatch, git_repo) -> None:
     repeated = {c for c in spawns if spawns.count(c) > 1}
     print(f"checked {len(spawns)} spawns for repeats: {spawns}")
     assert not repeated, f"asked twice in one run: {sorted(repeated)}"
+
+
+def _explain_the_remote(spawns: list[str]) -> None:
+    """Say why `remote_url` declined, when it did, WITHOUT printing the config.
+
+    This exists because the count above is now environment-dependent and the
+    environment that disagreed was a CI runner, where the only evidence
+    available is a log. Five `remote get-url origin` calls mean the config fast
+    path declined five times, and every candidate reason was reasoned about and
+    reproduced locally without reproducing the decline - so the runner is asked
+    directly instead.
+
+    NOTHING HERE PRINTS A CONFIG VALUE. A checkout on a GitHub runner carries
+    `http.<url>.extraheader` holding an authorization token, and a test that
+    dumped `.git/config` to a public log to explain a spawn count would be a
+    far worse defect than the one it was diagnosing. Only booleans, key names
+    and section names come out.
+    """
+    if not any("remote get-url" in cmd for cmd in spawns):
+        return
+    from extant.git import _UNSETTLED_BY, _own_git_dir, common_git_dir, remote_url
+
+    root = Path(".")
+    shared = common_git_dir(root)
+    own = _own_git_dir(root)
+    print(f"  the remote was spawned for; diagnosing the fast path:")
+    print(f"    common_git_dir  : {'found' if shared else 'None'}")
+    print(f"    _own_git_dir    : {'found' if own else 'None'}")
+    print(f"    remote_url      : "
+          f"{'answered' if remote_url(root, 'origin') else 'declined'}")
+    if own is not None:
+        print(f"    config.worktree : {(own / 'config.worktree').is_file()}")
+    if shared is None:
+        return
+    try:
+        text = (shared / "config").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"    config unreadable: {exc.__class__.__name__}")
+        return
+    low = text.lower()
+    print(f"    guard words     : "
+          f"{[w for w in _UNSETTLED_BY if w in low] or 'none matched'}")
+    print(f"    sections        : "
+          f"{[l.strip() for l in text.splitlines() if l.strip().startswith('[')]}")
+    print(f"    keys, all sections: "
+          f"{sorted({l.split('=')[0].strip() for l in text.splitlines() if '=' in l})}")
 
 
 def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
@@ -264,6 +339,7 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
           f"spawn(s), exit code {exit_code}")
     for cmd in spawns:
         print(f"    git {cmd}")
+    _explain_the_remote(spawns)
     # 24, with no spare margin, for the same measured reason CEILING carries
     # none above: with a spare, this exact regression - a `with run_scope():`
     # quietly deleted from main() - left the budget green. If this grows
@@ -319,10 +395,107 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # once per validate() + count_examined() pair. A deleted `with run_scope():`
     # duplicates those instead, which is what to look for before raising this
     # number again.
-    assert len(spawns) <= 24, (
-        f"{len(spawns)} git processes for --verify on this repository, above "
-        f"the 23 measured with run_scope() wrapping main()'s own validate() "
-        f"+ count_examined() pairs. If this is a genuine new question, raise "
-        f"the number here and say why in the commit; if a `with run_scope():` "
-        f"was removed from main(), that is the regression this test exists "
-        f"to catch.")
+    #
+    # FIVE SINCE THE SPAWN WORK, from 24, and every one of the nineteen that
+    # went was a question this repository already had the answer to:
+    #
+    #   -14  `rev-parse --verify --quiet refs/tags/vX^{commit}`, one per
+    #        DISTINCT tag claimed. `resolve_ref` tried the ref table before
+    #        shelling out and the table is keyed by SHORT name, so every
+    #        qualified lookup missed by construction. It reads both spellings
+    #        now, so the whole paragraph above about a new release entry
+    #        costing a spawn no longer holds: a release claim is free.
+    #    -5  `remote get-url origin`, one per document, read out of the config
+    #        file instead - which is why widening this mode's RunScope was
+    #        refused rather than taken.
+    #
+    # AND THE TOTAL STOPPED BEING THE THING TO ASSERT, which is what a red CI
+    # run taught rather than a review. Before this work every question was
+    # spawned unconditionally, so the count was a constant. Two of them are now
+    # conditional on the CHECKOUT rather than on the code:
+    #
+    #   `remote get-url origin`   0 where `remote_url` can read the config, 5
+    #                             where it declines. A GitHub Actions runner
+    #                             declines: measured, its `.git/config` carries
+    #                             four `[includeIf "gitdir:..."]` sections and a
+    #                             `config.worktree` beside it, and either alone
+    #                             is a reason this cannot know whether the
+    #                             remote is redefined elsewhere. The guard is
+    #                             working; the count simply is not a constant.
+    #   the trunk lookup          `rev-list main` where a local `main` exists,
+    #                             `rev-parse --verify --quiet main^{commit}`
+    #                             where it does not, and NEITHER on a checkout
+    #                             where `main` does not resolve at all. A
+    #                             pull_request checkout is a detached merge ref,
+    #                             so this varies by how CI checks out.
+    #
+    # Measured: 5 on a developer checkout, 5 on a fresh clone - the same total
+    # by two different routes, `rev-list main` there and
+    # `rev-parse --verify --quiet main^{commit}` here - and 8 on a runner.
+    # A ceiling of 8 would hold everywhere and hand both of the others three
+    # spare - exactly the headroom the top of this file refuses - so the total
+    # is not what is asserted any more. What is asserted is the INVARIANT part
+    # exactly, and then that everything else is one of the two questions above
+    # and nothing new. A genuine new question still fails here in every
+    # environment; a checkout that answers one of these for free does not.
+    from extant.config import load_config
+
+    trunk = hc._ACTIVE.trunk
+    # REPO_ROOT rather than ".", so the count does not depend on where pytest
+    # was invoked from - the same reason `reload_config` above takes it.
+    documents = 1 + len(load_config(hc.REPO_ROOT).extra_docs)
+
+    # EXACT COMMANDS, not prefixes, and each kind counted. A first version of
+    # this allowed anything starting `rev-parse --verify --quiet `, which reads
+    # as harmless and is not: the fourteen tag lookups this whole change
+    # removed have exactly that prefix. Reverting the qualified-ref fix took
+    # this command from 5 spawns to 19 and left this test GREEN, because all
+    # fourteen matched the allowance. A loose prefix in an allowlist is a hole
+    # shaped like the regression it was written next to.
+    kinds = {
+        "ref table": [c for c in spawns if c.startswith("for-each-ref ")],
+        "sha batch": [c for c in spawns if c == "cat-file --batch-check"],
+        "remote": [c for c in spawns if c == "remote get-url origin"],
+        # Two spellings of ONE question - which commits the trunk contains.
+        # `rev-list` where a local trunk branch exists, `rev-parse` where it
+        # does not and the name has to be resolved first.
+        "trunk": [c for c in spawns
+                  if c in (f"rev-list {trunk}",
+                           f"rev-parse --verify --quiet {trunk}^{{commit}}")],
+    }
+    accounted = [c for group in kinds.values() for c in group]
+    print("  " + ", ".join(f"{name} x{len(group)}"
+                           for name, group in kinds.items()))
+
+    # The invariants. Neither varies by checkout, and both are the regression
+    # this test exists to catch: a deleted `with run_scope():` rebuilds the ref
+    # table per document, and two rules resolving their own SHAs re-batch.
+    assert len(kinds["ref table"]) == 2, (
+        f"the ref table was built {len(kinds['ref table'])} times, not twice - "
+        f"once per validate() + count_examined() pair. More than two means a "
+        f"`with run_scope():` was removed from main() and every document is "
+        f"rebuilding it; this is the regression this test exists to catch.")
+    assert len(kinds["sha batch"]) == 1, (
+        f"{len(kinds['sha batch'])} `cat-file --batch-check` calls; the "
+        f"document's SHA union is resolved in one batch, and a second means "
+        f"two rules are each spawning their own again.")
+
+    # The two the CHECKOUT decides, bounded rather than allowed. Zero on a
+    # checkout that answers them for free, and never more than one per document
+    # or one per validate/count_examined pair.
+    assert len(kinds["remote"]) in (0, documents), (
+        f"{len(kinds['remote'])} `remote get-url origin` for {documents} "
+        f"documents: it is one per document where the config cannot be read "
+        f"and none where it can, so any other number is a new shape.")
+    assert len(kinds["trunk"]) <= 2, (
+        f"{len(kinds['trunk'])} trunk lookups; it is memoised per run scope, "
+        f"so more than one per validate() + count_examined() pair means the "
+        f"memo stopped working.")
+
+    unexpected = [c for c in spawns if c not in accounted]
+    assert not unexpected, (
+        f"--verify asked something new: {sorted(set(unexpected))}. If it is a "
+        f"genuine new question, add it above and say why in the commit - "
+        f"including the fourteen `rev-parse --verify --quiet refs/tags/...` "
+        f"lookups, which is what this catches if the ref table stops being "
+        f"read for qualified refs.")

@@ -132,7 +132,7 @@ PACKAGE_SEAM_OUTSIDE_SITES = 1
 #    8  extant/collect.py       (6 `run`, 2 `soft`)
 #    9  extant/refs.py          the ancestry, ref-table, rename and
 #                               object-resolution helpers Task 8 moved
-#    2  extant/rules/pinned_ref.py   (1 `run`, 1 `soft`)
+#    1  extant/rules/pinned_ref.py   (1 `soft`)
 #    1  extant/rules/merge.py
 #    1  extant/sweep.py         `git diff --name-only`, in `_changed_between`,
 #                               the last routed call the shim had
@@ -151,7 +151,17 @@ PACKAGE_SEAM_OUTSIDE_SITES = 1
 # would still pass "nothing bypasses", proving nothing. It goes UP as code
 # moves, not down - the calls are not disappearing, they are changing file.
 # This is the ONLY routed floor now, the shim having reached zero.
-PACKAGE_ROUTED_FLOOR = 21
+#
+# LOWERED ONCE, from 21 to 20, and the paragraph above is why that needed
+# saying rather than doing. `dead-pinned-ref` used to ask
+# `rev-parse --verify <ref>^{commit}` itself; it now asks `resolve_ref`, which
+# asks the same question through the same seam one module over and answers most
+# of them from the ref table without asking anything. So the call did not move
+# house and it did not vanish from the package - it was DEDUPLICATED into one
+# that is already counted here, in extant/refs.py. That is the only shape in
+# which this number may go down, and it goes down by exactly the count that was
+# merged away.
+PACKAGE_ROUTED_FLOOR = 20
 
 # The package call sites that run git through subprocess directly, for the
 # same reason the shim keeps one: they need something `Git.run(repo, *args)`

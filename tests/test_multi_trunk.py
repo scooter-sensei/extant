@@ -10,10 +10,13 @@ branch three different questions.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from conftest import committer, init_repo
 
 
 def git(repo: Path, *args: str) -> str:
@@ -25,16 +28,29 @@ def short(repo: Path, ref: str) -> str:
     return git(repo, "rev-parse", "--short", ref)
 
 
-@pytest.fixture()
-def gitflow(git_repo):
+@pytest.fixture(scope="session")
+def gitflow_template(tmp_path_factory):
     """main and develop, a feature merged to develop AFTER the last release.
 
     That window is the whole problem: before a release, develop's history is
     already inside main via the release merge, so the two branches agree and
     nothing is exposed. A document describing active work talks about the
     commits that landed after it, which are on develop alone.
+
+    BUILT ONCE. Seventeen git commands - three merges, a tag, several checkouts
+    - and nothing about the repository differs between the fifteen tests that
+    take it, yet it was rebuilt from scratch for each of them. `--durations=30`
+    put three of this file's setups in the ten slowest entries in the suite.
+    Measured on this machine, median of 6: 1358.7 ms to build against 80.3 ms
+    to copy, so this file pays the build once instead of fifteen times.
+
+    The three SHAs it returns come from the template and stay valid in every
+    copy, because a copy carries the same objects - which is the thing
+    tests/test_fixture_templates.py checks rather than assumes.
     """
-    repo, commit = git_repo
+    repo = tmp_path_factory.mktemp("gitflow-template") / "repo"
+    init_repo(repo)
+    commit = committer(repo)
     commit("a.py", "a = 1\n", "chore: init")
     git(repo, "branch", "develop")
 
@@ -58,6 +74,15 @@ def gitflow(git_repo):
     commit("pay.py", "p = 1\n", "feat: wip")
     unmerged = short(repo, "HEAD")
     git(repo, "checkout", "-q", "develop")
+    return repo, on_main, on_develop, unmerged
+
+
+@pytest.fixture()
+def gitflow(tmp_path, gitflow_template):
+    """One test's own copy of the shape above."""
+    template, on_main, on_develop, unmerged = gitflow_template
+    repo = tmp_path / "repo"
+    shutil.copytree(template, repo)
     return repo, on_main, on_develop, unmerged
 
 
@@ -396,3 +421,32 @@ def test_the_ancestry_cache_does_not_leak_between_repositories(git_repo, tmp_pat
     assert rule_merge.check(ec.context(second), f"Merged to `main` at `{second_sha}`.\n") == [], (
         "the second repository was answered from the first one's index"
     )
+
+
+def test_the_template_hands_out_shas_its_copies_resolve(gitflow) -> None:
+    """The equivalence guard for this file's own template.
+
+    The three SHAs come from the template and the fourteen tests above run
+    against a COPY of it. If a copy did not carry the same objects, every claim
+    built from those values would name a commit the repository under test does
+    not have - and `dead-sha` would report exactly that, over and over, on a
+    fixture defect rather than on anything the rules got wrong.
+
+    Its companion for the base fixture is in tests/test_fixture_templates.py;
+    this one lives here because the fixture does.
+    """
+    repo, on_main, on_develop, unmerged = gitflow
+
+    for name, sha in (("on_main", on_main), ("on_develop", on_develop),
+                      ("unmerged", unmerged)):
+        assert git(repo, "rev-parse", "--verify", sha + "^{commit}"), name
+
+    branches = git(repo, "for-each-ref", "--format=%(refname:short)",
+                   "refs/heads").split()
+    print(f"copy carries branches {branches} and tags "
+          f"{git(repo, 'tag', '-l').split()}")
+    assert set(branches) >= {"main", "develop"}, branches
+    assert git(repo, "tag", "-l").split() == ["v1.0.0"]
+    assert git(repo, "rev-parse", "--abbrev-ref", "HEAD") == "develop"
+    assert subprocess.run(["git", "fsck", "--strict"], cwd=repo,
+                          capture_output=True).returncode == 0

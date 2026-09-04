@@ -16,10 +16,14 @@ The ambient state both modes set around each document - which file is being
 read, and in which markup language - lives in extant/session.py. This module
 saves it and puts it back, on the failing path too; see `run_sweep` for the bug
 that taught it to.
+
+NEITHER MODE MAY RE-CHECK ONLY THE DOCUMENTS THAT CHANGED, however tempting
+that gets each time this module is profiled: a claim dies because the
+REPOSITORY changed, not the document, so an incremental survey reports clean on
+exactly the deleted branch or moved file this tool exists to catch.
 """
 from __future__ import annotations
 
-import concurrent.futures
 import os
 import re
 import subprocess
@@ -170,6 +174,22 @@ def _survey(repo: Path,
     batches = [(repo, tasks[i:i + size]) for i in range(0, len(tasks), size)]
     gathered: dict = {}
     try:
+        # IMPORTED HERE, and inside the `try` rather than above it. `cli.py`
+        # imports this module for `--sweep`, so every `--verify` from a git
+        # hook paid for a worker pool it can never reach - one process, one
+        # primary document and its extras, by construction. Measured on this
+        # machine as whole-interpreter wall time, median of 9: a bare
+        # interpreter is 36.3 ms, importing `extant.cli` takes it to 159.2, and
+        # adding `concurrent.futures` to that costs 20.7 ms more. Standalone it
+        # reports 82.3, but that includes `logging` and `traceback`, which this
+        # package loads anyway - so the marginal figure is the honest one.
+        # Inside the `try` because an ImportError is one more way a pool fails
+        # to start, and the handler below is already the right answer to all of
+        # them: fall back, and SAY SO. Lazy imports have precedent here -
+        # `tomllib` in config.py, `difflib` in gate.py, `importlib` in
+        # registry.py - and no quality test forbids them.
+        import concurrent.futures
+
         with concurrent.futures.ProcessPoolExecutor(
                 max_workers=workers, initializer=_worker_init,
                 initargs=(session.CONFIG,)) as pool:

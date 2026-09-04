@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _install_into
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 HOOKS_DIR = SKILL_ROOT / "payload" / "hooks"
@@ -402,3 +404,60 @@ def test_an_unknown_flag_is_rejected_rather_than_ignored(git_repo) -> None:
     assert not (repo / ".git" / "hooks" / "post-commit").exists(), (
         "a rejected invocation must not half-install"
     )
+
+
+@requires_sh
+def test_the_verify_hook_reports_findings_it_actually_found(git_repo) -> None:
+    """The formatter, end to end, through the real hook and a real --verify.
+
+    tests/test_hook_builtins.py proves `extant_findings_summary` answers what
+    the `grep -c`, `head -5` and `sed` pipeline answered. It cannot prove the
+    hook CALLS it, or that COUNT survives from the function into the header
+    line and the `if` after the listing - which is the failure the first
+    implementation had, and which every unit table would have missed.
+
+    So this one runs the shipped script against a repository holding a document
+    with real dead claims, and reads what a developer would see after a commit.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    _install_into(repo)
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.md"\n',
+                                       encoding="utf-8")
+    dead = "\n".join(f"- Phase {n} landed at `deadbee{n}` and is done."
+                     for n in range(1, 8))
+    commit("STATUS.md", f"# Status\n\n{dead}\n", "docs: status")
+
+    result = run_verify_hook(repo)
+
+    combined = result.stdout + result.stderr
+    print(combined)
+    assert result.returncode == 0, "advisory only: the commit already happened"
+    assert "STATUS.md has 7 unverified claim(s):" in combined, combined
+    # Five listed, indented by two, and then the pointer at the rest - which is
+    # the branch COUNT decides in the parent shell.
+    listed = [line for line in combined.splitlines() if line.startswith("  ")]
+    assert len(listed) == 6, listed
+    assert listed[-1].startswith("  ... run:"), listed
+    assert all("[dead-sha]" in line for line in listed[:5]), listed
+
+
+@requires_sh
+def test_the_verify_hook_says_nothing_about_a_clean_document(git_repo) -> None:
+    """The other direction, so the test above cannot pass by always reporting.
+
+    A hook that printed a summary whether or not anything was wrong is a hook
+    people learn to scroll past, and then the one real report goes with it.
+    """
+    repo, commit = git_repo
+    sha = commit("a.py", "a = 1\n", "chore: init")
+    _install_into(repo)
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.md"\n',
+                                       encoding="utf-8")
+    commit("STATUS.md", f"# Status\n\n- Phase 1 landed at `{sha[:9]}`.\n",
+           "docs: status")
+
+    result = run_verify_hook(repo)
+
+    assert (result.stdout + result.stderr).strip() == "", (
+        result.stdout + result.stderr)
