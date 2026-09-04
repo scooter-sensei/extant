@@ -285,8 +285,9 @@ def remote_url(repo: Path, name: str) -> str | None:
     `common_git_dir` above give - it is one read, and a failed `rev-parse` has
     to be interpreted - and for a third this pair does not have: `--verify`
     opens one RunScope per document, so this repository-level fact was asked
-    once per file. Measured: 27.27 ms to spawn, 0.56 ms to read, five times per
-    run on this repository.
+    once per file. Measured on this machine, Windows: `git remote get-url
+    origin` costs 28.92 ms (median of 20) and this read costs 0.19 ms (median
+    of 200), a factor of 156, five times per `--verify` over this repository.
 
     Through `common_git_dir`, which is what makes it work in a LINKED WORKTREE.
     A worktree's `.git` is a FILE pointing elsewhere, so a naive

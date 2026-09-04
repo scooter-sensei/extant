@@ -2,8 +2,8 @@
 
 Nothing in this project has ever counted them, and the cost is on the record:
 one `git remote get-url` per document went unnoticed until it was 70 per cent
-of a sweep. A rule that adds one call per document costs 30 ms x N and no
-correctness test notices.
+of a sweep. A rule that adds one call per document costs about 28 ms x N -
+measured here, median of 20 - and no correctness test notices.
 
 Counted at the subprocess boundary, not at the wrapper. `_git_soft` delegates
 to `_git`, so counting wrapper entries double-counts every soft call, and that
@@ -189,7 +189,7 @@ def test_a_single_validation_stays_within_its_spawn_budget(
     for cmd in spawns:
         print(f"    git {cmd}")
     assert len(spawns) <= CEILING, (
-        f"{len(spawns)} git processes for one document. Each costs about 30 ms "
+        f"{len(spawns)} git processes for one document. Each costs about 28 ms "
         f"on Windows and this multiplies by every file in a sweep. If the new "
         f"call is necessary, raise CEILING here and say why in the commit.")
 

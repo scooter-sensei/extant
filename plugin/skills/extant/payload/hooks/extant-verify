@@ -70,23 +70,30 @@ set -u
 
 # --- two pipelines that became builtins --------------------------------------
 #
-# 61 per cent of what a commit pays for this hook is SCAFFOLDING rather than
-# validation. Decomposed on Windows: 618 ms of overhead on a clean 2000-line
-# document, of which 243 ms is `--verify` and 375 ms is shell around it; 829 ms
-# and 320 ms on a document with findings. The two largest addressable pieces
-# were both pipelines spawning processes to do work the shell can do with none:
+# About half of what a commit pays for this hook is SCAFFOLDING rather than
+# validation. Measured on this machine with the CURRENT hook, median of 7: a
+# clean document costs 548 ms of which 234 is `--verify` and 314 is shell
+# around it (57 per cent), and a document with 40 findings costs 782 ms of
+# which 401 is `--verify` and 381 is shell (49 per cent).
 #
-#     reading primary_doc   `sed` piped to `head`     76.8 ms -> 37.2 ms
+# The two largest addressable pieces were both pipelines spawning processes to
+# do work the shell can do with none. Per call, median of 40 under `sh`:
+#
+#     reading primary_doc   `sed` piped to `head`      91.2 ms ->  1.6 ms
 #     formatting findings   `grep -c`, `head`, `sed`  158.9 ms -> 69.9 ms
 #
-# The second row keeps ONE of its three processes on purpose, and 69.9 rather
-# than the 53.0 a full replacement measured is what that costs. The reason is
+# End to end that is 706 ms to 576 on a clean document and 849 to 643 on one
+# with 40 findings, both median of 7, both hooks printing byte-identical
+# output.
+#
+# The second row keeps ONE of its three processes on purpose, and the reason is
 # on `extant_findings_summary` below: the version with no processes at all is
 # silently wrong above 4 KB under one shell and quadratic under the other.
 #
 # On Linux each of these is a few milliseconds and none of it would register.
-# On Windows every one is a Git Bash process, which is why this is a Windows
-# finding and why the numbers beside it say which platform they came from.
+# On Windows every one is a Git Bash process - measured here at 28.75 ms for a
+# bare `sh -c :` - which is why this is a Windows finding and why the numbers
+# beside it say which platform they came from.
 #
 # BOTH FUNCTIONS SET VARIABLES RATHER THAN PRINTING. Reading them back with
 # `$(...)` would fork a subshell, which is most of the process this is trying
@@ -170,8 +177,9 @@ extant_primary_doc() {
 #     printf '%s\n' "$OUTPUT" | head -5 | sed 's/^/  /'
 #
 # `head` and `sed` are gone; `grep -c` STAYS, and that split is the whole
-# design rather than a half-finished job. Measured over 40 calls on a 20-finding
-# output: 158.9 ms per call to 69.9 ms under `sh`, 144.7 to 56.6 under `dash`.
+# design rather than a half-finished job. Measured on this machine over 40
+# calls on a 20-finding output: 158.9 ms per call to 69.9 under `sh`, 144.7 to
+# 56.6 under `dash`.
 #
 # WHY THE COUNT IS STILL A PROCESS. The first version of this read `$1` through
 # a here-document - `done <<EOF` - which is fast and, under the `dash` that
@@ -248,8 +256,8 @@ fi
 # THE PRICE HERE WAS OUT BY ABOUT 3.5x and is corrected rather than left,
 # because a decision priced wrongly is one nobody can re-derive. It read
 # "roughly 90 ms" per Windows subprocess and claimed this saved about 170 ms.
-# Measured on the machine that wrote it: `sh` costs 26 ms and `git rev-parse`
-# costs 26 ms, so the batch saves about 52 ms. The decision it justifies is
+# Measured on this machine, median of 20: a bare `sh -c :` costs 28.75 ms and a
+# `git rev-parse` costs 28.27, so the batch saves about 57 ms. The decision is
 # still the right one - 52 ms on every commit, for one line of word splitting -
 # but it is a smaller win than the file claimed, and the same measurement is
 # what moved the real target to the two pipelines above.

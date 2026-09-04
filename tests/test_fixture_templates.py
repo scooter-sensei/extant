@@ -1,7 +1,7 @@
 """A copied fixture repository must be indistinguishable from a built one.
 
 The speed is the reason for the change; this is the thing that must not
-regress. A fixture that is subtly not equivalent produces 427 tests passing
+regress. A fixture that is subtly not equivalent produces 498 tests passing
 against a repository shape nobody intended - the quiet failure this project's
 denominators exist to make visible, arriving in the machinery that produces the
 inputs rather than in the code being tested.

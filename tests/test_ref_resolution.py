@@ -9,8 +9,9 @@ name (`v0.25.0`); `dead-release-tag` asks about a QUALIFIED one
 one of those lookups missed and fell through to a subprocess: 14 of the 24 git
 processes a `--verify` over this repository spawned were the same
 `rev-parse --verify --quiet refs/tags/vX^{commit}` the table already held. On
-Windows a spawn is 36 ms, so that was more than half a second per commit, paid
-by a git hook.
+Windows a `git rev-parse` measures 28.27 ms (median of 20), so that was most
+of a second per commit, paid by a git hook. Removing 19 of the 24 took a whole
+`--verify` over this repository from 1477 ms to 729.
 
 THE ANSWER. Widening the table's reach also widens whatever the table gets
 wrong, so the peel is checked here too. `ref_table` claimed `%(*objectname)` is

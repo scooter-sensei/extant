@@ -50,11 +50,11 @@ def _install_into(repo: Path) -> Path:
     installer would put there, not this checkout's bytecode.
 
     STAGED ONCE PER PROCESS and then copied, for the reason the repository
-    templates below are: eleven test files call this, it costs 34.6 ms to walk
-    34 payload files evaluating an ignore pattern against each, and the answer
-    is the same every time. The staging directory is built lazily - a run that
-    never installs anything never pays for it - and removed at exit rather than
-    left in the system temp directory.
+    templates below are: twelve test files call this, and walking the payload
+    to evaluate an ignore pattern against every file gives the same answer
+    every time. The staging directory is built lazily - a run that never
+    installs anything never pays for it - and removed at exit rather than left
+    in the system temp directory.
     """
     tools = Path(repo) / "tools"
     shutil.copytree(_staged_payload(), tools, dirs_exist_ok=True)
@@ -188,23 +188,26 @@ def reconfigure(monkeypatch):
 
 # --- fixture repositories, built once and copied ------------------------------
 #
-# 427 tests take `git_repo`, and each was paying five git spawns to build the
-# same empty repository. On Windows a spawn is about 36 ms, so that is 340.2 ms
-# per test for a directory whose contents never differ.
+# 498 tests across 40 files take `git_repo`, and each was paying three git
+# spawns to build the same empty repository. Measured on this machine, median
+# of 12, Windows with git 2.53.0:
 #
-# THE OBVIOUS OPTIMISATION IS SLOWER, which is the reason this was measured
-# instead of reasoned about. Replacing the two `git config` calls with an
-# environment dict handed to every subprocess removes two spawns and makes the
-# fixture WORSE, because passing a large environment to `subprocess` on Windows
-# costs more than the two spawns it saves:
+#     build as the fixture did      113.4 ms   3 spawns
+#     build with an environment dict 53.4 ms   1 spawn
+#     copytree from a template       30.1 ms   0 spawns
 #
-#     fixture as written                    340.2 ms   5 spawns
-#     environment instead of `git config`   368.0 ms   3 spawns   <- slower
-#     copytree from a prepared template      40.1 ms   0 spawns
+# THE MIDDLE ROW IS HERE BECAUSE IT WAS EXPECTED TO BE SLOWER AND IS NOT.
+# Handing `subprocess` a large environment on Windows was supposed to cost more
+# than the two `git config` spawns it removes; measured, it is about half the
+# cost of the fixture as written. It is still not what is used, because
+# copytree is faster again and removes the last spawn as well - but "the
+# obvious optimisation does not work" was not reproducible here, and a number
+# nobody can reproduce is worse than no number.
 #
-# The richer the shape, the larger the saving: the `gitflow` repository in
-# tests/test_multi_trunk.py runs 17 git commands and costs 1106.4 ms to build
-# against 54.1 ms to copy, which is 15.5 s of that file's runtime against 1.9 s.
+# The richer the shape, the larger the saving. The `gitflow` repository in
+# tests/test_multi_trunk.py runs 17 git commands, costs 1358.7 ms to build and
+# 80.3 ms to copy (median of 6, 31 KB), and 15 tests take it - so that file
+# went from paying the build 15 times to paying it once and copying 15 times.
 # So this is one template PER SHAPE rather than one template, and each is
 # session-scoped - under `-n auto` that means once per WORKER, not once per run.
 #

@@ -3,8 +3,9 @@
 `git.py` already does this twice - `is_shallow` reads `.git/shallow` and
 `common_git_dir` reads `commondir` - "because it is one stat", and because
 interpreting a failed `rev-parse` "is exactly the ambiguity this is trying to
-remove". `remote get-url origin` is the same shape: 27.27 ms to spawn, 0.56 ms
-to read.
+remove". `remote get-url origin` is the same shape, measured on the
+development machine: 28.92 ms to spawn (median of 20) against 0.19 ms to read
+(median of 200).
 
 The milliseconds are not the point. `--verify` opens one RunScope per document,
 so this one repository-level fact was asked five times per run - and widening

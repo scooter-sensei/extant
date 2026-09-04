@@ -38,11 +38,11 @@ def gitflow_template(tmp_path_factory):
     commits that landed after it, which are on develop alone.
 
     BUILT ONCE. Seventeen git commands - three merges, a tag, several checkouts
-    - and nothing about the repository differs between the fourteen tests that
+    - and nothing about the repository differs between the fifteen tests that
     take it, yet it was rebuilt from scratch for each of them. `--durations=30`
     put three of this file's setups in the ten slowest entries in the suite.
-    Measured: 1106.4 ms to build, 54.1 ms to copy, 15.5 s to 1.9 s over this
-    file.
+    Measured on this machine, median of 6: 1358.7 ms to build against 80.3 ms
+    to copy, so this file pays the build once instead of fifteen times.
 
     The three SHAs it returns come from the template and stay valid in every
     copy, because a copy carries the same objects - which is the thing

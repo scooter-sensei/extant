@@ -7,8 +7,10 @@ scanner in extant/rules/release_tag.py - call it once per claim inside a loop.
 With m claims over n characters that is O(m*n), which is why the two slowest
 rules on a 17,000-line document were the two that ask it for a line number.
 
-Measured over a 380 KB CRLF document, 2000 lookups: 8734.9 ms rescanning,
-18.2 ms precomputed - 479x, and the reason this file exists.
+Measured on the development machine over a 375 KB CRLF document, 2000
+lookups, median of 5 with a fresh string each time so every repetition pays
+its own scan: 7470.4 ms rescanning, 8.0 ms precomputed - 929x, and the reason
+this file exists.
 
 The precomputation is not obviously equivalent, and that is the point of the
 first three tests. `findall(text, 0, offset)` restricts the SEARCH REGION, so a

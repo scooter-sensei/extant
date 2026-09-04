@@ -1,9 +1,10 @@
 """What a `--verify` from a git hook pays to START, before it validates anything.
 
-Every commit runs this tool, and 61 per cent of what a commit pays is
-scaffolding rather than validation - on a small document the interpreter floor
-is 35 ms, imports are 141 ms, and the actual checking is 35 ms. Imports are the
-largest single term, and nothing measured them.
+Every commit runs this tool, and about half of what a commit pays it is
+scaffolding rather than validation - measured on the development machine with
+the current hook, 57 per cent on a clean document and 49 on one with findings.
+Imports are the largest single term inside the part that is not scaffolding,
+and nothing measured them.
 
 `--sweep` runs a process pool when a repository holds enough documents to be
 worth one. `--verify` never does, and it never can: it reads the primary
@@ -11,10 +12,12 @@ document and the configured extras, in one process, by construction. It was
 paying for the pool's machinery anyway, because `sweep.py` imported
 `concurrent.futures` at module scope and `cli.py` imports `sweep`.
 
-The marginal cost is ~18 ms in context. Measured standalone,
-`import concurrent.futures` reports 47 ms - but that figure includes `logging`
-and `traceback`, which this package loads regardless, so only the marginal
-number is real and only it is claimed.
+Whole-interpreter wall time, median of 9 on that machine: a bare interpreter is
+36.3 ms, importing `extant.cli` takes it to 159.2, and adding
+`concurrent.futures` on top of that costs 20.7 ms more. Standalone the same
+import reports 82.3 ms over the bare floor - but that includes `logging` and
+`traceback`, which this package loads regardless, so only the marginal figure
+is real and only it is claimed.
 
 Asserted in a FRESH INTERPRETER. The suite itself imports `concurrent.futures`
 (tests/test_consistency_timeout.py does, and so does pytest's own parallel

@@ -294,9 +294,10 @@ def line_breaks(text: str) -> int:
 # extant/rules/release_tag.py. With m claims over n characters that is O(m*n),
 # and it is why the two slowest rules on a 17,000-line document were the two
 # that ask for a line number: `dead-sha` grew x10.1 for x8 lines where linear
-# would be x8, on an input whose git answers were all memo hits. Measured over
-# a 380 KB CRLF document, 2000 lookups: 8734.9 ms rescanning against 18.2 ms
-# bisecting, 479x.
+# would be x8, on an input whose git answers were all memo hits. Measured on
+# this machine over a 375 KB CRLF document, 2000 lookups, median of 5, with a
+# fresh string each repetition so every one pays its own scan: 7470.4 ms
+# rescanning against 8.0 ms bisecting, 929x.
 #
 # End to end, which is the number a reader can reproduce - a whole `--validate`
 # of this repository's own status document, doubled, best of two:

@@ -226,7 +226,9 @@ def _from_table(ref: str, heads: dict[str, str],
     about `refs/tags/<v>` because that is what `integrated_by` needs, and every
     one of those lookups used to miss this table and spawn a `rev-parse`. On
     this repository, 14 of the 24 git processes a `--verify` started were that
-    one question, at 36 ms each on Windows.
+    one question. Measured on this machine, one `git rev-parse` costs 28.27 ms
+    (median of 20), and removing 19 of the 24 took a whole `--verify` from
+    1477 ms to 729 - about 39 ms per spawn removed.
     """
     if ref.startswith("refs/tags/"):
         return tags.get(ref[len("refs/tags/"):])

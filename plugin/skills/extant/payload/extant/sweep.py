@@ -176,10 +176,13 @@ def _survey(repo: Path,
     try:
         # IMPORTED HERE, and inside the `try` rather than above it. `cli.py`
         # imports this module for `--sweep`, so every `--verify` from a git
-        # hook paid ~18 ms for a worker pool it can never reach - one process,
-        # one primary document and its extras, by construction. (A standalone
-        # import reports 47 ms; that includes `logging` and `traceback`, which
-        # this package loads anyway, so only the marginal figure is claimed.)
+        # hook paid for a worker pool it can never reach - one process, one
+        # primary document and its extras, by construction. Measured on this
+        # machine as whole-interpreter wall time, median of 9: a bare
+        # interpreter is 36.3 ms, importing `extant.cli` takes it to 159.2, and
+        # adding `concurrent.futures` to that costs 20.7 ms more. Standalone it
+        # reports 82.3, but that includes `logging` and `traceback`, which this
+        # package loads anyway - so the marginal figure is the honest one.
         # Inside the `try` because an ImportError is one more way a pool fails
         # to start, and the handler below is already the right answer to all of
         # them: fall back, and SAY SO. Lazy imports have precedent here -

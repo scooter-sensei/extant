@@ -107,12 +107,13 @@ for name in post-commit post-merge; do
     # main tree itself) may sit on a branch that predates this script, and a
     # bare `sh <missing>` would print a confusing error on every commit.
     #
-    # `sh "$_hv"` RATHER THAN `. "$_hv"`, measured and declined. Sourcing saves
-    # 18.5 ms of the ~26 ms a `sh` costs on Windows, and this block is APPENDED
-    # to whatever hook already exists - while `extant-verify` exits early in a
-    # dozen places. Sourced, every one of those exits would terminate the parent
-    # hook and silently skip anything another tool installed after this. A hook
-    # that stops other people's hooks is not worth eighteen milliseconds.
+    # `sh "$_hv"` RATHER THAN `. "$_hv"`, considered and declined. Sourcing
+    # saves most of the 28.75 ms a bare `sh -c :` costs on Windows (measured
+    # here, median of 20), and this block is APPENDED to whatever hook already
+    # exists - while `extant-verify` exits early in a dozen places. Sourced,
+    # every one of those exits would terminate the parent hook and silently
+    # skip anything another tool installed after this. A hook that stops other
+    # people's hooks is not worth twenty-eight milliseconds.
     cat >> "$target" <<'EOF'
 
 # extant-verify-hook

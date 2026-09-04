@@ -50,8 +50,8 @@ def _own_remote(ctx: Context) -> str | None:
 
     THE MEMO IS NOT THE WHOLE ANSWER, because its lifetime is one RunScope and
     `--verify` opens one per DOCUMENT - so this repository-level fact was still
-    asked five times per run here, at 27.27 ms each. `remote_url` reads it out
-    of the config file in 0.56 ms instead, and falls back to the spawn for any
+    asked five times per run here, at 28.92 ms each (median of 20). `remote_url`
+    reads it out of the config file in 0.19 ms instead, and falls back for any
     syntax it declines to parse. That is deliberately not the same thing as
     widening the scope to share one answer across documents: every field on
     RunScope states that a repository change between calls must be visible, and

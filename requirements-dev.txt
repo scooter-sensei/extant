@@ -11,7 +11,7 @@ pytest>=8
 # `plugin/skills/extant/payload/`. It is not enabled by default - `pytest.ini`
 # is deliberately left alone, so the serial run stays the definition of
 # correctness - and it earns its place on the invocation `AGENTS.md` documents:
-# 5m44s to 1m48s on 12 cores, same tests, same result.
+# 6m26s to 1m58s on 12 cores, 963 tests, same result.
 pytest-xdist>=3
 # The SUITE parses TOML to check what the installer wrote. On 3.11+ that is
 # `tomllib` in the standard library; below it, the same parser under its

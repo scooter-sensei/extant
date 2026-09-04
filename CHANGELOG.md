@@ -151,11 +151,15 @@ duplicates them instead, and a duplicate is something a reader can repair.
 ### What a commit pays
 
 The rest of this release is cost rather than correctness, with one exception
-that is marked as one. The measurement that started it: a `--verify` over this
-repository costs 1247 ms on Windows and 206 ms on Linux, of which 870 ms - 77
-per cent - is inside git subprocesses, 24 of them at 36 ms each. The hooks add
-785 ms to every commit, and `perf.py` calls that the number that decides whether
-people keep the tool.
+that is marked as one. Every figure below was measured on the development
+machine - Windows, git 2.53.0, 12 cores - and says how. None of it was measured
+on Linux, where a process spawn is far cheaper and most of this would not
+register.
+
+The measurement that started it: a `--verify` over this repository took 1477 ms
+and started 24 git processes, where one `git rev-parse` costs 28.27 ms (median
+of 20). It now takes 729 ms and starts 5, which is about 39 ms per spawn
+removed. That command runs from a git hook after every commit.
 
 **A `--verify` over this repository spawns five git processes, down from 24.**
 Fourteen of the nineteen were `rev-parse --verify --quiet refs/tags/vX^{commit}`
@@ -186,8 +190,9 @@ cannot demonstrate this one and a test builds them with `hash-object` and
 asked once per file. Sharing one scope across documents would have recovered it
 and traded away a lifetime the scope objects exist to state - the same
 `own_remote` that once answered None forever and left `dead-pinned-ref`
-examining nothing. Reading `remote.origin.url` out of the config costs 0.56 ms
-against 27.27 ms and changes no lifetime at all. It is read, VALIDATE, or fall
+examining nothing. Reading `remote.origin.url` out of the config costs 0.19 ms
+(median of 200) against 28.92 ms to spawn (median of 20), and changes no
+lifetime at all. It is read, VALIDATE, or fall
 back: `configparser` is not a git config parser and disagrees with git about
 quoted values and inline `#` and `;` comments, each disagreement surviving into
 a wrong `owner/name`, so any value carrying a quote, a comment character, a
@@ -208,18 +213,24 @@ now costs 1.53x rather than 3.51x.
 
 **`--verify` no longer imports a worker pool it cannot use.** `sweep.py`
 imported `concurrent.futures` at module scope and `cli.py` imports `sweep`, so
-every hook-driven `--verify` paid ~18 ms for machinery only `--sweep` reaches.
+every hook-driven `--verify` paid 20.7 ms for machinery only `--sweep`
+reaches - whole-interpreter wall time, median of 9, against a bare interpreter
+at 36.3 ms and `extant.cli` at 159.2.
 It is imported inside the parallel path's existing `try`, where an ImportError
 joins every other reason a pool can fail to start: fall back to the sequential
 survey, and say so.
 
-**Four of the hook's five helper processes are gone.** About 61 per cent of what
-a commit pays for the hook is scaffolding rather than validation, and the two
-largest addressable pieces both spawned processes to do work POSIX shell can do
-with none. Reading `primary_doc` cost 76.8 ms through `sed` piped to `head` and
-costs 37.2 ms as a `while read` loop. Formatting findings cost 158.9 ms through
-`grep -c`, `head` and `sed`, and costs 69.9 ms with `head` and `sed` replaced by
-parameter expansion.
+**Four of the hook's five helper processes are gone.** About half of what a
+commit pays for the hook is scaffolding rather than validation - measured with
+the current hook, median of 7: 57 per cent on a clean document, 49 on one with
+findings. The two largest addressable pieces both spawned processes to do work
+POSIX shell can do with none. Per call, median of 40 under `sh`: reading
+`primary_doc` cost 91.2 ms through `sed` piped to `head` and costs 1.6 ms as a
+`while read` loop that sets a variable rather than being read back through a
+subshell; formatting findings cost 158.9 ms through `grep -c`, `head` and
+`sed`, and costs 69.9 ms with `head` and `sed` replaced by parameter expansion.
+End to end the hook goes from 706 ms to 576 on a clean document and from 849 to
+643 on one with 40 findings, printing byte-identical output.
 
 **That second one keeps its `grep`, and the reason is the interesting part.**
 The first version replaced all three processes by reading the output through a
@@ -239,12 +250,14 @@ is what let the above through: every sample was under 600 bytes, so nine cases
 reported zero divergences while agreeing only about small inputs.
 
 The hook's own cost model was out by about 3.5x - it priced a Windows
-subprocess at "roughly 90 ms" where `sh` and `git rev-parse` each measure 26 ms
+subprocess at "roughly 90 ms" where a bare `sh -c :` measures 28.75 ms and a
+`git rev-parse` 28.27
 - and that number is corrected beside the decision it justifies, which is still
 the right one.
 
 Two changes were measured and REFUSED. Sourcing `extant-verify` with `.`
-instead of spawning `sh` saves 18.5 ms, and the installer APPENDS its block to
+instead of spawning `sh` saves most of that 28.75 ms, and the installer
+APPENDS its block to
 whatever hook already exists while `extant-verify` exits early in a dozen
 places - sourced, those exits would terminate the parent hook and silently skip
 anything another tool installed after it. And `branch_exists` still asks
@@ -255,15 +268,19 @@ question wearing a performance fix's clothing.
 
 **The suite runs in parallel, and its fixtures are built once.** `pytest-xdist`
 is a development dependency now - the tool still has none - and `-n auto --dist
-loadfile` takes the suite from 5m44s to 1m48s on 12 cores. It is an invocation
-rather than a default: `pytest.ini` is untouched, so the serial run stays the
-definition of correctness. The repository fixtures are built once per session
-and copied per test rather than rebuilt, which is the change that made the
-serial run faster too - 340.2 ms to build the base shape against 40.1 ms to
-copy it, and 1106.4 ms against 54.1 ms for the gitflow one. The obvious
-alternative was measured and is SLOWER: passing an environment dict instead of
-running `git config` removes two spawns and costs 28 ms more, because handing
-subprocess a large environment on Windows costs more than the spawns it saves.
+loadfile` takes the suite from 6m26s to 1m58s on 12 cores, over 963 tests. It
+is an invocation rather than a default: `pytest.ini` is untouched, so the
+serial run stays the definition of correctness. The repository fixtures are
+built once per session and copied per test rather than rebuilt - 113.4 ms to
+build the base shape against 30.1 ms to copy it (median of 12), and 1358.7 ms
+against 80.3 ms for the gitflow one (median of 6).
+
+One alternative was expected to be slower and is not. Building with an
+environment dict instead of two `git config` calls measures 53.4 ms, about half
+the fixture as written, where handing `subprocess` a large environment on
+Windows was supposed to cost more than the spawns it saves. It is still not
+what is used, because copying is faster again and removes the last spawn too -
+but a claim that did not reproduce is corrected here rather than repeated.
 
 ## 0.25.0 (2026-08-31)
 
