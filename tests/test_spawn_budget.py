@@ -235,6 +235,52 @@ def test_the_same_question_is_not_asked_twice(monkeypatch, git_repo) -> None:
     assert not repeated, f"asked twice in one run: {sorted(repeated)}"
 
 
+def _explain_the_remote(spawns: list[str]) -> None:
+    """Say why `remote_url` declined, when it did, WITHOUT printing the config.
+
+    This exists because the count above is now environment-dependent and the
+    environment that disagreed was a CI runner, where the only evidence
+    available is a log. Five `remote get-url origin` calls mean the config fast
+    path declined five times, and every candidate reason was reasoned about and
+    reproduced locally without reproducing the decline - so the runner is asked
+    directly instead.
+
+    NOTHING HERE PRINTS A CONFIG VALUE. A checkout on a GitHub runner carries
+    `http.<url>.extraheader` holding an authorization token, and a test that
+    dumped `.git/config` to a public log to explain a spawn count would be a
+    far worse defect than the one it was diagnosing. Only booleans, key names
+    and section names come out.
+    """
+    if not any("remote get-url" in cmd for cmd in spawns):
+        return
+    from extant.git import _UNSETTLED_BY, _own_git_dir, common_git_dir, remote_url
+
+    root = Path(".")
+    shared = common_git_dir(root)
+    own = _own_git_dir(root)
+    print(f"  the remote was spawned for; diagnosing the fast path:")
+    print(f"    common_git_dir  : {'found' if shared else 'None'}")
+    print(f"    _own_git_dir    : {'found' if own else 'None'}")
+    print(f"    remote_url      : "
+          f"{'answered' if remote_url(root, 'origin') else 'declined'}")
+    if own is not None:
+        print(f"    config.worktree : {(own / 'config.worktree').is_file()}")
+    if shared is None:
+        return
+    try:
+        text = (shared / "config").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"    config unreadable: {exc.__class__.__name__}")
+        return
+    low = text.lower()
+    print(f"    guard words     : "
+          f"{[w for w in _UNSETTLED_BY if w in low] or 'none matched'}")
+    print(f"    sections        : "
+          f"{[l.strip() for l in text.splitlines() if l.strip().startswith('[')]}")
+    print(f"    keys in [remote]: "
+          f"{sorted({l.split('=')[0].strip() for l in text.splitlines() if '=' in l})}")
+
+
 def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     """`main()`'s OWN use of run_scope(), not the fixture's.
 
@@ -293,6 +339,7 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
           f"spawn(s), exit code {exit_code}")
     for cmd in spawns:
         print(f"    git {cmd}")
+    _explain_the_remote(spawns)
     # 24, with no spare margin, for the same measured reason CEILING carries
     # none above: with a spare, this exact regression - a `with run_scope():`
     # quietly deleted from main() - left the budget green. If this grows
