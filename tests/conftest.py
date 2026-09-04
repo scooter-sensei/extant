@@ -6,9 +6,11 @@ so a failure points at the file you would actually edit.
 """
 from __future__ import annotations
 
+import atexit
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -46,13 +48,35 @@ def _install_into(repo: Path) -> Path:
 
     `__pycache__` is not copied: a fixture repository should hold what the
     installer would put there, not this checkout's bytecode.
+
+    STAGED ONCE PER PROCESS and then copied, for the reason the repository
+    templates below are: eleven test files call this, it costs 34.6 ms to walk
+    34 payload files evaluating an ignore pattern against each, and the answer
+    is the same every time. The staging directory is built lazily - a run that
+    never installs anything never pays for it - and removed at exit rather than
+    left in the system temp directory.
     """
     tools = Path(repo) / "tools"
-    tools.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(PAYLOAD / "extant_collect.py", tools / "extant_collect.py")
-    shutil.copytree(PAYLOAD / "extant", tools / "extant", dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(_staged_payload(), tools, dirs_exist_ok=True)
     return tools
+
+
+_STAGED: Path | None = None
+
+
+def _staged_payload() -> Path:
+    """The `tools/` directory an install produces, built once per process."""
+    global _STAGED
+    if _STAGED is None:
+        staged = Path(tempfile.mkdtemp(prefix="extant-payload-")) / "tools"
+        staged.mkdir(parents=True)
+        shutil.copyfile(PAYLOAD / "extant_collect.py",
+                        staged / "extant_collect.py")
+        shutil.copytree(PAYLOAD / "extant", staged / "extant",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        atexit.register(shutil.rmtree, str(staged.parent), True)
+        _STAGED = staged
+    return _STAGED
 
 
 @pytest.fixture(autouse=True)
@@ -162,14 +186,50 @@ def reconfigure(monkeypatch):
     return apply
 
 
-@pytest.fixture
-def git_repo(tmp_path: Path) -> tuple[Path, Callable[[str, str, str], str]]:
-    repo = tmp_path / "repo"
-    repo.mkdir()
+# --- fixture repositories, built once and copied ------------------------------
+#
+# 427 tests take `git_repo`, and each was paying five git spawns to build the
+# same empty repository. On Windows a spawn is about 36 ms, so that is 340.2 ms
+# per test for a directory whose contents never differ.
+#
+# THE OBVIOUS OPTIMISATION IS SLOWER, which is the reason this was measured
+# instead of reasoned about. Replacing the two `git config` calls with an
+# environment dict handed to every subprocess removes two spawns and makes the
+# fixture WORSE, because passing a large environment to `subprocess` on Windows
+# costs more than the two spawns it saves:
+#
+#     fixture as written                    340.2 ms   5 spawns
+#     environment instead of `git config`   368.0 ms   3 spawns   <- slower
+#     copytree from a prepared template      40.1 ms   0 spawns
+#
+# The richer the shape, the larger the saving: the `gitflow` repository in
+# tests/test_multi_trunk.py runs 17 git commands and costs 1106.4 ms to build
+# against 54.1 ms to copy, which is 15.5 s of that file's runtime against 1.9 s.
+# So this is one template PER SHAPE rather than one template, and each is
+# session-scoped - under `-n auto` that means once per WORKER, not once per run.
+#
+# tests/test_fixture_templates.py is the guard, and it matters more than the
+# speed does: a fixture that is subtly not equivalent produces tests passing
+# against a repository shape nobody intended, which is the quiet failure this
+# project's denominators exist to make visible.
+
+
+def init_repo(repo: Path) -> None:
+    """A fresh repository on `main`, with an identity so it can commit."""
+    repo.mkdir(parents=True, exist_ok=True)
     _run(repo, "init", "-b", "main")
     _run(repo, "config", "user.email", "test@example.com")
     _run(repo, "config", "user.name", "Test")
 
+
+def committer(repo: Path) -> Callable[[str, str, str], str]:
+    """`commit(filename, content, message) -> sha`, against `repo`.
+
+    Separate from the fixture so a session-scoped TEMPLATE can be built with
+    the same function the per-test copy hands out. A template built by a
+    second, similar-looking helper is exactly the divergence these templates
+    have to be tested against.
+    """
     def commit(filename: str, content: str, message: str) -> str:
         target = repo / filename
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -179,4 +239,21 @@ def git_repo(tmp_path: Path) -> tuple[Path, Callable[[str, str, str], str]]:
         _run(repo, "commit", "-m", message)
         return _run(repo, "rev-parse", "HEAD").strip()
 
-    return repo, commit
+    return commit
+
+
+@pytest.fixture(scope="session")
+def empty_repo_template(tmp_path_factory) -> Path:
+    """The five git spawns every `git_repo` used to pay, paid once."""
+    template = tmp_path_factory.mktemp("empty-repo-template") / "repo"
+    init_repo(template)
+    return template
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path,
+             empty_repo_template: Path
+             ) -> tuple[Path, Callable[[str, str, str], str]]:
+    repo = tmp_path / "repo"
+    shutil.copytree(empty_repo_template, repo)
+    return repo, committer(repo)

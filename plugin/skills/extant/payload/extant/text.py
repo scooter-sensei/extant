@@ -41,6 +41,7 @@ than theoretical.
 """
 from __future__ import annotations
 
+import bisect
 import re
 import subprocess
 from pathlib import Path
@@ -77,7 +78,8 @@ from extant.scope import Context, DocScope
 # rather than a promise to an outside caller.
 __all__ = [
     "LINE_BREAK", "ORDER_PREFIX",
-    "_ATTR_ANCHOR", "_DIRECTIVE_LABEL", "_EXPLICIT_ANCHOR",
+    "_ATTR_ANCHOR", "_BREAKS", "_BREAKS_KEPT", "_DIRECTIVE_LABEL",
+    "_EXPLICIT_ANCHOR", "_break_starts",
     "_FENCE", "_INLINE_CODE", "_LANGUAGE_DIR", "_line_and_terminator",
     "_MYST_TARGET", "_NESTED_HEADING",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
@@ -283,14 +285,112 @@ def line_breaks(text: str) -> int:
     return len(LINE_BREAK.findall(text))
 
 
+# Where every line break in ONE document starts, so asking for a line number is
+# a bisection rather than a rescan.
+#
+# `line_number_at` counted from position 0 on every call, and both of its
+# callers ask once per claim inside a loop - `_merge_claims` in
+# extant/commits.py and the release-claim scanner in
+# extant/rules/release_tag.py. With m claims over n characters that is O(m*n),
+# and it is why the two slowest rules on a 17,000-line document were the two
+# that ask for a line number: `dead-sha` grew x10.1 for x8 lines where linear
+# would be x8, on an input whose git answers were all memo hits. Measured over
+# a 380 KB CRLF document, 2000 lookups: 8734.9 ms rescanning against 18.2 ms
+# bisecting, 479x.
+#
+# End to end, which is the number a reader can reproduce - a whole `--validate`
+# of this repository's own status document, doubled, best of two:
+#
+#     lines   rescanning   bisecting
+#      2171      1550 ms      916 ms
+#      4342      1742 ms      990 ms
+#      8684      2370 ms     1410 ms
+#     17368      5434 ms     1399 ms
+#
+# The speedup at the bottom row is what the shape change is; the columns are
+# what it means. Eight times the document cost 3.51x rescanning and costs 1.53x
+# bisecting, so the run is bounded by the scan rather than by the rescans.
+#
+# `line_breaks` is deliberately NOT routed through here. It is handed
+# `match.group(0)` - one matched span, a few characters long - so memoising it
+# would retain a string that is never shown again.
+#
+# Keyed on object IDENTITY and bounded, exactly like `_STRIPPED` above and for
+# the same reasons: no multi-megabyte string is ever hashed, a changed input
+# MISSES rather than answering stalely, and a sweep does not retain every
+# document it walked. Unlike `_STRIPPED` the key here is COMPLETE - the break
+# positions are a function of the text and of nothing else, no format, no
+# repository, no file on disk - so this needs no lifetime and is deliberately
+# absent from `registry.forget_memos()`, which exists for the memos that cannot
+# key themselves. Two entries because the rules that ask see a document both as
+# itself and as its prose-stripped copy, and alternate between them. The
+# parallel survey is a ProcessPoolExecutor, so this is process-local and cannot
+# race.
+_BREAKS: list[tuple[str, list[int]]] = []
+_BREAKS_KEPT = 2
+
+
+def _break_starts(text: str) -> list[int]:
+    # `is`, over at most two entries, rather than a dict keyed on `id()`. An id
+    # is reused once the object that carried it is collected, so a dict keyed on
+    # one answers for a string that no longer exists; holding the text itself
+    # keeps the key alive for as long as the answer is reachable, which is what
+    # `_STRIPPED` does and why.
+    for held, starts in _BREAKS:
+        if held is text:
+            return starts
+    starts = [match.start() for match in LINE_BREAK.finditer(text)]
+    _BREAKS.append((text, starts))
+    del _BREAKS[:-_BREAKS_KEPT]
+    return starts
+
+
 def line_number_at(text: str, offset: int) -> int:
     """The 1-based line an offset falls on, in any spelling.
 
     Its counterpart. Counting `"\\n"` up to the offset reports every claim in a
     CR-only document as line 1 - a number that is confidently wrong rather than
     absent, which sends a reader to the top of the file.
+
+    Counts the breaks that START before the offset, and that one word is the
+    whole of what makes precomputed spans agree with the rescan they replace.
+    `findall(text, 0, offset)` restricts the SEARCH REGION, so an offset landing
+    between a `\\r` and its `\\n` cut that pair in half and matched the `\\r`
+    alone - one break, counted. The same pair computed over the whole text is
+    one break ENDING after that offset, so counting breaks that have ENDED
+    reports the line above for exactly those offsets and for no others. Every
+    other input gives the two formulations the same number, which is why the
+    divergence is one character wide and tests/test_line_numbering.py steps
+    through every offset of every terminator spelling rather than sampling.
+
+    THIS IS NOT THE ONLY LINE NUMBERING IN THE PACKAGE, and a reader who has
+    got this far deserves telling rather than discovering it. Eight sites
+    number lines with `enumerate(..., start=1)` over `splitlines()` - two in
+    extant/commits.py and one each in the line-pointer, manifest-floor,
+    md-anchor, md-link, path-pointer and pinned-ref rules - and two number them
+    from an offset through this function. `splitlines()` breaks on a larger
+    set than `LINE_BREAK` does: form feed, vertical tab, the file separators and
+    the Unicode line separators are all breaks to it and content to this. So a
+    document carrying one of those gets TWO DIFFERENT line numbers for one
+    position, and a finding is reported against the wrong line by whichever
+    rule read it:
+
+        >>> doc = "alpha\\nbeta\\fgamma\\ndelta HERE\\n"
+        >>> line_number_at(doc, doc.index("HERE"))
+        3
+        >>> # enumerate(doc.splitlines(), start=1) puts the same offset on 4
+
+    Recorded and deliberately NOT repaired here, because the obvious repair is
+    wrong in a way that touches every document rather than the rare one. Making
+    the eight agree with this by splitting on `LINE_BREAK` appends a phantom
+    trailing line to every file ending in a newline - `"alpha\\nbeta\\n"` is two
+    lines to `splitlines()` and three to `LINE_BREAK.split()` - so every rule
+    that counts lines would gain one, on every ordinary document. Widening
+    `LINE_BREAK` instead changes what BOUNDS a claim, which is a rule
+    behaviour, not a numbering one. Either direction needs its own change and
+    its own measurement over the corpus.
     """
-    return len(LINE_BREAK.findall(text, 0, offset)) + 1
+    return bisect.bisect_left(_break_starts(text), offset) + 1
 
 
 def _line_and_terminator(raw: str) -> tuple[str, str]:

@@ -22,6 +22,41 @@ python plugin/skills/extant/payload/extant_collect.py --verify --repo .
 The suite must be green and `--verify` must exit 0 before you edit, so a failure
 afterwards is yours rather than inherited.
 
+The suite is not compute-bound - one instrumented file spends 78 per cent of its
+wall clock inside subprocesses - so it parallelises well:
+
+```sh
+python -m pytest -n auto --dist loadfile
+```
+
+Measured on 12 cores, same tests, same result each time:
+
+| | wall clock |
+|:---|---:|
+| serial | 5m44s |
+| `-n auto --dist loadfile` | 1m48s |
+| `-n auto --dist load` | 1m50s |
+
+**That is a developer number, not a CI number.** GitHub's standard runners have
+2 to 4 cores, where the same flag is worth perhaps 1.5x to 1.8x rather than the
+3.2x above. Quoting the developer figure as a CI one would be an overclaim.
+
+`--dist loadfile` keeps one file's tests on one worker. Plain `--dist load`
+interleaves them across workers freely and produces the identical result, which
+is the evidence that nothing here depends on execution order - but `loadfile` is
+marginally faster and the safer default.
+
+**It is an invocation, not a default, and `pytest.ini` is deliberately left
+alone.** Putting `-n auto` in `addopts` makes it unconditional, which breaks
+`--pdb` and takes the choice away from CI. The serial run stays the definition
+of correctness.
+
+One test deserves naming: `tests/test_consistency_timeout.py` asserts a
+wall-clock bound, which is the kind of assertion most likely to go intermittent
+under twelve workers competing for CPU. It has been soaked rather than trusted -
+four full parallel runs plus five repeats of that file under load, all green -
+and that is the check to repeat if this ever flakes.
+
 ## Before you push
 
 The suite is not the whole gate, and treating it as one is how this repository

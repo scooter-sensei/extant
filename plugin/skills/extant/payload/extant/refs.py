@@ -56,8 +56,9 @@ from extant.scope import Context
 # boundary. `_ancestor_index`, `_rename_map` and `_sha_exists` keep theirs:
 # each has exactly one caller, and it is in this file.
 __all__ = [
-    "SHA_SHAPE", "_INTEGRATION_NAMES", "_ancestor_index", "_rename_map",
-    "_sha_exists", "branch_exists", "integrated_by", "integration_refs",
+    "SHA_SHAPE", "_INTEGRATION_NAMES", "_ancestor_index", "_from_table",
+    "_rename_map", "_sha_exists", "branch_exists", "integrated_by",
+    "integration_refs",
     "named_in_merge_history", "reachable_from", "ref_table", "renamed_to",
     "resolve_ref", "resolve_shas", "tracked_markdown",
 ]
@@ -134,6 +135,19 @@ def _batch_shas(ctx: Context, unique: list[str]) -> set[str]:
 
 
 def branch_exists(ctx: Context, branch: str) -> bool:
+    """Does `rev-parse --verify` resolve this name?
+
+    STILL A SPAWN, deliberately, while `resolve_ref` below answers the same
+    shape of question from the ref table one `for-each-ref` builds. The reason
+    is not that nobody noticed: `rev-parse --verify <bare-name>` follows git's
+    tags-before-heads precedence, so this currently answers True for a TAG
+    named like a branch. Answering from the `heads` table instead would change
+    that.
+
+    Arguably more correct; certainly not neutral. It is a behaviour question
+    wearing a performance fix's clothing, and it belongs in its own change with
+    its own corpus measurement rather than inside one that claims to be free.
+    """
     try:
         ctx.git.run(ctx.repo, "rev-parse", "--verify", branch)
         return True
@@ -198,6 +212,34 @@ def reachable_from(ctx: Context, rev: str, ref: str) -> bool:
     return bool(resolved) and resolved in index.get(resolved[:7], ())
 
 
+def _from_table(ref: str, heads: dict[str, str],
+                tags: dict[str, str]) -> str | None:
+    """What the ref table says about this SPELLING of a ref, or None.
+
+    A QUALIFIED ref names its own table and is looked up in that one alone.
+    Falling back to `tags or heads` for it would resolve `refs/tags/x` to a
+    BRANCH called `x` on a repository carrying both - a different commit than
+    the caller asked for, and the kind of divergence that shows up once, in
+    somebody else's repository, as a merge claim reported false.
+
+    Qualified spellings are not a corner case here: `dead-release-tag` asks
+    about `refs/tags/<v>` because that is what `integrated_by` needs, and every
+    one of those lookups used to miss this table and spawn a `rev-parse`. On
+    this repository, 14 of the 24 git processes a `--verify` started were that
+    one question, at 36 ms each on Windows.
+    """
+    if ref.startswith("refs/tags/"):
+        return tags.get(ref[len("refs/tags/"):])
+    if ref.startswith("refs/heads/"):
+        return heads.get(ref[len("refs/heads/"):])
+    # TAGS BEFORE HEADS, because that is git's precedence for a bare name:
+    # `refs/tags/<name>` is tried before `refs/heads/<name>`. Reversing it
+    # would resolve a repository that has both to a different commit than
+    # `rev-parse` does, which is the kind of divergence that shows up once, in
+    # somebody else's repository, as a merge claim reported false.
+    return tags.get(ref) or heads.get(ref)
+
+
 def resolve_ref(ctx: Context, ref: str) -> str | None:
     """The full commit SHA a ref points at, or None if it does not resolve.
 
@@ -219,15 +261,13 @@ def resolve_ref(ctx: Context, ref: str) -> str | None:
     # already answers: two `rev-parse --verify` and one `tag -l`, beside the
     # `for-each-ref` that was being run anyway.
     heads, tags = ref_table(ctx)
-    # TAGS BEFORE HEADS, because that is git's precedence for a bare name:
-    # `refs/tags/<name>` is tried before `refs/heads/<name>`. Reversing it
-    # would resolve a repository that has both to a different commit than
-    # `rev-parse` does, which is the kind of divergence that shows up once, in
-    # somebody else's repository, as a merge claim reported false.
-    resolved = tags.get(ref) or heads.get(ref)
+    resolved = _from_table(ref, heads, tags)
     if resolved is None:
-        # Not a plain branch or tag name: a raw SHA, a remote-tracking ref,
-        # `HEAD`, `main~3`. Those still need git, and still cost a spawn.
+        # A TABLE MISS IS NOT AN ANSWER. Raw SHAs, `HEAD`, `main~3` and
+        # remote-tracking refs are legitimate inputs no table holds, so this
+        # stays a fast path rather than a replacement - a version that returned
+        # None here would report every SHA-anchored claim dead. Those still
+        # need git, and still cost a spawn.
         try:
             resolved = ctx.git.run(ctx.repo, "rev-parse", "--verify", "--quiet",
                                    f"{ref}^{{commit}}").strip() or None
@@ -238,13 +278,31 @@ def resolve_ref(ctx: Context, ref: str) -> str | None:
 
 
 def ref_table(ctx: Context) -> tuple[dict[str, str], dict[str, str]]:
-    """Every local branch and tag, by short name, with annotated tags peeled.
+    """Every local branch and tag that names a COMMIT, by short name, peeled.
 
     One subprocess answers what `rev-parse --verify` per ref, `tag -l` and
     `for-each-ref refs/heads` were each asking separately. `%(*objectname)` is
-    the peeled commit for an annotated tag and empty otherwise, which is the
-    same dereference `^{commit}` performs - without it an annotated tag yields
-    the tag object's own SHA, which appears in no rev-list.
+    the peeled object for an annotated tag and empty otherwise - without it an
+    annotated tag yields the tag object's own SHA, which appears in no rev-list.
+
+    THE TYPE IS READ TOO, and this docstring used to claim it did not need to
+    be: that peel was "the same dereference `^{commit}` performs". It is not.
+    A tag may name any object, and for one naming a tree or a blob `^{commit}`
+    resolves to NOTHING while the peel happily yields the tree's or the blob's
+    id - not a commit, and in no rev-list either:
+
+        goodtag   rev-parse=2e7c7b432863   peel=2e7c7b432863   agrees
+        treetag   rev-parse=None           peel=959186c87f11   diverges
+        blobtag   rev-parse=None           peel=47d05ff6403c   diverges
+
+    So a ref is recorded only when what would be returned IS a commit, which
+    makes the table match the contract it was already asserting. That is a
+    BEHAVIOUR CHANGE and it is stated as one: on a repository holding such a
+    tag, a name that used to resolve to a non-commit object id now resolves to
+    nothing, which is what git says. Such tags are legal, rare, and invisible
+    to the corpus - `fuzz --differential` would report no difference and prove
+    nothing - so tests/test_ref_resolution.py builds them with `hash-object`
+    and `mktree` instead.
 
     Held for one call, like every other answer git gives here.
     """
@@ -253,17 +311,24 @@ def ref_table(ctx: Context) -> tuple[dict[str, str], dict[str, str]]:
         heads: dict[str, str] = {}
         tags: dict[str, str] = {}
         try:
-            out = ctx.git.run(ctx.repo, "for-each-ref",
-                              "--format=%(refname)\t%(objectname)\t%(*objectname)",
-                              "refs/heads", "refs/tags")
+            out = ctx.git.run(
+                ctx.repo, "for-each-ref",
+                "--format=%(refname)\t%(objectname)\t%(objecttype)"
+                "\t%(*objectname)\t%(*objecttype)",
+                "refs/heads", "refs/tags")
         except (subprocess.CalledProcessError, OSError):
             out = ""
         for line in out.splitlines():
             parts = line.split("\t")
-            if len(parts) != 3:
+            if len(parts) != 5:
                 continue
-            full, obj, peeled = parts
+            full, obj, kind, peeled, peeled_kind = parts
             commit = peeled or obj
+            # The type of the object that WOULD be returned, chosen by the same
+            # `peeled or obj` the line above uses, so the two cannot disagree
+            # about which object is being described.
+            if (peeled_kind or kind) != "commit":
+                continue
             if full.startswith("refs/heads/"):
                 heads[full[len("refs/heads/"):]] = commit
             elif full.startswith("refs/tags/"):

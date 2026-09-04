@@ -68,6 +68,167 @@
 
 set -u
 
+# --- two pipelines that became builtins --------------------------------------
+#
+# 61 per cent of what a commit pays for this hook is SCAFFOLDING rather than
+# validation. Decomposed on Windows: 618 ms of overhead on a clean 2000-line
+# document, of which 243 ms is `--verify` and 375 ms is shell around it; 829 ms
+# and 320 ms on a document with findings. The two largest addressable pieces
+# were both pipelines spawning processes to do work the shell can do with none:
+#
+#     reading primary_doc   `sed` piped to `head`     76.8 ms -> 37.2 ms
+#     formatting findings   `grep -c`, `head`, `sed`  158.9 ms -> 69.9 ms
+#
+# The second row keeps ONE of its three processes on purpose, and 69.9 rather
+# than the 53.0 a full replacement measured is what that costs. The reason is
+# on `extant_findings_summary` below: the version with no processes at all is
+# silently wrong above 4 KB under one shell and quadratic under the other.
+#
+# On Linux each of these is a few milliseconds and none of it would register.
+# On Windows every one is a Git Bash process, which is why this is a Windows
+# finding and why the numbers beside it say which platform they came from.
+#
+# BOTH FUNCTIONS SET VARIABLES RATHER THAN PRINTING. Reading them back with
+# `$(...)` would fork a subshell, which is most of the process this is trying
+# not to spawn - and for the formatter it would lose COUNT outright, because a
+# subshell's variables do not reach its parent. That is not hypothetical: the
+# first version of the formatter ran its loop in a pipeline, lost the count,
+# and the test missed it because the test PRINTED the count instead of using it
+# afterwards the way the hook does.
+#
+# tests/test_hook_builtins.py lifts both of these out of this file by name and
+# runs them against the pipelines they replace, under `sh` and under `dash`,
+# because CI's /bin/sh is dash and these constructs had only ever been
+# exercised under Git Bash.
+
+# EXTANT_PRIMARY_DOC := the first `primary_doc` value in the TOML file named by
+# $1, or "" when the file names none.
+#
+# Replaces, exactly:
+#
+#     sed -n "s/^[[:space:]]*primary_doc[[:space:]]*=[[:space:]]*[\"']\
+#     \\([^\"']*\\).*/\\1/p" "$CONFIG" | head -n 1
+extant_primary_doc() {
+    EXTANT_PRIMARY_DOC=""
+    while IFS= read -r _line || [ -n "$_line" ]; do
+        # `[[:space:]]` inside a `case` bracket, not a hand-written " |	",
+        # so this strips exactly the class the sed pattern did. POSIX bracket
+        # expressions carry character classes and both `sh` and `dash` honour
+        # them; the test asserts that rather than trusting it.
+        while :; do
+            case $_line in
+                [[:space:]]*) _line=${_line#?} ;;
+                *) break ;;
+            esac
+        done
+        case $_line in
+            primary_doc*) _rest=${_line#primary_doc} ;;
+            *) continue ;;
+        esac
+        while :; do
+            case $_rest in
+                [[:space:]]*) _rest=${_rest#?} ;;
+                *) break ;;
+            esac
+        done
+        case $_rest in
+            =*) _rest=${_rest#=} ;;
+            *) continue ;;
+        esac
+        while :; do
+            case $_rest in
+                [[:space:]]*) _rest=${_rest#?} ;;
+                *) break ;;
+            esac
+        done
+        case $_rest in
+            \"*|\'*) _rest=${_rest#?} ;;
+            *) continue ;;    # unquoted: the sed pattern required a quote too
+        esac
+        # The sed capture is `[^"']*`, which stops at the first quote of EITHER
+        # kind rather than at the one that opened the value. Cutting at each
+        # and keeping the shorter result is that same rule, with no process -
+        # and it is the difference between agreeing with the shipped command
+        # and agreeing with a plausible description of it.
+        _dq=${_rest%%\"*}
+        _sq=${_rest%%\'*}
+        if [ ${#_dq} -le ${#_sq} ]; then
+            EXTANT_PRIMARY_DOC=$_dq
+        else
+            EXTANT_PRIMARY_DOC=$_sq
+        fi
+        break                 # `head -n 1`: the FIRST value, not the last
+    done < "$1"
+}
+
+# COUNT := how many lines of $1 contain a `[`; LISTING := the first five lines
+# of $1, each indented by two spaces and newline-terminated.
+#
+# Replaces two of the three processes in:
+#
+#     COUNT=$(printf '%s\n' "$OUTPUT" | grep -c '\[' )
+#     printf '%s\n' "$OUTPUT" | head -5 | sed 's/^/  /'
+#
+# `head` and `sed` are gone; `grep -c` STAYS, and that split is the whole
+# design rather than a half-finished job. Measured over 40 calls on a 20-finding
+# output: 158.9 ms per call to 69.9 ms under `sh`, 144.7 to 56.6 under `dash`.
+#
+# WHY THE COUNT IS STILL A PROCESS. The first version of this read `$1` through
+# a here-document - `done <<EOF` - which is fast and, under the `dash` that
+# ships with Git for Windows, SILENTLY WRONG above about 4 KB. Measured, with
+# the here-doc inside a shell function: 2691 bytes reads back every line, 5491
+# bytes reads back NOTHING, so COUNT came out 0 and the listing empty while
+# `--verify` had exited 1. That is a hook reporting "0 unverified claim(s)" on
+# a document full of them - the silent wrong answer this project exists to
+# refuse, arriving in the one material here with no type checker.
+#
+# Upstream dash writes a here-doc larger than PIPESIZE to a temp file and would
+# probably be fine; that is not knowable from a Windows machine, and an
+# implementation whose correctness turns on which shell PORT is installed is
+# not one to ship. Counting every line without a process needs a `while` over
+# `${_rest#*...}`, which copies the remainder each pass - correct at every size
+# under both shells, and O(n^2): 2952 ms at 2000 lines, 19 seconds at 5000.
+#
+# So the work is split by what each half actually needs. The LISTING needs five
+# lines, so parameter expansion runs five times and costs the same whatever the
+# output's size. The COUNT needs every line, which is precisely what one `grep`
+# process does correctly at any size. Flat cost, no size threshold, no shell
+# port to trust.
+#
+# The two populations are deliberately different and stay different: COUNT is
+# findings, the listing is LINES, and a finding that wraps is one of each.
+extant_findings_summary() {
+    # A literal newline, defined INSIDE the function so that lifting this out
+    # by name - which tests/test_hook_builtins.py does - lifts something that
+    # runs on its own.
+    _LF='
+'
+    # A subshell for the substitution only. That is not the mistake the loop
+    # below avoids: the ASSIGNMENT happens in this shell, so COUNT reaches the
+    # caller that needs it twice - once in the header line and once in the `if`
+    # after the listing. Running the LOOP in a pipeline is what loses it.
+    COUNT=$(printf '%s\n' "$1" | grep -c '\[')
+    LISTING=""
+    _seen=0
+    _rest=$1
+    while [ "$_seen" -lt 5 ]; do
+        case $_rest in
+            *"$_LF"*)
+                _line=${_rest%%"$_LF"*}
+                _rest=${_rest#*"$_LF"}
+                _more=1
+                ;;
+            *)
+                _line=$_rest
+                _more=0
+                ;;
+        esac
+        LISTING="$LISTING  $_line$_LF"
+        _seen=$((_seen + 1))
+        [ "$_more" -eq 1 ] || break
+    done
+}
+
 AFTER_REWRITE=0
 REWRITE_KIND=""
 if [ "${1:-}" = "--after-rewrite" ]; then
@@ -78,12 +239,20 @@ fi
 # post-commit already reported this one. See the header.
 [ "$AFTER_REWRITE" -eq 1 ] && [ "$REWRITE_KIND" = "amend" ] && exit 0
 
-# Three answers from ONE git process. This hook runs on every commit, and each
-# subprocess costs roughly 90 ms on Windows, so three separate `git rev-parse`
-# calls were about 170 ms of pure overhead per commit for information git will
-# hand over all at once. Split with the shell's own word splitting rather than
-# sed, because spending the saving on three more process spawns would be worse
-# than not optimising at all.
+# Three answers from ONE git process. This hook runs on every commit, and two
+# of the three calls this batching removes are a process each, for information
+# git will hand over all at once. Split with the shell's own word splitting
+# rather than sed, because spending the saving on three more process spawns
+# would be worse than not optimising at all.
+#
+# THE PRICE HERE WAS OUT BY ABOUT 3.5x and is corrected rather than left,
+# because a decision priced wrongly is one nobody can re-derive. It read
+# "roughly 90 ms" per Windows subprocess and claimed this saved about 170 ms.
+# Measured on the machine that wrote it: `sh` costs 26 ms and `git rev-parse`
+# costs 26 ms, so the batch saves about 52 ms. The decision it justifies is
+# still the right one - 52 ms on every commit, for one line of word splitting -
+# but it is a smaller win than the file claimed, and the same measurement is
+# what moved the real target to the two pipelines above.
 #
 # The three are NOT interchangeable:
 #
@@ -157,10 +326,9 @@ DOC_NAME=NEXT_SESSION.md
 CONFIGURED=0
 CONFIG="$TOPLEVEL/.extant.toml"
 if [ -f "$CONFIG" ]; then
-    _d=$(sed -n "s/^[[:space:]]*primary_doc[[:space:]]*=[[:space:]]*[\"']\\([^\"']*\\).*/\\1/p" \
-         "$CONFIG" | head -n 1)
-    if [ -n "$_d" ]; then
-        DOC_NAME="$_d"
+    extant_primary_doc "$CONFIG"
+    if [ -n "$EXTANT_PRIMARY_DOC" ]; then
+        DOC_NAME="$EXTANT_PRIMARY_DOC"
         CONFIGURED=1
     fi
 fi
@@ -190,13 +358,26 @@ if [ -z "$PY" ]; then
     exit 0
 fi
 
+# SYNCHRONOUS, AND IN THE FOREGROUND. Both alternatives were considered and
+# both are refused for the same reason rather than for a cost.
+#
+# Backgrounding this, or deferring it to some later trigger, would decouple the
+# report from the commit that caused it - and the whole reason this hook exists
+# is to turn "the validator was run" from a claim into an observation. A report
+# that arrives detached from its commit is a claim again.
+#
+# It is also where the remaining time actually goes, and that is worth stating
+# beside the two pipelines above rather than leaving someone to rediscover it:
+# on a trivial document the interpreter floor is 35 ms, imports are 141 ms, and
+# the validation itself is 35 ms. A commit pays more to START Python than to
+# use it, and nothing in this file changes that.
 OUTPUT=$("$PY" "$TOOL" --verify --repo "$TOPLEVEL" 2>&1)
 STATUS=$?
 
 if [ "$STATUS" -ne 0 ]; then
-    COUNT=$(printf '%s\n' "$OUTPUT" | grep -c '\[' )
+    extant_findings_summary "$OUTPUT"
     echo "[extant] $DOC_NAME has $COUNT unverified claim(s):"
-    printf '%s\n' "$OUTPUT" | head -5 | sed 's/^/  /'
+    printf '%s' "$LISTING"
     if [ "$COUNT" -gt 5 ]; then
         echo "  ... run: \"$PY\" tools/extant_collect.py --verify"
     fi

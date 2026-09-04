@@ -6,6 +6,13 @@
 # a CI step that ran `python -m pytest` on a runner with no pytest. All six jobs
 # failed identically before a single test ran.
 pytest>=8
+# Parallel test runs, and it is on the correct side of the line drawn above: the
+# TOOL still has no dependencies, and this is never imported by anything under
+# `plugin/skills/extant/payload/`. It is not enabled by default - `pytest.ini`
+# is deliberately left alone, so the serial run stays the definition of
+# correctness - and it earns its place on the invocation `AGENTS.md` documents:
+# 5m44s to 1m48s on 12 cores, same tests, same result.
+pytest-xdist>=3
 # The SUITE parses TOML to check what the installer wrote. On 3.11+ that is
 # `tomllib` in the standard library; below it, the same parser under its
 # original name. The TOOL still needs neither: it falls back, and works on

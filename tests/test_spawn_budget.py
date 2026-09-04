@@ -52,7 +52,23 @@ sys.path.insert(0, str(PAYLOAD))
 # Against the code as it stood at cad97bb this fixture spawns 8, so both
 # assertions below have been watched failing on real code rather than only on
 # a mutation.
-MEASURED = 6
+#
+# FOUR SINCE THE SPAWN WORK, and it is lowered here rather than left passing.
+# The assertion is `<=`, so three of these four could have gone away in silence
+# and left this green - which is exactly the spare the paragraph above refuses,
+# arriving by omission instead of by decision. What went:
+#
+#   -2  `rev-parse --verify --quiet <ref>^{commit}`. `resolve_ref` looks a
+#       QUALIFIED ref up in the table it already built, and `dead-pinned-ref`
+#       asks `resolve_ref` instead of asking git itself. On this repository's
+#       own document that was 14 of 24 spawns.
+#   -1  `remote get-url origin`, read out of the config file by `remote_url`
+#       with a guard that falls back to the spawn for any syntax it declines
+#       to parse.
+#   +1  `log --diff-filter=R`, which is new COVERAGE rather than a new cost -
+#       see the dead pointer in `_document` below and the note there on why
+#       the fixture grew instead of the floor shrinking.
+MEASURED = 4
 CEILING = MEASURED
 
 
@@ -68,7 +84,19 @@ def _document(sha: str, claim_only: str, dead: str) -> str:
       and the ancestry `rev-list`;
     * "shipped in v1.0.0" reaches `dead-release-tag`, which is the tag lookup;
     * the pre-commit block reaches `dead-pinned-ref`, which is `remote
-      get-url`, and which `count_examined` asks for a second time.
+      get-url`, and which `count_examined` asks for a second time;
+    * the missing design document reaches `dead-path-pointer`, which asks
+      `renamed_to` where the file went and is the `log --diff-filter=R` scan.
+
+    THE LAST ONE IS NEW, and it is a re-fixturing rather than an addition for
+    its own sake. Answering the remote from the config file took this document
+    from four spawns to three, and the duplicate-pinning test below asserts a
+    FLOOR of four so that it cannot report "no repeats" about a fixture that
+    reached nothing. Lowering that floor would have kept the suite green by
+    making the guard weaker, which is the move it exists to prevent - so the
+    document gained a rule instead. `dead-path-pointer` was not covered here at
+    all before, and it is the only remaining rule in this package that spawns a
+    process of its own.
 
     `claim_only` is the load-bearing one and is the reason this fixture is not
     smaller. It appears ONLY inside a fully backticked phrase, copied in shape
@@ -88,7 +116,8 @@ def _document(sha: str, claim_only: str, dead: str) -> str:
         f"- The work was merged to `main` at `{sha}`.\n"
         f"- Shipped in v1.0.0 that week.\n"
         f"- See `{sha}` and bare {dead} for the detail.\n"
-        f"- `PR #1 merged into main at {claim_only}`\n\n"
+        f"- `PR #1 merged into main at {claim_only}`\n"
+        f"- **Design:** `docs/gone.md`\n\n"
         f"```yaml\n"
         f"repos:\n"
         f"  - repo: https://github.com/acme/widget\n"
@@ -319,9 +348,30 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # once per validate() + count_examined() pair. A deleted `with run_scope():`
     # duplicates those instead, which is what to look for before raising this
     # number again.
-    assert len(spawns) <= 24, (
+    #
+    # FIVE SINCE THE SPAWN WORK, from 24, and every one of the nineteen that
+    # went was a question this repository already had the answer to:
+    #
+    #   -14  `rev-parse --verify --quiet refs/tags/vX^{commit}`, one per
+    #        DISTINCT tag claimed. `resolve_ref` tried the ref table before
+    #        shelling out and the table is keyed by SHORT name, so every
+    #        qualified lookup missed by construction. It reads both spellings
+    #        now, so the whole paragraph above about a new release entry
+    #        costing a spawn no longer holds: a release claim is free.
+    #    -5  `remote get-url origin`, one per document, read out of the config
+    #        file instead - which is why widening this mode's RunScope was
+    #        refused rather than taken.
+    #
+    # THE SHAPE TO CHECK BEFORE RAISING THIS HAS CHANGED WITH IT. The remote
+    # lookups are gone, so counting them is no longer the test for a missing
+    # `run_scope()`. What remains is the ref table and the `rev-list`, and both
+    # still appear exactly TWICE - once per validate() + count_examined() pair.
+    # Those two are the whole of the five now, plus one `cat-file
+    # --batch-check`, so a third copy of either is the regression this exists
+    # to catch and there is nothing else left to hide it behind.
+    assert len(spawns) <= 5, (
         f"{len(spawns)} git processes for --verify on this repository, above "
-        f"the 23 measured with run_scope() wrapping main()'s own validate() "
+        f"the 5 measured with run_scope() wrapping main()'s own validate() "
         f"+ count_examined() pairs. If this is a genuine new question, raise "
         f"the number here and say why in the commit; if a `with run_scope():` "
         f"was removed from main(), that is the regression this test exists "
