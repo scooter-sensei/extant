@@ -86,6 +86,16 @@ VARIANTS = [
                  id="backslash-path"),
     pytest.param(f'[include]\n\tpath = elsewhere\n'
                  f'[remote "origin"]\n\turl = {URL}\n', id="include"),
+    # What a GitHub Actions runner actually writes into every checkout. This is
+    # the spelling that occurs in the wild - `[include]` above is the one that
+    # was imagined - and it is why `--verify` still spawns for the remote on
+    # CI while a developer checkout does not.
+    pytest.param(f'[remote "origin"]\n\turl = {URL}\n'
+                 f'[includeIf "gitdir:/home/runner/work/x/x/.git"]\n'
+                 f'\tpath = /home/runner/work/_temp/x.inc\n'
+                 f'[includeIf "gitdir:/github/workspace/.git/worktrees/*"]\n'
+                 f'\tpath = /home/runner/work/_temp/x.inc\n',
+                 id="github-actions-includeIf"),
 ]
 
 

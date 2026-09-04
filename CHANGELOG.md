@@ -161,6 +161,12 @@ and started 24 git processes, where one `git rev-parse` costs 28.27 ms (median
 of 20). It now takes 729 ms and starts 5, which is about 39 ms per spawn
 removed. That command runs from a git hook after every commit.
 
+**Five is a developer checkout; a CI runner still starts 8.** A GitHub Actions
+checkout carries four `[includeIf "gitdir:..."]` sections and a
+`config.worktree`, and either alone is enough for the config read below to
+decline and fall back to the spawn. Nineteen of the twenty-four go everywhere;
+the last five go where the config is one this can read.
+
 **A `--verify` over this repository spawns five git processes, down from 24.**
 Fourteen of the nineteen were `rev-parse --verify --quiet refs/tags/vX^{commit}`
 asking a question the ref table already held: `resolve_ref` tried that table

@@ -235,7 +235,11 @@ def _normal(path: Path) -> Path:
 #                   one that changes the PATH does not, and nothing here can
 #                   tell which kind it is looking at without becoming git.
 #   include         `include.path` and `includeIf` pull in another file, which
-#                   may define the remote or redefine it.
+#                   may define the remote or redefine it. NOT a corner case: a
+#                   GitHub Actions runner writes four
+#                   `[includeIf "gitdir:..."]` sections into every checkout,
+#                   so this path declines on CI and the spawn is paid there.
+#                   Measured from a failing run, not assumed.
 #
 # `extensions.worktreeConfig` belongs to the same family and is deliberately
 # NOT in this list, because refusing on the word alone made this change worth
@@ -288,6 +292,14 @@ def remote_url(repo: Path, name: str) -> str | None:
     once per file. Measured on this machine, Windows: `git remote get-url
     origin` costs 28.92 ms (median of 20) and this read costs 0.19 ms (median
     of 200), a factor of 156, five times per `--verify` over this repository.
+
+    WHERE IT DOES NOT FIRE, stated because the saving is otherwise easy to
+    overclaim: a GitHub Actions checkout carries four `[includeIf "gitdir:..."]`
+    sections and a `config.worktree`, and either alone is enough for this to
+    decline. So CI keeps paying the five spawns, and this is a developer-machine
+    win rather than a universal one. That was measured from a red CI run whose
+    spawn budget said 8 where a developer checkout says 5 - the guard doing
+    exactly what it is for, on a config nobody here writes by hand.
 
     Through `common_git_dir`, which is what makes it work in a LINKED WORKTREE.
     A worktree's `.git` is a FILE pointing elsewhere, so a naive

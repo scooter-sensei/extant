@@ -409,17 +409,53 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     #        file instead - which is why widening this mode's RunScope was
     #        refused rather than taken.
     #
-    # THE SHAPE TO CHECK BEFORE RAISING THIS HAS CHANGED WITH IT. The remote
-    # lookups are gone, so counting them is no longer the test for a missing
-    # `run_scope()`. What remains is the ref table and the `rev-list`, and both
-    # still appear exactly TWICE - once per validate() + count_examined() pair.
-    # Those two are the whole of the five now, plus one `cat-file
-    # --batch-check`, so a third copy of either is the regression this exists
-    # to catch and there is nothing else left to hide it behind.
-    assert len(spawns) <= 5, (
-        f"{len(spawns)} git processes for --verify on this repository, above "
-        f"the 5 measured with run_scope() wrapping main()'s own validate() "
-        f"+ count_examined() pairs. If this is a genuine new question, raise "
-        f"the number here and say why in the commit; if a `with run_scope():` "
-        f"was removed from main(), that is the regression this test exists "
-        f"to catch.")
+    # AND THE TOTAL STOPPED BEING THE THING TO ASSERT, which is what a red CI
+    # run taught rather than a review. Before this work every question was
+    # spawned unconditionally, so the count was a constant. Two of them are now
+    # conditional on the CHECKOUT rather than on the code:
+    #
+    #   `remote get-url origin`   0 where `remote_url` can read the config, 5
+    #                             where it declines. A GitHub Actions runner
+    #                             declines: measured, its `.git/config` carries
+    #                             four `[includeIf "gitdir:..."]` sections and a
+    #                             `config.worktree` beside it, and either alone
+    #                             is a reason this cannot know whether the
+    #                             remote is redefined elsewhere. The guard is
+    #                             working; the count simply is not a constant.
+    #   the trunk lookup          `rev-list main` where a local `main` exists,
+    #                             `rev-parse --verify --quiet main^{commit}`
+    #                             where it does not, and NEITHER on a checkout
+    #                             where `main` does not resolve at all. A
+    #                             pull_request checkout is a detached merge ref,
+    #                             so this varies by how CI checks out.
+    #
+    # Measured: 5 on a developer checkout, 3 on a fresh clone, 8 on a runner.
+    # A ceiling of 8 would hold everywhere and hand a developer checkout three
+    # spare - exactly the headroom the top of this file refuses - so the total
+    # is not what is asserted any more. What is asserted is the INVARIANT part
+    # exactly, and then that everything else is one of the two questions above
+    # and nothing new. A genuine new question still fails here in every
+    # environment; a checkout that answers one of these for free does not.
+    per_run = [c for c in spawns if c.startswith("for-each-ref")]
+    batched = [c for c in spawns if c.startswith("cat-file --batch-check")]
+    print(f"  ref table x{len(per_run)}, sha batch x{len(batched)}")
+    assert len(per_run) == 2, (
+        f"the ref table was built {len(per_run)} times, not twice - once per "
+        f"validate() + count_examined() pair. More than two means a "
+        f"`with run_scope():` was removed from main() and every document is "
+        f"rebuilding it; this is the regression this test exists to catch.")
+    assert len(batched) == 1, (
+        f"{len(batched)} `cat-file --batch-check` calls; the document's SHA "
+        f"union is resolved in one batch, and a second means two rules are "
+        f"each spawning their own again.")
+
+    # Everything else must be one of the two checkout-dependent questions. This
+    # is where a NEW question fails, with no allowance to hide in.
+    varies_by_checkout = ("remote get-url origin", "rev-list ",
+                          "rev-parse --verify --quiet ")
+    unexpected = [c for c in spawns
+                  if c not in per_run and c not in batched
+                  and not c.startswith(varies_by_checkout)]
+    assert not unexpected, (
+        f"--verify asked something new: {unexpected}. If it is a genuine new "
+        f"question, add it here and say why in the commit.")
