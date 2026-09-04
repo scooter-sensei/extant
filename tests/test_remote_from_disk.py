@@ -314,3 +314,50 @@ def test_a_repository_with_no_origin_still_reports_none(git_repo) -> None:
 
     with hc.run_scope():
         assert pinned_ref._own_remote(hc.context(repo)) is None
+
+
+def test_an_included_file_that_wins_the_lookup_is_declined(git_repo) -> None:
+    """The guard against `include`, pinned by the case where it MATTERS.
+
+    The `github-actions-includeIf` variant in the table above documents the
+    shape a runner writes and pins nothing: its included file overrides
+    nothing, so a reader that ignored the include agrees with git anyway.
+    Verified - deleting `include` from `_UNSETTLED_BY` leaves that whole table
+    green.
+
+    ORDER IS WHAT MAKES ONE OF THESE DANGEROUS, and it took measuring to find
+    out which. `git remote get-url` reports the FIRST value of
+    `remote.origin.url`, not the last. So an include placed AFTER the remote
+    section cannot diverge - both readers land on the outer value - while an
+    include placed BEFORE it wins the lookup, and a reader that stops at the
+    outer section answers with a repository git would not name:
+
+        file:.git/first.inc   remote.origin.url=https://github.com/inner/...
+        file:.git/config      remote.origin.url=https://github.com/outer/...
+        git remote get-url -> inner        a naive read -> outer
+
+    That reaches `_normalise_remote` as a wrong `owner/name`, which is
+    `dead-pinned-ref` checking somebody else's repository. Declining is the
+    only answer available short of becoming git.
+    """
+    from extant.git import common_git_dir, remote_url
+
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    shared = common_git_dir(repo)
+    assert shared is not None
+    # Relative to the config file's own directory, which is how git resolves
+    # `include.path` and what avoids a platform-specific absolute path.
+    (shared / "first.inc").write_text(
+        '[remote "origin"]\n\turl = https://github.com/inner/repo.git\n',
+        encoding="utf-8")
+    with_config(repo, '[include]\n\tpath = first.inc\n'
+                      f'[remote "origin"]\n\turl = {URL}\n')
+
+    assert git_says(repo) == "https://github.com/inner/repo.git", (
+        "the fixture did not reproduce the divergence it exists for")
+    got = remote_url(repo, "origin")
+    print(f"git={git_says(repo)!r} outer={URL!r} fast path={got!r}")
+    assert got is None, (
+        f"the fast path answered {got!r} for a config whose include wins the "
+        f"lookup; git says {git_says(repo)!r}")
