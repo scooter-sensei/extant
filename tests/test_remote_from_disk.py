@@ -40,6 +40,9 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 sys.path.insert(0, str(PAYLOAD))
 
 URL = "https://github.com/acme/widget.git"
+# What `git clone` writes when the source is a local path with a space in
+# it, which on Windows is most of them.
+SPACED = "D:/VS CODE/Projects/thing/."
 
 # Every spelling measured, named so a failure says which one broke. The value
 # is what gets APPENDED to a config that already has an ordinary `[core]`
@@ -68,6 +71,18 @@ VARIANTS = [
     pytest.param(f'[extensions]\n\tworktreeConfig = true\n'
                  f'[remote "origin"]\n\turl = {URL}\n',
                  id="worktree-config-enabled"),
+    # A LOCAL clone writes its source path verbatim, so a checkout living
+    # anywhere with a space in its name produces this - and on Windows that is
+    # most of them. Rejecting internal whitespace made the fast path decline on
+    # every such clone, which the suite could not see because it only ever ran
+    # against a working tree whose origin is an https URL.
+    pytest.param('[remote "origin"]\n\turl = D:/VS CODE/Projects/thing/.\n',
+                 id="path-with-a-space"),
+    pytest.param(f'[remote "origin"]\n\turl =    {URL}   \n',
+                 id="surrounding-whitespace"),
+    pytest.param(f'[remote "origin"]\r\n\turl = {URL}\r\n', id="crlf-config"),
+    pytest.param('[remote "origin"]\n\turl = C:\\Users\\me\\repo\n',
+                 id="backslash-path"),
     pytest.param(f'[include]\n\tpath = elsewhere\n'
                  f'[remote "origin"]\n\turl = {URL}\n', id="include"),
 ]
@@ -121,8 +136,16 @@ def test_the_fast_path_matches_git_or_declines_to_answer(git_repo, extra) -> Non
 def test_the_common_spellings_are_actually_answered_from_disk(git_repo) -> None:
     """The denominator. A guard that declines everything passes the table above.
 
-    Four of the twelve variants must resolve on the fast path, or this change
-    buys nothing at all and the tests above are asserting a permanent refusal.
+    These must resolve on the fast path, or this change buys nothing at all and
+    the tests above are asserting a permanent refusal.
+
+    THE LAST ONE IS HERE BECAUSE IT SHIPPED BROKEN. `git clone` writes its
+    source path verbatim, so a clone taken from a checkout under a directory
+    with a space in its name gets `url = D:/VS CODE/.../.` - and the guard
+    rejected internal whitespace, so the fast path declined on every such
+    clone and quietly paid the spawn it exists to remove. Nothing here saw it:
+    every fixture sets an https origin, and the suite ran against a working
+    tree. Running it against a fresh CLONE is what surfaced it.
     """
     from extant.git import remote_url
 
@@ -133,7 +156,8 @@ def test_the_common_spellings_are_actually_answered_from_disk(git_repo) -> None:
     for spelling in ('[remote "origin"]\n\turl = ' + URL + "\n",
                      '[REMOTE "origin"]\n\turl = ' + URL + "\n",
                      '[remote "origin"]\n\turl=' + URL + "\n",
-                     '[remote "origin"]\n\tURL = ' + URL + "\n"):
+                     '[remote "origin"]\n\tURL = ' + URL + "\n",
+                     '[remote "origin"]\n\turl = ' + SPACED + "\n"):
         from extant.git import common_git_dir
         shared = common_git_dir(repo)
         assert shared is not None
@@ -144,7 +168,7 @@ def test_the_common_spellings_are_actually_answered_from_disk(git_repo) -> None:
         config.write_text(base, encoding="utf-8")
 
     print(f"answered from disk: {answered}")
-    assert answered == [URL] * 4, answered
+    assert answered == [URL] * 4 + [SPACED], answered
 
 
 def test_a_linked_worktree_reads_the_config_it_actually_shares(git_repo) -> None:

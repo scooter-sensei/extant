@@ -259,7 +259,16 @@ _UNSETTLED_BY = ("insteadof", "include")
 # and a backslash escapes the next character or continues the line onto the
 # next. git handles every one of those; this refuses them, which turns each
 # into a spawn instead of into a wrong answer.
-_PLAIN_VALUE = re.compile(r"^[^\"'#;\\\s]+$")
+#
+# WHITESPACE INSIDE THE VALUE IS ALLOWED, and rejecting it was a real defect
+# rather than caution. git strips only the whitespace SURROUNDING an unquoted
+# value and keeps what is inside, so with quotes already refused there is
+# nothing left to be ambiguous about - and `git clone` writes the source path
+# verbatim, so every clone of a checkout living under a directory with a space
+# in its name declined and paid the spawn. That is most of them on Windows.
+# Found by running the suite against a fresh clone rather than the working
+# tree, which is the check this project's own instructions ask for.
+_PLAIN_VALUE = re.compile(r"^[^\"'#;\\]+$")
 
 
 def remote_url(repo: Path, name: str) -> str | None:
