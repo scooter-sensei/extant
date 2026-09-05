@@ -895,6 +895,19 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    settled = {str(o.value) for o in obs\n'
          '               if o.key in ("primary_doc",) and o.value}'),
 
+        # The schemeless-URL arm on EXTERNAL, which five link call sites read.
+        # Both directions matter and they fail differently, so both are probed.
+        # Removing it reinstates 26 false positives found on two corpora no rule
+        # was designed on; widening it to any `host.tld` reads `README.md` as a
+        # Moldovan hostname and silences every link rule at once, which is the
+        # shape that looks clean forever.
+        ("a schemeless URL is read as a relative path again", text,
+         r'    rf"|(?:[a-z0-9-]+\.)+(?:{_TLD})(?:[/?#]|$)"        # example.com[/path]',
+         r'    rf"|(?!x)x"                                        # example.com[/path]'),
+        ("the schemeless arm widens to any dotted suffix", text,
+         '_TLD = ("com|org|net|edu|gov|mil|io|ai|dev|app|cloud|tech|club|blog|wiki"',
+         '_TLD = ("[a-z]{2,}"  # noqa'),
+
         # --- detect.py ----------------------------------------------------------
         ("find_documents returns only the first match", detect,
          "    return found",

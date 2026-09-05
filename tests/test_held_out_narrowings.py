@@ -797,3 +797,136 @@ def test_the_bare_sha_gate_yields_the_same_tokens_as_the_scan_it_replaces() -> N
     assert not disagreed, (
         f"the gate changed which tokens these documents yield: {disagreed}. "
         f"It is a speed change and may not move a single token.")
+
+
+# --------------------------------------------------------------------------
+# 11. A schemeless URL is not a path.                            26 findings
+#
+# Exposed by two corpora at once, which is what promotes it from a curiosity
+# to a class: `Skyvern-AI/skyvern` on the 2026-09-05 held-out half, and qmk
+# (18), sonic-pi (2), RetroArch (1) and lean4 (1) on the niche corpus built the
+# same day - five repositories, two independent corpora, neither of which any
+# rule was designed on. `EXTERNAL` matched `scheme:` and `//` and nothing else,
+# so `[docs](www.skyvern.com/docs)` was read as a relative path, resolved
+# against the document's directory, and reported as a dead link.
+#
+# THE RISK IS THE SUPPRESSION, NOT THE PATTERN. A widened `EXTERNAL` silences
+# whatever it matches, and a suppression firing wrongly deletes a real finding
+# where a false positive at least appears in the output for somebody to argue
+# with. Many TLDs are also file extensions - `.md` is Moldova, `.rs` Serbia,
+# `.py` Paraguay - so a naive `host.tld` rule would silence every markdown
+# link in existence.
+#
+# Bounded by measurement rather than by argument: across 157 cloned
+# repositories and 220,990 internal link targets, this pattern matches 38
+# distinct targets, every one of them a URL, and NOT ONE target that resolves
+# to a file that exists. The pairs below pin both halves of that.
+# --------------------------------------------------------------------------
+
+def test_a_www_prefixed_target_is_a_url_not_a_path(git_repo) -> None:
+    """`www.` is unambiguous: no file is named `www.something.something`."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    assert _links(repo, "See [docs](www.skyvern.com/docs).\n") == []
+
+
+def test_a_bare_hostname_with_a_path_is_a_url(git_repo) -> None:
+    """qmk writes `github.com/josh-l-wang` eighteen times over."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    assert _links(repo, "See [author](github.com/josh-l-wang).\n") == []
+
+
+def test_a_bare_hostname_with_no_path_is_still_a_url(git_repo) -> None:
+    """`webbench.ai` and `hanboards.com` carry no path at all.
+
+    This is the arm that cannot be made safe by requiring a `/`, and it is
+    where most of the class lives - requiring one drops the fix from 55
+    targets to 33.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    assert _links(repo, "See [bench](webbench.ai).\n") == []
+
+
+def test_a_national_domain_is_a_url_too(git_repo) -> None:
+    """The half the first fix missed, found by auditing it.
+
+    `anomalykb.co`, `imaginaerraum.de` and `fablab-bayreuth.de` survived a TLD
+    list holding only the generic ones - a US-centric list, on corpora that are
+    themselves US-centric, so the rate outside them is higher than three. The
+    codes are admitted a priori as ISO-3166 and then struck out wherever they
+    are really used as a file extension.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    assert _links(repo, "See [kb](anomalykb.co).\n") == []
+    assert _links(repo, "See [lab](fablab-bayreuth.de/x).\n") == []
+
+
+def test_a_markdown_file_is_not_a_moldovan_hostname(git_repo) -> None:
+    """The one that would have been catastrophic.
+
+    `.md` is the ccTLD for Moldova, `.rs` for Serbia, `.py` for Paraguay and
+    `.sh` for Saint Helena. A `host.tld` rule reading any of those as a URL
+    would silence every markdown link the tool exists to check - the rule
+    would go quiet everywhere and read as clean.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    assert _links(repo, "See [gone](docs/missing.md).\n") == ["docs/missing.md"]
+    assert _links(repo, "See [gone](missing.rs).\n") == ["missing.rs"]
+    assert _links(repo, "See [gone](script.sh).\n") == ["script.sh"]
+    # The ccTLD arm doubles the exposure, so the largest collisions are named
+    # rather than trusted: `.py` is 81,121 files across the measured
+    # repositories, `.rs` 61,737, `.cc` 16,058, `.mk` 2,326, `.tf` 1,758.
+    assert _links(repo, "See [gone](setup.py).\n") == ["setup.py"]
+    assert _links(repo, "See [gone](build.mk).\n") == ["build.mk"]
+    assert _links(repo, "See [gone](main.cc).\n") == ["main.cc"]
+    assert _links(repo, "See [gone](infra.tf).\n") == ["infra.tf"]
+
+
+def test_a_dead_relative_link_that_merely_contains_a_dot_still_fires(git_repo) -> None:
+    """Silence must not come from having stopped looking.
+
+    A target whose final segment is not a recognised TLD is still a path, and
+    the rule still reports it when it names nothing.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    assert _links(repo, "See [gone](my.config.yaml).\n") == ["my.config.yaml"]
+
+
+def test_a_hostname_shaped_file_that_exists_is_still_reachable(git_repo) -> None:
+    """The suppression is lexical, so a real file named like a host is the one
+    place it could cost something.
+
+    Measured at zero across 220,990 link targets, and the rule is silent here
+    either way - but silent for the RIGHT reason has to be checked, so this
+    asserts the file resolves rather than that nothing was reported.
+    """
+    repo, commit = git_repo
+    commit("example.com", "not a host\n", "seed")
+    assert _links(repo, "See [it](example.com).\n") == []
+    assert (repo / "example.com").is_file()
+
+
+def test_an_anchor_into_a_schemeless_url_is_not_checked(git_repo) -> None:
+    """`dead-md-anchor` reads the same `EXTERNAL`, so one fix moves both.
+
+    `nodejs.org/api/process.html#a-note-on-process-io` was being asked whether
+    a local file had that heading.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    assert _anchors(
+        repo, "See [io](nodejs.org/api/process.html#a-note-on-process-io).\n"
+    ) == []
+
+
+def test_an_anchor_into_a_real_local_document_still_fires(git_repo) -> None:
+    """The other half of the pair, so the silence above is not the rule
+    breaking."""
+    repo, commit = git_repo
+    commit("guide.md", "# Guide\n\n## Real Heading\n", "seed")
+    assert _anchors(repo, "See [x](guide.md#no-such-heading).\n") != []
