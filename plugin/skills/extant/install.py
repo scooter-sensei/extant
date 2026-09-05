@@ -26,6 +26,10 @@ from pathlib import Path
 
 import detect
 from detect import DEFAULT, DERIVED, GUESSED, UNKNOWN, Observation
+# Lives in detect.py, beside `detect._git` which it calls and beside
+# `find_wide_documents` which is its second caller. Re-exported here so the
+# call in `apply_preset` reads the same as it always did.
+from detect import _tracked_paths
 
 SKILL_ROOT = Path(__file__).resolve().parent
 
@@ -558,6 +562,48 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
     return out, notes
 
 
+def _fold_wide_docs(obs: list[Observation],
+                    wide: list[str]) -> tuple[list[Observation], list[str]]:
+    """Add the discovered documents to `extra_docs`, appending, never replacing.
+
+    A preset settles `primary_doc` and may name extras of its own; the flag adds
+    to whatever is already there. De-duplicated against BOTH, which
+    `apply_preset` does not do for its own list: a document named twice is
+    validated twice and every finding in it reported twice.
+
+    AND AGAINST `archive_doc`, which is the one that actually bit. The archive
+    sits beside the primary document, so a project that keeps one has it tracked
+    at the root where this enumerates - and `gate.py` validates the archive on
+    its own before it ever reaches `extra_docs`. Named in both places, one file
+    got two passes with DIFFERENT semantics: the archive pass runs
+    `in_archive=True` precisely so a retired entry is not judged as a live
+    claim, and the extra_docs pass does not. Every finding in it printed twice,
+    against a denominator that counted the document once - the "one claim, two
+    scanners" shape, with the denominator disagreeing with the findings beside
+    it.
+    """
+    settled = {str(o.value) for o in obs
+               if o.key in ("primary_doc", "archive_doc") and o.value}
+    existing = next((o for o in obs if o.key == "extra_docs"), None)
+    merged = ([str(e) for e in existing.value]                  # type: ignore[union-attr]
+              if existing is not None else [])
+    added = [p for p in wide if p not in settled and p not in merged]
+    if not added:
+        return obs, ["  --wide-docs: adds nothing that is not already configured"]
+
+    merged += added
+    already = len(merged) - len(added)
+    found = Observation(
+        "extra_docs", merged, DERIVED,
+        f"{len(added)} found by --wide-docs at the root and under docs/, "
+        f"ordinary stratum only"
+        + (f"; {already} already configured" if already else ""))
+    out = ([found if o.key == "extra_docs" else o for o in obs]
+           if existing is not None else [*obs, found])
+    return out, [f"  --wide-docs: extra_docs -> {len(merged)} document(s), "
+                 f"{len(added)} newly discovered"]
+
+
 def _resolve_source(repo: Path, relative: str, tracked: list[str]) -> tuple[str | None, str]:
     """Where this preset's file actually IS, or why it cannot be used.
 
@@ -584,13 +630,6 @@ def _resolve_source(repo: Path, relative: str, tracked: list[str]) -> tuple[str 
     if len(hits) > 1:
         return None, f"{len(hits)} candidates for {relative}, ambiguous"
     return None, f"{relative} not here"
-
-
-def _tracked_paths(repo: Path) -> list[str]:
-    """Every tracked path, read once. Git rather than a filesystem walk, so a
-    vendored copy under an ignored directory cannot be resolved to."""
-    return [ln.strip() for ln in detect._git(repo, "ls-files").splitlines()
-            if ln.strip()]
 
 
 def _pattern_matches(path: Path, pattern: str) -> bool:
@@ -887,8 +926,20 @@ def render_config(obs: list[Observation]) -> str:
         elif o.key in plain:
             lines.append(f'{o.key} = "{o.value}"')
         elif isinstance(o.value, list):
-            rendered = ", ".join(f'"{item}"' for item in o.value)
-            lines.append(f"{o.key} = [{rendered}]")
+            # ONE PATH PER LINE past a handful. This branch was written for
+            # `["CONTRIBUTING.md"]` and `--wide-docs` can hand it two hundred
+            # entries, which on one line is a multi-kilobyte string in a file
+            # people are meant to review. It is the objection `report.py` makes
+            # about the baseline - a list of what a project has agreed to live
+            # with must be legible in review, or it becomes a place to hide
+            # things - and an unreviewable extra_docs is exactly that.
+            if len(o.value) > 3:
+                lines.append(f"{o.key} = [")
+                lines += [f'  "{item}",' for item in o.value]
+                lines.append("]")
+            else:
+                rendered = ", ".join(f'"{item}"' for item in o.value)
+                lines.append(f"{o.key} = [{rendered}]")
         elif o.value == "":
             # An empty string is how a feature is switched OFF, and it has to be
             # written as a quoted empty string. Falling through to the bare
@@ -950,6 +1001,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preset", choices=sorted(PRESETS),
                         help="start from a known project shape; "
                              + "; ".join(f"{k}: {v['summary']}" for k, v in PRESETS.items()))
+    # A FLAG, not a preset. A preset is a static name list filtered against
+    # existence, and a per-repository enumeration cannot be expressed as one; a
+    # new preset key would also enrol automatically in the every-preset scenario
+    # and hard-fail CI until somebody wrote it an ecosystem fixture - machinery
+    # built for static shapes that a discovery flag does not need.
+    parser.add_argument("--wide-docs", nargs="?", type=int,
+                        const=detect.WIDE_DEPTH, default=None, metavar="DEPTH",
+                        help="also check every tracked document at the root and "
+                             f"up to DEPTH (default {detect.WIDE_DEPTH}) levels "
+                             "under docs/, restricted to the ordinary stratum")
     args = parser.parse_args(argv)
 
     repo = Path(args.repo).resolve()
@@ -969,17 +1030,61 @@ def main(argv: list[str] | None = None) -> int:
     print("\ndocument")
     for note in notes:
         print(f"  {note}")
+    # BEFORE `observe`, because `observe` derives archive_doc, entry_prefix and
+    # merge_claim FROM the chosen document. Discovery that can change which
+    # document that is has to run while changing it still costs nothing.
+    wide: list[str] | None = None
+    if args.wide_docs is not None:
+        print()
+        wide, wide_notes = detect.find_wide_documents(repo, args.wide_docs)
+        for line in wide_notes:
+            print(f"  {line}")
+        if wide is None:
+            return 1
+
+    # Weakest in the chain: --doc, then the preset's document, then detection,
+    # then this. `choose_document` settles the first three and returns None only
+    # when every one of them found nothing, so the nomination cannot displace a
+    # choice anybody made. An explicit --doc that does not exist is the one None
+    # that must stay one: answering a typo with a different file is worse than
+    # refusing.
+    nominated = (doc is None and wide is not None and not args.doc
+                 and (repo / "README.md").is_file())
+    if nominated:
+        doc = repo / "README.md"
+        # LOUD, because this is the single place the feature chooses something
+        # the user did not. README.md at the root and nothing else - "the
+        # shallowest ordinary document" is a heuristic dressed as a measurement,
+        # and the file it landed on would vary by repository in a way nobody
+        # could predict from the flag's name.
+        print("  primary_doc <- README.md (nominated by --wide-docs; "
+              "no status document detected)")
+
     if doc is None:
         print("\n  No document to check. Pass --doc <path>, or --preset readme")
         print("  to check the README and CONTRIBUTING file you already have.")
+        if args.wide_docs is not None:
+            print("  --wide-docs found no README.md at the root to nominate.")
         return 1
 
     obs, _info = observe(repo, doc)
+    if nominated:
+        # The same sentence, carried into the config's comment header, where
+        # render_config records provenance per value. A choice the tool made is
+        # exactly what a reader of that file needs to see recorded.
+        obs = [Observation(o.key, o.value, o.confidence,
+                           f"{o.evidence}; nominated by --wide-docs, "
+                           f"no status document detected")
+               if o.key == "primary_doc" else o for o in obs]
     if args.preset:
         obs, preset_notes = apply_preset(args.preset, obs, repo)
         print()
         for note in preset_notes:
             print(f"  {note}")
+    if wide:
+        obs, wide_extra_notes = _fold_wide_docs(obs, wide)
+        for note in wide_extra_notes:
+            print(note)
     print("\nderived configuration")
     width = max(len(o.key) for o in obs)
     for o in obs:

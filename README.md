@@ -356,6 +356,47 @@ $ sh tools/hooks/install
 They run after a commit is already recorded, print what they found, and never
 stop you doing anything.
 
+### Checking more than one document
+
+The installer configures the one or two documents it can name with confidence.
+Measured across 50 public repositories that is a narrow gate: it covers 12
+findings of the 4,429 the whole-repository survey sees in ordinary documents,
+and 40 of the 45 repositories it agreed to configure would exit 0 forever.
+
+`--wide-docs` widens it to every tracked document at the repository root, plus
+up to three levels under `docs/`, `doc/`, `documentation/`, `website/` or
+`site/`:
+
+```console
+$ python extant/plugin/skills/extant/install.py --repo /path/to/your/project --wide-docs
+```
+
+On the same 50 repositories that gates 1,126 findings across 3,305 pinned
+paths, and 25 of the 50 report something rather than 5 of 45. Precision of
+exactly those findings, measured against every reading a citation can
+legitimately have, is 98.7 to 98.8 per cent.
+
+Three things worth knowing before using it:
+
+* **Changelogs, vendored trees, generated API references and per-release
+  documentation snapshots are left out**, by the same classification the sweep
+  uses, and the installer prints how many it excluded and why. That restriction
+  is the feature rather than a refinement of it: enumerating the root without it
+  measured *worse* than configuring nothing, because most of what it collects is
+  `CHANGELOG.md`.
+* **Every enumerated path is pinned.** `extra_docs` is a literal list, so a
+  document that later moves or is deleted becomes a `missing-document` finding
+  until somebody edits the config. The count is printed before anything is
+  written.
+* **Three levels is deliberate.** A fourth was measured and is a cliff: 16 more
+  findings for 2,220 more pinned paths. The depth is settable anyway, because a
+  project that keeps its documentation deeper should be able to say so.
+
+It also works on a project with no status document at all, which is what the
+installer refuses on its own. When nothing else has named a document,
+`--wide-docs` nominates the root `README.md`, says so on the console, and
+records that provenance in the generated config.
+
 ### What actually lands in your repo
 
 Worth being precise about, because "installs a Claude thing" is the usual
