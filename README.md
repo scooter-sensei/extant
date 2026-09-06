@@ -376,7 +376,7 @@ paths, and 25 of the 50 report something rather than 5 of 45. Precision of
 exactly those findings, measured against every reading a citation can
 legitimately have, is 98.7 to 98.8 per cent.
 
-Three things worth knowing before using it:
+Four things worth knowing before using it:
 
 * **Changelogs, vendored trees, generated API references and per-release
   documentation snapshots are left out**, by the same classification the sweep
@@ -391,6 +391,17 @@ Three things worth knowing before using it:
 * **Three levels is deliberate.** A fourth was measured and is a cliff: 16 more
   findings for 2,220 more pinned paths. The depth is settable anyway, because a
   project that keeps its documentation deeper should be able to say so.
+* **Translated documentation multiplies what you see.** Depth 3 is what reaches
+  a translated page at `docs/<lang>/<section>/`, and a defect on a page that
+  exists in four languages is reported four times. Measured across 38
+  repositories of a niche corpus, PX4-Autopilot alone reports 4,490 findings
+  that are 1,411 distinct defects repeated across `en`, `ko`, `uk` and `zh` - a
+  factor of 3.18. Nothing is wrong with those findings and none of them is
+  suppressed; there are simply far more lines than there are problems. If the
+  first run is too loud to read, `--wide-docs 2` is much quieter - 113 findings
+  against 4,595 on the same corpus - because a translated page usually sits in
+  a section BELOW its language directory. It does not exclude language
+  directories as such: `docs/en/intro.md` is still depth 2.
 
 It also works on a project with no status document at all, which is what the
 installer refuses on its own. When nothing else has named a document,
@@ -688,6 +699,30 @@ depth-limited repository nearly none of them do. Measured on a held-out corpus,
 one project produced 2,094 dead-SHA findings checked out that way and 3 with its
 history. The run says when it is looking at a depth-limited repository, but the
 fix belongs in the workflow.
+
+**Depth is not the only axis: a trunk ref has to resolve.** Two different
+failures, depending on what is missing, and they look nothing alike:
+
+* **No `main` at all** - a single-branch checkout, however deep. The rules that
+  ask about trunk cannot ask, so they go INERT. Measured on this repository,
+  cloning the working branch alone took `false-merge-claim` from 5 examined
+  claims to 0 and `dead-release-tag` from 19 to 0, and the run still exited 0:
+  two rules silent, 24 claims unchecked, nothing failing. The denominator line
+  names them, which is what it is for, but the exit code cannot.
+* **`main` only as a remote-tracking branch** - what a `pull_request` checkout
+  gives you, because it is a detached merge ref. Ancestry checks then fail to
+  resolve and report commits that are perfectly fine, which is the opposite
+  symptom: noise rather than silence.
+
+`fetch-depth: 0` fixes the objects, not the ref. The workflow in this
+repository does both, and the second half is one line:
+
+```yaml
+      - name: Make the trunk ref resolvable
+        run: |
+          git show-ref --verify --quiet refs/heads/main || git branch main origin/main
+          git rev-parse --verify main
+```
 
 It takes `mode` (`verify`, the default, or `sweep`), `repo`, `format` and `args`
 for anything else. Under it is one command:
