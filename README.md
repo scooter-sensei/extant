@@ -394,8 +394,19 @@ Three things worth knowing before using it:
 
 It also works on a project with no status document at all, which is what the
 installer refuses on its own. When nothing else has named a document,
-`--wide-docs` nominates the root `README.md`, says so on the console, and
-records that provenance in the generated config.
+`--wide-docs` nominates the root README - the first of `README.md`,
+`README.markdown`, `README.mdx` or `README.rst` that git TRACKS - says which one
+it chose on the console, and records that provenance in the generated config.
+The suffixes are the set the validator already sweeps, so a project whose README
+is reStructuredText is not refused over the spelling: five of the fifty
+benchmark repositories are exactly that case.
+
+The name comes from git rather than from the filesystem, and it is the name git
+reports. That matters on Windows, where a filesystem check is case-insensitive:
+a repository tracking `readme.md` would otherwise be configured as `README.md`,
+which checks the same file twice locally and names a file that does not exist
+on a case-sensitive filesystem. Six of the corpus repositories track a
+lowercase root README and no other.
 
 ### What actually lands in your repo
 

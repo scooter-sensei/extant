@@ -1042,6 +1042,50 @@ def main(argv: list[str] | None = None) -> int:
         if wide is None:
             return 1
 
+    # The root README under any suffix the tool already sweeps, first match in
+    # DOC_SUFFIXES order - which is where that order is STATED, so a second
+    # list here would be free to drift out of step with it. Five of the fifty
+    # benchmark repositories - pytest, django, sphinx, home-assistant, cpython
+    # - carry a root README.rst and no README.md, and refusing them withheld
+    # the nomination from repositories the flag exists to help.
+    #
+    # Still the ROOT README and nothing else. Widening the SUFFIX is not the
+    # heuristic the original wording refused: "the shallowest ordinary
+    # document" would land on a file that varies by repository in a way nobody
+    # could predict from the flag's name, where README.rst is the same file
+    # under a suffix `refs.py`, `strata.py` and DOC_SUFFIXES already read.
+    #
+    # Resolved against the TRACKED paths, not the filesystem, and the name git
+    # reports is the name recorded. Both halves are load-bearing:
+    #
+    #   - `is_file()` answers the wrong question on Windows, where it is
+    #     case-insensitive. A repository tracking `readme.md` matched the
+    #     constructed `README.md`, and that name went into the config while
+    #     enumeration - which reads git - put `readme.md` in `extra_docs`. The
+    #     same file was then checked twice under two spellings, one dead SHA
+    #     counted as two, with `test_the_primary_document_is_not_also_an_extra`
+    #     defeated because its de-duplication is a string comparison. On a
+    #     case-sensitive filesystem the same config instead names a file that
+    #     does not exist. Six corpus repositories are in this shape - execa,
+    #     next.js, openlibrary, Nim, nvda, qmk_firmware - each tracking a
+    #     lowercase README and no other.
+    #   - the filesystem also says yes to an UNTRACKED README, which would pin
+    #     a path into a config that gets committed while git has never heard
+    #     of it.
+    #
+    # Matched case-insensitively so those six are nominated rather than
+    # refused, which is the whole point of the flag, and answered identically
+    # on both platforms. The exact spelling is preferred when a repository
+    # somehow tracks two, so the choice cannot depend on `ls-files` order.
+    readme = None
+    roots = {t for t in _tracked_paths(repo) if "/" not in t}
+    for suffix in detect.DOC_SUFFIXES:
+        want = f"README.{suffix}"
+        same = sorted(t for t in roots if t.lower() == want.lower())
+        if same:
+            readme = repo / (want if want in same else same[0])
+            break
+
     # Weakest in the chain: --doc, then the preset's document, then detection,
     # then this. `choose_document` settles the first three and returns None only
     # when every one of them found nothing, so the nomination cannot displace a
@@ -1049,22 +1093,23 @@ def main(argv: list[str] | None = None) -> int:
     # that must stay one: answering a typo with a different file is worse than
     # refusing.
     nominated = (doc is None and wide is not None and not args.doc
-                 and (repo / "README.md").is_file())
+                 and readme is not None)
     if nominated:
-        doc = repo / "README.md"
+        doc = readme
         # LOUD, because this is the single place the feature chooses something
-        # the user did not. README.md at the root and nothing else - "the
-        # shallowest ordinary document" is a heuristic dressed as a measurement,
-        # and the file it landed on would vary by repository in a way nobody
-        # could predict from the flag's name.
-        print("  primary_doc <- README.md (nominated by --wide-docs; "
+        # the user did not - and it names the file it CHOSE rather than a fixed
+        # string, because a reader told "README.md" on a repository whose
+        # README is .rst has been told the wrong thing about what gets checked.
+        print(f"  primary_doc <- {readme.name} (nominated by --wide-docs; "
               "no status document detected)")
 
     if doc is None:
         print("\n  No document to check. Pass --doc <path>, or --preset readme")
         print("  to check the README and CONTRIBUTING file you already have.")
         if args.wide_docs is not None:
-            print("  --wide-docs found no README.md at the root to nominate.")
+            suffixes = ", ".join(f".{s}" for s in detect.DOC_SUFFIXES)
+            print(f"  --wide-docs found no root README ({suffixes}) "
+                  "to nominate.")
         return 1
 
     obs, _info = observe(repo, doc)

@@ -23,6 +23,8 @@ run.
 """
 from __future__ import annotations
 
+import pytest
+
 import shutil
 import subprocess
 import sys
@@ -37,6 +39,7 @@ SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 INSTALLER = SKILL_ROOT / "install.py"
 
 README = "# Demo\n\nShipped in `deadbeef1234567`.\n"
+README_RST = "Demo\n====\n\nShipped in ``deadbeef1234567``.\n"
 
 
 def run_installer(repo: Path, *args: str,
@@ -252,6 +255,115 @@ def test_wide_docs_alone_nominates_the_root_readme(tmp_path) -> None:
         encoding="utf-8"), "the provenance did not reach the config header"
 
 
+def test_a_root_readme_rst_is_nominated_too(tmp_path) -> None:
+    """The suffix, not the heuristic.
+
+    `--wide-docs` nominated on 45 of the 50 benchmark repositories, and all
+    five that refused - pytest, django, sphinx, home-assistant, cpython - have
+    a root README.rst and no README.md. `rst` is already in the suffix set
+    `refs.py`, `strata.py` and `detect.DOC_SUFFIXES` sweep, so those five were
+    refused over a spelling of the same file rather than over anything
+    measured.
+    """
+    repo = make_repo(tmp_path, **{"README.rst": README_RST,
+                                  "docs__guide.md": "# Guide\n"})
+
+    result = run_installer(repo, "--wide-docs")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert config_of(repo)["primary_doc"] == "README.rst"
+    # The NAME rather than a fixed string: a reader told "README.md" here would
+    # have been told the wrong thing about which file gets checked.
+    assert "primary_doc <- README.rst (nominated by --wide-docs" in result.stdout, \
+        result.stdout
+    assert "nominated by --wide-docs" in (repo / ".extant.toml").read_text(
+        encoding="utf-8"), "the provenance did not reach the config header"
+
+
+@pytest.mark.parametrize("suffix", ["md", "markdown", "mdx", "rst"])
+def test_every_swept_suffix_can_be_nominated(tmp_path, suffix) -> None:
+    """The whole of `detect.DOC_SUFFIXES`, not just the two that motivated it.
+
+    The comment and the refusal message both name four suffixes. Two of them
+    had no test, so "the tool reads this suffix already" was an argument the
+    suite could not check - and the suffix set is exactly the kind of tuple a
+    later change edits in one place.
+    """
+    repo = make_repo(tmp_path, **{f"README.{suffix}": README,
+                                  "docs__guide.md": "# Guide\n"})
+
+    result = run_installer(repo, "--wide-docs")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert config_of(repo)["primary_doc"] == f"README.{suffix}"
+
+
+def test_a_lowercase_readme_is_nominated_under_the_name_git_tracks(tmp_path) -> None:
+    """The name is READ from git, never constructed, and this is why.
+
+    `(repo / "README.md").is_file()` is case-INSENSITIVE on Windows, so a
+    repository tracking `readme.md` matched and the constructed `README.md`
+    went into the config - while `--wide-docs` enumeration, which reads git,
+    put `readme.md` into `extra_docs`. The same file was then checked twice
+    under two spellings and every finding in it counted twice;
+    `test_the_primary_document_is_not_also_an_extra` did not catch it because
+    its de-duplication is a string comparison. On a case-sensitive filesystem
+    the same config instead names a file that does not exist.
+
+    Six corpus repositories track a lowercase root README and no other -
+    execa, next.js, openlibrary, Nim, nvda, qmk_firmware - so this is the
+    behaviour they get, and it is now the same behaviour on either platform.
+    """
+    repo = make_repo(tmp_path, **{"readme.md": README, "docs__guide.md": "# Guide\n"})
+
+    result = run_installer(repo, "--wide-docs")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    cfg = config_of(repo)
+    assert cfg["primary_doc"] == "readme.md", "the name was constructed, not read"
+    # The invariant the case mismatch defeated: one file, checked once.
+    assert "readme.md" not in cfg.get("extra_docs", [])
+    assert "README.md" not in cfg.get("extra_docs", [])
+
+
+def test_an_untracked_root_readme_is_not_nominated(tmp_path) -> None:
+    """A path git has never heard of must not be pinned into a config.
+
+    The filesystem says yes to an untracked README; `.extant.toml` is
+    committed, so nominating one writes a `primary_doc` that only exists on
+    the machine that ran the installer. Enumeration has always read git -
+    `_tracked_paths` - and the nomination now reads the same list, which is
+    what keeps the two halves of this feature answering from one source.
+    """
+    repo = make_repo(tmp_path, **{"docs__guide.md": "# Guide\n"})
+    (repo / "README.md").write_text(README, encoding="utf-8")
+
+    result = run_installer(repo, "--wide-docs")
+
+    assert result.returncode == 1, result.stdout
+    assert not (repo / ".extant.toml").exists()
+    assert "--wide-docs found no root README" in result.stdout, result.stdout
+
+
+def test_readme_md_still_wins_when_both_spellings_exist(tmp_path) -> None:
+    """The order is PINNED rather than incidental.
+
+    `detect.DOC_SUFFIXES` states it once and the nomination reads that tuple
+    instead of carrying a second list, so this fails if either the tuple is
+    reordered or a second order is introduced beside it. Without it the winner
+    would be whichever `is_file()` happened to be asked first, which is a
+    property of a loop rather than a decision anybody made.
+    """
+    repo = make_repo(tmp_path, **{"README.md": README, "README.rst": README_RST})
+
+    result = run_installer(repo, "--wide-docs")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert config_of(repo)["primary_doc"] == "README.md"
+    assert "primary_doc <- README.md (nominated by --wide-docs" in result.stdout, \
+        result.stdout
+
+
 def test_an_explicit_doc_outranks_the_nomination(tmp_path) -> None:
     """Weakest last. Wherever the user has spoken, they win."""
     repo = make_repo(tmp_path, **{
@@ -323,12 +435,16 @@ def test_no_readme_and_no_document_still_refuses_and_names_the_flag(tmp_path) ->
     """The existing refusal stands, with one line saying why discovery could
     not help. A flag that appears to do nothing is worse than one that says
     what it looked for."""
-    repo = make_repo(tmp_path, **{"docs__guide.md": "# Guide\n"})
+    repo = make_repo(tmp_path, **{"docs__guide.md": "# Guide\n",
+                                  "GUIDE.rst": "Guide\n=====\n"})
 
     result = run_installer(repo, "--wide-docs")
 
     assert result.returncode == 1, result.stdout
-    assert "--wide-docs found no README.md" in result.stdout, result.stdout
+    # Names every spelling it looked for, and the root GUIDE.rst is what keeps
+    # this a search for a root README rather than for any root document.
+    assert "--wide-docs found no root README" in result.stdout, result.stdout
+    assert ".rst" in result.stdout, result.stdout
 
 
 # --- the refusal -------------------------------------------------------------
