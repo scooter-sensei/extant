@@ -2,15 +2,53 @@
 
 ## Unreleased
 
-Nothing here adds a rule or a flag. The first half is correctness - a
-denominator that lied, a document shape that lost its rules, a mode that
-crashed where its siblings refuse. Most of those were found by the fuzz harness
-rather than by a person reading the code; four came the other way, from a
-review of the git seam, the settings load and the one irreversible file write -
-each then reproduced and watched failing before it was fixed.
+One flag, `--wide-docs`, and the false positive that a wider document set went
+and found. Nothing here adds a rule.
 
-The second half, under "What a commit pays", is cost rather than correctness,
+The middle section is correctness - a denominator that lied, a document shape
+that lost its rules, a mode that crashed where its siblings refuse. Most of
+those were found by the fuzz harness rather than by a person reading the code;
+four came the other way, from a review of the git seam, the settings load and
+the one irreversible file write - each then reproduced and watched failing
+before it was fixed.
+
+The last section, under "What a commit pays", is cost rather than correctness,
 with one behaviour change that says so in its own heading.
+
+### A document set wide enough to find something
+
+**`--wide-docs` configures every tracked document at the root plus a depth under
+a documentation directory**, restricted to the ordinary stratum. The installer
+unaided refuses 35 of 50 benchmark repositories, and the gate it writes on the
+rest covers 12 findings of the 4,429 a survey sees; with the flag, 25 of 50
+report something rather than 5 of 45. Three of its decisions are measurements
+rather than choices. It REFUSES rather than degrades when the strata module
+cannot be imported, because unclassified enumeration measured 0.081 findings per
+pinned path against the status quo's 0.106. Depth 3 is the default because depth
+4 is a cliff - 16 more findings for 2,220 more pinned paths. And the ordinary
+restriction is the feature rather than a refinement of it, because most of what
+root enumeration collects is `CHANGELOG.md`. Every enumerated path is pinned, so
+the count is printed before anything is written.
+
+**A schemeless URL is not a path.** `EXTERNAL` recognised a URI scheme and a
+protocol-relative prefix and nothing else, so `[docs](www.example.com/x)` was
+joined to the document's directory and reported as a dead link. Found on two
+corpora neither rule was designed on. The hazard here is the suppression rather
+than the pattern - a great many TLDs are also file extensions, `.md` is Moldova
+and `.rs` Serbia - so the arm was bounded before it was written: over 157
+repositories and 220,990 link targets it matches 41, every one a URL, and none
+that resolves to a file which exists.
+
+**The nominated README is read from git, under any suffix the tool sweeps.**
+`--wide-docs` on a project with no status document nominates the root README.
+That meant `README.md` and nothing else, which refused five benchmark
+repositories carrying a root `README.rst`; across the swept suffix set the
+benchmark goes from 45 of 50 configuring to 50 of 50. The lookup also asked the
+filesystem, which is case-insensitive on Windows: a repository tracking
+`readme.md` was configured as `README.md`, so the same file was checked twice
+under two spellings and a case-sensitive filesystem got a `primary_doc` naming a
+file that does not exist. It now reads the tracked list and records the name git
+reports.
 
 **Six denominators counted sites their rules refuse to judge.** The quiet
 direction of this project's recurring defect, and the worse of the two: a

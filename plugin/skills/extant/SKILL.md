@@ -165,6 +165,16 @@ python <skill>/install.py --repo /path/to/repo --preset readme
 cd /path/to/repo && sh tools/hooks/install
 ```
 
+`--wide-docs` widens the gate from the one or two documents a preset names to
+every tracked document at the root plus three levels under `docs/`, restricted
+to the ordinary stratum - changelogs, vendored trees, generated references and
+per-release snapshots stay out, and the counts are printed. Across 50 public
+repositories that moves the gate from 12 findings to 1,126 and from 5
+repositories reporting anything to 25, at 98.7-98.8 per cent precision. It pins
+every path it finds, so a document that later moves is reported as missing until
+the config is edited. On a project with no status document it nominates the root
+`README.md` and says so.
+
 Presets: `readme` (any project, no status file needed), `node`, `python`,
 `rust`, `go`, `jvm`, `k8s`, `terraform`, `docker`, `monorepo`, `mobile`,
 `unity`, `godot`, `agent`, `enterprise`, `ml`, `legacy-web`, and `status` (a

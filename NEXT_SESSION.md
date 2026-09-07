@@ -6,6 +6,78 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 30 - A document set wide enough to find something, and the false positive that came with it (unreleased, 2026-09-06)
+
+**Status.** Suite is 1,002 tests across 60 files: 1,001 passing and 1 skipped.
+Thirteen rules, unchanged - nothing here adds one. One flag is added,
+`--wide-docs`, and one suppression is widened. The tool remained released as
+0.25.0 and this work sits above that tag, unreleased and not yet on the trunk.
+
+**What started it.** Not a reported failure but a measurement of the installer's
+own output: unaided it refuses 35 of the 50 benchmark repositories, and the gate
+it writes on the other 15 covers 12 findings of the 4,429 a whole-repository
+survey sees in ordinary documents. Forty of the 45 it agreed to configure would
+exit 0 forever. That is a validator teaching its adopters it has nothing to say,
+and the cause is document SELECTION rather than the rules.
+
+**`--wide-docs`.** Every tracked document at the repository root plus a depth
+under a documentation directory, restricted to the ordinary stratum. Enumeration
+lives in `detect.find_wide_documents` and the flag is in
+`plugin/skills/extant/install.py`. Three decisions in it were measured rather
+than chosen. It REFUSES rather than degrades when `strata` cannot be imported,
+because unclassified enumeration measured 0.081 findings per pinned path against
+the status quo's 0.106 - the policy the measurement rejected, not a weaker
+version of the good one. Depth 3 is the default because depth 4 is a cliff: 16
+more findings for 2,220 more pinned paths. And the ordinary restriction is the
+feature rather than a refinement of it, because most of what root enumeration
+collects is `CHANGELOG.md`.
+
+**The false positive it went and found.** Widening the document set is also a
+wider net for the rules' own mistakes, and it landed on one: `EXTERNAL` in
+`plugin/skills/extant/payload/extant/text.py` recognised a URI scheme and a
+protocol-relative prefix and nothing else, so a schemeless URL was joined to the
+document's directory and reported as a dead link. Found on two corpora neither
+rule was designed on, which is what makes it a class rather than a curiosity.
+The hazard is the suppression rather than the pattern - a great many TLDs are
+also file extensions - so the arm was bounded by measurement before it was
+written: over 157 cloned repositories and 220,990 internal link targets it
+matches 41 distinct targets, every one a URL, and not one that resolves to a
+file which exists.
+
+**The nomination, and a defect underneath it.** `--wide-docs` on a project with
+no status document nominates the root README, which previously meant `README.md`
+and nothing else - so it refused five benchmark repositories over a spelling,
+each carrying a root `README.rst` and no `README.md`. Widened across the suffix
+set the tool already sweeps, the benchmark goes from 45 of 50 configuring to 50
+of 50. Auditing that change found an older defect beneath it: the lookup asked
+the filesystem, which is case-insensitive on Windows, so a repository tracking
+`readme.md` was configured as `README.md` - the same file then checked twice
+under two spellings, and on a case-sensitive filesystem a `primary_doc` naming a
+file that does not exist. Six corpus repositories are in that shape. The
+nomination now reads the tracked list and records the name git reports, which is
+the same source enumeration already used.
+
+**What was refused.** A `translation` stratum, measured across 92 repositories
+of three corpora and rejected. The population is real - 19 of the 92 carry
+parallel language trees on standard conventions - and so is the multiplication,
+at 3.18 findings per distinct defect on the largest. It fails because a stratum
+is a suppression: every shape of it deletes more true findings than duplicates
+it collapses, and 372 of one repository's 372 single-language defects sit in a
+NON-English tree, so keeping only the source language discards exactly the
+divergence a translated documentation set exists to be checked for. Recorded in
+the README as a limitation of `--wide-docs` rather than fixed, because the
+evidence points at de-duplication and that is a different piece of work.
+
+**Measurement.** Every gate re-run: the suite, all 165 mutation anchors matching
+exactly once, `smoke` with no new or missing flags, `scenarios` at 213
+assertions, `fuzz` over 35 generated repositories with no property violation,
+`--verify` clean and `--selftest` at seven fired and none silent. All of it run
+a second time against a single-branch clone rather than this checkout, because
+this machine carries extra worktrees and `--verify` passing here is not the
+answer CI gets. The enumerated document set was checked against
+`coverage_policy.select` path-for-path on all 50 benchmark repositories, which
+is the only thing that would notice the SET changing while the counts agreed.
+
 ## Phase 29 - The line that decoded somewhere nobody named (unreleased, 2026-09-04)
 
 **Status.** Suite is 846 tests across 53 files: 845 passing and 1 skipped.

@@ -1149,6 +1149,55 @@ setting names itself rather than checking one and trusting the rest - a helper
 applied to nine of ten leaves the tenth failing in exactly the way the test was
 written to stop.
 
+## A schemeless URL is not a path, and the fix is a suppression
+
+`EXTERNAL` in `text.py` decided "not ours to check" for every link rule, and it
+recognised a URI scheme or a protocol-relative `//` and nothing else. So
+`[docs](www.skyvern.com/docs)` and `[author](github.com/josh-l-wang)` were
+joined to the document's directory and reported as dead links.
+
+FOUND BY TWO CORPORA AT ONCE, which is what made it a class rather than a
+curiosity: `Skyvern-AI/skyvern` on the 2026-09-05 held-out half, and
+`qmk_firmware` 18, `sonic-pi` 2, `RetroArch` 1 and `lean4` 1 on the niche
+corpus built the same day. Five repositories, two corpora, neither of which any
+rule was designed on - past the "all the true positives are in one repository"
+bar that this document uses to refuse candidates.
+
+THE HAZARD IS NOT THE PATTERN, IT IS THE SUPPRESSION. Widening `EXTERNAL`
+silences whatever it matches, and a suppression firing wrongly deletes a real
+finding where a false positive at least stays in the output for somebody to
+argue with. A great many TLDs are also file extensions - `.md` is Moldova,
+`.rs` Serbia, `.py` Paraguay, `.sh` Saint Helena - so the obvious `host.tld`
+rule would read every markdown link as a URL and silence the link rules
+everywhere while every run still looked clean.
+
+So the arm was bounded by measurement before it was written. Across 157 cloned
+repositories and 220,990 internal link targets it matches 41 distinct targets,
+every one of them a URL, and NOT ONE target that resolves to a file which
+exists.
+
+THE TLD LIST IS TWO A PRIORI RULES AND ONE MEASURED EXCLUSION, which is what
+keeps it from being tuned on the corpus it was measured against. Admitted: the
+generic TLDs a documentation link uses, and the ISO-3166 two-letter codes.
+Struck out: every code really used as a file extension in those repositories -
+`.py` at 81,121 files, `.rs` 61,737, `.md` 53,611, `.cc` 16,058, `.sh` 4,795,
+`.mk` 2,326, `.tf` 1,758, `.pl`, `.in`, `.pm`, `.ai` and the rest, plus generic
+`.info` (110), `.page` (83), `.tools` (38) and `.xyz` (22).
+
+THE FIRST VERSION SHIPPED WITH ONLY THE GENERIC HALF, and an audit of it found
+three survivors: `anomalykb.co`, `imaginaerraum.de` and `fablab-bayreuth.de`.
+A generic-only list is a US-centric list, measured on corpora that are
+themselves US-centric, so three is a floor rather than the rate. Adding the
+country codes was re-measured the same way and lost nothing.
+
+Two arms, because they fail differently. `www.` is unambiguous: no file is
+named `www.a.b`. The hostname arm needs at least one `label.` before a listed
+TLD and then a path, query, fragment or end of string, which is what keeps
+`README.md` and `script.sh` paths. Requiring a path would have been safer still
+and was rejected on measurement rather than taste: it drops the fix from 55
+targets to 33, because `webbench.ai`, `hanboards.com` and `stratakb.com` carry
+no path at all.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

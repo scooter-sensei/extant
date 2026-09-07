@@ -880,6 +880,34 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          r'                "README.md": r"Unity%20Version:-([\d.]+f\d+)",',
          r'                "README.md": r"Unity%20Version:-(\d+\.\d+)",'),
 
+        # Found auditing --wide-docs rather than by a test failing, which is why
+        # it earns an anchor: the archive sits BESIDE the primary document, so a
+        # project that keeps one has it tracked at the root where this
+        # enumerates. `gate.py` already validates it on its own pass, with
+        # `in_archive=True` so a retired entry is not judged as a live claim -
+        # and naming it in extra_docs gave one file two passes with different
+        # semantics, printing every finding in it twice against a denominator
+        # that counted the document once.
+        ("--wide-docs pins the archive as an extra document too",
+         detect.parent / "install.py",
+         '    settled = {str(o.value) for o in obs\n'
+         '               if o.key in ("primary_doc", "archive_doc") and o.value}',
+         '    settled = {str(o.value) for o in obs\n'
+         '               if o.key in ("primary_doc",) and o.value}'),
+
+        # The schemeless-URL arm on EXTERNAL, which five link call sites read.
+        # Both directions matter and they fail differently, so both are probed.
+        # Removing it reinstates 26 false positives found on two corpora no rule
+        # was designed on; widening it to any `host.tld` reads `README.md` as a
+        # Moldovan hostname and silences every link rule at once, which is the
+        # shape that looks clean forever.
+        ("a schemeless URL is read as a relative path again", text,
+         r'    rf"|(?:[a-z0-9-]+\.)+(?:{_TLD})(?:[/?#]|$)"        # example.com[/path]',
+         r'    rf"|(?!x)x"                                        # example.com[/path]'),
+        ("the schemeless arm widens to any dotted suffix", text,
+         '_TLD = ("com|org|net|edu|gov|mil|io|ai|dev|app|cloud|tech|club|blog|wiki"',
+         '_TLD = ("[a-z]{2,}"  # noqa'),
+
         # --- detect.py ----------------------------------------------------------
         ("find_documents returns only the first match", detect,
          "    return found",
@@ -897,6 +925,30 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("release-tag shape widens without evidence", detect,
          '    extra = sorted(p for p in prefixes if p not in ("", "v"))',
          '    extra = sorted({*prefixes, "release-"} - {"", "v"})'),
+        # The DEGRADED MODE, which is the whole risk in --wide-docs. An
+        # unclassified enumeration is not a weaker version of this policy, it is
+        # the one the measurement rejected: 0.081 findings per pinned path
+        # against the 0.106 the installer already manages, because 52 of the 73
+        # findings "just add the root" collects are root CHANGELOG.md. So the
+        # mutation is not "the guard is skipped" - that raises TypeError and any
+        # test would catch it - but "the guard falls back", which is the shape
+        # somebody would actually write and which looks like it works.
+        ("--wide-docs falls back to unclassified enumeration", detect,
+         "    classify, why = _strata_classifier()\n"
+         "    if classify is None:\n"
+         "        return None, [",
+         "    classify, why = _strata_classifier()\n"
+         "    if classify is None:\n"
+         "        classify = lambda path: \"ordinary\"\n"
+         "    if False:\n"
+         "        return None, ["),
+        # Depth is the whole question, and 4 is a cliff rather than a slope: 16
+        # more findings for 2,220 more pinned paths, because dead-md-link's
+        # false positives concentrate at depth 4 to 7. A default that drifts one
+        # level either way is a different policy under the same flag name.
+        ("--wide-docs quietly reaches one level deeper", detect,
+         "        if 2 <= len(parts) <= depth + 1 and parts[0].lower() in DOC_DIRS:",
+         "        if 2 <= len(parts) <= depth + 2 and parts[0].lower() in DOC_DIRS:"),
 
         # --- the whole-repo sweep -------------------------------------------
         # The first mutation here is the one this group exists for. Reading the

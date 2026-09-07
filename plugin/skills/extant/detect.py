@@ -14,11 +14,13 @@ a census.
 """
 from __future__ import annotations
 
+import importlib.util
 import re
 import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 COMMIT_SAMPLE = 500
 BRANCH_SAMPLE = 400
@@ -45,6 +47,13 @@ def _git(repo: Path, *args: str) -> str:
         ).stdout
     except (subprocess.CalledProcessError, OSError):
         return ""
+
+
+def _tracked_paths(repo: Path) -> list[str]:
+    """Every tracked path, read once. Git rather than a filesystem walk, so a
+    vendored copy under an ignored directory cannot be resolved to."""
+    return [ln.strip() for ln in _git(repo, "ls-files").splitlines()
+            if ln.strip()]
 
 
 # --- trunk -------------------------------------------------------------------
@@ -252,6 +261,182 @@ def find_documents(repo: Path) -> list[Path]:
             if candidate.is_file():
                 found.append(candidate)
     return found
+
+
+# --- the wider document set --------------------------------------------------
+#
+# Measured across the 50-repository benchmark: what `install.py` configures
+# unaided gates 12 findings of the 4,429 the survey sees in ordinary documents,
+# and 40 of the 45 repositories it agreed to configure would exit 0 forever. A
+# green run that learned nothing is the failure this whole project is about,
+# arriving through document SELECTION rather than through the rules.
+#
+# Five policies were priced. The one below - the root plus three levels under a
+# documentation directory, restricted to the ordinary stratum - gates 1,126
+# ordinary findings across 3,305 pinned paths and makes 25 of 50 repositories
+# report something, at 98.7-98.8 per cent precision.
+
+# Conventional documentation directories. A NAME LIST, not a shape rule ("any
+# directory that holds markdown"), for the reason `refs.py` gives for its own:
+# a shape rule pulls in every test-fixture tree in the repository.
+DOC_DIRS = ("docs", "doc", "documentation", "website", "site")
+
+# EVERY SWEPT SUFFIX, taken from `refs.tracked_markdown`. Pinning a suffix the
+# tool does not read writes an extra_docs entry no rule ever examines; missing
+# one it does read drops a document out of the gate for no stated reason.
+# `strata.py` carries the same list and the same instruction to keep it in step.
+DOC_SUFFIXES = ("md", "markdown", "mdx", "rst")
+
+# `payload/extant/strata.py`, by a path relative to this file. That path is an
+# author-time fact: `detect.py` is not shipped - neither PAYLOAD nor
+# PAYLOAD_TREES in install.py names it - so nothing here can reach an installed
+# target, and the payload always sits beside the installer that copies it.
+_STRATA_PATH = Path(__file__).resolve().parent / "payload" / "extant" / "strata.py"
+
+# Depth 4 is a cliff, not a slope: 16 more findings for 2,220 more pinned paths,
+# because `dead-md-link`'s false positives concentrate at depth 4 to 7.
+WIDE_DEPTH = 3
+
+
+def _strata_classifier() -> tuple[Callable[[str], str] | None, str]:
+    """`strata.classify`, or None. The caller must refuse rather than degrade.
+
+    Loaded BY PATH rather than imported. `install.py` and `detect.py` reach for
+    argparse, re, shutil and pathlib and each other, and nothing else; putting
+    `payload/` on sys.path to get one 96-line module would make every later
+    import in the installer ambiguous about which tree it came from.
+
+    Re-implementing the patterns here was refused on precedent. A hand-listed
+    generator set drifted from `sites.py`, made a real improvement read as a
+    regression, and both instruments were changed to derive from the tool
+    rather than to describe it.
+    """
+    if not _STRATA_PATH.is_file():
+        return None, f"strata.py not found at {_STRATA_PATH.as_posix()}"
+    try:
+        spec = importlib.util.spec_from_file_location("extant_strata", _STRATA_PATH)
+        if spec is None or spec.loader is None:
+            return None, f"{_STRATA_PATH.as_posix()} is not loadable as a module"
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as exc:                                       # noqa: BLE001
+        # Broad ON PURPOSE, and it REPORTS what it caught, which is the one
+        # shape this project allows: executing a module can raise anything the
+        # module can raise, and the entire value of this branch is that the
+        # refusal below names which failure produced it instead of printing
+        # what a healthy run prints.
+        return None, f"strata.py did not load: {exc!r}"
+    classify = getattr(module, "classify", None)
+    if not callable(classify):
+        return None, f"{_STRATA_PATH.as_posix()} has no classify()"
+    return classify, f"strata from {_STRATA_PATH.as_posix()}"
+
+
+def find_wide_documents(
+    repo: Path, depth: int = WIDE_DEPTH
+) -> tuple[list[str] | None, list[str]]:
+    """Tracked documents at the root, plus `depth` levels under a documentation
+    directory, restricted to the ordinary stratum.
+
+    Returns (paths, notes) - `notes` is the account for the caller to print,
+    never an empty list with no explanation.
+
+    THREE outcomes, not two. `None` is a REFUSAL: something here could not be
+    answered, the notes say which, and the caller must stop rather than write a
+    config. `[]` is an ANSWER: this repository keeps no ordinary documents
+    beyond the one already chosen, which is the honest result for a project
+    whose documentation is all generated. Collapsing the two would turn every
+    refusal into a repository that reads as clean.
+
+    The refusal on a missing `strata` is the load-bearing safety property.
+    Without the ordinary restriction this same enumeration measures 0.081
+    findings per pinned path against the status quo's 0.106 - it is the one
+    policy the measurement REJECTED, so a silent fallback would ship it.
+
+    The notes are LINES rather than one sentence because the per-stratum
+    exclusions are the point. Unstated, the restriction is invisible, and
+    `strata.py`'s whole argument is that a label a reader can see beats an
+    exclusion they cannot.
+    """
+    if depth < 0:
+        return None, [f"--wide-docs: {depth} is not a depth"]
+
+    classify, why = _strata_classifier()
+    if classify is None:
+        return None, [
+            f"--wide-docs: {why}",
+            "  REFUSED. Without the ordinary/vendored/generated/historical "
+            "split this enumerates every tracked document, which measured "
+            "WORSE than configuring nothing (0.081 findings per pinned path, "
+            "against 0.106 today).",
+        ]
+
+    tracked = _tracked_paths(repo)
+    if not tracked:
+        return None, [
+            "--wide-docs: git ls-files reported no tracked paths",
+            "  REFUSED. An empty index reads exactly like a repository with "
+            "nothing to check, which is a clean sweep on a repository nobody "
+            "looked at.",
+        ]
+
+    # git QUOTES a path holding unusual bytes - `"caf\303\251.md"` - whenever
+    # core.quotePath is on, which is the default. Pinning that spelling writes
+    # an extra_docs entry naming a file that is not there, and `gate.py` reports
+    # an absent entry as `missing-document` - a finding this installer would
+    # have manufactured. Left out, and COUNTED, because a silent drop is the
+    # other way to be wrong here.
+    quoted = [p for p in tracked if p.startswith('"')]
+    docs = [p for p in tracked if not p.startswith('"')
+            and p.rsplit(".", 1)[-1] in DOC_SUFFIXES]
+
+    keep = {d for d in docs if "/" not in d}
+    for d in docs:
+        parts = d.split("/")
+        if 2 <= len(parts) <= depth + 1 and parts[0].lower() in DOC_DIRS:
+            keep.add(d)
+
+    excluded: Counter[str] = Counter()
+    ordinary: list[str] = []
+    for d in sorted(keep):
+        stratum = classify(d)
+        if stratum == "ordinary":
+            ordinary.append(d)
+        else:
+            excluded[stratum] += 1
+
+    at_root = sum(1 for d in ordinary if "/" not in d)
+    notes = [f"--wide-docs: {len(ordinary)} "
+             f"document{'' if len(ordinary) == 1 else 's'} "
+             f"(root {at_root}, docs/ {len(ordinary) - at_root}), "
+             f"ordinary stratum only, depth {depth}"]
+    if excluded:
+        notes.append("  " + ", ".join(
+            f"{count} excluded as {stratum}"
+            for stratum, count in sorted(excluded.items(),
+                                         key=lambda kv: (-kv[1], kv[0]))))
+    if quoted:
+        notes.append(f"  {len(quoted)} tracked path(s) left out: git quoted "
+                     f"them, and a quoted spelling names no file on disk")
+    if not any("/" in d and d.split("/")[0].lower() in DOC_DIRS for d in docs):
+        # "No documents under", not "no directory": a `docs/` holding only
+        # images or a mkdocs.yml is a directory that exists and contributes
+        # nothing, and saying the directory is absent would send a reader
+        # looking for the wrong thing.
+        notes.append("  no tracked documents under "
+                     + ", ".join(f"{d}/" for d in DOC_DIRS)
+                     + "; root documents only")
+    if ordinary:
+        # Every pinned path is a standing liability: `gate.py` makes an absent
+        # extra_docs entry a `missing-document` finding and exit 1, on purpose.
+        # Said BEFORE the config is written, because the cost is real and its
+        # rate has not been measured.
+        notes.append("  each becomes an extra_docs entry; a moved file will be "
+                     "reported as missing")
+    else:
+        notes.append("  no ordinary documents found; writing NO extra_docs key "
+                     "- an empty list is a claim, and there is nothing to claim")
+    return ordinary, notes
 
 
 _HEADER = re.compile(r"^(#{1,4})\s+(\S+)", re.MULTILINE)
