@@ -90,6 +90,33 @@ separate slow job it saw it after the push rather than before. The cheap half
 of that probe now runs in the suite, which does not make the rest of this list
 optional - it makes one failure mode cheaper to catch.
 
+### The corpus report, which most people here cannot check
+
+`CORPUS.md` is generated rather than written: it is rendered from
+`CORPUS-figures.json` beside it, and `tests/test_corpus_report.py` re-renders
+one from the other on every suite run. That half needs nothing but this
+repository and is already covered by the list above.
+
+The half it cannot cover is whether those figures still describe the corpora
+they were measured from, because answering needs the cloned repositories
+themselves - gigabytes, and not committable. That check lives with the
+measurement tree, which is gitignored here, and it is run from there:
+
+```sh
+python corpus_report.py --check CORPUS.md
+```
+
+**It is not part of the gate, deliberately.** Requiring a step that most people
+working on this repository have no way to perform would train them to skip a
+list whose whole value is that none of it is optional.
+
+What follows from that is the part worth remembering. **A change to any rule,
+suppression or default moves what the tool reports, which makes those figures
+stale - and the suite will not notice**, because the report and its figures go
+on agreeing with each other perfectly while both drift away from the truth.
+Nothing here can catch that. Say so in the pull request, so whoever holds the
+corpora knows a re-sweep is owed.
+
 ## Four rules that are not style preferences
 
 **Every check must report its denominator.** "0 findings" and "0 examined" print

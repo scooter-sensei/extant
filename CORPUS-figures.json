@@ -1,0 +1,787 @@
+{
+  "agent_pilot": {
+    "arms": {
+      "A": {
+        "detected": [
+          7
+        ],
+        "false_alarms": [
+          3,
+          4
+        ],
+        "false_negatives": [
+          0
+        ],
+        "sessions": 2
+      },
+      "B": {
+        "detected": [
+          7
+        ],
+        "false_alarms": [
+          1,
+          4
+        ],
+        "false_negatives": [
+          0
+        ],
+        "sessions": 2
+      },
+      "C": {
+        "detected": [
+          7
+        ],
+        "false_alarms": [
+          4,
+          5
+        ],
+        "false_negatives": [
+          0
+        ],
+        "sessions": 2
+      }
+    },
+    "every_arm_detected": 7,
+    "planted_defects": 7,
+    "saturated": true,
+    "sessions": 6
+  },
+  "corpus": {
+    "clone_count": 125,
+    "distinct_repositories": 122,
+    "per_tier": {
+      "agent": {
+        "document_concentration": {
+          "documents": 27211,
+          "largest_repository": "crewAIInc/crewAI",
+          "share_pct": 94.4
+        },
+        "documents": 28815,
+        "findings": 712,
+        "ordinary_concentration": {
+          "findings": 250,
+          "largest_repository": "Aider-AI/aider",
+          "share_pct": 42.5
+        },
+        "ordinary_findings": 588,
+        "ordinary_share": 82.6,
+        "policies": {
+          "agent": {
+            "gated": 14,
+            "no_answer": 0,
+            "ordinary": 14,
+            "pinned_paths": 42,
+            "repos": 6
+          },
+          "docs2-ord": {
+            "gated": 53,
+            "no_answer": 0,
+            "ordinary": 53,
+            "pinned_paths": 254,
+            "repos": 11
+          },
+          "docs3-ord": {
+            "gated": 96,
+            "no_answer": 0,
+            "ordinary": 96,
+            "pinned_paths": 608,
+            "repos": 11
+          },
+          "docs4-ord": {
+            "gated": 103,
+            "no_answer": 0,
+            "ordinary": 103,
+            "pinned_paths": 1013,
+            "repos": 11
+          },
+          "installed": {
+            "gated": 0,
+            "no_answer": 17,
+            "ordinary": 0,
+            "pinned_paths": 0,
+            "repos": 0
+          },
+          "ordinary": {
+            "gated": 588,
+            "no_answer": 0,
+            "ordinary": 588,
+            "pinned_paths": 2407,
+            "repos": 14
+          },
+          "root": {
+            "gated": 32,
+            "no_answer": 0,
+            "ordinary": 32,
+            "pinned_paths": 82,
+            "repos": 9
+          },
+          "root+docs": {
+            "gated": 37,
+            "no_answer": 0,
+            "ordinary": 36,
+            "pinned_paths": 123,
+            "repos": 10
+          },
+          "root+docs-ord": {
+            "gated": 36,
+            "no_answer": 0,
+            "ordinary": 36,
+            "pinned_paths": 113,
+            "repos": 10
+          }
+        },
+        "population": "swept repositories with status ok",
+        "repos_reporting_ordinary": 14,
+        "repositories": 17,
+        "slugs": [
+          "Aider-AI__aider",
+          "All-Hands-AI__OpenHands",
+          "BuilderIO__micro-agent",
+          "OpenBMB__ChatDev",
+          "block__goose",
+          "cline__cline",
+          "crewAIInc__crewAI",
+          "disler__claude-code-hooks-mastery",
+          "geekan__MetaGPT",
+          "github__spec-kit",
+          "humanlayer__humanlayer",
+          "langchain-ai__langgraph",
+          "microsoft__autogen",
+          "obra__superpowers",
+          "princeton-nlp__SWE-agent",
+          "snarktank__ai-dev-tasks",
+          "stitionai__devika"
+        ],
+        "strata": {
+          "generated": 1,
+          "historical-record": 4,
+          "ordinary": 588,
+          "version-snapshot": 119
+        }
+      },
+      "bench": {
+        "document_concentration": {
+          "documents": 8203,
+          "largest_repository": "kubernetes/website",
+          "share_pct": 22.1
+        },
+        "documents": 37073,
+        "findings": 54772,
+        "ordinary_concentration": {
+          "findings": 1147,
+          "largest_repository": "angular/angular",
+          "share_pct": 26.0
+        },
+        "ordinary_findings": 4419,
+        "ordinary_share": 8.1,
+        "policies": {
+          "agent": {
+            "gated": 14,
+            "no_answer": 0,
+            "ordinary": 14,
+            "pinned_paths": 124,
+            "repos": 8
+          },
+          "docs2-ord": {
+            "gated": 498,
+            "no_answer": 0,
+            "ordinary": 498,
+            "pinned_paths": 1978,
+            "repos": 22
+          },
+          "docs3-ord": {
+            "gated": 1125,
+            "no_answer": 0,
+            "ordinary": 1125,
+            "pinned_paths": 3305,
+            "repos": 24
+          },
+          "docs4-ord": {
+            "gated": 1141,
+            "no_answer": 0,
+            "ordinary": 1141,
+            "pinned_paths": 5525,
+            "repos": 24
+          },
+          "installed": {
+            "gated": 12,
+            "no_answer": 5,
+            "ordinary": 7,
+            "pinned_paths": 66,
+            "repos": 5
+          },
+          "ordinary": {
+            "gated": 4419,
+            "no_answer": 0,
+            "ordinary": 4419,
+            "pinned_paths": 25189,
+            "repos": 39
+          },
+          "root": {
+            "gated": 73,
+            "no_answer": 0,
+            "ordinary": 21,
+            "pinned_paths": 260,
+            "repos": 17
+          },
+          "root+docs": {
+            "gated": 220,
+            "no_answer": 0,
+            "ordinary": 168,
+            "pinned_paths": 522,
+            "repos": 20
+          },
+          "root+docs-ord": {
+            "gated": 168,
+            "no_answer": 0,
+            "ordinary": 168,
+            "pinned_paths": 490,
+            "repos": 14
+          }
+        },
+        "population": "swept repositories with status ok",
+        "repos_reporting_ordinary": 39,
+        "repositories": 50,
+        "slugs": [
+          "Aider-AI__aider",
+          "OpenHands__OpenHands",
+          "SWE-agent__SWE-agent",
+          "SWE-agent__mini-swe-agent",
+          "angular__angular",
+          "astral-sh__ruff",
+          "astral-sh__uv",
+          "babel__babel",
+          "bazelbuild__bazel",
+          "continuedev__continue",
+          "denoland__deno",
+          "django__django",
+          "electron__electron",
+          "facebook__docusaurus",
+          "fastapi__fastapi",
+          "fastapi__typer",
+          "golang__go",
+          "hashicorp__terraform",
+          "helm__helm",
+          "home-assistant__core",
+          "jestjs__jest",
+          "kubernetes__kubernetes",
+          "kubernetes__website",
+          "langchain-ai__langchain",
+          "microsoft__vscode",
+          "mkdocs__mkdocs",
+          "moby__moby",
+          "nodejs__node",
+          "nrwl__nx",
+          "obra__superpowers",
+          "openinterpreter__openinterpreter",
+          "oven-sh__bun",
+          "pallets__click",
+          "prometheus__docs",
+          "psf__requests",
+          "pytest-dev__pytest",
+          "python__cpython",
+          "react__react",
+          "run-llama__llama_index",
+          "rust-lang__book",
+          "rust-lang__rust",
+          "sindresorhus__execa",
+          "sphinx-doc__sphinx",
+          "stanfordnlp__dspy",
+          "symfony__symfony",
+          "tensorflow__tensorflow",
+          "vercel__next.js",
+          "vuejs__vitepress",
+          "withastro__astro",
+          "zed-industries__zed"
+        ],
+        "strata": {
+          "generated": 1720,
+          "historical-record": 4763,
+          "ordinary": 4419,
+          "vendored": 4172,
+          "version-snapshot": 39698
+        }
+      },
+      "heldout": {
+        "document_concentration": {
+          "documents": 8682,
+          "largest_repository": "deepset-ai/haystack",
+          "share_pct": 69.0
+        },
+        "documents": 12579,
+        "findings": 200,
+        "ordinary_concentration": {
+          "findings": 44,
+          "largest_repository": "lobehub/lobe-chat",
+          "share_pct": 24.7
+        },
+        "ordinary_findings": 178,
+        "ordinary_share": 89.0,
+        "policies": {
+          "agent": {
+            "gated": 9,
+            "no_answer": 0,
+            "ordinary": 9,
+            "pinned_paths": 57,
+            "repos": 4
+          },
+          "docs2-ord": {
+            "gated": 27,
+            "no_answer": 0,
+            "ordinary": 27,
+            "pinned_paths": 498,
+            "repos": 7
+          },
+          "docs3-ord": {
+            "gated": 37,
+            "no_answer": 0,
+            "ordinary": 37,
+            "pinned_paths": 1227,
+            "repos": 9
+          },
+          "docs4-ord": {
+            "gated": 39,
+            "no_answer": 0,
+            "ordinary": 39,
+            "pinned_paths": 1482,
+            "repos": 9
+          },
+          "installed": {
+            "gated": 0,
+            "no_answer": 20,
+            "ordinary": 0,
+            "pinned_paths": 0,
+            "repos": 0
+          },
+          "ordinary": {
+            "gated": 182,
+            "no_answer": 0,
+            "ordinary": 182,
+            "pinned_paths": 6467,
+            "repos": 16
+          },
+          "root": {
+            "gated": 26,
+            "no_answer": 0,
+            "ordinary": 18,
+            "pinned_paths": 114,
+            "repos": 7
+          },
+          "root+docs": {
+            "gated": 31,
+            "no_answer": 0,
+            "ordinary": 23,
+            "pinned_paths": 213,
+            "repos": 7
+          },
+          "root+docs-ord": {
+            "gated": 23,
+            "no_answer": 0,
+            "ordinary": 23,
+            "pinned_paths": 200,
+            "repos": 5
+          }
+        },
+        "population": "swept repositories with status ok",
+        "repos_reporting_ordinary": 16,
+        "repositories": 20,
+        "slugs": [
+          "OpenInterpreter__open-interpreter",
+          "Skyvern-AI__skyvern",
+          "TabbyML__tabby",
+          "agno-agi__agno",
+          "browser-use__browser-use",
+          "deepset-ai__haystack",
+          "elixir-lang__elixir",
+          "helix-editor__helix",
+          "lobehub__lobe-chat",
+          "mem0ai__mem0",
+          "neovim__neovim",
+          "pola-rs__polars",
+          "qodo-ai__pr-agent",
+          "redis__redis",
+          "restic__restic",
+          "stanford-oval__storm",
+          "sveltejs__svelte",
+          "syncthing__syncthing",
+          "withastro__astro",
+          "zellij-org__zellij"
+        ],
+        "strata": {
+          "historical-record": 16,
+          "ordinary": 178,
+          "vendored": 6
+        }
+      },
+      "niche": {
+        "document_concentration": {
+          "documents": 4878,
+          "largest_repository": "qmk/qmk_firmware",
+          "share_pct": 36.0
+        },
+        "documents": 13562,
+        "findings": 5136,
+        "ordinary_concentration": {
+          "findings": 4490,
+          "largest_repository": "PX4/PX4-Autopilot",
+          "share_pct": 90.9
+        },
+        "ordinary_findings": 4942,
+        "ordinary_share": 96.2,
+        "policies": {
+          "agent": {
+            "gated": 2,
+            "no_answer": 0,
+            "ordinary": 2,
+            "pinned_paths": 67,
+            "repos": 2
+          },
+          "docs2-ord": {
+            "gated": 113,
+            "no_answer": 0,
+            "ordinary": 113,
+            "pinned_paths": 1308,
+            "repos": 15
+          },
+          "docs3-ord": {
+            "gated": 4595,
+            "no_answer": 0,
+            "ordinary": 4595,
+            "pinned_paths": 6177,
+            "repos": 15
+          },
+          "docs4-ord": {
+            "gated": 4598,
+            "no_answer": 0,
+            "ordinary": 4598,
+            "pinned_paths": 6714,
+            "repos": 16
+          },
+          "installed": {
+            "gated": 0,
+            "no_answer": 38,
+            "ordinary": 0,
+            "pinned_paths": 0,
+            "repos": 0
+          },
+          "ordinary": {
+            "gated": 4942,
+            "no_answer": 0,
+            "ordinary": 4942,
+            "pinned_paths": 12875,
+            "repos": 25
+          },
+          "root": {
+            "gated": 41,
+            "no_answer": 0,
+            "ordinary": 31,
+            "pinned_paths": 190,
+            "repos": 10
+          },
+          "root+docs": {
+            "gated": 79,
+            "no_answer": 0,
+            "ordinary": 63,
+            "pinned_paths": 444,
+            "repos": 13
+          },
+          "root+docs-ord": {
+            "gated": 63,
+            "no_answer": 0,
+            "ordinary": 63,
+            "pinned_paths": 419,
+            "repos": 10
+          }
+        },
+        "population": "swept repositories with status ok",
+        "repos_reporting_ordinary": 25,
+        "repositories": 38,
+        "slugs": [
+          "LMMS__lmms",
+          "MDAnalysis__mdanalysis",
+          "OSGeo__gdal",
+          "OWASP__CheatSheetSeries",
+          "OpenRA__OpenRA",
+          "PX4__PX4-Autopilot",
+          "PowerDNS__pdns",
+          "Unidata__MetPy",
+          "YosysHQ__yosys",
+          "Z3Prover__z3",
+          "astropy__astropy",
+          "beancount__beancount",
+          "betaflight__betaflight",
+          "biopython__biopython",
+          "dequelabs__axe-core",
+          "dosbox-staging__dosbox-staging",
+          "frappe__erpnext",
+          "googlefonts__fontbakery",
+          "haproxy__haproxy",
+          "janet-lang__janet",
+          "leanprover__lean4",
+          "libretro__RetroArch",
+          "micropython__micropython",
+          "moveit__moveit2",
+          "nim-lang__Nim",
+          "nvaccess__nvda",
+          "openemr__openemr",
+          "openfoodfacts__openfoodfacts-server",
+          "openmc-dev__openmc",
+          "osmcode__libosmium",
+          "pgRouting__pgrouting",
+          "qmk__qmk_firmware",
+          "racket__racket",
+          "sile-typesetter__sile",
+          "sleuthkit__sleuthkit",
+          "sonic-pi-net__sonic-pi",
+          "surge-synthesizer__surge",
+          "volatilityfoundation__volatility3"
+        ],
+        "strata": {
+          "generated": 19,
+          "historical-record": 118,
+          "ordinary": 4942,
+          "vendored": 55,
+          "version-snapshot": 2
+        }
+      }
+    },
+    "shared_across_tiers": 3,
+    "shared_examples": {
+      "Aider-AI__aider": [
+        "bench",
+        "agent"
+      ],
+      "obra__superpowers": [
+        "bench",
+        "agent"
+      ],
+      "withastro__astro": [
+        "bench",
+        "heldout"
+      ]
+    }
+  },
+  "holdout": {
+    "never_swept_total": 32,
+    "reserved_but_swept": 16,
+    "tiers": {
+      "agent": {
+        "absent_but_not_reserved": [],
+        "manifest": 17,
+        "never_swept": 0,
+        "reserved": 0,
+        "swept": 17
+      },
+      "bench": {
+        "absent_but_not_reserved": [],
+        "manifest": 50,
+        "never_swept": 0,
+        "reserved": 16,
+        "swept": 50
+      },
+      "heldout": {
+        "absent_but_not_reserved": [],
+        "manifest": 40,
+        "never_swept": 20,
+        "reserved": 20,
+        "swept": 20
+      },
+      "niche": {
+        "absent_but_not_reserved": [],
+        "manifest": 50,
+        "never_swept": 12,
+        "reserved": 12,
+        "swept": 38
+      }
+    },
+    "unexplained_absences": []
+  },
+  "precision": {
+    "bench": {
+      "agreement": {
+        "absent": 0,
+        "agreed": 565,
+        "comparable": 639,
+        "drift": 2,
+        "rate": 97.58203799654576
+      },
+      "comparators": {
+        "naive-anchor": 721,
+        "naive-link": 36736,
+        "regex-sha": 6997
+      },
+      "gated": {
+        "docs3-ord": {
+          "judged": 1125,
+          "precision_pct": 98.8,
+          "readings": {
+            "case-folded": 1,
+            "extension": 1,
+            "heading-under-another-slug": 12
+          },
+          "resolve_under_some_reading": 14,
+          "source": "gated-precision-docs3.jsonl"
+        },
+        "root+docs-ord": {
+          "judged": 168,
+          "precision_pct": 99.4,
+          "readings": {
+            "case-folded": 1
+          },
+          "resolve_under_some_reading": 1,
+          "source": "gated-precision.jsonl"
+        }
+      },
+      "per_rule": {
+        "bare-dead-sha": {
+          "n": null,
+          "precision_pct": 99.7
+        },
+        "dead-line-pointer": {
+          "n": null,
+          "precision_pct": 100.0
+        },
+        "dead-md-anchor": {
+          "n": null,
+          "precision_pct": 97.7
+        },
+        "dead-md-link": {
+          "n": null,
+          "precision_pct": 100.0
+        },
+        "dead-path-pointer": {
+          "n": null,
+          "precision_pct": 100.0
+        },
+        "dead-pinned-ref": {
+          "n": null,
+          "precision_pct": null
+        },
+        "dead-release-tag": {
+          "n": null,
+          "precision_pct": null
+        },
+        "dead-sha": {
+          "n": null,
+          "precision_pct": 100.0
+        },
+        "false-merge-claim": {
+          "n": null,
+          "precision_pct": null
+        },
+        "inconsistent-artifact": {
+          "n": null,
+          "precision_pct": null
+        },
+        "manifest-floor-mismatch": {
+          "n": null,
+          "precision_pct": null
+        },
+        "raw-lfs-blob": {
+          "n": null,
+          "precision_pct": null
+        },
+        "stale-live-claim": {
+          "n": null,
+          "precision_pct": null
+        },
+        "unknown-branch": {
+          "n": null,
+          "precision_pct": null
+        }
+      },
+      "pooled": {
+        "n": 1402,
+        "raw_pct": 99.29,
+        "reweighted_pct": 99.52
+      }
+    },
+    "heldout": {
+      "gated": {
+        "docs3-ord": {
+          "judged": 33,
+          "precision_pct": 100.0,
+          "readings": {},
+          "resolve_under_some_reading": 0,
+          "source": "gated-precision-docs3.jsonl"
+        }
+      }
+    },
+    "niche": {
+      "gated": {
+        "docs3-ord": {
+          "judged": 4595,
+          "precision_pct": 99.6,
+          "readings": {
+            "case-folded": 1,
+            "heading-under-another-slug": 18,
+            "in-fence": 1
+          },
+          "resolve_under_some_reading": 20,
+          "source": "gated-precision-docs3.jsonl"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "live": {
+      "findings": 54772,
+      "ordinary": 4419
+    },
+    "removed_since_stage4": {
+      "findings": 18,
+      "ordinary": 10
+    },
+    "schemeless_narrowing": {
+      "bench": {
+        "added": 0,
+        "after": 54772,
+        "before": 54790,
+        "net": 18,
+        "removed": 18
+      },
+      "heldout": {
+        "added": 0,
+        "after": 200,
+        "before": 204,
+        "net": 4,
+        "removed": 4
+      },
+      "niche": {
+        "added": 0,
+        "after": 5136,
+        "before": 5159,
+        "net": 23,
+        "removed": 23
+      }
+    },
+    "stage4_frozen": {
+      "findings": 54790,
+      "ordinary": 4429
+    }
+  },
+  "sha_census": {
+    "absent_pct": 41.9,
+    "by_form": {
+      "backticked/absent": 484,
+      "backticked/live": 121,
+      "backticked/unreachable": 22,
+      "bare/absent": 8066,
+      "bare/hex-collision": 54,
+      "bare/live": 11660,
+      "bare/unreachable": 21
+    },
+    "citations": 20428,
+    "clone_rows": 88,
+    "distinct_repositories": 75,
+    "distinct_tokens": 14843,
+    "duplicated_repositories": 13,
+    "hex_collision": 54,
+    "verdicts": {
+      "absent": 8550,
+      "hex-collision": 54,
+      "live": 11781,
+      "unreachable": 43
+    }
+  }
+}

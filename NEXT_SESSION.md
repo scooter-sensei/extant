@@ -6,12 +6,68 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 31 - A report whose numbers cannot go stale quietly (unreleased, 2026-09-07)
+
+**Status.** Suite is 1,007 tests across 61 files: 1,006 passing and 1 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
+moves no exit code. The tool remained released as 0.25.0 and this work sits
+above that tag, unreleased. No merge commit is named here because the entry was
+written before the merge; a claim about where work landed is worth only as much
+as the moment it was checked.
+
+**What it is.** Roadmap item 15, the public corpus report, and the only
+remaining item with an audience outside this project. `CORPUS.md` publishes what
+the tool finds across 122 repositories: the strata split, what a default install
+actually gates, precision by selection policy, the SHA census, and an agent
+pilot reported as deciding nothing.
+
+**Generated rather than written, which is the whole design.** The specs in the
+measurement tree carry their figures in prose and an audit checks that the prose
+CONTAINS them. That is presence-checking, and its weakness has already fired
+here: the audit passes on a stale spec if only the audit is updated, because
+nothing ties the sentence to the data. So the report is rendered from
+`CORPUS-figures.json`, committed beside it, and `tests/test_corpus_report.py`
+re-renders one from the other on every run.
+
+**The check is split where the evidence changes, and the report says so.**
+Whether the document matches its figures is answerable from this repository
+alone, so it runs in CI. Whether the figures still describe the corpora needs
+gigabytes of cloned repositories, so it runs only where they are. `AGENTS.md`
+records why that second half is deliberately NOT in the pre-push gate:
+requiring a step most contributors cannot perform would train them to skip a
+list whose whole value is that none of it is optional.
+
+**The failure neither half catches, named rather than left implied.** A change
+to any rule, suppression or default moves what the tool reports, which makes
+those figures stale - and nothing notices, because the report and its figures go
+on agreeing with each other perfectly while both drift away from the truth. That
+one needs a person to say so in a pull request.
+
+**What the audit of it found, which is the part worth keeping.** Four defects,
+three of them invisible to reading. The headline compared an all-strata
+numerator against an ordinary-only denominator - the exact defect denominators
+exist to expose, inherited from the spec it came from. `--check` printed
+"matches the recorded measurements" and exited 0 with a corrupted figures file,
+because it only ever examined the report. A test that claimed to prove tampering
+is caught proved only that `str.replace` changes a string. And the wrapper
+emitted a line beginning "- 5 of 50", which markdown renders as a bullet
+mid-paragraph: text correct, document wrong, and nothing inconsistent for any
+check to fire on.
+
+**Measurement.** No new measurement was taken, which is what the roadmap
+specified for this item. Every figure is read from what the instruments already
+recorded. The gate was re-run after rebasing onto the merged trunk rather than
+before it: the suite, `--verify` clean, and all 165 mutation anchors matching
+exactly once.
+
 ## Phase 30 - A document set wide enough to find something, and the false positive that came with it (unreleased, 2026-09-06)
 
 **Status.** Suite is 1,002 tests across 60 files: 1,001 passing and 1 skipped.
 Thirteen rules, unchanged - nothing here adds one. One flag is added,
 `--wide-docs`, and one suppression is widened. The tool remained released as
-0.25.0 and this work sits above that tag, unreleased and not yet on the trunk.
+0.25.0 and this work sits above that tag, unreleased. Merged to `main` at
+`e505b68`, with all fifteen CI jobs green on the merge commit as well as on the
+branch - the merge commit is its own thing and deserved its own verdict.
 
 **What started it.** Not a reported failure but a measurement of the installer's
 own output: unaided it refuses 35 of the 50 benchmark repositories, and the gate
