@@ -40,7 +40,9 @@ from extant import text as markup
 from extant import strata
 from extant.finding import Located
 from extant.registry import RULE_ERRORS
-from extant.report import format_text, render_findings
+from extant.report import (
+    format_sweep_sections, render_findings, sweep_entry_note,
+)
 
 __all__ = [
     "deleted_claims", "excluded_documents", "partition_documents",
@@ -466,21 +468,18 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # summary to stderr unconditionally interleaved it AHEAD of the findings,
     # because the two streams flush independently.
     out = sys.stderr if fmt == "sarif" else sys.stdout
+    # ALL THREE keys, named once and read four times below. Spelling the
+    # concatenation out at each use is how the `swept ...` line and the
+    # per-stratum breakdown came to be summed from different sets.
+    everything = results["vetted"] + results["unvetted"] + results["repository"]
     if fmt == "text":
-        for label, heading in (
-                ("vetted", "CONFIGURED - these decide the exit code"),
-                ("unvetted", "UNREVIEWED - surveyed only, not gated"),
-                ("repository", "REPOSITORY - about the repository itself, "
-                               "not gated")):
-            if results[label]:
-                print(f"\n{heading}", file=out)
-                for line in format_text(results[label]):
-                    print(line, file=out)
+        section_lines, entries = format_sweep_sections(results)
+        for line in section_lines:
+            print(line, file=out)
     else:
-        for line in render_findings(
-                results["vetted"] + results["unvetted"]
-                + results["repository"], fmt, repo,
-                examined=examined, run_kind="sweep")[0]:
+        entries = 0
+        for line in render_findings(everything, fmt, repo,
+                                    examined=examined, run_kind="sweep")[0]:
             print(line)
 
     # The denominator, per section. "0 findings" and "0 files looked at" print
@@ -490,13 +489,14 @@ def run_sweep(repo: Path, fmt: str) -> int:
           f"{len(vetted)} configured ({len(results['vetted'])} finding(s)), "
           f"{len(unvetted)} unreviewed ({len(results['unvetted'])} finding(s))",
           file=out)
-    # ALL THREE keys. Summing only `vetted` and `unvetted` would under-report
-    # by however many repository-scoped findings the run produced, and the
-    # breakdown would silently stop matching the `swept ...` line directly
-    # above it - a table that does not add up, which is the one failure a
-    # reader would not notice because each row looks reasonable alone.
-    for line in summarise_strata(results["vetted"] + results["unvetted"]
-                                 + results["repository"], paths):
+    for line in sweep_entry_note(entries, len(everything)):
+        print(line, file=out)
+    # Summing only `vetted` and `unvetted` would under-report by however many
+    # repository-scoped findings the run produced, and the breakdown would
+    # silently stop matching the `swept ...` line directly above it - a table
+    # that does not add up, which is the one failure a reader would not notice
+    # because each row looks reasonable alone. Hence `everything`.
+    for line in summarise_strata(everything, paths):
         print(line, file=out)
     # Which machinery produced the numbers above. A parallel survey and a
     # serial one are required to agree, and the only way a disagreement gets

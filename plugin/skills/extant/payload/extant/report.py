@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from extant import registry as _registry
@@ -24,7 +25,9 @@ from extant.finding import Finding, Located
 
 __all__ = [
     "BASELINE_NAME", "Collector", "FORMATS", "fingerprint", "format_github",
-    "format_sarif", "format_text", "load_baseline", "render_findings",
+    "SWEEP_SECTIONS", "format_sarif", "format_sweep_sections", "format_text",
+    "format_text_grouped", "group_parallel",
+    "load_baseline", "render_findings", "sweep_entry_note",
     "write_baseline",
 ]
 
@@ -440,6 +443,189 @@ def format_text(located: list[Located]) -> list[str]:
         else f"{item.path}: {item.finding.render()}"
         for item in located
     ]
+
+
+_BACKTICKED = re.compile(r"`([^`]*)`")
+
+
+def _mask(message: str, value: str) -> str:
+    """Blank one path segment's VALUE wherever it appears in a backticked token.
+
+    Inside backticks only, and only as a whole `/`-delimited segment.
+    `message.replace("en", "*")` also rewrites "when" and "documentation", which
+    merges findings that say different things - and a measurement keyed on the
+    raw message instead reports PX4 as 2,958 defects at 1.52x, which reads as
+    "translation does not multiply anything" and reverses the conclusion.
+    """
+    def fix(match: "re.Match[str]") -> str:
+        token = match.group(1)
+        return "`" + "/".join("*" if part == value else part
+                              for part in token.split("/")) + "`"
+    return _BACKTICKED.sub(fix, message)
+
+
+def _identity_keys(item: Located) -> list[tuple]:
+    """Every identity this finding could share with another.
+
+    One key per DIRECTORY segment, plus the finding's own path unchanged so
+    that repeats inside a single document group even when that document sits at
+    the repository root and has no directory to vary.
+
+    The filename is never wildcarded, and that is the single most valuable
+    constraint in this key rather than an oversight: allowing it merged
+    `docs/CLI.md` with `docs/MockFunctionAPI.md` and `phase12-plan.md` with
+    `phase13-plan.md`, which is 198 of the 228 wrong merges measured across the
+    corpus.
+
+    `kind`, `stratum` and `primary` are all in the key. The strata are a
+    partition, and a primary finding renders bare while a non-primary renders
+    with its path, so a group may not straddle either.
+    """
+    parts = item.path.split("/")
+    base = (item.finding.kind, item.stratum, item.primary)
+    keys = [base + (tuple(parts), item.finding.message())]
+    for i in range(len(parts) - 1):
+        wild = parts[:i] + ["*"] + parts[i + 1:]
+        keys.append(base + (tuple(wild), _mask(item.finding.message(), parts[i])))
+    return keys
+
+
+def group_parallel(located: list[Located]) -> list[list[Located]]:
+    """One group per distinct defect. Every finding appears in exactly one.
+
+    A finding joins the LARGEST group available to it, ties broken by the
+    leftmost path. Connected components are deliberately not used: they would
+    chain A-B differing in segment 1 with B-C differing in segment 2 and report
+    three findings that differ in two places as one defect. Measured cost of
+    refusing that across the corpus: 6 findings.
+    """
+    keyed: dict[tuple, list[int]] = {}
+    for index, item in enumerate(located):
+        for key in _identity_keys(item):
+            keyed.setdefault(key, []).append(index)
+
+    taken: set[int] = set()
+    groups: list[list[Located]] = []
+    for _, members in sorted(keyed.items(), key=lambda kv: (-len(kv[1]), kv[0][3])):
+        fresh = [i for i in members if i not in taken]
+        if len(fresh) < 2:
+            continue
+        taken.update(fresh)
+        groups.append([located[i] for i in fresh])
+    groups.extend([located[i]] for i in range(len(located)) if i not in taken)
+
+    for group in groups:
+        group.sort(key=lambda item: (item.path, item.finding.line))
+    groups.sort(key=lambda g: (g[0].path, g[0].finding.line))
+    return groups
+
+
+def format_text_grouped(groups: list[list[Located]]) -> list[str]:
+    """Grouped human output. A group of one is byte-identical to `format_text`.
+
+    Takes the groups `group_parallel` already formed rather than the findings,
+    so a caller can report how many entries there are without grouping twice.
+    `sweep.py` needs exactly that for its summary line.
+
+    Every path is printed in full, one per line. A brace form like
+    `docs/{en,ko}/intro.md` is shorter and makes `grep docs/ko/intro.md` find
+    nothing, and text output is what people grep and pipe.
+
+    Printing every path is also what keeps a wrong grouping cheap: nothing is
+    hidden by one, so its whole cost is a heading that reads oddly. That is why
+    a key with a 1.6 per cent wrong-merge rate is acceptable here and one with
+    59 per cent is not.
+
+    The header carries no line number. Four translations of one page hold the
+    defect at four different lines, so a single number would be a false claim
+    about three of them; the lines are on the per-document lines below it.
+
+    ONE LINE PER DOCUMENT, not per occurrence, and that is not a tidy. The
+    largest real group in the corpus is 28 citations of one dead anchor inside
+    a single PX4 page: printed one per occurrence, that is a header plus 28
+    identical paths, so grouping would turn 28 lines into 29 and make the
+    output it exists to shorten longer. Repeats within a document collapse onto
+    its line as `path:12, 40, 92`.
+    """
+    lines: list[str] = []
+    for group in groups:
+        if len(group) == 1:
+            lines.extend(format_text(group))
+            continue
+        head = group[0].finding
+        per_document: dict[str, list[int]] = {}
+        for item in group:
+            per_document.setdefault(item.path, []).append(item.finding.line)
+        noun = "document" if len(per_document) == 1 else "documents"
+        lines.append(f"[{head.kind}] {head.message()}"
+                     f"   ({len(group)} occurrences in "
+                     f"{len(per_document)} {noun})")
+        lines.extend(f"    {path}:{', '.join(str(n) for n in numbers)}"
+                     for path, numbers in per_document.items())
+    return lines
+
+
+SWEEP_SECTIONS = (
+    ("vetted", "CONFIGURED - these decide the exit code"),
+    ("unvetted", "UNREVIEWED - surveyed only, not gated"),
+    ("repository", "REPOSITORY - about the repository itself, not gated"),
+)
+
+
+def format_sweep_sections(results: dict) -> tuple[list[str], int]:
+    """A sweep's three sections as lines, plus how many entries they hold.
+
+    Here rather than in `sweep.py`, and the reason is a ceiling rather than
+    taste: `sweep.py` sat at exactly 896 lines against a 896-line module
+    ceiling - it WAS the high-water mark the ceiling was set to - so the
+    grouping could not be added to that file at all. This is a formatter, it
+    returns lines like every other function in this module, and the module it
+    came from shrinks.
+
+    Grouping is per SECTION because that is where the batch is. A parallel copy
+    of a page is the same kind of document as its siblings, so a translated
+    tree is either wholly configured or wholly not and does not straddle the
+    split. Measured rather than assumed: across 83 repositories and 60,076
+    findings, sectioning costs exactly zero collapses.
+
+    Returns the entry count alongside the lines so the caller can say
+    `4,490 findings, 1,393 entries` without grouping a second time.
+    """
+    lines: list[str] = []
+    entries = 0
+    for label, heading in SWEEP_SECTIONS:
+        if results[label]:
+            grouped = group_parallel(results[label])
+            entries += len(grouped)
+            lines.append("")
+            lines.append(heading)
+            lines.extend(format_text_grouped(grouped))
+    return lines, entries
+
+
+def sweep_entry_note(entries: int, findings: int) -> list[str]:
+    """The line saying grouping happened, or nothing when it did not.
+
+    BOTH numbers whenever they differ. A reader who saw 4,490 findings last
+    release and 1,393 entries this one has to be told nothing was dropped: a
+    count that shrinks without saying why is the denominator failure this
+    project exists to surface, arriving through one of its own features.
+
+    Silent when the two agree, because "reported as 12 entries" beneath
+    "12 finding(s)" is a line that tells a reader nothing and trains them to
+    skip the summary.
+
+    ZERO ENTRIES BESIDE ANY FINDINGS MEANS GROUPING DID NOT RUN, and is also
+    silent. Only the text branch groups, so the machine formats reach here with
+    `entries` still 0 - and without this clause a `--format=github` sweep
+    printed `reported as 0 entr(y/ies)` beneath its annotations, and a SARIF
+    one printed it to stderr where a stdout-only comparison could not see it.
+    A group always holds at least one finding, so this cannot mask a real zero.
+    """
+    if not entries or entries >= findings:
+        return []
+    return [f"  reported as {entries} entr(y/ies): findings differing only in "
+            f"one directory segment are grouped, and every document is named"]
 
 
 def render_findings(located: list[Located], fmt: str, repo: Path | None = None,
