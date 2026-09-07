@@ -6,14 +6,99 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 32 - One entry per defect, and the module that made room (unreleased, 2026-09-07)
+
+**Status.** Suite is 1,030 tests across 62 files: 1,029 passing and 1 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
+moves no exit code. The tool remained released as 0.25.0 and this work sits
+above that tag, unreleased. No merge commit is named here because the entry was
+written before the merge.
+
+**What it is.** A page that exists in four languages carries one dead link four
+times. That is four findings and one defect, and `--sweep` says so now:
+findings whose paths differ in exactly one DIRECTORY segment, and whose
+messages agree once that segment's value is masked out, report as a single
+entry naming every document it recurs in and the lines in each. On the largest
+translated repository in the corpora, 4,490 findings become 1,393 entries and
+54 per cent less output. This is what the `translation` stratum refused in
+Phase 30 pointed at.
+
+**The filename may not vary, and that constraint IS the measurement.** Six
+candidate identities were measured against each other, and the deciding axis
+was not compression but how often a key merges findings that are not copies of
+each other - answered by reading both documents and asking whether they are
+parallel, which is mechanical because both are on disk. Letting any path
+segment vary merges 228 of 388 such groups wrongly. Forbidding the filename
+removes 198 of those 228 for a quarter of the compression, and it buys the
+breadth: 27 repositories rather than the 7 a language-keyed rule reaches, with
+no vocabulary shipped. Masking only inside backticked tokens is the other half,
+because a plain substitution for `en` also rewrites "when" and "documentation".
+
+**Nothing is suppressed, which is what separates this from a stratum.** Every
+path prints in full, one line per document with the lines it holds, so the
+output is greppable exactly as before - a brace form is shorter and makes a
+grep for one of the collapsed paths find nothing. The sweep prints the entry
+count beside the finding count, because a count that shrinks without saying why
+is the denominator failure this project exists to surface, arriving through one
+of its own features.
+
+**Not in the machine formats, and not in the gating modes.** SARIF and workflow
+annotations are location-per-result consumers: collapse four language copies
+into one annotation and the three that lost it get none, so a reviewer looking
+at the Korean page in a diff sees nothing. `--verify` and `--validate` echo a
+finding as they collect it and are left streaming; `--deleted-since` reports
+which lines vanished, which is the one question grouping would obscure. All
+three are byte-identical to before this work, on stdout and on stderr.
+
+**The module that made room.** `plugin/skills/extant/payload/extant/text.py`
+answered four separable questions and sat at its own line ceiling, so the next
+line added to it failed `tests/test_module_quality.py` whatever it was for. The
+anchor and slug machinery moved to
+`plugin/skills/extant/payload/extant/anchors.py`, taking the five private
+patterns only its entry point reads - a module may not import a sibling's
+underscore names, so leaving them behind meant promoting five patterns nothing
+else reads or lying about the boundary. The ceiling came DOWN to the new
+high-water mark in the same change, because a split that leaves the old number
+behind buys silent headroom and quietly stops measuring anything.
+
+That ceiling then bound again, immediately and usefully: the sweep's own module
+was the new high-water mark, so the grouping could not be added to it at all.
+The two formatters live in `plugin/skills/extant/payload/extant/report.py`
+instead, which is where rendering belongs and which had room. Both return lines
+rather than printing, matching every other function there, and the sweep module
+ends exactly where it started.
+
+**What was refused.** A `fixture` stratum, the last open candidate from Phase 3
+and the second stratum this corpus has turned down. The population is real -
+277 findings in 9 repositories - and it decomposes into five causes with five
+different correct homes: a recorded terminal transcript, a site-absolute route
+question, vendored third-party checked in, a golden input-expected pair, and an
+already-recorded false-positive class. Only 17 are the deliberately-broken
+fixtures the label claims, and `exclude_paths` has handled those since 0.22.0.
+The stratum is a proxy: right outcome for the wrong reason on 240 findings,
+wrong outcome on 20. A label that reads as an explanation and is not one is
+worse than a label that is wrong, because nothing about it looks incorrect
+later.
+
+**The defect the whole gate was green through.** The summary line reporting
+entries beside findings fired in the machine formats too, where nothing is
+grouped, printing a count of zero entries beneath a sweep's annotations - and
+in SARIF onto stderr, where a comparison of stdout alone could not see it. The
+suite, the mutation campaign, both harnesses, `--verify` and `--selftest` all
+passed with it present. What found it was rendering every format at the
+previous commit and at the working tree and diffing BOTH streams. The guard is
+now explicit and tested, and the lesson is the older one restated: a green gate
+says no check failed, never that the output is what it should be.
+
 ## Phase 31 - A report whose numbers cannot go stale quietly (unreleased, 2026-09-07)
 
 **Status.** Suite is 1,007 tests across 61 files: 1,006 passing and 1 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
 moves no exit code. The tool remained released as 0.25.0 and this work sits
-above that tag, unreleased. No merge commit is named here because the entry was
-written before the merge; a claim about where work landed is worth only as much
-as the moment it was checked.
+above that tag, unreleased. Merged to `main` at `15368f9`. This entry was
+written before that merge and said so rather than guessing; the commit is
+recorded here now that there is one to record, which is the whole point of
+having left the sentence unfinished.
 
 **What it is.** Roadmap item 15, the public corpus report, and the only
 remaining item with an audience outside this project. `CORPUS.md` publishes what
