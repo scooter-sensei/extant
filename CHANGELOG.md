@@ -5,6 +5,10 @@
 One flag, `--wide-docs`, and the false positive that a wider document set went
 and found. Nothing here adds a rule.
 
+Also a published measurement: `CORPUS.md` reports what the tool finds across 122
+repositories, generated from committed figures rather than written, so a number
+in it cannot go stale without a check failing.
+
 The middle section is correctness - a denominator that lied, a document shape
 that lost its rules, a mode that crashed where its siblings refuse. Most of
 those were found by the fuzz harness rather than by a person reading the code;
@@ -14,6 +18,26 @@ before it was fixed.
 
 The last section, under "What a commit pays", is cost rather than correctness,
 with one behaviour change that says so in its own heading.
+
+### A corpus report that cannot quietly go stale
+
+**`CORPUS.md` publishes what extant finds across 122 public repositories**, with
+`CORPUS-figures.json` committed beside it and `tests/test_corpus_report.py`
+re-rendering one from the other on every run. The specs this project keeps carry
+their figures in prose and an audit checks the prose CONTAINS them; that is
+presence-checking, and it passes on a stale spec if only the audit is updated.
+Rendering the sentence from the data removes the gap rather than watching it.
+
+**The check is split where the evidence changes, and the report says which half
+runs where.** Whether the document matches its figures needs nothing but this
+repository, so it runs in CI. Whether the figures still describe the corpora
+needs gigabytes of clones, so it runs only where they are. `AGENTS.md` records
+why the second is deliberately not in the pre-push gate, and names the failure
+neither half catches: change a rule and the figures stop describing the tool
+while the two files go on agreeing with each other perfectly.
+
+Nothing in the tool changed for this. No rule, no flag, no default, no exit
+code - the report reads what the instruments had already recorded.
 
 ### A document set wide enough to find something
 
