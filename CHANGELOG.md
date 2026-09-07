@@ -258,6 +258,32 @@ deleted 1,411 distinct real defects to collapse 3,079 duplicates, including
 every one of PX4's 372 defects that exist in only one language and none of them
 English. Grouping keeps all of them.
 
+**Internally**, the anchor and slug machinery moved to
+`extant/anchors.py`. `extant/text.py` answered four separable questions - what
+is code, what is prose, what anchors a document offers, and where its lines
+break - and sat at 923 lines against a 923-line ceiling, so the next line added
+to it failed the suite whatever that line was for. The third question left,
+taking `_heading_text` through `_disambiguated` and the five private patterns
+only `anchors()` reads: a module may not import a sibling's underscore names,
+so leaving those behind meant promoting five patterns nothing else reads or
+lying about the boundary. `text.py` ends at 641. `anchors` is the only public
+name that moved, and `HEADING` stayed put because a rule reads it too.
+
+The ceiling came DOWN to the new high-water mark in the same change rather than
+being left where it was, because a split that keeps the old number buys 287
+lines of silent headroom and quietly stops measuring anything. It bound again
+immediately and usefully: the sweep's own module was the new mark, so the
+grouping above could not be added to it at all and its two formatters live in
+`extant/report.py` - which is where rendering belongs, and which left the sweep
+module exactly where it started.
+
+Checked as the pure move it claims to be: both relocated blocks are
+byte-identical to the lines they came from, everything that stayed differs only
+where a docstring described the old shape, and the three mutation anchors in
+the moved region were retargeted and re-run rather than left at `--check-only`,
+which proves an anchor matches and never that it is caught. Three killed, none
+survived.
+
 ### What a commit pays
 
 The rest of this release is cost rather than correctness, with one exception
