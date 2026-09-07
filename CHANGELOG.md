@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-One flag, `--wide-docs`, and the false positive that a wider document set went
-and found. Nothing here adds a rule.
+One flag, `--wide-docs`, the false positive that a wider document set went and
+found, and the answer to the noise it makes: a survey reports one entry per
+defect now rather than one per copy of it. Nothing here adds a rule.
 
 Also a published measurement: `CORPUS.md` reports what the tool finds across 122
 repositories, generated from committed figures rather than written, so a number
@@ -209,6 +210,53 @@ Truncating the primary first left a window in which the retired entries were in
 NEITHER file - the outcome that function exists to make impossible, by a route
 its own guard cannot see. The additive write goes first now, so the same crash
 duplicates them instead, and a duplicate is something a reader can repair.
+
+### One entry per defect, not one per copy of it
+
+**`--sweep` groups findings that differ only in one directory segment and
+reports them as a single entry naming every document it recurs in.** A page
+that exists in four languages carries one dead link four times; that is four
+findings and one defect, and the survey now says so. On `PX4/PX4-Autopilot`,
+4,490 findings report as 1,393 entries and 54 per cent less output. Across all
+60,076 recorded findings in the 83 repositories that produce any, the corpus
+collapses to 13,483 entries. Counting only the ordinary stratum - the headline
+a reader acts on, which 79 of those repositories contribute to - 28 get
+materially quieter: vscode by 47 per cent, aider by 48, kubernetes/website by
+44.
+
+**Nothing is suppressed, and the summary says both numbers.** Every path is
+printed in full, one line per document with the lines it holds, so the output
+is greppable exactly as before - a brace form like `docs/{en,ko}/intro.md`
+would have been shorter and would have made `grep docs/ko/intro.md` find
+nothing. Beneath the `swept ...` line the sweep prints how many entries those
+findings became, because a count that shrinks without saying why is the
+denominator failure this project exists to surface, arriving through one of its
+own features.
+
+**The filename may not vary, and that constraint is the measurement.** Two
+findings are one entry only when their paths differ in exactly one DIRECTORY
+segment and their messages agree once that segment's value is masked out of
+backticked tokens. Allowing the filename to vary as well merged `docs/CLI.md`
+with `docs/MockFunctionAPI.md` and `phase12-plan.md` with `phase13-plan.md`:
+228 of 388 such groups joined documents that are not copies of each other, and
+forbidding it removes 198 of those 228. Masking only inside backticks is the
+other half - `message.replace("en", "*")` also rewrites "when", and keying on
+the raw message reports PX4 as 2,958 defects at 1.52x, which reads as
+"translation does not multiply anything" and reverses the conclusion.
+
+**Not in SARIF, and not in workflow annotations.** Both are
+location-per-result consumers. Collapse four language copies into one
+annotation and the three that lost it get none, so a reviewer looking at
+`docs/ko/intro.md` in the diff sees nothing; merging drops locations from the
+security tab for the same reason. `--verify`, `--validate` and
+`--deleted-since` are unchanged too - the first two stream a finding as they
+find it, and the last reports which lines vanished, which is the one question
+grouping would obscure.
+
+This is what the refused `translation` stratum pointed at. A stratum would have
+deleted 1,411 distinct real defects to collapse 3,079 duplicates, including
+every one of PX4's 372 defects that exist in only one language and none of them
+English. Grouping keeps all of them.
 
 ### What a commit pays
 

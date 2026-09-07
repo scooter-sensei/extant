@@ -391,17 +391,20 @@ Four things worth knowing before using it:
 * **Three levels is deliberate.** A fourth was measured and is a cliff: 16 more
   findings for 2,220 more pinned paths. The depth is settable anyway, because a
   project that keeps its documentation deeper should be able to say so.
-* **Translated documentation multiplies what you see.** Depth 3 is what reaches
-  a translated page at `docs/<lang>/<section>/`, and a defect on a page that
-  exists in four languages is reported four times. Measured across 38
-  repositories of a niche corpus, PX4-Autopilot alone reports 4,490 findings
-  that are 1,411 distinct defects repeated across `en`, `ko`, `uk` and `zh` - a
-  factor of 3.18. Nothing is wrong with those findings and none of them is
-  suppressed; there are simply far more lines than there are problems. If the
-  first run is too loud to read, `--wide-docs 2` is much quieter - 113 findings
-  against 4,595 on the same corpus - because a translated page usually sits in
-  a section BELOW its language directory. It does not exclude language
-  directories as such: `docs/en/intro.md` is still depth 2.
+* **Translated documentation is grouped rather than repeated.** Depth 3 is what
+  reaches a translated page at `docs/<lang>/<section>/`, so a defect on a page
+  that exists in four languages is still FOUND four times - and it is now
+  DESCRIBED once, on a single entry naming all four documents and the lines in
+  each. Measured on a niche corpus of 38 repositories, PX4-Autopilot's 4,490
+  findings report as 1,393 entries and 54 per cent less output. Nothing is
+  suppressed and no path is hidden - the sweep prints the finding count and the
+  entry count side by side - so this shortens the reading rather than the
+  answer. Two documents are only grouped when their paths differ in exactly one
+  DIRECTORY segment and they say the same thing once that segment is masked
+  out; sibling files in one directory that happen to share a dead link stay
+  separate. Grouping is `--sweep` text output only. SARIF and workflow
+  annotations still carry one result per location, because an annotation's
+  whole value is the file and line it lands on.
 
 It also works on a project with no status document at all, which is what the
 installer refuses on its own. When nothing else has named a document,
