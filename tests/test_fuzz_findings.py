@@ -13,11 +13,15 @@ seed that found it and the property that failed.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -805,3 +809,110 @@ def test_archive_still_archives_when_the_document_is_there(git_repo) -> None:
     assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
     assert "retained=" in done.stdout, done.stdout
     assert "archived=" in done.stdout, done.stdout
+
+
+# --- the harness itself, not the tool -------------------------------------
+#
+# One entry here is about `tests/harnesses/fuzz.py` rather than about extant.
+# It earns a place for the same reason as everything above: CI found it, it
+# cost a wrong answer, and a seed coming up again is not a plan.
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "harnesses"))
+
+
+def _rmtree_helpers():
+    """Imported late: `fuzz.py` pulls in the other harness modules."""
+    import fuzz
+    return fuzz
+
+
+def test_present_answers_rather_than_raising_when_stat_is_denied(monkeypatch,
+                                                                 tmp_path):
+    """`Path.exists()` is not a yes-or-no below Python 3.14.
+
+    It swallows only the errnos that mean "not there"; EACCES is not one, so a
+    directory nothing may search made `_rmtree`'s own guard raise. 3.14
+    delegates to `os.path.exists`, which swallows everything - which is why
+    this passed on the development machine and killed both CI runners at seed
+    20260824.
+    """
+    fuzz = _rmtree_helpers()
+
+    def denied(self, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    # Monkeypatched rather than subclassed: `Path` cannot be subclassed
+    # portably across the 3.9 floor this project supports, and a test that
+    # fails to construct proves nothing about the thing it meant to check.
+    monkeypatch.setattr(Path, "exists", denied)
+    assert fuzz._present(tmp_path) is True
+
+
+@pytest.mark.skipif(os.name == "nt",
+                    reason="Windows has no search bit to strip")
+def test_rmtree_removes_a_tree_whose_directories_lost_their_search_bit(tmp_path):
+    """A directory needs +x, and the chmod used to hand it a file's mode.
+
+    `S_IWRITE | S_IREAD` is 0o600. Applied to a directory on POSIX that is the
+    search bit gone, so `rmtree` cannot descend, `ignore_errors=True` hides it,
+    and the tree survives as something nothing can stat.
+    """
+    fuzz = _rmtree_helpers()
+    root = tmp_path / "repo"
+    (root / "objects" / "ab").mkdir(parents=True)
+    (root / "objects" / "ab" / "loose").write_text("x", encoding="utf-8")
+    (root / "objects" / "ab").chmod(0o500)
+    (root / "objects").chmod(0o500)
+
+    fuzz._rmtree(root)
+
+    assert not root.exists()
+
+
+def test_rmtree_asks_for_a_mode_a_directory_can_be_entered_with(tmp_path,
+                                                                monkeypatch):
+    """The same defect, checked where there is no search bit to strip.
+
+    The test above skips on Windows, so on the development machine nothing
+    would have caught this and nothing did. This one records the modes
+    `_rmtree` asks for and holds a directory to one it can be entered with,
+    which is true on either platform and fails against the old single mode.
+    """
+    fuzz = _rmtree_helpers()
+    root = tmp_path / "repo"
+    (root / "objects").mkdir(parents=True)
+    (root / "objects" / "loose").write_text("x", encoding="utf-8")
+
+    asked: dict[str, int] = {}
+    real = Path.chmod
+
+    def record(self, mode, **kwargs):
+        asked[self.name] = mode
+        return real(self, mode, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", record)
+    fuzz._rmtree(root)
+
+    assert asked["objects"] & stat.S_IXUSR, oct(asked["objects"])
+    assert asked["repo"] & stat.S_IXUSR, oct(asked["repo"])
+    assert not asked["loose"] & stat.S_IXUSR, oct(asked["loose"])
+
+
+def test_relax_leaves_a_symlink_alone(tmp_path, monkeypatch):
+    """`chmod` follows symlinks, and this generator makes them deliberately.
+
+    A repository can hold `escape -> <arena>`, so re-moding a link while
+    tidying one repository would have reached up and re-moded the arena
+    holding all of them. Checked by pretending the path is a link, because
+    creating a real one needs a privilege Windows does not always grant.
+    """
+    fuzz = _rmtree_helpers()
+    target = tmp_path / "thing"
+    target.write_text("x", encoding="utf-8")
+
+    monkeypatch.setattr(Path, "is_symlink", lambda self: True)
+    monkeypatch.setattr(Path, "chmod",
+                        lambda self, *a, **k: pytest.fail(
+                            "chmod reached through a symlink"))
+
+    fuzz._relax(target, stat.S_IRWXU)

@@ -203,8 +203,16 @@ BREAKAGES = (
         prop="SHIFT",
         why="every claim reports line 1, which is a number confidently wrong "
             "rather than absent - the CR-only defect this function exists for",
+        # RETARGETED at the code that replaced what it named. The anchor read
+        # `len(LINE_BREAK.findall(text, 0, offset)) + 1`, which is the
+        # formulation `line_number_at`'s own docstring records as the bug it
+        # was fixed to stop doing - so the anchor went stale in the commit that
+        # fixed it and has matched nothing since. `--self-check` is not a CI
+        # job and `mutate.py --check-only` polices a different anchor set, so
+        # nothing said so: the harness reported HARNESS FAULT only to whoever
+        # ran it by hand.
         edits=(("extant/text.py",
-                "    return len(LINE_BREAK.findall(text, 0, offset)) + 1",
+                "    return bisect.bisect_left(_break_starts(text), offset) + 1",
                 "    return 1"),),
     ),
     Breakage(

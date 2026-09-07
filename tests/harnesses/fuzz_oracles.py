@@ -45,7 +45,8 @@ import subprocess
 from pathlib import Path
 
 __all__ = [
-    "DidNotRun", "ORACLES", "Result", "findings_in", "run_all",
+    "DidNotRun", "ORACLES", "Result", "finding_count", "findings_in",
+    "run_all",
     "oracle_baseline", "oracle_crlf", "oracle_denominator_agrees",
     "oracle_fence", "oracle_github", "oracle_mode_agrees",
     "oracle_monotone", "oracle_process", "oracle_relocate", "oracle_shift",
@@ -156,6 +157,27 @@ def findings_in(out: str):
             for number in where.group("lines").split(", "):
                 found.add((where.group("path"), int(number), kind, detail))
     return found
+
+
+def finding_count(out: str) -> int:
+    """How many findings an output reports, COUNTING REPEATS.
+
+    `findings_in` returns a set, which is right for asking WHICH findings two
+    runs saw and wrong for asking HOW MANY: two findings agreeing in path,
+    line, kind and detail are two results in SARIF and one member of a set.
+    The FORMATS check compares a text count against a SARIF result count, so
+    it needs occurrences.
+
+    Here rather than as a second pattern in `fuzz.py`, which is where it used
+    to live - a `line \\d+: \\[` of its own that knew nothing about grouped
+    output and reported a sweep as having lost findings it had reported. One
+    claim, one scanner.
+    """
+    total = len(FINDING.findall(out))
+    for group in GROUPED.finditer(out):
+        for where in _LOCATION.finditer(group.group("locations")):
+            total += len(where.group("lines").split(", "))
+    return total
 
 
 class DidNotRun(Exception):

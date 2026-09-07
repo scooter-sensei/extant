@@ -445,6 +445,44 @@ SAFE_GIT = ("-c", "core.longpaths=true", "-c", "filter.lfs.required=false",
             "-c", "core.autocrlf=false")
 
 
+def _present(path: Path) -> bool:
+    """Whether anything is at `path`. Answers rather than raising.
+
+    `Path.exists()` reads as a yes-or-no and is not one below Python 3.14: it
+    swallows only the errnos that MEAN "not there" - ENOENT, ENOTDIR, EBADF,
+    ELOOP - and EACCES is not among them. So a directory nothing may search
+    makes the guard RAISE where its caller wanted an answer. 3.14 delegates to
+    `os.path.exists`, which swallows every `OSError`, which is exactly why this
+    never reproduced on the development machine and killed the harness on both
+    CI runners.
+
+    A path that cannot be statted counts as PRESENT. Something is there; the
+    honest answer to "is it gone" is no.
+    """
+    try:
+        return path.exists()
+    except OSError:
+        return True
+
+
+def _relax(path: Path, mode: int) -> None:
+    """Best-effort chmod. A path that resists is left to `rmtree` to report.
+
+    SYMLINKS ARE SKIPPED, because `chmod` follows them and this generator makes
+    them on purpose: `escape` points at the ARENA, and `loop_a`/`loop_b` point
+    at each other. Relaxing a link reaches for whatever is on the far end, so
+    tidying one repository would have reached up and re-moded the arena holding
+    all of them. Nothing is lost by leaving them: unlinking a symlink needs
+    write permission on its PARENT, which this walk has already granted.
+    """
+    try:
+        if path.is_symlink():
+            return
+        path.chmod(mode)
+    except OSError:
+        pass
+
+
 def _rmtree(path: Path) -> None:
     """Remove a built repository, including the parts git made read-only.
 
@@ -456,16 +494,34 @@ def _rmtree(path: Path) -> None:
     `FileExistsError` instead. Which `_still_fails` then caught and read as
     "this subset does not reproduce", so the shrink concluded that no feature
     could be dropped.
+
+    A DIRECTORY NEEDS ITS EXECUTE BIT, AND THIS USED TO TAKE IT AWAY. Every
+    child was given `S_IWRITE | S_IREAD` - 0o600, which is a FILE's mode - so
+    on POSIX every directory in the tree lost the search bit that lets anything
+    descend into it. `rmtree` could then not read them, `ignore_errors=True`
+    swallowed that, and what survived was a tree nothing could stat. The next
+    `_rmtree` of the same path died in its own guard with EACCES, so one fuzz
+    property violation became a harness crash - which is why CI reported a
+    single violation at seed 20260824 where the same seed finds four.
+
+    Windows has no search bit and never showed it; the mode is widened for
+    both, because a directory the owner may enter is what was meant on either.
     """
-    if not path.exists():
+    if not _present(path):
         return
-    for child in path.rglob("*"):
-        try:
-            child.chmod(stat.S_IWRITE | stat.S_IREAD)
-        except OSError:
-            pass
+    # `os.walk` rather than `rglob`, and top-down, because each directory has
+    # to regain its search bit BEFORE anything tries to descend into it. A walk
+    # that fixes a directory only once it has already failed to read it fixes
+    # nothing.
+    _relax(path, stat.S_IRWXU)
+    for parent, dirs, files in os.walk(path, topdown=True,
+                                       onerror=lambda _err: None):
+        for name in dirs:
+            _relax(Path(parent, name), stat.S_IRWXU)
+        for name in files:
+            _relax(Path(parent, name), stat.S_IWRITE | stat.S_IREAD)
     shutil.rmtree(path, ignore_errors=True)
-    if path.exists():
+    if _present(path):
         raise OSError(f"could not remove {path}")
 
 
@@ -1784,16 +1840,23 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
             if plain is not None:
                 n = sum(len(r.get("results", []))
                         for r in doc.get("runs", []))
-                # Two shapes, both correct. `format_text` prints a finding
-                # in the PRIMARY document bare - "line 3: [kind] ..." - and
+                # THREE shapes now, and this used to carry a pattern of its
+                # own that knew two of them. `format_text` prints a finding in
+                # the PRIMARY document bare - "line 3: [kind] ..." - and
                 # prefixes everything else with its path, an asymmetry that
-                # module documents as deliberate and that its tests pin. A
-                # pattern demanding the prefix silently undercounts every
-                # configured document, which is how this comparison first
-                # accused extant of losing a finding it had reported
-                # correctly. The path half also has to tolerate spaces.
-                text_findings = len(re.findall(r"^(?:.*: )?line \d+: \[",
-                                               plain.stdout or "", re.M))
+                # module documents as deliberate; a pattern demanding the
+                # prefix silently undercounts every configured document, which
+                # is how this comparison first accused extant of losing a
+                # finding it had reported correctly.
+                #
+                # The third is a grouped sweep entry, which carries no
+                # "line N:" at all, and this counted none of them - so a sweep
+                # whose findings collapsed reported fewer in text than in
+                # SARIF and FORMATS fired on a correct run. Counted by the
+                # oracles' scanner now rather than by a second pattern here,
+                # because two readers of one format is how the first version
+                # of this went wrong as well.
+                text_findings = oracles.finding_count(plain.stdout or "")
                 if n != text_findings:
                     faults.append(("FORMATS",
                                    f"sarif {n} results, text {text_findings}"))
