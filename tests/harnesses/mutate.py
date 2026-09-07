@@ -55,6 +55,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     commits = collect.parent / "extant/commits.py"
     rules = collect.parent / "extant/rules"
     text = collect.parent / "extant/text.py"
+    # The anchor and slug machinery left text.py for its own module when
+    # text.py hit its line ceiling. Three anchors below moved with the code -
+    # the same follow-the-code rule the notes above describe - and their TEXT
+    # is unchanged, because a pure move changes where a line lives and not
+    # what it says.
+    anchors = collect.parent / "extant/anchors.py"
     sites = collect.parent / "extant/sites.py"
     # Task 10 emptied the shim. The formatters, the ambient run state and the
     # three modes each got a module, so an anchor that used to name
@@ -377,7 +383,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # it strips punctuation the same way, so the old one-line anchor
         # matched twice and probed neither reliably. The return line
         # disambiguates - only `_slug` trims the edges.
-        ("slug keeps punctuation", text,
+        ("slug keeps punctuation", anchors,
          '    text = re.sub(r"[^\\w\\s-]", "", _heading_text(title))\n'
          '    return re.sub(r"\\s", "-", text).strip("-")',
          "    text = _heading_text(title)\n"
@@ -386,14 +392,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # GitHub, because the emoji is dropped and the space after it still
         # becomes one. Trimming both spellings reported 58 working links as
         # dead across the held-out corpus.
-        ("the untrimmed slug spelling is lost", text,
+        ("the untrimmed slug spelling is lost", anchors,
          '    return untrimmed if untrimmed != untrimmed.strip("-") else ""',
          '    return ""'),
         # The other half of the same function, and the reason it is written
         # this way. Returning the trimmed spelling as well duplicates `_slug`
         # and masks it - "slug keeps punctuation" SURVIVED while it did.
         ("the untrimmed slug also returns the trimmed one, masking _slug",
-         text,
+         anchors,
          '    return untrimmed if untrimmed != untrimmed.strip("-") else ""',
          "    return untrimmed"),
         ("cross-file anchors no longer checked", rules / "md_anchor.py",

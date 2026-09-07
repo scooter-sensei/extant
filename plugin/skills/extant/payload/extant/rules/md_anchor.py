@@ -5,11 +5,12 @@ from pathlib import Path
 
 from extant.contract import Rule
 from extant.finding import Finding, rel
+from extant.anchors import anchors
 from extant.scope import Context
 from extant.sites import (
     has_global_anchors, has_partial_anchors, partial_anchors, project_anchors,
 )
-from extant.text import EXTERNAL, MD_LINK, anchors, strip_code
+from extant.text import EXTERNAL, MD_LINK, strip_code
 
 __all__ = ["RULE", "check", "examined", "probe"]
 

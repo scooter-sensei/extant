@@ -600,15 +600,15 @@ def test_the_untrimmed_slug_contributes_only_what_trimming_loses() -> None:
     A check that another check silently covers is a check nobody is running,
     and the only way to hold this one is to state the contract.
     """
+    from extant import anchors
     from extant import session as hc
-    from extant import text
     # Nothing for trimming to lose, so it contributes nothing and cannot
     # substitute for `_slug`.
-    assert text._slug_keeping_edges("build.target") == ""
-    assert text._slug_keeping_edges("Plain heading") == ""
+    assert anchors._slug_keeping_edges("build.target") == ""
+    assert anchors._slug_keeping_edges("Plain heading") == ""
     # An emoji is dropped and the space after it still becomes a dash, which
     # trimming would remove. That spelling is this function's whole purpose.
-    assert text._slug_keeping_edges("\N{BRICK} Component structure") == (
+    assert anchors._slug_keeping_edges("\N{BRICK} Component structure") == (
         "-component-structure")
 
 

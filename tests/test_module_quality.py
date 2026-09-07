@@ -28,18 +28,24 @@ PACKAGE = PAYLOAD / "extant"
 # it on a hunch. Deleting that to fit a number would be the trade this project
 # least wants.
 #
-# Set at the new high-water mark rather than at a round number with headroom,
-# exactly as FUNCTION_CEILING below is, so it BINDS IMMEDIATELY: the next line
-# added to `text.py` fails this test again.
+# LOWERED TO 896 ON 2026-09-07, WHEN THE SPLIT THAT PARAGRAPH ASKED FOR
+# HAPPENED. The note here used to end by identifying the cut and saying it had
+# not been made; it was made rather than left describing itself as pending.
+# `text.py` answered four separable questions - what is code, what is prose,
+# what anchors a document offers, and where its lines break - and the third
+# left for `extant/anchors.py`: the machinery from `_heading_text` to
+# `_disambiguated`, plus the five private patterns only `anchors()` reads,
+# which had to travel with it because test_no_module_reaches_past_another_
+# modules_surface forbids importing them back. `text.py` went 923 -> 641.
 #
-# THE REAL FIX IS A SPLIT, and it is identified rather than deferred vaguely.
-# `text.py` answers four separable questions - what is code, what is prose,
-# what anchors a document offers, and where its lines break - and the anchor
-# and slug machinery from `_heading_text` to `_disambiguated` is about 240
-# self-contained lines with one caller, `rules/md_anchor.py`. That is the
-# module to cut out when the next change needs room; it was not done here
-# because a 240-line move is not part of fixing a false positive.
-CEILING = 923
+# The number follows the same rule it always has - the new high-water mark,
+# not a round number with headroom, so it BINDS IMMEDIATELY. That mark is now
+# `sweep.py` at 896, and the next line added to THAT module fails this test.
+# Lowering is as much a decision as raising and is argued for the same reason:
+# a split that leaves the old ceiling behind buys 287 lines of silent headroom
+# and quietly stops measuring anything, which is precisely the "one-time tidy
+# that resets the clock" this module's docstring exists to prevent.
+CEILING = 896
 
 # The module ceiling above measures FILES, and nothing measured FUNCTIONS -
 # which is exactly how `main()` reached 479 of cli.py's 749 lines while the

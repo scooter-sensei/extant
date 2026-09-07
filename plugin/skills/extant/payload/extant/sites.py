@@ -24,9 +24,10 @@ import re
 import subprocess
 from pathlib import Path
 
+from extant.anchors import anchors
 from extant.refs import tracked_markdown
 from extant.scope import Context
-from extant.text import ORDER_PREFIX, anchors, current_document
+from extant.text import ORDER_PREFIX, current_document
 
 __all__ = [
     "_ABSOLUTE", "_FILEISH", "_GLOBAL_ANCHOR_CONFIGS", "_PARTIAL_CONFIGS",

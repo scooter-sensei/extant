@@ -26,7 +26,7 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
-from extant.text import (                                   # noqa: E402
+from extant.anchors import (                                # noqa: E402
     _disambiguated, _heading_text, _slug, _slug_keeping_edges,
     _slug_punctuation_to_dash, _without_tags, anchors,
 )
