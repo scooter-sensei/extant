@@ -124,11 +124,38 @@ class Result:
         self.skipped = skipped
 
 
+# The shape `--sweep` prints when several findings are one defect:
+#
+#     [dead-sha] `abc1234` does not resolve   (2 occurrences in 1 document)
+#         NEXT_SESSION.md:3, 10
+#
+# There is no `line N:` anywhere in it, so the pattern above sees none of it -
+# and MODE-AGREE then reported that verify had "gained" two findings the sweep
+# had in fact reported, grouped. Every (path, line, kind, detail) the ungrouped
+# form carried is still present, spread over a header and one line per
+# document, so it is reconstructed rather than lost.
+#
+# The header's trailing count is anchored to the END of the line, because a
+# detail is arbitrary prose and a non-greedy match without an anchor would stop
+# at the first thing that looked like the suffix.
+GROUPED = re.compile(
+    r"^\[(?P<kind>[a-z-]+)\] (?P<detail>.*?)"
+    r"   \(\d+ occurrences in \d+ documents?\)$"
+    r"(?P<locations>(?:\n {4}\S[^\n]*)+)", re.M)
+_LOCATION = re.compile(r"^ {4}(?P<path>.+?):(?P<lines>\d+(?:, \d+)*)$", re.M)
+
+
 def findings_in(out: str):
     """Every finding in an output, as (path, line, kind, detail)."""
-    return {(m.group("path") or "", int(m.group("line")),
-             m.group("kind"), m.group("detail"))
-            for m in FINDING.finditer(out)}
+    found = {(m.group("path") or "", int(m.group("line")),
+              m.group("kind"), m.group("detail"))
+             for m in FINDING.finditer(out)}
+    for group in GROUPED.finditer(out):
+        kind, detail = group.group("kind"), group.group("detail")
+        for where in _LOCATION.finditer(group.group("locations")):
+            for number in where.group("lines").split(", "):
+                found.add((where.group("path"), int(number), kind, detail))
+    return found
 
 
 class DidNotRun(Exception):
