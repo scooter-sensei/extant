@@ -15,8 +15,10 @@ one breakage in `tests/harnesses/fuzz_selfcheck.py`, one CI step, one test, and
 the documents those made stale - counted in neither place, because a tally of
 its own diff is a claim that goes stale every time the diff grows, and this one
 already did twice. The tool remained released as 0.25.0 and this
-work sits above that tag, unreleased. No merge commit is named here because the
-entry was written before the merge.
+work sits above that tag, unreleased. Merged to `main` at `9bff36b`. The entry
+was written before that merge and said so rather than naming a commit that did
+not exist yet; it is recorded now that there is one to record, which is the
+only order in which this sentence can be true.
 
 **What it is.** `--self-check` builds one repository, breaks the payload once
 per property, and fails unless each property goes red. It reported 20 of 21,
