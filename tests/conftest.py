@@ -247,7 +247,14 @@ def committer(repo: Path) -> Callable[[str, str, str], str]:
 
 @pytest.fixture(scope="session")
 def empty_repo_template(tmp_path_factory) -> Path:
-    """The five git spawns every `git_repo` used to pay, paid once."""
+    """The three git spawns every `git_repo` used to pay, paid once.
+
+    THREE, matching `init_repo` and the measurement above it. This read "five"
+    while the comment 59 lines up said three and the function makes exactly
+    three calls - a count contradicted by its own file, which is the class of
+    claim no rule here can check and the reason the measurement is written out
+    rather than summarised.
+    """
     template = tmp_path_factory.mktemp("empty-repo-template") / "repo"
     init_repo(template)
     return template

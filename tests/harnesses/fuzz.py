@@ -2082,7 +2082,21 @@ def shrink(pkg: Path, arena: Path, plan: RepoPlan,
             return False
         budget[0] -= 1
         keep = {name for name, _ in subset}
-        dropped = [name for name, _ in items if name not in keep]
+        # AGAINST `plan.features`, NOT `items`, and the difference is the whole
+        # correctness of the reduction. `items` shrinks as ddmin succeeds while
+        # `plan` never does, so a `dropped` computed from `items` cannot name a
+        # feature an EARLIER round already eliminated - and `plan.without` then
+        # puts every one of them back. Round 1 is unaffected because `items` is
+        # still the full list; every round after the first reduction rebuilt a
+        # repository holding features it believed it had dropped. With
+        # `items = {c,d}` out of `{a,b,c,d}`, testing `{d}` built `{a,b,d}`.
+        #
+        # So the predicate answered about the wrong repository, and the feature
+        # set finally reported as a minimal reproduction was the one subset
+        # never actually built on its own - a shrinker reporting a result it
+        # had not tested, which is this project's recurring defect arriving in
+        # the machinery written to isolate it.
+        dropped = [name for name, _ in plan.features if name not in keep]
         answer = _still_fails(pkg, arena, plan.without(dropped),
                               signature)
         if answer is None:

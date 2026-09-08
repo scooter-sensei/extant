@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+Nothing here changes the tool: no rule, no flag, no default, no exit code, and
+no file under `payload/`. 0.26.0's artifact is unaffected.
+
+The fuzz harness's shrinker reported feature sets it had never built. ddmin
+computed which features to drop from the survivors rather than from the plan,
+so a feature eliminated in an earlier round could not appear in the drop list
+and was put straight back - every round after the first reduction judged a
+repository holding features it believed it had dropped. Against a violation
+needing any two of four features it answered one, which cannot reproduce it.
+The driver's own `--save` reconstruction had the correct form all along, so the
+recipe on disk was the honest minimal plan while the verdict came from a larger
+one.
+
+Shrinking runs only on a violation, so no green run reaches it and neither the
+suite nor the mutation campaign nor the self-check could have caught this. A
+test now substitutes the predicate and asserts the invariant - whatever the
+reduction reports must reproduce.
+
+Also a test that could not fail, and one count contradicted by its own file.
+`test_fingerprint_ignores_the_stratum` compared a pure function against itself
+and now forbids a `stratum` field on `Finding`, which is the only way one could
+reach a fingerprint keyed on (path, kind, detail). A `conftest.py` docstring
+claimed the repository fixture saves five git spawns where it saves three.
+
 ## 0.26.0 (2026-09-08)
 
 One flag, `--wide-docs`, the false positive that a wider document set went and

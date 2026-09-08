@@ -916,3 +916,52 @@ def test_relax_leaves_a_symlink_alone(tmp_path, monkeypatch):
                             "chmod reached through a symlink"))
 
     fuzz._relax(target, stat.S_IRWXU)
+
+
+def test_shrink_reports_a_feature_set_that_actually_reproduces(monkeypatch):
+    """ddmin reduced against the survivors instead of against the plan.
+
+    `items` shrinks as ddmin succeeds while `plan` never does, so a `dropped`
+    computed from `items` cannot name a feature an EARLIER round eliminated -
+    and `plan.without` then puts every one of them back. Round 1 is unaffected
+    because `items` is still the full list; every round after the first
+    reduction rebuilt a repository holding features it believed it had
+    dropped, so the predicate answered about the wrong repository.
+
+    THE ASSERTION IS THE INVARIANT, not a specific answer. A shrinker may
+    legitimately stop early - `SHRINK_CEILING`, an unbuildable subset - so
+    "reduced to exactly these two" is a fact about this predicate rather than
+    about ddmin. What must hold whatever it returns is that the thing it
+    reports REPRODUCES, and that is what the old code broke: it reported a
+    single feature where the violation needs two, having never built that
+    subset on its own.
+
+    Substitutes the predicate rather than building repositories, so this costs
+    nothing and pins the reduction rather than the generator. Watched failing
+    against the old formulation before it was written.
+    """
+    fuzz = _rmtree_helpers()
+
+    features = tuple((name, "both")
+                     for name in ("alpha", "beta", "gamma", "delta"))
+    plan = fuzz.RepoPlan(repo_seed=1, index=0, state="attached",
+                         mode=("--verify",), features=features, axes=(),
+                         payload="x")
+
+    # Monotone and deliberately not keyed on a NAME: the violation needs any
+    # two features at once. The full set reproduces, so the baseline holds and
+    # the reduction is the part under test.
+    def reproduces(pkg, arena, candidate, signature):
+        return len(candidate.features) >= 2
+
+    monkeypatch.setattr(fuzz, "_still_fails", reproduces)
+    reduced = fuzz.shrink(Path("."), Path("."), plan, ("PROPERTY", ""))[0]
+
+    # Rebuilt through `RepoPlan.without`, the same call the shrinker makes, so
+    # the plan judged here is the one shrinking claims to have judged.
+    kept = {name for name, _ in reduced}
+    candidate = plan.without([name for name, _ in features if name not in kept])
+    assert reproduces(None, None, candidate, None), (
+        f"shrink reported {sorted(kept)}, which does not reproduce the "
+        f"violation it was called to reduce"
+    )

@@ -51,6 +51,8 @@ def test_order_lists_every_stratum_once_in_precedence_order():
     assert len(set(ORDER)) == len(ORDER)
 
 
+import dataclasses
+
 from extant.finding import Finding, Located
 from extant.report import fingerprint
 
@@ -73,13 +75,38 @@ def test_fingerprint_ignores_the_stratum():
 
     This asserts the INVARIANT rather than a hard-coded digest, which would
     have to be edited whenever the hash changed for a legitimate reason.
+
+    THE FIRST VERSION OF THIS TEST COULD NOT FAIL. It called `fingerprint`
+    twice with identical literal arguments and constructed a `Located` between
+    the two calls that it then discarded, so it asserted that a pure function
+    is deterministic - true whether or not the stratum is in the fingerprint,
+    and true if `stratum` were moved onto `Finding` tomorrow. A check nobody
+    can watch fail is a hypothesis, which is the rule this repository applies
+    to its own mutations and properties and had not applied here.
+
+    THE FIELDS ASSERTION IS THE ONE THAT BINDS, and saying so is the point of
+    this paragraph. `fingerprint` takes (path, kind, detail) by signature, so
+    the only route a stratum could reach it is a field on `Finding` - which is
+    what the first assertion forbids and what was watched failing. The pair
+    below it is documentation rather than a check: both `Located` carry equal
+    values for all three arguments, so their fingerprints agree by
+    construction. It is kept because it states the intent the field check
+    enforces, and it is labelled rather than left to look like evidence.
     """
     detail = "links to `gone.md`, which does not exist"
-    before = fingerprint("CHANGELOG.md", "dead-md-link", detail)
-    Located("CHANGELOG.md", Finding(1, "dead-md-link", detail),
-            primary=False, stratum="historical-record")
-    after = fingerprint("CHANGELOG.md", "dead-md-link", detail)
-    assert before == after
+    assert "stratum" not in {f.name for f in dataclasses.fields(Finding)}, (
+        "the baseline fingerprint keys on Finding; a stratum field here would "
+        "silently re-raise every finding a project had already accepted"
+    )
+    historical = Located("CHANGELOG.md", Finding(1, "dead-md-link", detail),
+                         primary=False, stratum="historical-record")
+    ordinary = Located("CHANGELOG.md", Finding(1, "dead-md-link", detail),
+                       primary=False, stratum="ordinary")
+    assert historical.stratum != ordinary.stratum
+    assert (fingerprint(historical.path, historical.finding.kind,
+                        historical.finding.detail)
+            == fingerprint(ordinary.path, ordinary.finding.kind,
+                           ordinary.finding.detail))
 
 
 import json

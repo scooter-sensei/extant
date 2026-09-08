@@ -627,6 +627,31 @@ It runs only on a violation, and only on the deterministic properties;
 `UNSTABLE` exists because a run disagreed with itself, so bisecting on it would
 follow noise and report a minimal set that reproduces nothing.
 
+**It reported one anyway, and the sentence above named the failure without
+noticing it had already happened.** Present since ddmin arrived here, and in
+exactly one release; the entry in `NEXT_SESSION.md` names the commit, which is
+deliberate - this file cites no SHA, and the first one would cost a whole
+`cat-file --batch-check` on every `--verify` the post-commit hook runs. The
+reduction computed
+which features to drop from the SURVIVORS rather than from the plan. `items`
+shrinks as ddmin succeeds while the plan never does, so a feature eliminated in
+an earlier round could not appear in the drop list and `plan.without` put it
+straight back. Round 1 was unaffected, because `items` is still the full list;
+every round after the first reduction judged a repository holding features it
+believed it had dropped. Against a violation needing any two of four features,
+it answered `delta` - one feature, which cannot reproduce a violation that
+needs two, and which it had never built on its own.
+
+The driver had it right on the other side of the same call: the `--save`
+recipe is rebuilt with `repo_plan.without(... not in smaller)`, against the
+plan. So the recipe written to disk was the honest minimal plan while the
+verdict that produced it came from a larger one, and the two never had to
+agree. Nothing here runs the shrinker on a green corpus - it needs a violation
+and there are none - so
+`test_shrink_reports_a_feature_set_that_actually_reproduces` substitutes the
+predicate and asserts the invariant instead: whatever it reports must
+reproduce.
+
 **Metamorphic oracles.** `tests/harnesses/fuzz_oracles.py` compares extant
 against itself under changes that must not matter: junk inside a code fence, a
 line inserted at the top, LF rewritten to CRLF, the document under another

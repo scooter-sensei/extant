@@ -6,6 +6,70 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 34 - A shrinker that reported what it had not built (unreleased, 2026-09-08)
+
+**Status.** Suite is 1,036 tests across 62 files: 1,034 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
+moves no exit code. Nothing in the shipped payload changed, so 0.26.0's
+artifact is unaffected and there is nothing to re-release. The tool remained
+released as 0.26.0 and this work sits above that tag, unreleased.
+
+**What it is.** An external review over the whole released range - 81 commits
+since the 0.25.0 tag - reported five findings. Two carried no description and
+could not be assessed, and are recorded here rather than quietly dropped.
+Three were verified against the code and fixed.
+
+**The shrinker reduced against the survivors instead of against the plan.**
+`items` shrinks as ddmin succeeds while the plan never does, so a `dropped`
+computed from `items` could not name a feature an earlier round had
+eliminated, and `plan.without` put every one of them straight back. Round 1 was
+unaffected because `items` is still the full list; every round after the first
+reduction judged a repository holding features it believed it had dropped.
+
+**Its consequence is worse than judging the wrong repository, and measuring it
+is what showed that.** The first probe reduced correctly under both
+formulations, which would have read as a cosmetic difference. Against a
+violation needing any TWO of four features it answers `delta` - one feature,
+which cannot reproduce a violation that needs two, and which it had never built
+on its own. So the failure is a shrinker reporting a minimal reproduction that
+does not reproduce, which is this project's recurring defect arriving in the
+machinery built to isolate it. Present since `a72e398` introduced ddmin here,
+and in exactly one release.
+
+**The driver had it right on the other side of the same call**, which is why
+nothing diverged visibly: the `--save` recipe is rebuilt against
+`repo_plan.features`, so the recipe written to disk was the honest minimal plan
+while the verdict that produced it came from a larger one. Two formulations of
+one question, and only one of them was ever read.
+
+**Nothing exercised it, and nothing could.** Shrinking runs only on a property
+violation and there are none, so no green run reaches that code - which is how
+it survived the suite, five CI jobs, 165 mutations and a 21-of-21 self-check.
+`test_shrink_reports_a_feature_set_that_actually_reproduces` substitutes the
+predicate rather than building repositories and asserts the INVARIANT, because
+a ceiling or an unbuildable subset can legitimately stop the reduction early:
+whatever it reports must reproduce. Watched failing against the old
+formulation, which reports `['delta']`.
+
+**A test that could not fail, and a count contradicted by its own file.**
+`test_fingerprint_ignores_the_stratum` called `fingerprint` twice with
+identical literal arguments and discarded the `Located` it built between them,
+so it asserted that a pure function is deterministic - passing whether or not
+the stratum is in the fingerprint. It now forbids a `stratum` field on
+`Finding`, which is the only route one could reach a signature taking
+(path, kind, detail), and that assertion was watched failing. A `conftest.py`
+docstring said the fixture saves five git spawns where `init_repo` makes three
+and the comment 59 lines above it says three.
+
+**What the gap audit on this work found**, which is the part worth keeping.
+Two defects, both in what was written to explain the fix rather than in the
+fix. The note added to the harness README claimed the defect had shipped in
+eight releases; asking git says one, and a fabricated count in the file that
+argues against fabricated counts is worse than none. And the strengthened
+strata test still ends in a comparison that agrees by construction - kept,
+because it states the intent, but labelled as documentation rather than left
+to look like a second check.
+
 ## Phase 33 - The property that could not be made to fire (shipped, 2026-09-08)
 
 **Status.** Suite is 1,035 tests across 62 files: 1,033 passing and 2 skipped.
