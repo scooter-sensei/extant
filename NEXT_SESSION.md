@@ -6,6 +6,112 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 33 - The property that could not be made to fire (unreleased, 2026-09-08)
+
+**Status.** Suite is 1,035 tests across 62 files: 1,033 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
+moves no exit code. Nothing in the shipped payload changed: the whole diff is
+one breakage in `tests/harnesses/fuzz_selfcheck.py`, one CI step, one test, and
+the documents those made stale - counted in neither place, because a tally of
+its own diff is a claim that goes stale every time the diff grows, and this one
+already did twice. The tool remained released as 0.25.0 and this
+work sits above that tag, unreleased. No merge commit is named here because the
+entry was written before the merge.
+
+**What it is.** `--self-check` builds one repository, breaks the payload once
+per property, and fails unless each property goes red. It reported 20 of 21,
+and `AXIS` was the holdout. It now reports 21 of 21.
+
+**The reference section below already said 21 of 21.** It had said so for four
+days while the harness said otherwise, and nothing here could have known: a
+count is the class of claim this tool refuses to check, because it was true
+when written and there is nothing to compare it against. The fix made an
+existing sentence true rather than requiring one to be corrected, which is the
+only reason that goes unremarked.
+
+**The breakage matched, applied, and reached nothing.** `AXIS` is provoked by
+making a TRUE claim be reported dead, and the claim its axis writes is about an
+annotated tag. `dead-release-tag` settles that through `integrated_by`, then
+`reachable_from`, then `resolve_ref` - so the breakage edited the `^{commit}`
+in `resolve_ref`, whose own docstring says that dropping it yields a tag
+object's SHA appearing in no rev-list. That is correct reasoning about a line
+which had stopped executing: `resolve_ref` consults the ref table first, and
+the table is peeled already, so the fallback the breakage rewrote was never
+reached.
+
+**The two sites swapped roles, and that is the part worth keeping.** This
+breakage began at `ref_table`, was found to change nothing, and was moved to
+`resolve_ref` in `8b24700` - correctly at the time, because a qualified
+`refs/tags/` spelling missed a table keyed by short name and fell through to
+the spawn. Three days later `dccb9e0` added `_from_table`, which strips that
+prefix before looking up. The table began to answer, the fallback went cold,
+and the live site moved back to exactly where the breakage had been taken from.
+A performance change disarmed a gate in a file it did not touch.
+
+**An anchor that MATCHES is not a breakage that BITES.** `mutate.py` carries
+the same distinction and settles it by running the campaign for real; this
+harness has no equivalent, and `--check-only` polices a different anchor set,
+so the only reader of this one was whoever ran `--self-check` by hand. That is
+why nothing reported it: the mode ran nowhere in CI, so a gate went quiet for
+four days with every job green over it. It now runs as the last step of the
+`self-check` job, beside the `--check-only` whose question it shares - the
+cheapest place to put it, since that job already holds the checks pytest
+cannot carry.
+
+**What it is now.** The peel in `ref_table` itself, reduced to the unpeeled
+object. Only annotated tags move: for a branch and for a lightweight tag the
+peeled field is empty, so the value is unchanged and the table is identical.
+The breakage reaches the one shape the axis builds and nothing else, which is
+narrower than breaking branch resolution instead - that reaches the same row by
+taking three rules down at once, for a reason having nothing to do with a tag.
+
+**Measured on a purpose-built repository before the harness was trusted.** One
+commit, one annotated tag, one true release claim, the payload run twice.
+Clean: the rule examines the claim and reports nothing. Broken: it reports the
+tag as being on no integration branch - the false positive the breakage's own
+sentence describes, and which nothing had ever shown it could produce.
+
+**The document holding the count was read by nothing.**
+`tests/harnesses/README.md` said "19 of 19 properties are observed going red"
+while the harness watched 21 and could provoke 20, and said three breakages
+were contrived where four are. Both numbers had been wrong for some time and
+neither could fail: no test opened that file, and a count is the claim this
+tool refuses on purpose. `test_docs_match_code.py` now reads both against the
+harness's own lists. The assertions are two-sided, because the failure worth
+guarding against is not a wrong number but a reworded sentence that matches
+nothing and reports the silence of a passing check - so all three spellings
+were broken in turn and each was watched going red before this was believed.
+
+**It is on the pre-push list now, not only in CI.** The case for leaving it off
+was that CI covers it. The case against is the one that list already makes
+about the three harnesses on it: skipping a gate locally does not skip it, it
+moves the failure to after the push. The full list has now been run in its
+documented order against one shared `$ARENA`, which is what turns the arena it
+borrows from the harnesses above it into a measured claim rather than an
+assumption.
+
+**The whole mutation set was run for real, not merely checked.**
+`--check-only` says an anchor matches and never that it is caught, which is the
+distinction this entry is about, so leaving 164 anchors on the weaker verdict
+would have been the same mistake one level along. All 165 were run against a
+copy carrying this diff: **165 killed, 0 SURVIVED, 0 not applied**, source
+restored clean. Nothing in that set has the defect `AXIS` had.
+
+**It cost 5h53m, and the documented half hour was twelve times optimistic.**
+The drift is mechanical rather than careless: `pytest -x` stops at the first
+failing test, so a mutation killed late costs most of a suite run, and both the
+mutation count and the suite have grown since the figure was written. It is
+recorded once now, in the harness README, and the four other places that
+quoted it say "hours" - the same reasoning as the diff tally above, applied to
+somebody else's number instead of my own.
+
+**Gate.** The suite, all 165 mutation anchors matching exactly once and all 165
+killed when run, `smoke`, `scenarios`, `fuzz` at the fixed seed over 35
+repositories with 0 property violations, `--verify` clean, `--selftest` with
+nothing silent, and `--self-check` at 21 of 21 - every one of them against an
+extract built from the working tree rather than from `HEAD`, because an
+extract of `HEAD` cannot contain the change being gated.
+
 ## Phase 32 - One entry per defect, and the module that made room (unreleased, 2026-09-07)
 
 **Status.** Suite is 1,030 tests across 62 files: 1,029 passing and 1 skipped.
