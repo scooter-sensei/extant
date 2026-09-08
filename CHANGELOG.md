@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.26.0 (2026-09-08)
 
 One flag, `--wide-docs`, the false positive that a wider document set went and
 found, and the answer to the noise it makes: a survey reports one entry per
