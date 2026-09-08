@@ -424,6 +424,33 @@ Windows was supposed to cost more than the spawns it saves. It is still not
 what is used, because copying is faster again and removes the last spawn too -
 but a claim that did not reproduce is corrected here rather than repeated.
 
+### Also
+
+Nothing in this section changes the tool. The fuzz harness reported one of its
+21 properties as watched while it could not be made to fire: the breakage for
+`AXIS` pointed at a fallback in `resolve_ref` that stopped being reached when
+the ref table began answering qualified tag lookups directly, so the anchor
+went on matching a line nothing executed. It is aimed at the peel itself now,
+and all 21 properties are observed going red.
+
+`fuzz.py --self-check` runs in CI as a result, as the last step of the
+self-check job, and is on the pre-push list beside the three harnesses that
+were already gates. It ran nowhere before, which is why four days passed with
+every job green over a gate that had gone quiet.
+
+Documentation was corrected in three files. The harness README reported 19 of
+19 properties observed and three contrived breakages, where the answers are 21
+and four; both numbers are now checked by the suite against the harness's own
+lists, because nothing had ever read that file and a count is the one claim
+this tool deliberately refuses.
+
+The mutation campaign was run in full rather than only `--check-only`'d, since
+that flag reports whether an anchor matches and not whether it is caught: 165
+killed, 0 survived. It took 5h53m, so the "half an hour" the docs quoted in
+five places is corrected to hours, measured once and referred to everywhere
+else - `pytest -x` stops at the first failing test, and a mutation killed late
+now costs most of a run against a suite that has grown past a thousand tests.
+
 ## 0.25.0 (2026-08-31)
 
 Four features, and the one that matters most is not a new rule: **a dead SHA

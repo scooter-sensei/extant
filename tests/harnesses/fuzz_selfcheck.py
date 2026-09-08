@@ -181,21 +181,35 @@ BREAKAGES = (
         why="an annotated tag no longer peeled to its commit, so a tag that "
             "exists and is merged reads as one on no integration branch - a "
             "false positive on the most ordinary tag shape there is",
-        # `^{commit}` in `resolve_ref`, whose own docstring says what dropping
-        # it does: "without it a tag object's own SHA is returned and never
-        # appears in any rev-list".
+        # `%(*objectname)` in `ref_table`, whose own docstring says what
+        # dropping it does: "without it an annotated tag yields the tag
+        # object's own SHA, which appears in no rev-list". `peeled` is that
+        # field, so `commit = obj` records the tag OBJECT for `v1.0`,
+        # `reachable_from` looks it up in a rev-list of commits, misses, and
+        # the true `tagged at v1.0` claim is reported as a dead release tag.
         #
-        # THE FIRST ATTEMPT TARGETED `ref_table` INSTEAD - `commit = peeled or
-        # obj`, which peels annotated tags there and reads like the obvious
-        # site. It applied cleanly, matched exactly once, and changed NOTHING:
-        # `ref_table` keys tags by SHORT name, and this rule asks about
-        # `refs/tags/v1.0`, which misses that table entirely and falls through
-        # to the `rev-parse` below. So the property read as unobservable when
-        # the BREAKAGE was aimed at a path the rule does not take - the same
-        # mistake Stage 5 made twice and wrote down both times.
+        # ONLY ANNOTATED TAGS MOVE, which is why this site rather than a
+        # coarser one: for a branch and for a lightweight tag `peeled` is
+        # empty, so `peeled or obj` and `obj` are the same value and the table
+        # is unchanged. The breakage reaches exactly the shape the axis builds.
+        #
+        # THE TWO SITES SWAPPED ROLES, AND THAT IS THE LESSON HERE. This
+        # breakage started at `ref_table`, was found to change nothing, and was
+        # moved to the `rev-parse ... ^{commit}` fallback in `resolve_ref` in
+        # 8b24700 (2026-09-01) - correctly, at the time: `refs/tags/v1.0`
+        # missed the table, which keys tags by SHORT name, and fell through to
+        # that spawn. Then dccb9e0 (2026-09-04) added `_from_table`, which
+        # strips the `refs/tags/` prefix before looking up - the table now HITS
+        # for this rule, already peeled, and the fallback the breakage edits is
+        # never reached. So the anchor still matched, still applied, and had
+        # been inert since the day the performance fix landed.
+        #
+        # An anchor that MATCHES is not a breakage that BITES - the same
+        # distinction `mutate.py --check-only` carries, and the reason this
+        # harness reports NOT OBSERVED rather than trusting a clean apply.
         edits=(("extant/refs.py",
-                '                                   f"{ref}^{{commit}}").strip() or None',
-                '                                   f"{ref}").strip() or None'),),
+                "            commit = peeled or obj",
+                "            commit = obj"),),
     ),
 
     # --- the document scanners ----------------------------------------

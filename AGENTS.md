@@ -64,7 +64,9 @@ and that is the check to repeat if this ever flakes.
 
 The suite is not the whole gate, and treating it as one is how this repository
 gets a red `main`. Three of the audits under `tests/harnesses/` run as their
-own CI jobs precisely because pytest structurally cannot perform them:
+own CI jobs precisely because pytest structurally cannot perform them, and
+`fuzz.py --self-check` runs as a step of the self-check job for the same
+reason:
 
 ```sh
 PKG=$(mktemp -d); ARENA=$(mktemp -d)
@@ -74,9 +76,15 @@ git archive HEAD | tar -x -C "$PKG"
 python tests/harnesses/smoke.py "$PKG" "$ARENA"
 python tests/harnesses/scenarios.py "$PKG" "$ARENA"
 python tests/harnesses/fuzz.py "$PKG" "$ARENA" --seed 20260824 --repos 35
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --self-check
 python plugin/skills/extant/payload/extant_collect.py --verify --repo .
 python plugin/skills/extant/payload/extant_collect.py --selftest --repo .
 ```
+
+`--self-check` takes no seed: it builds ONE repository from a seed fixed in the
+harness, so a seed passed here is accepted and ignored. It shares `$ARENA` with
+the three harnesses above, which is measured rather than assumed - the whole
+list has been run in this order against one arena.
 
 On Windows use a native path for those two directories rather than `mktemp -d`,
 whose MSYS-style result Python cannot open - it reports an empty run, which
@@ -292,7 +300,7 @@ only the author knows which two strings name one fact.
 | `plugin/skills/extant/payload/extant_collect.py` | the entry point the hook invokes by path; a version handshake and one import |
 | `plugin/skills/extant/install.py` | the installer, detection and presets |
 | `plugin/skills/extant/references/design.md` | why each rule works as it does |
-| `tests/harnesses/` | the audits pytest cannot perform. `scenarios.py`, `smoke.py` and `fuzz.py` are their own CI jobs; `mutate.py` runs there as `--check-only`; `corpus.py`, `perf.py` and `stress.py` are hand-run |
+| `tests/harnesses/` | the audits pytest cannot perform. `scenarios.py`, `smoke.py` and `fuzz.py` are their own CI jobs; the self-check job runs `mutate.py --check-only` and `fuzz.py --self-check`; `corpus.py`, `perf.py` and `stress.py` are hand-run |
 | `CONTRIBUTING.md` | the same rules, aimed at people |
 
 Read `plugin/skills/extant/references/design.md` before changing a rule. It
