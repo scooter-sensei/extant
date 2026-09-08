@@ -6,7 +6,7 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 33 - The property that could not be made to fire (unreleased, 2026-09-08)
+## Phase 33 - The property that could not be made to fire (shipped, 2026-09-08)
 
 **Status.** Suite is 1,035 tests across 62 files: 1,033 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
@@ -14,11 +14,14 @@ moves no exit code. Nothing in the shipped payload changed: the whole diff is
 one breakage in `tests/harnesses/fuzz_selfcheck.py`, one CI step, one test, and
 the documents those made stale - counted in neither place, because a tally of
 its own diff is a claim that goes stale every time the diff grows, and this one
-already did twice. The tool remained released as 0.25.0 and this
-work sits above that tag, unreleased. Merged to `main` at `9bff36b`. The entry
-was written before that merge and said so rather than naming a commit that did
-not exist yet; it is recorded now that there is one to record, which is the
-only order in which this sentence can be true.
+already did twice. This work shipped in 0.26.0, and is merged to `main` at
+`9bff36b`. Neither was named when the entry was written, and for the same
+reason in both directions: a commit that does not exist yet cannot be cited,
+and `release_claims_name_our_tags` is on, so a version written ahead of its tag
+is a dead release tag that fails the very CI run the release waits for. Both
+are recorded now that there is something to record, which is the only order in
+which this sentence can be true. Phases 27 through 32 carry the same version
+for the same release.
 
 **What it is.** `--self-check` builds one repository, breaks the payload once
 per property, and fails unless each property goes red. It reported 20 of 21,
@@ -114,12 +117,11 @@ nothing silent, and `--self-check` at 21 of 21 - every one of them against an
 extract built from the working tree rather than from `HEAD`, because an
 extract of `HEAD` cannot contain the change being gated.
 
-## Phase 32 - One entry per defect, and the module that made room (unreleased, 2026-09-07)
+## Phase 32 - One entry per defect, and the module that made room (shipped, 2026-09-07)
 
 **Status.** Suite is 1,030 tests across 62 files: 1,029 passing and 1 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
-moves no exit code. The tool remained released as 0.25.0 and this work sits
-above that tag, unreleased. No merge commit is named here because the entry was
+moves no exit code. This work shipped in 0.26.0. No merge commit is named here because the entry was
 written before the merge.
 
 **What it is.** A page that exists in four languages carries one dead link four
@@ -198,12 +200,11 @@ previous commit and at the working tree and diffing BOTH streams. The guard is
 now explicit and tested, and the lesson is the older one restated: a green gate
 says no check failed, never that the output is what it should be.
 
-## Phase 31 - A report whose numbers cannot go stale quietly (unreleased, 2026-09-07)
+## Phase 31 - A report whose numbers cannot go stale quietly (shipped, 2026-09-07)
 
 **Status.** Suite is 1,007 tests across 61 files: 1,006 passing and 1 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
-moves no exit code. The tool remained released as 0.25.0 and this work sits
-above that tag, unreleased. Merged to `main` at `15368f9`. This entry was
+moves no exit code. This work shipped in 0.26.0. Merged to `main` at `15368f9`. This entry was
 written before that merge and said so rather than guessing; the commit is
 recorded here now that there is one to record, which is the whole point of
 having left the sentence unfinished.
@@ -253,12 +254,11 @@ recorded. The gate was re-run after rebasing onto the merged trunk rather than
 before it: the suite, `--verify` clean, and all 165 mutation anchors matching
 exactly once.
 
-## Phase 30 - A document set wide enough to find something, and the false positive that came with it (unreleased, 2026-09-06)
+## Phase 30 - A document set wide enough to find something, and the false positive that came with it (shipped, 2026-09-06)
 
 **Status.** Suite is 1,002 tests across 60 files: 1,001 passing and 1 skipped.
 Thirteen rules, unchanged - nothing here adds one. One flag is added,
-`--wide-docs`, and one suppression is widened. The tool remained released as
-0.25.0 and this work sits above that tag, unreleased. Merged to `main` at
+`--wide-docs`, and one suppression is widened. This work shipped in 0.26.0. Merged to `main` at
 `e505b68`, with all fifteen CI jobs green on the merge commit as well as on the
 branch - the merge commit is its own thing and deserved its own verdict.
 
@@ -327,12 +327,11 @@ answer CI gets. The enumerated document set was checked against
 `coverage_policy.select` path-for-path on all 50 benchmark repositories, which
 is the only thing that would notice the SET changing while the counts agreed.
 
-## Phase 29 - The line that decoded somewhere nobody named (unreleased, 2026-09-04)
+## Phase 29 - The line that decoded somewhere nobody named (shipped, 2026-09-04)
 
 **Status.** Suite is 846 tests across 53 files: 845 passing and 1 skipped.
 Thirteen rules, unchanged - nothing here adds one, widens a pattern or moves an
-exit code. The tool remained released as 0.25.0 and this work sits above that
-tag, unreleased and not yet on the trunk.
+exit code. This work shipped in 0.26.0.
 
 **What started it.** A code-quality review of the whole package rather than a
 reported failure, which is worth saying because it changes what the numbers
@@ -423,12 +422,11 @@ per repository: 614 findings and 858 denominators on the table, and no
 difference. It is the only oracle here that notices a rule going quiet, which
 is the risk this change carried.
 
-## Phase 28 - The 92 per cent of a first run that nobody would act on (unreleased, 2026-09-03)
+## Phase 28 - The 92 per cent of a first run that nobody would act on (shipped, 2026-09-03)
 
 **Status.** Suite is 837 tests across 52 files: 836 passing and 1 skipped.
 Thirteen rules, unchanged - nothing here adds one, widens a pattern or moves an
-exit code. The tool remained released as 0.25.0 and everything in this stretch
-sits above that tag, unreleased. Merged to `main` at `7619935`.
+exit code. This work shipped in 0.26.0. Merged to `main` at `7619935`.
 
 **What started it.** A measured gap, not a hunch. A first `--sweep` over 50
 pinned public repositories prints 54,790 findings, and 4,431 of them are in
@@ -553,11 +551,10 @@ property violations with 13 of 13 rules reached and 6 of 6 axes confirmed;
 `--verify` exit 0 both here and against a clone; `--selftest` 7 fired and 0
 stayed silent.
 
-## Phase 27 - Six stages of fuzzer, and the same defect inside every one of them (unreleased, 2026-09-02)
+## Phase 27 - Six stages of fuzzer, and the same defect inside every one of them (shipped, 2026-09-02)
 
 **Status.** Suite is 806 tests across 51 files, all passing. Thirteen rules,
-unchanged: nothing in this stretch adds one. The tool remained released as
-0.25.0 and everything here sits above that tag, unreleased. Merged to `main` at
+unchanged: nothing in this stretch adds one. This work shipped in 0.26.0. Merged to `main` at
 `0a5167d`. The harness is twelve files under `tests/harnesses/`, and taken
 together they are now larger than the package they test - 11,757 lines against
 10,580. The fuzzer is half of that on its own.
