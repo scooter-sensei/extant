@@ -181,7 +181,10 @@ line, and the kind no rule here can catch, because no rule inspects a number.
 **Three of them are gates, not extras.** `smoke.py`, `scenarios.py` and
 `fuzz.py` are their own CI jobs, so skipping them locally does not skip them -
 it moves the failure to after the push. `fuzz.py` runs there on a fixed seed, so
-a red job names the commit that caused it rather than the corpus the day drew.
+a red job names the commit that caused it rather than the corpus the day drew,
+and its `--self-check` mode runs in the self-check job beside the mutation
+anchors, for the reason that mode exists: an anchor that matches is not a
+breakage that bites, and only running it says which.
 AGENTS.md carries the full pre-push list and the run that proved it was needed.
 
 **Run this before committing any change to `payload/` or `install.py`:**
@@ -210,7 +213,8 @@ one still surviving. Retargeting an anchor without running it is not a repair:
 
     python tests/harnesses/mutate.py --only "the label you just moved"
 
-That is one suite run per mutation, not half an hour, and it is the difference
+That is one suite run per mutation, not the hours a whole campaign costs,
+and it is the difference
 between an anchor that points at code and one that probes it.
 
 **Assert the thing that matters, not the aggregate that contains it.** A test
@@ -325,10 +329,11 @@ is cheaper before the tag exists than after, since the tag is what triggers the
 attempt.
 
 A green `pytest -q` is not the same signal. **The self-check job runs steps the
-suite does not**, deliberately: `mutate.py --check-only`, `--selftest`, and a
-timing run all live in CI because they are too slow, too platform-specific, or
-too self-referential for pytest to carry. Whatever passed locally, the question
-before tagging is what the runner said about that SHA.
+suite does not**, deliberately: `mutate.py --check-only`, `--selftest`,
+`fuzz.py --self-check` and a timing run all live in CI because they are too
+slow, too platform-specific, or too self-referential for pytest to carry.
+Whatever passed locally, the question before tagging is what the runner said
+about that SHA.
 
 **Then create the tag, and confirm it exists before you stop.** Bumping the
 `rev:` in the README is a promise that the tag is there; 0.10.0 was bumped,

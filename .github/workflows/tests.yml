@@ -278,3 +278,39 @@ jobs:
       # real claim per rule and fails if any rule stays silent.
       - name: Probe every rule against that document
         run: python plugin/skills/extant/payload/extant_collect.py --selftest --repo .
+
+      # The same question as the step above, one level up: --selftest asks
+      # whether the RULES would notice, and this asks whether the FUZZER
+      # would. It breaks the payload once per property and fails unless each
+      # property goes red.
+      #
+      # IN THIS JOB rather than in `fuzz`, because it shares the question
+      # `mutate.py --check-only` above asks. That step exists because a
+      # mutation rots alongside the code it names; a breakage rots the same
+      # way, and there is no --check-only for these - an anchor that MATCHES
+      # is not a breakage that BITES, and only running it says which.
+      #
+      # AND BECAUSE NOTHING RAN IT. `AXIS` was aimed at a fallback in
+      # `resolve_ref` that stopped being reached when `_from_table` began
+      # answering from the ref table. The anchor still matched, so the harness
+      # reported the property as watched while it could not fire, and all five
+      # jobs stayed green over it. No job could have caught that, because this
+      # mode ran nowhere in CI.
+      #
+      # LAST, because it is the slowest step here by an order of magnitude and
+      # every cheaper diagnostic above should report before it starts. Exits 1
+      # while any property is unconfirmed and 2 on a harness fault - a stale
+      # anchor or a repository that would not build - which is the harness
+      # reporting itself broken rather than the tool clean.
+      #
+      # An extract and an arena for the reason the `fuzz` job needs them: it
+      # edits the installed `tools/` of a repository it generates, and reads
+      # `git archive` rather than the working tree so no untracked local file
+      # can make it pass. No --seed, deliberately: this mode builds ONE
+      # repository from a seed fixed in the harness, so a seed here would
+      # be accepted and ignored.
+      - name: Can every fuzz property still be provoked?
+        run: |
+          mkdir -p /tmp/scpkg
+          git archive HEAD | tar -x -C /tmp/scpkg
+          python tests/harnesses/fuzz.py /tmp/scpkg /tmp/scarena --self-check
