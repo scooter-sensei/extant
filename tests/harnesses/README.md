@@ -43,8 +43,15 @@ So those two stay hand-run, and CI takes the one measurement that needs no
 threshold: it prints the median `--verify` time as an annotation, where a human
 reading a PR sees it and nothing fails on it.
 
-`mutate.py` sits between the two. The full campaign is half an hour, far too
-slow per commit, but `--check-only` asks a verdict question in under a second:
+`mutate.py` sits between the two. The full campaign is HOURS - 165 mutations
+took 5h53m here, an average of 128 seconds each, measured on Windows against a
+1,035-test suite. It read "half an hour" for a long time, and the drift is
+mechanical rather than careless: `pytest -x` stops at the first failing test,
+so a mutation killed late costs most of a suite run, and both the mutation
+count and the suite have grown since. The figure lives here alone and the
+other mentions say "hours", because a number repeated in five places is a
+number that goes stale in four of them. Far too slow per commit, but
+`--check-only` asks a verdict question in under a second:
 does every mutation still match the code it names? That catches mutation rot
 at the commit causing it, which is how it is in CI while the campaign is not.
 
@@ -133,7 +140,7 @@ any change to the code it targets, and repair what it reports.
 
 `--check-only` re-verifies every mutation against the current source in
 seconds, running no tests. It is cheap enough for CI, which is where that rot
-should be caught rather than at the next half-hour campaign.
+should be caught rather than at the next campaign.
 
 **It answers "does this anchor match", never "is this anchor caught", and the
 difference has bitten.** A refactor of generator detection left six anchors
@@ -159,7 +166,7 @@ value instead. When a mutation survives and you cannot construct a document
 that would notice, that is the signal to test the contract rather than the
 behaviour.
 
-`--only SUBSTRING[,SUBSTRING...]` runs one group. A campaign is half an hour,
+`--only SUBSTRING[,SUBSTRING...]` runs one group. A campaign is hours,
 which is long enough that nobody runs it after touching a single rule, so the
 group belonging to whatever just changed can be re-verified on its own. It
 prints the selection against the total AND a count per pattern, then refuses a
@@ -676,12 +683,16 @@ which is how a breakage that fails to apply reads as a success. An anchor that
 does not match is a HARNESS FAULT rather than a skip, the same rule `mutate.py`
 states for the same reason.
 
-**19 of 19 properties are observed going red**, including the four the Stage 3
+**21 of 21 properties are observed going red**, including the four the Stage 3
 audit recorded as never watched, and `HARNESS`, which an audit of this stage
-found had been left out of the list entirely. Three need contrived breakages and are marked
-as such in the output, because "this property can be made to fire" and "this
-property guards something somebody might really write" are different claims and
-only the first is being made. `MONOTONE`'s is tautological - it keys on the
+found had been left out of the list entirely. `AXIS` was the last holdout and
+was reported NOT OBSERVED for four days: its breakage was aimed at a fallback
+in `resolve_ref` that stopped being reached when the ref table started
+answering, so the anchor went on matching a line nothing executed. **4 of the
+21 need contrived breakages** and are marked as such in the output, because
+"this property can be made to fire" and "this property guards something
+somebody might really write" are different claims and only the first is being
+made. `MONOTONE`'s is tautological - it keys on the
 oracle's own probe file - which shows the comparison works and is not
 structurally inert, and shows nothing about what it guards.
 

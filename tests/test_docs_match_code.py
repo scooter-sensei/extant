@@ -220,3 +220,56 @@ def test_every_setting_is_documented_where_users_look() -> None:
         f"{len(missing)} of {len(DEFAULTS)} settings appear nowhere in "
         f"references/config.md: {missing}"
     )
+
+
+def test_the_harness_readme_still_counts_the_properties_it_claims() -> None:
+    """A count in prose, beside a list that grows, with no reader.
+
+    `tests/harnesses/README.md` said "19 of 19 properties are observed going
+    red" while the harness watched 21 and could provoke only 20, and said
+    three breakages were contrived while four were. Both numbers were wrong,
+    both had been wrong for some time, and neither could fail: no test read
+    that file, and a count is the one claim extant deliberately refuses - it
+    was true when written and there is nothing in git to compare it against.
+
+    So it is checked here, against the harness's own lists rather than against
+    a second copy of the numbers. Every assertion is two-sided: the sentence
+    must be FOUND as well as correct. A reworded heading this regex no longer
+    matches would otherwise report the silence of a passing check, which is
+    the failure the denominators in `registry.py` exist to make visible.
+    """
+    sys.path.insert(0, str(PACKAGE_ROOT / "tests" / "harnesses"))
+    from fuzz_selfcheck import ALL_PROPERTIES, BREAKAGES
+
+    readme = (PACKAGE_ROOT / "tests" / "harnesses" / "README.md").read_text(
+        encoding="utf-8")
+    watched = len(ALL_PROPERTIES)
+    contrived = sum(1 for item in BREAKAGES if item.contrived)
+
+    # Whitespace-tolerant because markdown reflows: both of these sentences
+    # already wrap mid-phrase, and a rewrap is not a change to the claim.
+    observed_claim = re.search(
+        r"\*\*(\d+)\s+of\s+(\d+)\s+properties\s+are\s+observed\s+going\s+red\*\*",
+        readme)
+    assert observed_claim is not None, (
+        "tests/harnesses/README.md no longer says how many properties are "
+        "observed going red. Restore the sentence or retarget this test: a "
+        "check that cannot find its subject must not pass."
+    )
+    assert [int(n) for n in observed_claim.groups()] == [watched, watched], (
+        f"the harness watches {watched} properties and `--self-check` gates "
+        f"on all of them going red, but the README says "
+        f"{observed_claim.group(0)}"
+    )
+
+    contrived_claim = re.search(
+        r"\*\*(\d+)\s+of\s+the\s+(\d+)\s+need\s+contrived\s+breakages\*\*",
+        readme)
+    assert contrived_claim is not None, (
+        "tests/harnesses/README.md no longer says how many breakages are "
+        "contrived. Restore the sentence or retarget this test."
+    )
+    assert [int(n) for n in contrived_claim.groups()] == [contrived, watched], (
+        f"{contrived} of {watched} breakages are marked contrived, but the "
+        f"README says {contrived_claim.group(0)}"
+    )
