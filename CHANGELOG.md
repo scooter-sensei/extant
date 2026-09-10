@@ -2,8 +2,64 @@
 
 ## Unreleased
 
-Nothing here changes the tool: no rule, no flag, no default, no exit code, and
-no file under `payload/`. 0.26.0's artifact is unaffected.
+A deep-dive review of the payload, and unlike the entry that preceded it this
+one DOES change the tool: eleven modules under `payload/` plus the hook
+installer, and one invocation that now exits 2 rather than publishing a
+location no consumer could resolve.
+0.26.0's artifact is superseded. No rule was added and none removed, so the
+rule table is unchanged at thirteen.
+
+Every fix was measured against a 176-repository corpus before it was made and
+confirmed a no-op on real content afterwards. The corpus report was re-swept at
+the end: 60,820 findings, none appearing, none disappearing, no per-rule
+change - so `CORPUS.md` and the human-adjudicated precision labels behind it
+still hold.
+
+**A parallel `--sweep` ran on default configuration.** `_worker_init` assigned
+`session.CONFIG` without applying it, so a spawned worker dropped every
+non-default setting and the survey printed `0 examined` for each rule. The
+suite's own parallel-versus-serial agreement test made the same mistake in its
+helper, so both paths ran on defaults and agreed.
+
+**`.lstrip("./")` is a character-set strip.** `.github/CONTRIBUTING.md` became
+`github/CONTRIBUTING.md`, so a configured document was demoted to
+surveyed-only and `--sweep` exited 0 where `--verify` exited 1 on the same
+file. One configured name had five spellings across the modes that read it;
+there is now one normaliser, applied where the settings are read.
+
+**`--archive` destroyed the archive file's own line terminator**, rewriting a
+CRLF archive whole as LF and leaving a CR-only one holding both.
+
+**The hook installer reported success for a hook that can never run**, having
+appended it behind a top-level `exit`.
+
+**Three ways a reference could leave the repository are shut.** A backslash
+that split path components differently per platform, an absolute target
+answered by the machine's filesystem root, and a `..` walk that could climb
+above the root. The `..` bound was A/B'd over all 77,879 relative references in
+the corpus with zero verdicts changed, because a population count bounds the
+findings and not the blast radius.
+
+**SARIF published locations that were not URIs.** `artifactLocation.uri` is
+required to be an RFC 3986 URI and 117 of 52,929 corpus documents carry a path
+that is not one - `#` is a delimiter, so `source/F#/LICENSE.md` reads as the
+path `source/F` - and an invalid document can be rejected whole, taking every
+finding in it. Related, and found by auditing that fix: `--validate
+--format=sarif` on a document outside the repository now exits 2 instead of
+publishing a valid-looking reference to a file the repository does not contain.
+
+**The markdown link pattern was quadratic twice over.** Measured through the
+shipped CLI, 128 KB of `[a](` cost 188.83 seconds, so a committed markdown
+file could hang a CI job or a git hook with no configuration involved. Both
+halves are now bounded, and a differential found bounded and unbounded
+extracting identical target lists over 694,676 links.
+
+**`--suggest-fixes` and the link rule read one pattern through two scanners.**
+It offered a patch for a link `--validate` had just reported clean, and
+declined to help with findings it had just printed. One scanner now, and a
+patch is offered only for a claim a rule reported.
+
+Also, from before that review and unchanged by it:
 
 The fuzz harness's shrinker reported feature sets it had never built. ddmin
 computed which features to drop from the survivors rather than from the plan,
