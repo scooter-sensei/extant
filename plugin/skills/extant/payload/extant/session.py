@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from extant import registry as _registry
-from extant.config import Config, load_config
+from extant.config import Config, StatusConfig, load_config
 from extant.finding import Finding
 from extant.git import CountingGit, Git, SubprocessGit   # noqa: F401
 #                      ^ CountingGit and SubprocessGit are re-exported: the
@@ -42,7 +42,8 @@ __all__ = [
     "ARCHIVE_DOC", "CONFIG", "Config", "Context", "CountingGit", "DocScope",
     "PRIMARY_DOC", "REPO_ROOT", "RETAIN_ENTRIES", "RULES", "RULE_ERRORS",
     "Rule", "RunScope", "SubprocessGit", "TRUNK", "context", "count_examined",
-    "document", "install_document", "reload_config", "report_rule_errors",
+    "document", "install_config", "install_document", "reload_config",
+    "report_rule_errors",
     "rule_applies", "run_scope", "selftest", "set_document", "validate",
 ]
 
@@ -218,6 +219,46 @@ def reload_config(repo: Path) -> None:
     CONFIG = load_config(repo)
     # The SAME call the module makes at import. There is no second list here
     # to fall behind the first, which is what let a computed value go stale.
+    _apply_config()
+
+
+def install_config(config: StatusConfig) -> None:
+    """Put back a whole configuration built elsewhere. Sibling of `install_document`.
+
+    For the one caller that has a `StatusConfig` in hand and no repository to
+    re-read it from: a spawned survey worker, which is handed its parent's
+    settings through `initargs` precisely because re-reading would ask a
+    DIFFERENT question. `--verify` from a git hook and `extant --sweep` from a
+    pre-commit install reach their configuration by different routes, and the
+    only definition of "the same settings the parent used" is the parent's own
+    object.
+
+    EXISTS BECAUSE ASSIGNING `CONFIG` IS NOT ENOUGH, and looks like it is. Every
+    rule reads the built `Config` on `_ACTIVE` through `ctx.config`; `CONFIG` is
+    the raw `StatusConfig` that `_apply_config` builds it from. `sweep._worker_init`
+    set the first and not the second, so a worker validated under whatever
+    `load_config` had found beside this file at import - this repository's own
+    settings when run from a checkout, and the DEFAULTS in a pip or pre-commit
+    install, where nothing sits above site-packages. Every non-default setting
+    a project had was silently dropped for every document in a parallel survey,
+    and the survey then printed the summary of a clean run with `0 examined`
+    beside each rule and a NOTE saying the patterns do not match how the project
+    writes them - about documents that write exactly them. `--sweep` is the mode
+    with no gate, so nothing else contradicted it.
+
+    A worker cannot call `reload_config` instead. That re-reads from the
+    repository under survey, which is the right answer for `cli()` and the wrong
+    one for the shim, whose parent deliberately uses the configuration beside
+    the script; the two paths would then disagree in the other direction. The
+    parent's object is the only thing that agrees with both.
+
+    Public for the reason `install_document` and `current_document` are:
+    `extant/sweep.py` is a sibling, and reaching for `_apply_config` across that
+    boundary is a hard failure of
+    test_no_module_reaches_past_another_modules_surface.
+    """
+    global CONFIG
+    CONFIG = config
     _apply_config()
 
 

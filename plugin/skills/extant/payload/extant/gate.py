@@ -45,7 +45,7 @@ from extant.report import (
     BASELINE_NAME, Collector, load_baseline, render_findings, write_baseline,
 )
 from extant.sites import resolve_reference
-from extant.text import EXTERNAL, MD_LINK, format_for, prose, strip_code
+from extant.text import format_for, link_sites, prose
 
 __all__ = ["report_denominators", "run_check_text", "run_validate",
            "suggest_renames"]
@@ -57,7 +57,8 @@ __all__ = ["report_denominators", "run_check_text", "run_validate",
 STDIN_NAME = "<stdin>"
 
 
-def suggest_renames(repo: Path, base: Path, text: str, relative: str) -> str:
+def suggest_renames(repo: Path, base: Path, text: str, relative: str,
+                    findings: list) -> str:
     """A unified diff repointing references at where git says the file went.
 
     Emitted to stdout as a PATCH, never written. That is not caution for its own
@@ -77,18 +78,47 @@ def suggest_renames(repo: Path, base: Path, text: str, relative: str) -> str:
     replacements: list[tuple[str, str]] = []
     ctx = session.context(repo)
 
-    for raw in MD_LINK.findall(strip_code(ctx.doc, text)):
-        if EXTERNAL.match(raw) or raw.startswith("#"):
+    # THE INVARIANT: a patch is only ever offered for a claim a rule REPORTED.
+    # Before this, `suggest_renames` scanned the document itself, with a filter
+    # that differed from the rule's five ways - so it offered to rewrite a link
+    # split across a newline that `--validate` had just declared clean, while
+    # exiting 0. A patch is an edit to somebody's prose; the authority for it
+    # has to be a finding, not a second opinion.
+    #
+    # Taken from the findings BEFORE the baseline is applied, deliberately. A
+    # baselined finding is still wrong - it is only not new - and keying this
+    # on what survived suppression would have quietly coupled the patch
+    # generator to the baseline, so adopting one would stop offering repairs
+    # for everything it forgave.
+    linked = {f.subject for f in findings
+              if f.kind == "dead-md-link" and f.subject}
+    pointed = {f.subject for f in findings
+               if f.kind == "dead-path-pointer" and f.subject}
+
+    for _number, raw, target in link_sites(ctx.doc, text):
+        if target not in linked or resolve_reference(ctx, base, target)[0]:
             continue
-        target = raw.split("#", 1)[0]
-        if not target or resolve_reference(ctx, base, target)[0]:
+        # `target` is what RESOLVES; `raw` is what the document actually says,
+        # and the replacement below matches text on the page. They differ for a
+        # percent-encoded link, and there the two cannot be reconciled without
+        # GUESSING an encoding for the replacement - `docs/new guide.md` has to
+        # go back as `docs/new%20guide.md` to stay a working link, and choosing
+        # that spelling is authoring rather than checking. Refused, explicitly:
+        # the finding is still reported, and no patch is offered for it.
+        path_part = raw.split("#", 1)[0].split("?", 1)[0]
+        if path_part != target:
             continue
         moved = renamed_to(ctx, target)
         if moved:
-            replacements.append((target, moved))
+            # The fragment or query survives the move. `[x](a.md#install)` is
+            # repointed to `[x](b.md#install)`, which the previous code could
+            # not do at all: it replaced on the fragment-stripped target, so
+            # `](a.md)` matched nothing in a document that says `](a.md#install)`
+            # and the patch came out empty.
+            replacements.append((raw, moved + raw[len(path_part):]))
 
     for raw in ctx.config.path_pointer.findall(prose(ctx.doc, text)):
-        if resolve_reference(ctx, repo, raw)[0]:
+        if raw not in pointed or resolve_reference(ctx, repo, raw)[0]:
             continue
         moved = renamed_to(ctx, raw)
         if moved:
@@ -483,7 +513,7 @@ def run_validate(repo: Path, args: argparse.Namespace,
         # document must stay pure JSON, so the patch goes to stderr instead
         # of corrupting it.
         patch = suggest_renames(repo, target.parent, text,
-                                rel(repo, target))
+                                rel(repo, target), findings)
         if patch:
             # Written as BYTES, because print() rewrites newlines on
             # Windows. A patch for a document that uses LF then arrives
@@ -682,7 +712,7 @@ def run_check_text(repo: Path, args: argparse.Namespace,
                  "because a patch has to name the file it applies to")
         else:
             patch = suggest_renames(repo, (repo / relative).parent, text,
-                                    relative)
+                                    relative, findings)
             if patch:
                 # BYTES, for the reason `run_validate` gives: print() rewrites
                 # newlines on Windows and git apply rejects the mixed endings.

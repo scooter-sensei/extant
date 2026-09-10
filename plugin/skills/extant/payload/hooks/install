@@ -51,6 +51,32 @@ MARKER="# extant-verify-hook"
 
 mkdir -p "$HOOK_DIR"
 
+# Can a block appended to this file ever be reached?
+#
+# Appending rather than replacing is right - somebody else's hook must survive
+# an install. But `exit 0` on its own line is how a great many hand-written and
+# generated hooks end, and everything after it is dead. The installer printed
+# `installed: post-commit`, the block sat visibly in the file, the check never
+# ran, and re-running printed `already installed` because the marker was
+# present - so the state was permanent and reported as success twice. That is
+# the installed-but-inert failure main-tree-guard already spent its whole life
+# in, reached from the other end.
+#
+# COLUMN 0 ONLY, and `exec` as well as `exit`. An indented `exit` is almost
+# always conditional and appending behind it is fine; one at the left margin is
+# the unconditional tail this is about. `exec` never returns either, which is
+# how a hook that hands off to another tool ends.
+unreachable_tail() {
+    [ -f "$1" ] && grep -qE '^(exit|exec)([[:space:]]|$)' "$1"
+}
+
+say_inert() {
+    echo "NOT INSTALLED: $1 already ends in an unconditional exit or exec," >&2
+    echo "  so anything appended to it can never run. The check was written to" >&2
+    echo "  $2 but will not fire. Move that block above the exit line, or" >&2
+    echo "  remove the exit, then re-run this installer." >&2
+}
+
 # There is deliberately no shared shim helper. One existed and was never
 # called: the advisory hooks below and the pre-commit guard cannot share
 # an installer, because the guard must propagate a non-zero exit and an
@@ -64,6 +90,14 @@ if [ "$WITH_GUARD" -eq 1 ]; then
     guard_target="$HOOK_DIR/pre-commit"
     if [ -f "$guard_target" ] && grep -q "# main-tree-guard-hook" "$guard_target"; then
         echo "already installed: pre-commit"
+    elif unreachable_tail "$guard_target"; then
+        # REFUSED, not warned. `--with-trunk-guard` is an explicit request to be
+        # blocked, and the shim below already fails CLOSED when the guard file
+        # is missing, for the reason its own comment gives: a guard that cannot
+        # run is not guarding. Appending it behind an existing `exit` produces
+        # exactly that state, so nothing is written and the exit status says so.
+        say_inert "$guard_target" "refuse commits made off trunk"
+        exit 2
     else
         [ -f "$guard_target" ] || printf '#!/bin/sh\n' > "$guard_target"
         cat >> "$guard_target" <<'EOF'
@@ -96,6 +130,15 @@ for name in post-commit post-merge; do
 
     if [ -f "$target" ] && grep -q "$MARKER" "$target"; then
         echo "already installed: $name"
+        continue
+    fi
+
+    # Warned rather than refused, unlike the guard above: these are advisory,
+    # and a person installing a documentation checker should not have an
+    # install fail outright over the shape of a hook they already had. What
+    # they must not get is a success line for a check that cannot fire.
+    if unreachable_tail "$target"; then
+        say_inert "$target" "report unverified claims after each commit"
         continue
     fi
 
@@ -141,6 +184,8 @@ done
 target="$HOOK_DIR/post-rewrite"
 if [ -f "$target" ] && grep -q "$MARKER" "$target"; then
     echo "already installed: post-rewrite"
+elif unreachable_tail "$target"; then
+    say_inert "$target" "report claims a rebase or amend has falsified"
 else
     [ -f "$target" ] || printf '#!/bin/sh\n' > "$target"
     cat >> "$target" <<'EOF'

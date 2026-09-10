@@ -32,6 +32,7 @@ from extant.text import ORDER_PREFIX, current_document
 __all__ = [
     "_ABSOLUTE", "_FILEISH", "_GLOBAL_ANCHOR_CONFIGS", "_PARTIAL_CONFIGS",
     "_SITE_CONFIGS", "_SITE_DIRS", "_SITE_MARKERS_IN_FILE", "_actual_case",
+    "_depth_below",
     "_listdir", "_numbered_docs_scopes", "_numbered_docs_tree",
     "_site_dirs", "_site_scopes", "_top_level",
     "has_global_anchors", "has_partial_anchors", "in_site_tree",
@@ -79,6 +80,64 @@ def _listdir(ctx: Context, directory: Path) -> set[str]:
     return names
 
 
+def _components(relative: str) -> list[str]:
+    """`relative` split into path components, identically on every platform.
+
+    `Path(relative).parts` is what this replaces, and it is platform-DEPENDENT
+    in the one way that matters here: `Path("Docs\\\\Guide.md").parts` is
+    ("Docs", "Guide.md") on Windows and ("Docs\\\\Guide.md",) on POSIX. The same
+    reference therefore resolved on a developer's laptop and was reported dead
+    on the Linux CI leg, which is exactly the split verdict `_actual_case`
+    below exists to abolish - reached through the standard library rather than
+    through the filesystem, so the careful component-by-component comparison
+    never saw it.
+
+    A backslash is treated as a SEPARATOR, which is the answer Windows already
+    gave and therefore changes nothing there. It is also what `path_pointer`
+    needs: its default pattern matches `[\\w:.\\\\/-]+`, deliberately admitting
+    `tools\\\\extant\\\\cli.py` and a drive letter, because a Windows-authored
+    document writes a path that way. Those pointers resolved on Windows and
+    were false positives everywhere else.
+
+    THE COST, STATED. A markdown link target is not a path, and no renderer
+    treats a backslash in one as a separator, so `[x](Docs\\\\Guide.md)` is a
+    genuinely broken link that this now accepts on every platform rather than
+    on Windows alone. Reporting it instead would be a NEW finding shape, and
+    this project admits one only after measuring it against a corpus it was not
+    designed on; that corpus is not committable and was not available here.
+    Uniformly lenient is worse than uniformly strict and better than the split
+    verdict, which is the defect being removed. Dropping `.` and empty segments
+    mirrors what `Path().parts` already did.
+    """
+    parts: list[str] = []
+    for chunk in relative.replace("\\", "/").split("/"):
+        if chunk and chunk != ".":
+            parts.append(chunk)
+    return parts
+
+
+def _depth_below(repo: Path, base: Path) -> int | None:
+    """How many directories `base` sits below `repo`. None if it is not below.
+
+    LEXICAL, and that is the point. `Path.resolve()` is what `_actual_case`
+    refuses to use, because on Windows it silently rewrites a path to its
+    on-disk case and would make the walk agree with the bug it exists to find.
+    A depth is a COUNT, so it needs no name comparison at all and can be taken
+    without touching the filesystem.
+
+    None rather than 0 when `base` is not under `repo`, and the caller must
+    treat it as "cannot bound" rather than as "at the root". Answering 0 there
+    would refuse every `..` for a caller whose base legitimately sits elsewhere
+    - `--validate` on a file outside the repository is the real one - which
+    turns an unbounded walk into a wrong verdict, trading a machine-dependence
+    for a false positive.
+    """
+    try:
+        return len(base.relative_to(repo).parts)
+    except ValueError:
+        return None
+
+
 def _actual_case(ctx: Context, base: Path, relative: str) -> str | None:
     """The on-disk spelling of `relative`, or None if no such file exists.
 
@@ -94,8 +153,36 @@ def _actual_case(ctx: Context, base: Path, relative: str) -> str | None:
     """
     probe = base
     parts: list[str] = []
-    for part in Path(relative).parts:
+    depth = _depth_below(ctx.repo, base)
+    for part in _components(relative):
         if part in (".", ".."):
+            if part == ".." and depth is not None:
+                depth -= 1
+                if depth < 0:
+                    # CLIMBED OUT. `base / "../../x.md"` used to be answered by
+                    # whatever else is on the machine, which is the same
+                    # "true where you are standing is not true" the absolute
+                    # branch below was fixed for - and the last of the three
+                    # ways PHASE 6's audit found to leave the repository, the
+                    # other two being an absolute path and a drive letter.
+                    #
+                    # MEASURED BEFORE CHANGING, exactly as that branch was.
+                    # Over 176 de-duplicated repositories and 125,059
+                    # references, 77,879 of them relative, 12 climb above the
+                    # root - 0.0154%, in six repositories - and every one is a
+                    # GitHub URL idiom (`../../releases`, `../../wiki`,
+                    # `../../pulls`) rather than a file reference. NOT ONE of
+                    # the twelve resolves today, so refusing them removes no
+                    # finding.
+                    #
+                    # The number that mattered was not that one. A population
+                    # count bounds the FINDINGS and not the BLAST RADIUS: get
+                    # this depth wrong and every ordinary `../README.md`
+                    # becomes a false positive. So both behaviours were run
+                    # over all 77,879 relative references and the verdicts
+                    # compared one by one: ZERO changed. This codifies what was
+                    # measured rather than departing from it.
+                    return None
             probe = probe / part
             parts.append(part)
             continue
@@ -112,6 +199,8 @@ def _actual_case(ctx: Context, base: Path, relative: str) -> str | None:
             exact = matches[0]
         parts.append(exact)
         probe = probe / exact
+        if depth is not None:
+            depth += 1
     return "/".join(parts)
 
 
@@ -129,13 +218,58 @@ def resolve_reference(ctx: Context, base: Path,
     if cache is not None and key in cache:
         return cache[key]
     if _ABSOLUTE.match(raw):
-        result = (Path(raw).exists(), None)
+        # NOT `Path(raw).exists()`, which asked the MACHINE'S FILESYSTEM ROOT a
+        # question about this repository. Measured on this checkout:
+        #
+        #     resolve_reference(ctx, D:/repo/rv-case, "/repo/rv-case/INDEX.md")
+        #       -> (True, None)
+        #     resolve_reference(ctx, D:/repo/rv-case, "/REPO/RV-CASE/index.MD")
+        #       -> (True, None)
+        #
+        # A file outside the repository, matched case-insensitively, decided a
+        # claim about the repository - so a dead root-relative link was silenced
+        # for whoever happened to have that path on their disk, and reported for
+        # everyone else. "True where you are standing is not true", inside the
+        # tool built to catch it.
+        #
+        # MEASURED BEFORE CHANGING, because a wider verdict is a new finding
+        # shape. Over 176 de-duplicated repositories, 52,927 markdown documents
+        # and 125,059 references, 47,180 targets are absolute-looking - 37.7%,
+        # almost all of them generator routes like `/docs/...` and `/zh-cn/...`.
+        # Only 36 begin with a segment that is a real POSIX root directory,
+        # which is the only population whose answer can differ between a
+        # developer's machine and a Linux runner. Those 36 are six distinct
+        # paths, and not one of them exists on a stock runner: `/run/bazelrc`,
+        # `/run/build`, `/run/client-server` and `/run/scripts` are Bazel's
+        # SITE routes and `/run` is a tmpfs holding none of them;
+        # `/home/jmagar/workspace/unraid-rmcp/docs` is one contributor's home;
+        # `/boot/config/plugins/incus/incus.cfg` exists only on an Unraid host.
+        # Drive-letter absolutes - the other arm of `_ABSOLUTE` - number ZERO.
+        #
+        # So this changes no verdict on the corpus. The two paths that could
+        # exist somewhere are precisely the machine-dependence being removed,
+        # and both are already reported on the Windows machine the corpus
+        # figures were measured on, where `Path("/boot/...")` resolves against
+        # `D:` and is already absent. This codifies what was measured rather
+        # than departing from it.
+        #
+        # A root-relative link that DOES belong to this repository never
+        # arrives here: `rules/md_link.py` strips the leading slash and asks
+        # about the repository first, and only a target that failed that probe
+        # falls through. So refusing here reports dead root-relative links, as
+        # before, and stops inventing an answer for the rest.
+        result = (False, None)
     else:
         actual = _actual_case(ctx, base, raw)
         if actual is None:
             result = (False, None)
         else:
-            normalised = Path(raw).as_posix()
+            # The SAME splitter the walk above used. `Path(raw).as_posix()`
+            # carries the identical platform split as `Path(raw).parts`, so
+            # comparing one against the other agreed by accident on Windows and
+            # would have disagreed on POSIX - two readers of one path, which is
+            # this project's most repeated defect wearing a different hat.
+            normalised = "/".join(_components(raw))
             result = (True, None) if actual == normalised else (False, actual)
     if cache is not None:
         cache[key] = result

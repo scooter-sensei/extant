@@ -149,3 +149,79 @@ def test_archive_writes_a_cr_only_document_back_as_cr_only(git_repo) -> None:
         live = fh.read()
     assert b"\r" in live
     assert b"\n" not in live, "a CR-only document came back containing LF"
+
+
+LF_DOC = (
+    "# Status\n\n"
+    "## Phase 5 - fifth\n\nbody five\n\n"
+    "## Phase 4 - fourth\n\nbody four\n\n"
+    "## Phase 3 - third\n\nbody three\n\n"
+    "## Phase 2 - second\n\nbody two\n\n"
+    "## Phase 1 - first\n\nbody one\n"
+)
+
+
+def _with_archive(repo, commit, existing: str):
+    """A repository whose archive already exists, in a given terminator."""
+    from extant import session as hc
+    commit("NEXT_SESSION.md", LF_DOC, "docs: an LF status document")
+    target = repo / hc._ACTIVE.archive_doc
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w", encoding="utf-8", newline="") as fh:
+        fh.write(existing)
+    return target
+
+
+def test_an_existing_cr_only_archive_is_not_left_with_mixed_terminators(
+        git_repo) -> None:
+    """The archive is a file too, and it arrived in a terminator of its own.
+
+    `archive` detects ONE terminator, from the PRIMARY document, and writes
+    both files with it - while normalising only `\\r\\n` out of the archive it
+    read, never a lone `\\r`. An LF primary beside a CR-only archive therefore
+    produced an archive holding BOTH: the header and the moved entries in LF,
+    the previously archived body still in CR. A file with mixed terminators is
+    worse than either, and no reader asked for it.
+
+    The test above states the principle for the primary - "the terminator a
+    file arrived in is the one it leaves in" - and it was never asserted about
+    the second file the same function rewrites.
+    """
+    from extant import session as hc
+    from extant import entries
+    repo, commit = git_repo
+    target = _with_archive(repo, commit,
+                           "# Archive\r\r## Phase 0 - old\r\rold body\r")
+
+    entries.archive(repo, 3, hc._ACTIVE)
+
+    with open(target, "rb") as fh:
+        archived = fh.read()
+    assert b"\r" in archived
+    assert b"\n" not in archived, (
+        "a CR-only archive came back with mixed terminators: %r"
+        % archived[:120])
+
+
+def test_an_existing_crlf_archive_keeps_its_own_terminator(git_repo) -> None:
+    """A CRLF archive beside an LF primary must stay CRLF.
+
+    Taking the primary's terminator rewrites every line of the archive as a
+    side effect of retiring two entries - the same change to every line of a
+    file that the CR-only case above exists to refuse, in the other file and
+    in the same function.
+    """
+    from extant import session as hc
+    from extant import entries
+    repo, commit = git_repo
+    target = _with_archive(
+        repo, commit,
+        "# Archive\r\n\r\n## Phase 0 - old\r\n\r\nold body\r\n")
+
+    entries.archive(repo, 3, hc._ACTIVE)
+
+    with open(target, "rb") as fh:
+        archived = fh.read()
+    assert b"\r\n" in archived
+    assert archived.replace(b"\r\n", b"").count(b"\n") == 0, (
+        "a CRLF archive came back containing bare LF: %r" % archived[:120])

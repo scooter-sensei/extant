@@ -1145,7 +1145,9 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     git(repo, "commit", "-qm", "docs: rename")
     hc._SCOPE = hc.RunScope()
 
-    patch = gate.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+    findings = hc.validate(repo, text)
+    patch = gate.suggest_renames(repo, repo, text,
+                                 "NEXT_SESSION.md", findings)
 
     assert patch, "a recorded rename produced no suggestion"
     assert "-See [plan](docs/plan.md)." in patch
@@ -1166,8 +1168,10 @@ def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
     commit("a.py", "a = 1\n", "feat: a")
     hc._SCOPE = hc.RunScope()
 
-    assert gate.suggest_renames(repo, repo, "See [x](docs/never-existed.md).\n",
-                           "NEXT_SESSION.md") == ""
+    missing = "See [x](docs/never-existed.md).\n"
+    assert gate.suggest_renames(
+        repo, repo, missing, "NEXT_SESSION.md",
+        hc.validate(repo, missing)) == ""
 
 
 def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
@@ -1187,7 +1191,9 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
     text = "See [plan](docs/plan.md).\nWe renamed docs/plan.md last week.\n"
 
-    patch = gate.suggest_renames(repo, repo, text, "NEXT_SESSION.md")
+    findings = hc.validate(repo, text)
+    patch = gate.suggest_renames(repo, repo, text,
+                                 "NEXT_SESSION.md", findings)
 
     assert "+See [plan](docs/design.md)." in patch
     # The prose line must not appear as a changed line at all.
@@ -1315,11 +1321,185 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
     before = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
 
-    patch = gate.suggest_renames(repo, repo, "See [plan](docs/plan.md).\n", "DOC.md")
+    body = "See [plan](docs/plan.md).\n"
+    patch = gate.suggest_renames(repo, repo, body, "DOC.md",
+                                 hc.validate(repo, body))
 
     after = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
     assert patch, "the setup produced no patch, so this proves nothing"
     assert after == before, f"files appeared or vanished: {after ^ before}"
+
+
+def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
+    """A link the RULE cannot see must not be patched either.
+
+    This is the shared scanner doing the work rather than the invariant below
+    it: `link_sites` scans PER LINE and skips lines without both `[` and `(`,
+    so neither the rule nor the patch generator sees a link split across a
+    newline. Before the scanner was shared, the whole-document scan in
+    `suggest_renames` did see it, and offered to rewrite a target on a document
+    `--validate` had just reported clean while exiting 0.
+
+    Named for what it pins. It was called
+    `test_a_patch_is_only_offered_for_a_finding_that_was_reported` and it did
+    NOT pin that - the mutation harness said so, by removing the invariant and
+    watching this stay green.
+
+    `suggest_renames` used to scan the document itself, with a filter that
+    differed from the rule's five ways. A markdown link split across a newline
+    is invisible to the rule - it scans PER LINE and skips lines without both
+    `[` and `(` - and was visible to the whole-document scan, so `--validate`
+    reported `dead-md-link 0` and exited 0 while `--suggest-fixes` offered to
+    rewrite the target anyway. A patch for a finding that does not exist, on a
+    document the tool had just declared clean.
+    """
+    from extant import gate
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    git(repo, "mv", "docs/plan.md", "docs/design.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._SCOPE = hc.RunScope()
+
+    # The control: on one line the rule sees it, so a patch is right.
+    same_line = "See [the plan](docs/plan.md).\n"
+    assert gate.suggest_renames(repo, repo, same_line, "DOC.md",
+                                hc.validate(repo, same_line))
+
+    # Split across a newline: the rule cannot see it, so nothing may be offered.
+    split = "See [the\nplan](docs/plan.md).\n"
+    assert not [f for f in hc.validate(repo, split) if f.kind == "dead-md-link"], (
+        "the rule is expected to be silent here; if it now reports this link, "
+        "this test is pinning the wrong thing"
+    )
+    assert gate.suggest_renames(repo, repo, split, "DOC.md",
+                                hc.validate(repo, split)) == ""
+
+
+def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> None:
+    """THE INVARIANT, on a case that actually reaches it.
+
+    The shared scanner returns every link that is unconditionally decidable.
+    The RULE then refuses some of those for reasons only the repository can
+    settle - `md_link.check` declines an extensionless target inside a
+    generated site tree, because there it is a ROUTE and the filesystem cannot
+    judge it.
+
+    So the scanner returns the link, no finding is reported, and git happens to
+    have recorded a rename for that path. Without the invariant that is a patch
+    rewriting somebody's prose on the authority of a finding that does not
+    exist - the exact defect, arriving through a door the shared scanner does
+    not close.
+
+    Found by the mutation harness: the first version of this test used a link
+    split across a newline, which the shared scanner already refuses, so the
+    invariant could be deleted with every test still green.
+    """
+    from extant import gate
+    from extant import session as hc
+    repo, commit = git_repo
+    # A generator config puts the whole repository in a site tree.
+    commit("mkdocs.yml", "site_name: demo\n", "chore: mkdocs")
+    commit("guide/transports", "x\n", "docs: transports")
+    git(repo, "mv", "guide/transports", "guide/protocols")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._SCOPE = hc.RunScope()
+
+    body = "See [transports](guide/transports).\n"
+    findings = hc.validate(repo, body)
+    assert not [f for f in findings if f.kind == "dead-md-link"], (
+        "the rule is expected to REFUSE an extensionless link in a site tree; "
+        "if it now judges it, this test is pinning the wrong thing"
+    )
+    # The setup has to be capable of producing a patch, or this proves nothing.
+    from extant.text import link_sites
+    ctx = hc.context(repo)
+    assert any(t == "guide/transports" for _n, _r, t in link_sites(ctx.doc, body)), (
+        "the shared scanner must still RETURN this link, or the invariant is "
+        "not what is being tested"
+    )
+
+    assert gate.suggest_renames(repo, repo, body, "DOC.md", findings) == ""
+
+
+def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
+    """The other half of the divergence: a finding that got NO patch.
+
+    The rule strips `?raw=1` and `#install` before resolving, because they are
+    how a file is SERVED rather than part of its name. The patch generator
+    stripped only the fragment and then replaced on the stripped string, so
+    `](a.md)` matched nothing in a document that says `](a.md#install)` and the
+    patch came out empty for both shapes - a repair mode declining to help with
+    a finding it had just printed.
+
+    The suffix has to come back on the replacement, or the patch would drop the
+    very thing the link needed.
+    """
+    from extant import gate
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    git(repo, "mv", "docs/plan.md", "docs/design.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._SCOPE = hc.RunScope()
+
+    query = "See [plan](docs/plan.md?raw=1).\n"
+    patch = gate.suggest_renames(repo, repo, query, "DOC.md",
+                                 hc.validate(repo, query))
+    assert "+See [plan](docs/design.md?raw=1)." in patch, patch
+
+    fragment = "See [plan](docs/plan.md#install).\n"
+    patch = gate.suggest_renames(repo, repo, fragment, "DOC.md",
+                                 hc.validate(repo, fragment))
+    assert "+See [plan](docs/design.md#install)." in patch, patch
+
+
+def test_a_percent_encoded_link_is_reported_and_deliberately_not_patched(
+        git_repo) -> None:
+    """The one case refused ON PURPOSE, so the refusal is pinned rather than
+    left to look like the bug it replaced.
+
+    `target` is what resolves and `raw` is what the document says, and for a
+    percent-encoded link they differ INSIDE the path rather than in a suffix.
+    Putting the replacement back would mean choosing an encoding for the new
+    name - `docs/new guide.md` has to be written `docs/new%20guide.md` to stay
+    a working link - and choosing it is authoring rather than checking, which
+    is the line this tool does not cross.
+
+    So the finding is still reported and no patch is offered. If someone later
+    teaches it to re-encode, this test should be UPDATED rather than deleted:
+    the requirement is that the two never disagree silently.
+    """
+    from extant import gate
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("docs/old guide.md", "# guide\n", "docs: guide")
+    git(repo, "mv", "docs/old guide.md", "docs/new guide.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._SCOPE = hc.RunScope()
+
+    body = "See [guide](docs/old%20guide.md).\n"
+    reported = [f for f in hc.validate(repo, body) if f.kind == "dead-md-link"]
+    assert reported, "the rule must still REPORT it; only the patch is refused"
+    assert gate.suggest_renames(repo, repo, body, "DOC.md",
+                                hc.validate(repo, body)) == ""
+
+
+def test_the_shared_scanner_carries_the_raw_spelling_beside_the_target() -> None:
+    """Why `link_sites` returns three values and not two.
+
+    The rule RESOLVES, so it needs the normalised target; the patch REPLACES
+    text on the page, so it needs the spelling as written. Returning only the
+    target would have broken the patch silently - the replacement would look
+    for a string the document does not contain and produce nothing.
+    """
+    from extant.scope import DocScope
+    from extant.text import link_sites
+
+    doc = DocScope(link_base=None, doc_format="markdown")
+    sites = link_sites(doc, "a [x](docs/a%20b.md?raw=1#top) b\n")
+
+    assert sites == [(1, "docs/a%20b.md?raw=1#top", "docs/a b.md")], sites
 
 
 # --- configuration discovery -------------------------------------------------

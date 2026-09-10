@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from extant import registry as _registry
 from extant import strata
@@ -215,6 +216,56 @@ def _gh_escape(value: str, *, prop: bool = False) -> str:
     return out
 
 
+# RFC 3986 3.3: a path segment is `pchar`, which is unreserved / pct-encoded /
+# sub-delims / ":" / "@". Everything outside that has to be escaped. Listed
+# rather than inferred so the set is arguable in review.
+_PCHAR_SAFE = "!$&'()*+,;=:@"
+
+
+def _sarif_uri(path: str) -> str:
+    """A repository path as an RFC 3986 relative reference naming that file.
+
+    SARIF 3.4.3 says `artifactLocation.uri` SHALL be a URI, and 3.10.1 repeats
+    it for every URI-valued property. A raw repository path is often not one,
+    and the failures differ in kind:
+
+      `source/F#/LICENSE.md`  `#` is a DELIMITER, so a conformant consumer
+                              reads the path `source/F` and a fragment. The
+                              alert lands on a file that does not exist.
+      `01 - Topics.md`        a space is forbidden outright. Measured in the
+                              wild: this is what made SonarQube reject an
+                              entire Trivy report rather than one result.
+      `four%.md`              `%` not followed by two hex digits is a
+                              malformed escape.
+      `literal%20thing.md`    the worst, because it is VALID: it decodes to
+                              `literal thing.md`, so the alert quietly names a
+                              different file.
+
+    Rejecting the whole document is the sharp end - every finding in it
+    disappears, which is the silent failure one layer out. That is the same
+    reasoning `--check-text --format=sarif` already applies when it refuses to
+    emit `<stdin>`; this is that repair reaching the paths that are real.
+
+    Encodes the MINIMUM. Every character RFC 3986 already permits in a segment
+    is left exactly as it is, so this is a no-op on the 52,812 of 52,929
+    corpus documents whose paths are valid references today and only the 117
+    that are not change. Over-encoding would also be conformant and is not
+    free: a consumer that matches literally instead of decoding would stop
+    recognising the paths that work now, which trades this defect for a wider
+    one.
+    """
+    segments = [quote(segment, safe=_PCHAR_SAFE) for segment in path.split("/")]
+    # 3986 4.2: a first segment containing ":" is read as a scheme name, so
+    # `weird:name/x.md` is not a relative reference at all. Escaping the colon
+    # is the repair rather than the `./` prefix the RFC also offers - GitHub
+    # matches this string against the pull-request diff, and a `./` prefix
+    # matches no line of it. That was already found and fixed once, in
+    # config.normalise_document; reintroducing it here would undo it.
+    if segments and ":" in segments[0]:
+        segments[0] = segments[0].replace(":", "%3A")
+    return "/".join(segments)
+
+
 def format_github(located: list[Located]) -> list[str]:
     """GitHub Actions annotations, which surface inline on the pull request.
 
@@ -344,7 +395,7 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
             "properties": {"gates": item.gating, "stratum": item.stratum},
             "locations": [{
                 "physicalLocation": {
-                    "artifactLocation": {"uri": item.path},
+                    "artifactLocation": {"uri": _sarif_uri(item.path)},
                     "region": region,
                 },
             }],

@@ -1,9 +1,20 @@
 """Splitting a status document into entries, and retiring the old ones.
 
-Two functions, one of which is the only irreversible file operation in this
-system. `archive` rewrites the status document and its archive in place, so it
-asserts conservation rather than trusting it: every original line has to turn
-up in one output or the other, counted as a MULTISET, or it writes nothing.
+Two functions, one of which REMOVES CONTENT FROM A FILE THE USER WROTE.
+`archive` rewrites the status document and its archive in place, so it asserts
+conservation rather than trusting it: every original line has to turn up in one
+output or the other, counted as a MULTISET, or it writes nothing.
+
+This used to say "the only irreversible file operation in this system", and
+that was false: `--sha-map` rewrites both of the same two files in `gate.py`,
+and it was found by grepping for `open(..., "w")` rather than by reading. The
+distinction that actually matters is what each one does. This function MOVES
+sections between two files and can therefore lose them, which is why the
+Counter guard exists; `translate_shas` substitutes tokens within a line and
+rebuilds the text with `splitlines(keepends=True)` + `"".join`, so it cannot
+lose a line and preserves every terminator byte-for-byte. A sentence naming
+this the only one sends the next reader auditing data loss to exactly one of
+the two places.
 
 Both take the `Config` they read instead of the eight module-level globals they
 used to, for the reason extant/collect.py's functions take one: `reload_config`
@@ -27,6 +38,32 @@ from extant.config import Config
 from extant.text import lone_cr_to_lf
 
 __all__ = ["archive", "split_entries"]
+
+
+def _terminator(text: str) -> str | None:
+    """The line ending a file arrived in, or None when it has none.
+
+    ONE detector, because this function rewrites TWO files and they do not
+    have to agree. It read the primary document's terminator and wrote the
+    archive with it as well, while stripping only `\\r\\n` out of the archive
+    it had read - so an LF status document beside a CR-only archive produced
+    an archive holding both, the new entries in LF and the older ones still in
+    CR. A file with mixed terminators is worse than either, and no reader asked
+    for one; a CRLF archive beside an LF primary was silently rewritten whole.
+    Longest first, so `\\r\\n` is one ending rather than two.
+    """
+    if "\r\n" in text:
+        return "\r\n"
+    if "\r" in text:
+        return "\r"
+    if "\n" in text:
+        return "\n"
+    return None
+
+
+def _normalise_breaks(text: str) -> str:
+    """Every line ending as `\\n`, so `^` in a MULTILINE pattern can find them."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def split_entries(text: str,
@@ -107,13 +144,8 @@ def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:
     # pattern, so nothing splits, nothing moves, and `--archive` reports a
     # document with no entries in it rather than failing - the reassuring zero
     # this project exists to refuse, in its most expensive location.
-    if "\r\n" in original:
-        newline = "\r\n"
-    elif "\r" in original:
-        newline = "\r"
-    else:
-        newline = "\n"
-    normalised = original.replace("\r\n", "\n").replace("\r", "\n")
+    newline = _terminator(original) or "\n"
+    normalised = _normalise_breaks(original)
 
     preamble, segments, base = split_entries(normalised, config)
 
@@ -161,9 +193,19 @@ def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:
     archive_path = repo / config.archive_doc
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     existing = ""
+    # Its OWN terminator when it already exists, and the primary's only when
+    # this run is creating it. Same rule as the primary above, applied to the
+    # second file this function rewrites; see `_terminator` for what taking
+    # the primary's produced instead. The lone `\r` has to be normalised here
+    # too - without it a CR-only archive keeps its carriage returns while the
+    # header and the moved entries arrive in whatever the primary uses, which
+    # is how the mixed file was built.
+    archive_newline = newline
     if archive_path.exists():
         with open(archive_path, encoding="utf-8", newline="") as fh:
-            existing = fh.read().replace("\r\n", "\n")
+            raw_existing = fh.read()
+        archive_newline = _terminator(raw_existing) or newline
+        existing = _normalise_breaks(raw_existing)
     # GA-6: new phase entries are always PREPENDED to NEXT_SESSION.md, so
     # whatever falls out of the retain window on THIS run is chronologically
     # newer than anything archived on a prior run. `moved` (already
@@ -218,7 +260,7 @@ def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:
     # route the Counter cannot see. This way the same crash leaves them in
     # BOTH, and a duplicated entry is something a reader can fix.
     with open(archive_path, "w", encoding="utf-8", newline="") as fh:
-        fh.write(archived_text.replace("\n", newline))
+        fh.write(archived_text.replace("\n", archive_newline))
     with open(doc, "w", encoding="utf-8", newline="") as fh:
         fh.write(remaining.replace("\n", newline))
     return {"retained": retain, "archived": len(moved)}

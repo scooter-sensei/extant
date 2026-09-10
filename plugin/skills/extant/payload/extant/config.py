@@ -68,7 +68,7 @@ except ModuleNotFoundError:                              # Python < 3.11
 # read it, to prove the fallback degrades to None rather than raising at
 # import, which is inspection rather than use.
 __all__ = ["CONFIG_NAME", "Config", "DEFAULTS", "DISABLEABLE", "StatusConfig",
-           "load_config"]
+           "load_config", "normalise_document"]
 
 _NO_PARSER = (
     "reading {path} needs a TOML parser.\n\n"
@@ -532,6 +532,37 @@ def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
     return {k: v for k, v in section.items() if k in DEFAULTS}, warnings
 
 
+def normalise_document(name: str) -> str:
+    """A configured document name, spelled the way `git ls-files` spells it.
+
+    THE normaliser, called where the settings are read so that every consumer
+    gets one spelling and none of them has to remember. It was written five
+    times inside `sweep.py` and not at all in `gate.py`, and the versions
+    disagreed:
+
+    * `.lstrip("./")` is a CHARACTER-SET strip, not a prefix strip, so
+      `.github/CONTRIBUTING.md` came back as `github/CONTRIBUTING.md` and
+      matched nothing git tracks. A document listed in `extra_docs` was demoted
+      to "surveyed only, not gated" and `--sweep` exited 0 on a finding
+      `--verify` failed on.
+    * The site deciding which document is PRIMARY did not strip at all, so
+      `./STATUS.md` made `has_entries` false for every file in a survey and
+      silently skipped every entry-scoped rule.
+    * `gate.py` never normalised, so `--verify` reported its findings under
+      `./docs/NOTES.md`. That is not a path git tracks, so a `--format=github`
+      annotation carrying it matches no line of a pull request diff and
+      attaches to nothing - while still printing in the log, which is what
+      makes it quiet.
+
+    Backslashes come first because a Windows-authored `.extant.toml` writes a
+    path with them, and `.gitattributes` aside, git never does.
+    """
+    name = name.replace("\\", "/")
+    while name.startswith("./"):
+        name = name[2:]
+    return name
+
+
 def _find_config(start: Path) -> Path | None:
     """Look for `.extant.toml` beside `start`, then upward to the repo root.
 
@@ -689,8 +720,17 @@ def load_config(repo: Path) -> StatusConfig:
         return compiled(key, str(raw)) if raw else None
 
     return StatusConfig(
-        primary_doc=str(values["primary_doc"]),
-        archive_doc=str(values["archive_doc"]),
+        # NORMALISED HERE, at the one place a configured document name is read,
+        # so no consumer has to remember to. Each of them compares the name
+        # against a path git tracks, and there are five in `sweep.py` alone and
+        # more in `gate.py`; every one that forgot produced a different bug.
+        # `--sweep` demoted `.github/CONTRIBUTING.md` out of the gated set, and
+        # `--verify` reported `./docs/NOTES.md` as the path of its findings -
+        # which is not a path git tracks, so a `--format=github` annotation
+        # carrying it matches no line of the pull request diff and attaches to
+        # nothing, while still printing in the log as though it had.
+        primary_doc=normalise_document(str(values["primary_doc"])),
+        archive_doc=normalise_document(str(values["archive_doc"])),
         retain_entries=int(values["retain_entries"]),
         consistency_timeout_seconds=_timeout(values["consistency_timeout_seconds"]),
         release_claims_name_our_tags=bool(
@@ -709,7 +749,8 @@ def load_config(repo: Path) -> StatusConfig:
         todo_exclude_files=tuple(values["todo_exclude_files"]),  # type: ignore[arg-type]
         todo_exclude_dirs=tuple(values["todo_exclude_dirs"]),    # type: ignore[arg-type]
         exclude_paths=tuple(values["exclude_paths"]),            # type: ignore[arg-type]
-        extra_docs=tuple(values["extra_docs"]),                  # type: ignore[arg-type]
+        extra_docs=tuple(normalise_document(str(d))
+                         for d in values["extra_docs"]),         # type: ignore[arg-type]
         release_tag=compiled("release_tag", str(values["release_tag"]),
                              re.IGNORECASE),
         consistency=_compile_consistency(values["consistency"], path),

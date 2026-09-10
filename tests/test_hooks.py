@@ -315,6 +315,94 @@ def test_default_install_wires_post_rewrite(git_repo) -> None:
     assert body.count("extant-verify-hook") == 1, "installed twice"
 
 
+@requires_sh
+def test_appending_behind_an_exit_is_not_reported_as_installed(git_repo) -> None:
+    """A hook that already ends in `exit 0` never reaches what we append.
+
+    The installer appends rather than replaces, which is right - it must not
+    destroy somebody else's hook. But `exit 0` on its own line is how a great
+    many hand-written and generated hooks end, and everything appended after it
+    is unreachable. The installer printed `installed: post-commit`, the block
+    was visibly in the file, the check never ran, and re-running printed
+    `already installed` because the marker was there - so the state was
+    permanent and reported as success twice.
+
+    That is the same installed-but-inert failure this module's docstring opens
+    with, reached by a different route, and it is the one thing this project
+    refuses to let look like a clean run.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+    hook = repo / ".git" / "hooks" / "post-commit"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text('#!/bin/sh\necho mine\nexit 0\n', encoding="utf-8")
+
+    result = run_installer(repo)
+
+    printed = result.stdout + result.stderr
+    assert "installed: post-commit" not in result.stdout.replace(
+        "not installed", ""), (
+        "claimed a post-commit hook was installed when it cannot run:\n"
+        + printed)
+    assert "post-commit" in printed and "exit" in printed, (
+        "did not name the file or say why it cannot run:\n" + printed)
+
+
+@requires_sh
+def test_a_hook_that_hands_off_with_exec_is_also_unreachable(git_repo) -> None:
+    """`exec` never returns either, and it is how a hook delegates.
+
+    A hook whose last line is `exec "$(dirname "$0")/_/husky.sh"` hands the
+    process to another program, so anything appended after it is as dead as
+    anything after `exit`. The check covers both words; only `exit` was
+    exercised, which is half a guard.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+    hook = repo / ".git" / "hooks" / "post-merge"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text('#!/bin/sh\nexec /bin/true\n', encoding="utf-8")
+
+    result = run_installer(repo)
+
+    printed = result.stdout + result.stderr
+    assert "installed: post-merge" not in result.stdout, printed
+    assert "post-merge" in printed and "exec" in printed, printed
+    # And the hook we could not extend is left exactly as its owner wrote it.
+    assert hook.read_text(encoding="utf-8") == '#!/bin/sh\nexec /bin/true\n'
+
+
+@requires_sh
+def test_the_guard_refuses_to_install_where_it_could_not_run(git_repo) -> None:
+    """The blocking guard must not be installed unreachable.
+
+    `--with-trunk-guard` is an explicit request to be blocked, and the shim it
+    writes already fails CLOSED when the guard file is missing, for the reason
+    its own comment gives: a guard that cannot run is not guarding. Appending it
+    behind an existing `exit 0` produces exactly that state, silently, so this
+    one refuses rather than warning.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text('#!/bin/sh\nexit 0\n', encoding="utf-8")
+
+    result = run_installer(repo, "--with-trunk-guard")
+
+    assert result.returncode != 0, (
+        "installed a blocking guard that can never block:\n"
+        + result.stdout + result.stderr)
+    assert "main-tree-guard-hook" not in hook.read_text(encoding="utf-8"), (
+        "appended the guard anyway")
+
+
 def test_installer_references_only_hooks_that_exist() -> None:
     """Catches the payload-omission bug directly, and needs no shell to do it.
 
