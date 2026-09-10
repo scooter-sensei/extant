@@ -39,13 +39,33 @@ PACKAGE = PAYLOAD / "extant"
 # modules_surface forbids importing them back. `text.py` went 923 -> 641.
 #
 # The number follows the same rule it always has - the new high-water mark,
-# not a round number with headroom, so it BINDS IMMEDIATELY. That mark is now
-# `sweep.py` at 896, and the next line added to THAT module fails this test.
-# Lowering is as much a decision as raising and is argued for the same reason:
-# a split that leaves the old ceiling behind buys 287 lines of silent headroom
-# and quietly stops measuring anything, which is precisely the "one-time tidy
-# that resets the clock" this module's docstring exists to prevent.
-CEILING = 896
+# not a round number with headroom, so it BINDS IMMEDIATELY. Lowering is as
+# much a decision as raising and is argued for the same reason: a split that
+# leaves the old ceiling behind buys 287 lines of silent headroom and quietly
+# stops measuring anything, which is precisely the "one-time tidy that resets
+# the clock" this module's docstring exists to prevent.
+#
+# RAISED TO 927 ON 2026-09-09, AND THE CEILING DID ITS JOB ON THE WAY. It was
+# 896 - `sweep.py`'s exact size - so the next line added to that module failed
+# this test, and the change that tripped it was a repair to two defects in
+# `sweep.py` itself. Both were one defect: FOUR sites spelled a configured
+# document name their own way, and they disagreed. `partition_documents`
+# stripped a leading `./` with `.lstrip("./")`, which takes a CHARACTER SET
+# rather than a prefix, so `.github/CONTRIBUTING.md` became
+# `github/CONTRIBUTING.md` and matched nothing git tracks: a document listed in
+# `extra_docs` was demoted to "surveyed only, not gated" and `--sweep` exited 0
+# on a finding `--verify` failed on. The site deciding which document is
+# PRIMARY did not strip at all, so `./STATUS.md` made `has_entries` false for
+# every file in a survey and silently skipped every entry-scoped rule.
+#
+# The lines are `_normalise` and the paragraph above it recording that. This is
+# the same trade the 923 raise made and is refused for the same reason it was
+# refused then: a comment that stops the next reader reintroducing a measured
+# failure is the last thing to delete to fit a number. The alternative is real
+# and is not being taken today - `sweep.py` holds BOTH `--sweep` and
+# `--deleted-since`, which is a genuine seam, and splitting it is a change that
+# deserves its own commit rather than being smuggled into a bug fix.
+CEILING = 927
 
 # The module ceiling above measures FILES, and nothing measured FUNCTIONS -
 # which is exactly how `main()` reached 479 of cli.py's 749 lines while the

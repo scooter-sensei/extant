@@ -9,6 +9,7 @@ from extant.anchors import anchors
 from extant.scope import Context
 from extant.sites import (
     has_global_anchors, has_partial_anchors, partial_anchors, project_anchors,
+    resolve_reference,
 )
 from extant.text import EXTERNAL, MD_LINK, strip_code
 
@@ -71,13 +72,33 @@ def _fragment_sites(
                 sites.append((number, raw, fragment, None, None))
                 continue
             if target.startswith("/"):
-                resolved = repo / target.lstrip("/")
+                root, relative = repo, target.lstrip("/")
             else:
-                resolved = base / target
-            if resolved.suffix.lower() not in (".md", ".markdown"):
+                root, relative = base, target
+            # On the STRING, not on `Path(...).suffix`, which splits a
+            # backslash target differently per platform. See `sites._components`.
+            if not relative.lower().endswith((".md", ".markdown")):
                 continue
-            if not resolved.is_file():
+            # THROUGH `resolve_reference`, never a bare `is_file()`.
+            #
+            # `Path(repo) / "C:/x"` is `C:/x`, so building the path here and
+            # asking the filesystem let this rule read a markdown file ANYWHERE
+            # ON THE MACHINE and judge a fragment against it. Measured: a
+            # document containing `[x](D:/elsewhere/outside.md#heading)` was
+            # accepted because that heading existed in a file outside the
+            # repository, and the same link with a bad fragment reported a
+            # finding whose text carried the absolute path - into a CI log, a
+            # SARIF location and a pull-request annotation.
+            #
+            # That is the defect `resolve_reference` was repaired for, bypassed
+            # by not asking it. Asking it also makes this rule case-strict,
+            # which is what the docstring above already promises: a cross-file
+            # fragment is judged only when its path resolves "exactly as
+            # written". A case-only mismatch is `dead-md-link`'s finding, the
+            # same way a missing file is.
+            if not resolve_reference(ctx, root, relative)[0]:
                 continue          # dead-md-link's finding, not this rule's
+            resolved = root / relative
             offered = _target_anchors(ctx, resolved)
             if offered is None:
                 continue

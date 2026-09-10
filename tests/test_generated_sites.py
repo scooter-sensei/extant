@@ -215,3 +215,212 @@ def test_a_plain_repository_still_judges_routes(git_repo) -> None:
     commit("README.md", "x\n", "chore: init")
 
     assert "dead-md-link" in _kinds(repo, "See [docs](/reference/config/).\n")
+
+
+# --- path components, which must not depend on which platform is asking ------
+
+
+def test_a_reference_is_split_the_same_way_on_every_platform() -> None:
+    r"""`Path(x).parts` gave two different answers, and only one leg saw it.
+
+    `Path("Docs\Guide.md").parts` is ("Docs", "Guide.md") on Windows and
+    ("Docs\Guide.md",) on POSIX. A pointer written the Windows way therefore
+    resolved on a developer's laptop and was reported dead on the Linux CI leg
+    - the split verdict `_actual_case` exists to abolish, arriving through the
+    standard library rather than through the filesystem, so the careful
+    component-by-component comparison never saw it.
+
+    `path_pointer` is the caller that makes this matter: its default pattern is
+    `[\w:.\\/-]+`, which deliberately admits `tools\extant\cli.py` and a
+    drive letter, because that is how a Windows-authored document writes a
+    path.
+
+    A UNIT test on the splitter, deliberately, and this is the one place in the
+    suite where that choice needs defending. The behavioural difference is
+    invisible on Windows - both spellings already resolve there - so a test
+    that only ran the rule would pass on this machine no matter which splitter
+    is used, and would go red only on the ubuntu leg. Asserting the split
+    itself fails on EVERY platform the moment someone reaches for
+    `Path().parts` again.
+    """
+    from extant.sites import _components
+
+    assert _components(r"Docs\Guide.md") == ["Docs", "Guide.md"]
+    assert _components("Docs/Guide.md") == ["Docs", "Guide.md"]
+    assert _components(r"tools\extant\cli.py") == ["tools", "extant", "cli.py"]
+    # `.` and empty segments are dropped, as `Path().parts` already did; `..`
+    # is kept, because `_actual_case` walks it deliberately.
+    assert _components("./docs//guide.md") == ["docs", "guide.md"]
+    assert _components("../docs/guide.md") == ["..", "docs", "guide.md"]
+
+
+def test_a_windows_spelled_pointer_resolves(git_repo) -> None:
+    """The behavioural half, which is only red on a case-sensitive filesystem.
+
+    Stated rather than implied: on Windows this passed before the fix too. It
+    is here because it is the assertion that fails on the ubuntu leg of CI with
+    the old splitter, which is the leg the bug lived on.
+    """
+    from extant import session as hc
+    from extant.sites import resolve_reference
+    repo, commit = git_repo
+    commit("Docs/Guide.md", "# Guide\n", "docs: a guide")
+    hc._SCOPE = hc.RunScope()
+    ctx = hc.context(repo)
+
+    assert resolve_reference(ctx, repo, r"Docs\Guide.md") == (True, None)
+    assert resolve_reference(ctx, repo, "Docs/Guide.md") == (True, None)
+    # A case error is still a case error, whichever separator wrote it.
+    assert resolve_reference(ctx, repo, r"docs\guide.md") == (False,
+                                                              "Docs/Guide.md")
+
+
+def test_the_anchor_rule_does_not_read_a_file_outside_the_repository(
+        git_repo, tmp_path) -> None:
+    """`dead-md-anchor` built its own path and asked the filesystem directly.
+
+    `Path(repo) / "C:/x"` is `C:/x`, so a fragment naming an absolute target
+    made this rule read a markdown file ANYWHERE on the machine and judge
+    against it - and when the fragment did not match, the finding carried the
+    absolute path into the CI log, the SARIF location and the pull-request
+    annotation. `resolve_reference` had just been repaired for exactly that,
+    and this rule bypassed it by not asking.
+
+    Catches a return to any home-grown `is_file()` here.
+    """
+    from extant import session as hc
+    from extant.rules import md_anchor
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    outside = tmp_path / "outside.md"
+    outside.write_text("# Secret Heading\n\nbody\n", encoding="utf-8")
+    hc._SCOPE = hc.RunScope()
+    hc.set_document(link_base=repo, doc_path="DOC.md", doc_format="markdown")
+
+    found = md_anchor.check(
+        hc.context(repo),
+        "[x](%s#no-such-anchor)\n" % outside.as_posix())
+
+    assert found == [], (
+        "judged a fragment against a file outside the repository: "
+        + "; ".join(f.detail for f in found))
+
+
+def test_an_absolute_target_is_not_answered_by_the_machines_filesystem(
+        git_repo, tmp_path) -> None:
+    """A path outside the repository cannot settle a claim about it.
+
+    `resolve_reference` answered an absolute target with `Path(raw).exists()`,
+    consulting the machine's filesystem root - so a dead root-relative link was
+    silenced for whoever happened to have that path on disk and reported for
+    everyone else, and on Windows the match was case-insensitive too.
+
+    `tmp_path` is the probe because it is absolute and certainly exists on
+    every platform the suite runs on, which is exactly the condition that used
+    to return True. Catches a revert to any filesystem probe here, not just to
+    the original one.
+    """
+    from extant import session as hc
+    from extant.sites import resolve_reference
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    hc._SCOPE = hc.RunScope()
+    ctx = hc.context(repo)
+
+    assert tmp_path.is_dir(), "the probe path must exist for this to mean anything"
+    assert resolve_reference(ctx, repo, str(tmp_path)) == (False, None)
+    assert resolve_reference(ctx, repo, "/" + tmp_path.name) == (False, None)
+
+
+def test_a_root_relative_link_names_the_case_it_should_have_used(git_repo) -> None:
+    """"Does not exist" about a file that DOES exist sends the reader hunting.
+
+    A leading slash means the repository root. The rooted probe took only the
+    boolean half of that answer and threw the on-disk spelling away, and the
+    fall-through then asked `resolve_reference` about a target still carrying
+    its slash - the absolute branch, which answers about the filesystem root
+    and can never suggest a case. So a root-relative link whose only fault was
+    two letters was reported as a missing document.
+    """
+    from extant import session as hc
+    from extant.rules import md_link as rule
+    repo, commit = git_repo
+    commit("Docs/Guide.md", "# Guide\n", "docs: a guide")
+    hc._SCOPE = hc.RunScope()
+
+    found = rule.check(hc.context(repo), "[g](/docs/guide.md)\n")
+
+    assert len(found) == 1, found
+    assert "the file on disk is `Docs/Guide.md`" in found[0].detail, found[0].detail
+    assert "does not exist" not in found[0].detail, found[0].detail
+
+
+def test_a_reference_may_not_climb_above_the_repository_root(
+        git_repo, tmp_path) -> None:
+    """The last of the three ways a reference could leave the repository.
+
+    PHASE 6's audit found three: an absolute path, a drive letter, and the `..`
+    walk. The first two were closed by the absolute branch above; this is the
+    third. `base / "../../x.md"` was answered by whatever else happened to sit
+    on the machine, which is the same "true where you are standing is not true"
+    the tool exists to catch.
+
+    A real file is planted OUTSIDE the repository, because a bound tested only
+    against a path where nothing exists would pass just as well with no bound
+    at all - `_actual_case` returns None for a missing file either way.
+
+    MEASURED before it was applied: over 176 repositories and 77,879 relative
+    references, 12 climb above the root and NOT ONE of them resolves, so this
+    removes no finding. The number that mattered was the other one - both
+    behaviours were run over all 77,879 and ZERO verdicts changed, which is
+    what says the depth arithmetic is right.
+    """
+    from extant import session as hc
+    from extant.sites import resolve_reference
+    repo, commit = git_repo
+    commit("docs/guide.md", "x\n", "chore: init")
+    commit("README.md", "x\n", "chore: readme")
+
+    outside = repo.parent / "outside-the-repo.md"
+    outside.write_text("secret\n", encoding="utf-8")
+    assert outside.is_file(), "the probe file must exist for this to mean anything"
+
+    hc._SCOPE = hc.RunScope()
+    ctx = hc.context(repo)
+
+    # From the repository root, one `..` already leaves it.
+    assert resolve_reference(ctx, repo, "../outside-the-repo.md") == (False, None)
+    # From a subdirectory it takes two, and the first one is legitimate.
+    assert resolve_reference(
+        ctx, repo / "docs", "../../outside-the-repo.md") == (False, None)
+
+
+def test_an_ordinary_dot_dot_reference_still_resolves(git_repo) -> None:
+    """The blast radius, which is the whole reason the bound was measured.
+
+    Getting the base-versus-repo depth wrong turns every `../README.md` written
+    in a subdirectory into a false positive - and a false positive is the
+    failure that gets this validator switched off. This is the other half of
+    the pair above and must stay green whatever happens to the bound.
+    """
+    from extant import session as hc
+    from extant.sites import _depth_below, resolve_reference
+    repo, commit = git_repo
+    commit("README.md", "x\n", "chore: init")
+    commit("docs/deep/guide.md", "x\n", "chore: deep")
+    hc._SCOPE = hc.RunScope()
+    ctx = hc.context(repo)
+
+    assert resolve_reference(ctx, repo / "docs", "../README.md") == (True, None)
+    assert resolve_reference(
+        ctx, repo / "docs" / "deep", "../../README.md") == (True, None)
+    # A `..` that cancels a segment stays inside and must survive too.
+    assert resolve_reference(
+        ctx, repo / "docs", "../docs/deep/guide.md") == (True, None)
+
+    # None, not 0, when the base is not below the repository at all. Answering
+    # 0 would refuse every `..` for `--validate` on a file outside the repo,
+    # trading a machine-dependence for a false positive.
+    assert _depth_below(repo, repo) == 0
+    assert _depth_below(repo, repo / "docs" / "deep") == 2
+    assert _depth_below(repo, repo.parent) is None

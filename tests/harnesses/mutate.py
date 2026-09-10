@@ -72,6 +72,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     report = collect.parent / "extant/report.py"
     session = collect.parent / "extant/session.py"
     sweep = collect.parent / "extant/sweep.py"
+    # The only irreversible write in the system, and it had no anchor here at
+    # all until 2026-09-09 - so neither the conservation guard that stands
+    # between a splitter bug and a truncated status document, nor the
+    # terminator handling, was ever watched failing.
+    entries_mod = collect.parent / "extant/entries.py"
+    # The shell installer, which had no anchor either. Its failure mode is the
+    # one this project cares about most and the one it already shipped once:
+    # a hook reported as installed that can never run.
+    hooks_install = collect.parent / "hooks/install"
     cli = collect.parent / "extant/cli.py"
     # The gating modes left extant/cli.py when `run_validate` reached 295 lines
     # against a 303-line ceiling and `--check-text` still had to be written.
@@ -368,7 +377,31 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                    continue\n                sites.append("),
 
         # --- markdown --------------------------------------------------------
-        ("external links get checked (needs the network)", rules / "md_link.py",
+        # Both halves of MD_LINK were quadratic, and bounding one is not enough:
+        # with only the link-text bound in place the `[a](` shape still cost
+        # 23.5s of its measured 23.8s. So there are two anchors, not one - a
+        # single anchor would let either bound be removed silently.
+        # Each replacement stays SELF-CONSISTENT - it removes one bound and
+        # leaves `_MD_LINK_SPAN` at 4096 - because the test builds its strings
+        # from that constant. Mutating the constant instead of the pattern
+        # would have the test allocate a string of whatever size the mutation
+        # named, which is a harness that runs out of memory rather than a
+        # mutation that gets killed.
+        ("the link text is unbounded again", text,
+         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*([^)\\s]{1,%d}?)\\s*\\)"'
+         ' % (_MD_LINK_SPAN, _MD_LINK_SPAN))',
+         '    r"\\[[^\\]]*\\]\\(\\s*([^)\\s]{1,%d}?)\\s*\\)"'
+         ' % (_MD_LINK_SPAN,))'),
+        ("the link target is unbounded again", text,
+         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*([^)\\s]{1,%d}?)\\s*\\)"'
+         ' % (_MD_LINK_SPAN, _MD_LINK_SPAN))',
+         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*([^)\\s]+?)\\s*\\)"'
+         ' % (_MD_LINK_SPAN,))'),
+        # Retargeted with the scanner: this refusal moved to
+        # `text.link_sites`. md_link.py still has an EXTERNAL check, in
+        # `probe`, at a different indent - that one splices a corrupted
+        # target and decides nothing, so it is not the site this names.
+        ("external links get checked (needs the network)", text,
          '            if EXTERNAL.match(raw) or raw.startswith("#"):\n'
          '                continue',
          '            if raw.startswith("#"):\n'
@@ -491,6 +524,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # extant/gate.py and this became `_diagnostic_stream` - one function
         # answering the question for both of them, so the choice is now a
         # `return` rather than an assignment.
+        # An out-of-repo document has no repository-relative path, so
+        # `finding.rel` falls back to the absolute one and the encoder escapes
+        # the drive colon - publishing `D%3A/elsewhere/doc.md`, a VALID
+        # relative reference naming a file the repository does not contain.
+        # Worse than the invalid URI it replaced, because an invalid one is
+        # rejected loudly and this resolves quietly to nothing. Found by the
+        # gap audit of the fix that changed that field's encoding.
+        ("sarif publishes a document from outside the repository", cli,
+         '        if args.format == "sarif":\n            target = Path(args.validate)',
+         "        if False:\n            target = Path(args.validate)"),
         ("sarif diagnostics leak onto stdout", gate,
          '    return (sys.stderr if (args.format == "sarif" or args.suggest_fixes)\n'
          "            else sys.stdout)",
@@ -521,6 +564,20 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("sarif stops reporting what was examined", report,
          '    if examined is not None:',
          '    if False:'),
+        # SARIF 3.4.3 requires a URI, and a repository path frequently is not
+        # one. `#` is the sharp case: unencoded, a consumer reads
+        # `source/F#/LICENSE.md` as the path `source/F` plus a fragment, so the
+        # alert names a file that does not exist - and an invalid document can
+        # be rejected whole, taking every finding in it with it.
+        ("sarif emits a repository path that is not a uri", report,
+         '                    "artifactLocation": {"uri": _sarif_uri(item.path)},',
+         '                    "artifactLocation": {"uri": item.path},'),
+        # The other half: encoding MORE than RFC 3986 requires is conformant
+        # but not free, because a consumer matching literally would stop
+        # recognising the paths that already work.
+        ("sarif over-encodes a path that is already a uri", report,
+         '    segments = [quote(segment, safe=_PCHAR_SAFE) for segment in path.split("/")]',
+         '    segments = [quote(segment, safe="") for segment in path.split("/")]'),
 
         # --- shas ----------------------------------------------------------
         # "secret scan misses openai keys" lived here until 0.14.0 removed the
@@ -608,10 +665,33 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the deletion haystack also blanks inline code", sweep,
          "                parts.append(markup.prose(session.document(), handle.read()))",
          "                parts.append(markup.strip_code(session.document(), handle.read()))"),
+        # Retargeted on 2026-09-09, when the four disagreeing spellings of a
+        # configured document name collapsed into `_normalise` and this
+        # function started using it. The anchor named the un-normalised tuple
+        # and matched nothing afterwards - reported STALE rather than passing,
+        # which is the only reason the retarget happened in the commit that
+        # caused it. Mutations rot alongside the code they point at.
         ("deletion checks only the primary document, not the archive", sweep,
-         "    return [d for d in (session.CONFIG.primary_doc, session.CONFIG.archive_doc,\n"
-         "                        *session.CONFIG.extra_docs) if d]",
-         "    return [d for d in (session.CONFIG.primary_doc,) if d]"),
+         "    return [_normalise(d) for d in (session.CONFIG.primary_doc,\n"
+         "                                    session.CONFIG.archive_doc,\n"
+         "                                    *session.CONFIG.extra_docs) if d]",
+         "    return [_normalise(d) for d in (session.CONFIG.primary_doc,) if d]"),
+        # The character-set strip that demoted `.github/CONTRIBUTING.md` to the
+        # unreviewed half. `str.lstrip` takes a SET, so this is the bug exactly
+        # as it shipped, and the mutation is indistinguishable from the fix on
+        # every configured name that does not begin with a dot - which is most
+        # of them, and is why nothing noticed.
+        #
+        # Retargeted on 2026-09-09, when the audit found the repair had been
+        # made in `sweep.py` and NOT in `gate.py`, so `--verify` still reported
+        # its findings under `./docs/NOTES.md` - a path git does not track, and
+        # therefore a `--format=github` annotation matching no line of the
+        # diff. The normaliser moved to `config.load_config`, where the setting
+        # is read, so no consumer can forget it. The anchor followed the code.
+        ("a configured name is stripped of dots as well as of `./`",
+         collect.parent / "extant/config.py",
+         '    while name.startswith("./"):\n        name = name[2:]',
+         '    name = name.lstrip("./")'),
         ("deletion re-reads documents that did not change", sweep,
          "    for relative in _changed_between(repo, ref, documents):",
          "    for relative in documents:"),
@@ -667,13 +747,30 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # `suggest_renames` moved to extant/gate.py with the mode that calls
         # it. The TEXT of these three is unchanged - the function was
         # transplanted rather than rewritten - so only the file moved.
+        # Retargeted when the patch stopped replacing on the RESOLVED target
+        # and started replacing on the spelling the document actually uses.
+        # The old anchor named `replacements.append((target, moved))`, which no
+        # longer exists; a mutation kept alive by pointing it at something else
+        # would be testing a different thing under an old label.
         ("suggest-fixes offers a guess for a merely missing file", gate,
-         "        moved = renamed_to(ctx, target)\n"
-         "        if moved:\n"
-         "            replacements.append((target, moved))",
+         "        moved = renamed_to(ctx, target)\n        if moved:",
          "        moved = renamed_to(ctx, target) or target + \".guess\"\n"
-         "        if moved:\n"
+         "        if moved:"),
+        # THE INVARIANT. Without it `--suggest-fixes` offered to rewrite a link
+        # split across a newline that `--validate` had just reported clean - a
+        # patch for a finding that does not exist.
+        ("a patch is offered with no finding behind it", gate,
+         "        if target not in linked or resolve_reference(ctx, base, target)[0]:",
+         "        if resolve_reference(ctx, base, target)[0]:"),
+        # The two strings the shared scanner returns are not interchangeable:
+        # one RESOLVES and one is REPLACED. Swapping them makes the patch look
+        # for a string the document does not contain.
+        ("the patch replaces on the resolved target, not the written spelling", gate,
+         "            replacements.append((raw, moved + raw[len(path_part):]))",
          "            replacements.append((target, moved))"),
+        ("the shared scanner drops the spelling the document uses", text,
+         "            sites.append((number, raw, target))",
+         "            sites.append((number, target, target))"),
         ("suggest-fixes rewrites prose as well as references", gate,
          '        updated = updated.replace(f"]({old})", f"]({new})")\n'
          '        updated = updated.replace(f"`{old}`", f"`{new}`")',
@@ -991,6 +1088,106 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    vetted = [p for p in paths if p in normalised]\n"
          "    return vetted, [p for p in paths if p not in normalised]",
          "    return list(paths), []"),
+        # THE MUTATION IS THE BUG AS IT SHIPPED, restored exactly. For eight
+        # releases `_worker_init` assigned `session.CONFIG` and stopped there,
+        # which reads as installing the parent's settings and installs nothing:
+        # every rule takes its patterns from the built Config on
+        # `session._ACTIVE`, and only `_apply_config` writes that. A spawned
+        # worker had therefore built `_ACTIVE` from whatever `load_config` found
+        # beside `extant/session.py` at import - this repository's own settings
+        # when run from a checkout, and the DEFAULTS in a pip or pre-commit
+        # install, where nothing sits above site-packages.
+        #
+        # Nothing here pointed at this function, and that is why it survived.
+        # The suite's parallel-versus-serial agreement test could not see it
+        # either: its helper made the same mistake, so both paths ran on
+        # defaults and agreed. The anchor exists so the fix is watched failing
+        # rather than trusted.
+        ("a survey worker keeps its own configuration, not its parent's", sweep,
+         "    session.install_config(config)         # type: ignore[arg-type]",
+         "    session.CONFIG = config                # type: ignore[assignment]"),
+        # --- reference resolution, which must not vary by platform --------
+        # The backslash is the whole of it. `Path(x).parts` split on it under
+        # Windows and not under POSIX, so a Windows-spelled pointer - which
+        # `path_pointer`'s default pattern deliberately admits - resolved on a
+        # laptop and was reported dead on the ubuntu CI leg. This mutation is
+        # killed on EVERY platform, which the `Path().parts` it replaced would
+        # not have been: that one is invisible on Windows, and a mutation only
+        # the other leg can catch is exactly the shape this campaign cannot
+        # measure. See the unit test for why the assertion is on the splitter.
+        ("a reference is split on the forward slash alone", sites,
+         '    for chunk in relative.replace("\\\\", "/").split("/"):',
+         '    for chunk in relative.split("/"):'),
+        # The `..` walk, restored to unbounded. It was the LAST of the three
+        # ways PHASE 6's audit found to leave the repository, the other two
+        # being an absolute path and a drive letter, and it answered a question
+        # about this repository with whatever else sat above it on the machine.
+        # Measured over 176 repositories before it was bounded: 12 of 77,879
+        # relative references climb out, none of them resolve, and running both
+        # behaviours over all 77,879 changed ZERO verdicts.
+        ("a reference may climb above the repository root again", sites,
+         '            if part == ".." and depth is not None:',
+         "            if False:"),
+        # The other half, and it is a separate anchor on purpose: answering 0
+        # for a base that is not below the repository would refuse every `..`
+        # for `--validate` on a file outside it, which trades the
+        # machine-dependence above for a false positive. One anchor could not
+        # tell the two mistakes apart.
+        ("a base outside the repository is treated as being at its root", sites,
+         "    except ValueError:\n        return None\n\n\ndef _actual_case",
+         "    except ValueError:\n        return 0\n\n\ndef _actual_case"),
+        # The filesystem-root probe, restored. It answers a question about the
+        # repository by looking at whatever else is on the machine, so a dead
+        # root-relative link is silenced for whoever happens to have that path
+        # and reported for everyone else. Measured over 176 repositories before
+        # it was removed: it changes no verdict on any of them, because the only
+        # absolute targets real documents cite are generator routes.
+        # Anchored WITH the `else:` beneath it, because `result = (False, None)`
+        # alone matches the unresolved-case branch as well and --check-only
+        # reported it 2x. A mutation that matches twice probes neither site.
+        ("an absolute target is answered by the machine's filesystem", sites,
+         "        result = (False, None)\n    else:",
+         "        result = (Path(raw).exists(), None)\n    else:"),
+        # The anchor rule building its own path again instead of asking the one
+        # function that owns the question. `Path(repo) / "C:/x"` is `C:/x`, so
+        # this reads a markdown file anywhere on the machine and puts its
+        # absolute path into a finding.
+        ("the anchor rule resolves a cross-file target itself",
+         rules / "md_anchor.py",
+         "            if not resolve_reference(ctx, root, relative)[0]:",
+         "            if not (root / relative).is_file():"),
+        # The on-disk spelling the rooted probe found, thrown away again. The
+        # finding still fires; it goes back to saying "does not exist" about a
+        # file that does, which sends the reader looking for a missing document
+        # instead of fixing two letters.
+        ("a root-relative link forgets the case it should have used",
+         rules / "md_link.py",
+         "        actual_case = actual_case or rooted_case",
+         "        actual_case = actual_case"),
+        # --- the installer ------------------------------------------------
+        # Restores the bug exactly: every hook looks appendable, so a file
+        # ending in `exit 0` gets the block appended behind it and a success
+        # line printed for a check that can never fire. Invisible on any hook
+        # that does not end that way, which is most of them.
+        ("a hook that ends in exit is still reported as installed",
+         hooks_install,
+         "    [ -f \"$1\" ] && grep -qE '^(exit|exec)([[:space:]]|$)' \"$1\"",
+         "    false"),
+        # --- the irreversible write --------------------------------------
+        # The conservation guard itself. Without it a bug in `split_entries`
+        # truncates the status document and reports success, which is the most
+        # expensive silent failure available in this system.
+        ("the archive stops checking that it conserves every line", entries_mod,
+         "    if lost:\n        raise RuntimeError(",
+         "    if False:\n        raise RuntimeError("),
+        # The archive is a second file with a terminator of its own. Taking the
+        # primary's rewrites every line of it as a side effect of retiring two
+        # entries, and against a CR-only archive it produces a file holding
+        # both CR and LF - worse than either, and asked for by nobody.
+        ("the archive is written in the primary document's terminator",
+         entries_mod,
+         "        fh.write(archived_text.replace(\"\\n\", archive_newline))",
+         "        fh.write(archived_text.replace(\"\\n\", newline))"),
         # A file that could not be read is not a file with no findings. This
         # drops it on the floor exactly the way a bare `continue` would, which
         # is how the sweep would quietly under-report on any repository holding
@@ -1138,8 +1335,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # repositories in two corpora, with ZERO resolving to a checked-in
         # file. Re-gating it on generator detection is what made rails report
         # 276 of its own guide links dead.
+        # Retargeted, not rewritten: the refusal moved to `text.link_sites`
+        # when the scanner was shared with gate.suggest_renames. Same line,
+        # same meaning, new home.
         ("a .html target is judged again unless a generator is declared",
-         rules / "md_link.py",
+         text,
          '            if target.endswith(".html"):\n                continue',
          "            if False:\n                continue"),
         # Next.js routes by file path. Without it, nextra reported 227 of its

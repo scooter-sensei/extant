@@ -10,9 +10,14 @@ from extant.refs import renamed_to
 from extant.scope import Context
 from extant.sites import in_site_tree, is_generated_site, resolve_reference
 from extant.text import (
-    EXTERNAL, MD_LINK, numbered_document, percent_decoded, strip_code,
+    EXTERNAL, MD_LINK, link_sites, numbered_document, strip_code,
     unique_basename,
 )
+# `probe` below keeps its own MD_LINK scan rather than reading `link_sites`,
+# and the difference is real rather than an oversight: it has to SPLICE a
+# corrupted target back into the document, so it needs the match POSITION that
+# `finditer` gives and a list of sites cannot. It is not a second reader of the
+# same claim - it decides nothing and reports nothing.
 
 __all__ = ["RULE", "check", "examined", "probe"]
 
@@ -23,63 +28,21 @@ def _link_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
     THE scanner. `check` judges what this returns and `examined` counts it,
     so the two cannot describe different populations - which they did.
     `examined` ran a pass of its own that counted every non-external,
-    non-anchor link, including the two shapes below that `check` refuses in
-    every repository. A document made only of them printed `dead-md-link 2`
-    beside no findings, which reads as two links examined and clean when none
-    was examined at all. That is the quiet direction of the defect and the
-    worse one: nobody investigates a run with no findings.
+    non-anchor link, including shapes that `check` refuses in every
+    repository. A document made only of them printed `dead-md-link 2` beside
+    no findings, which reads as two links examined and clean when none was
+    examined at all. That is the quiet direction of the defect and the worse
+    one: nobody investigates a run with no findings.
 
-    Each entry is (line number, target), with the fragment, the query string
-    and any percent-encoding already resolved away, because those are
-    spellings of a filename rather than part of it.
-
-    A site the rule cannot decide is not returned, and so is neither judged
-    nor counted. Only the UNCONDITIONAL refusals live here; the site-route
-    shapes below in `check` depend on what the repository is and on the
-    target not resolving, so they cannot be settled by reading the link.
+    The scan itself now lives in `text.link_sites`, because it had acquired a
+    SECOND reader - `gate.suggest_renames` - and two readers of one claim that
+    scan differently is the recurring defect here. This is the adapter that
+    keeps the rule's own shape: `check` and `examined` want (line, target) and
+    have no use for the raw spelling, which exists for the patch generator
+    that has to find the link again in the document.
     """
-    sites: list[tuple[int, str]] = []
-    for number, line in enumerate(strip_code(ctx.doc, text).splitlines(),
-                                  start=1):
-        if "[" not in line or "(" not in line:
-            continue
-        for raw in MD_LINK.findall(line):
-            if EXTERNAL.match(raw) or raw.startswith("#"):
-                continue
-            # The query string is not part of the filename. `?raw=1` and
-            # `?plain=1` are how GitHub serves a file, and leaving them on the
-            # target made every such link resolve to nothing and report a file
-            # that is plainly there as missing.
-            target = raw.split("#", 1)[0].split("?", 1)[0]
-            if not target:
-                continue
-            # `@` opens a generator macro, not a path. Documenter.jl writes
-            # `[text](@ref)` for a cross-reference and JuliaLang/julia carries
-            # 1,779 of them - every single one reported as a dead file, and 96%
-            # of that repository's findings.
-            if target.startswith("@"):
-                continue
-            # A markdown link percent-encodes characters that are awkward in a
-            # URL, and the file on disk carries the decoded name.
-            # nlohmann/json documents `operator[]` and links to it as
-            # `operator%5B%5D.md`, which is the same file spelled for a browser.
-            target = percent_decoded(target)
-            # A `.html` target is a rendered page, in every repository and not
-            # only in a detected one. MEASURED across 20 repositories in two
-            # corpora: 407 markdown links point at a `.html` target and NOT ONE
-            # resolves to a checked-in file. Gating this on generator detection
-            # is what made rails report 276 of its own guide links dead - its
-            # guides compile to HTML with a bespoke builder that ships none of
-            # the configs `sites.py` detects.
-            #
-            # Refused HERE rather than beside the site routes in `check`,
-            # because it is refused whatever the repository looks like and
-            # whatever is on disk. A rule that would never judge this link must
-            # not count it either.
-            if target.endswith(".html"):
-                continue
-            sites.append((number, target))
-    return sites
+    return [(number, target)
+            for number, _raw, target in link_sites(ctx.doc, text)]
 
 
 def check(ctx: Context, text: str) -> list[Finding]:
@@ -102,10 +65,22 @@ def check(ctx: Context, text: str) -> list[Finding]:
         # renders it. Resolved against the DOCUMENT it reported
         # `/.github/AI_POLICY.md` dead in psf/requests while the file sat
         # right there.
+        rooted_case = None
         if target.startswith("/"):
             rooted = target.lstrip("/")
-            if rooted and resolve_reference(ctx, repo, rooted)[0]:
-                continue
+            # BOTH halves of the answer, not just the boolean. Taking `[0]`
+            # threw away the on-disk spelling, and the fall-through below then
+            # asked `resolve_reference` about a target still carrying its
+            # leading slash - which is the absolute branch, so it answered
+            # `Path("/docs/guide.md").exists()` about the filesystem root and
+            # returned no suggestion. A root-relative link whose only fault was
+            # its case was therefore reported as "does not exist" about a file
+            # that does, sending the reader to look for a missing document
+            # instead of fixing two letters.
+            if rooted:
+                rooted_exists, rooted_case = resolve_reference(ctx, repo, rooted)
+                if rooted_exists:
+                    continue
             # A root-relative target with no extension is a site route, and
             # it is settleable without knowing the generator: append `.md`
             # from the repository root and see. microsoft/vscode-docs links
@@ -143,6 +118,10 @@ def check(ctx: Context, text: str) -> list[Finding]:
         exists, actual_case = resolve_reference(ctx, base, target)
         if exists:
             continue
+        # The suggestion the root-relative probe above already found. `target`
+        # still carries its leading slash here, so the call on the line above
+        # took the absolute branch and can never produce one.
+        actual_case = actual_case or rooted_case
         # In a compiled docs tree the remaining shapes are site routes
         # rather than files: an extensionless target or an absolute path
         # from the site root. Neither can be settled by the filesystem, so

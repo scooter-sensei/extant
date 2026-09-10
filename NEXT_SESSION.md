@@ -6,6 +6,127 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 35 - What a deep-dive review of the payload found (unreleased, 2026-09-10)
+
+**Status.** Suite is 1,062 tests across 63 files: 1,060 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule and no suppression. Unlike the
+phase below it, this one DOES change the shipped payload: eleven modules
+under `payload/` plus the hook installer, and one behaviour a caller can see,
+so it needs a release rather than sitting harmlessly above the tag. The tool
+remained released as 0.26.0 and this work sits above that tag, unreleased.
+Mutation campaign is 184 anchors, and every anchor this phase touched was run
+for real rather than only matched.
+
+**What it is.** A skeptical review of the whole payload, run over four
+sessions: three finding defects and a fourth auditing the fixes. Everything
+below was measured against the corpus BEFORE it was changed and confirmed a
+no-op on real content afterwards - the corpus report was re-swept at the end
+and reports 60,820 findings across 176 repositories with none appearing, none
+disappearing and no per-rule change.
+
+**The recurring shape, and most of this list is it: a repair applied at one
+call site when the code had several.** A parallel `--sweep` assigned
+`session.CONFIG` without applying it, so a spawned worker ran on DEFAULTS and
+the survey printed `0 examined` for every rule - and the suite's own
+parallel-versus-serial agreement test made the same mistake in its helper, so
+both paths ran on defaults and agreed. One configured document name had five
+spellings and `gate.py` had none of them, so `--verify` reported findings under
+a path git does not track and a `--format=github` annotation matched no line of
+the diff. `dead-md-anchor` built its own path and asked the filesystem,
+bypassing the repair `resolve_reference` had just been given and reading
+markdown anywhere on the machine.
+
+**`.lstrip("./")` is a character-set strip, not a prefix strip.**
+`.github/CONTRIBUTING.md` became `github/CONTRIBUTING.md`, matching no tracked
+path, so a configured document was demoted to surveyed-only: `--sweep` exited 0
+where `--verify` exited 1 on the same file. Two modes disagreeing about whether
+a configured document gates.
+
+**Two writes that damaged the file they were asked to move text within.**
+`--archive` detected the line terminator from the primary document only, so an
+archive with its own CRLF was rewritten whole as LF and a CR-only one was left
+holding both - a change to every line, from an operation asked to move two
+sections. The module already documented that exact bug as fixed FOR THE
+PRIMARY; the second file the same function rewrites was never covered, and
+`entries.py` had no mutation coverage at all before this.
+
+**A hook was reported installed for a check that can never run.** The installer
+appends, correctly, because it must not destroy another tool's hook - but
+everything after a top-level `exit` is unreachable. Observed end to end: the
+block sits visibly in the file, the installer says `installed`, re-running says
+`already installed` because the marker is there, and the check never fires.
+The same installed-but-inert failure the script's own docstring opens with.
+
+**Three ways a reference could leave the repository, and all three are now
+shut.** `Path(x).parts` splits on a backslash under Windows and not under
+POSIX, so a Windows-spelled pointer resolved on a laptop and was reported dead
+on the ubuntu leg. An absolute target was answered by `Path(raw).exists()`,
+which consults the machine's filesystem root rather than the repository. And a
+relative reference could climb above the root with `..`. Each was measured over
+176 repositories before it was touched: the absolute branch changes no verdict
+on any of them, and for the `..` walk both behaviours were run over all 77,879
+relative references with ZERO verdicts changed. That last number is the one
+that mattered - a population count bounds the FINDINGS and not the blast
+radius, and getting the depth arithmetic wrong would have turned every ordinary
+`../README.md` into a false positive.
+
+**SARIF published locations that were not URIs.** 3.4.3 requires RFC 3986 and
+117 of 52,929 corpus documents carry a path that is not one: `#` is a
+delimiter, so `source/F#/LICENSE.md` is read by a conformant consumer as the
+path `source/F`, and a document that is invalid can be rejected WHOLE, taking
+every finding in it. Measured in the wild on the same character class - a space
+made SonarQube reject an entire Trivy report. The encoder escapes the minimum,
+so it is a no-op on the paths that were already valid.
+
+**And auditing that fix found the same shape inside it.** `--validate
+--format=sarif` on a document OUTSIDE the repository published
+`D%3A/elsewhere/doc.md` - a VALID reference naming a file the repository does
+not contain, which is worse than the invalid URI it replaced, because an
+invalid one is rejected loudly and this resolves quietly to nothing. The
+encoding was fixed without asking who ELSE puts a path into that field. Refused
+now, exactly as `--check-text --format=sarif` already refuses a document with
+no path.
+
+**The markdown link pattern was quadratic twice over, and the worse one hid
+behind the first.** Measured through the shipped CLI, one line of `[a](`
+repeated: 128 KB costs 188.83 seconds, with the ratio converging on x4 per
+doubling. So a committed markdown file could hang a CI job or a git hook with
+no `.extant.toml` involved - which matters because the unbounded USER pattern
+in the consistency rule is documented and deliberate, and an ordinary document
+needs no configuration and is picked up by `--sweep` on its own. The first
+timing pass used generic adversarial shapes, found the lesser quadratic and
+measured it unreachable; none of its shapes ever produced `[a](`, which is a
+generic shape list testing the shapes somebody thought of. Both halves are
+bounded at 4096, the smallest power of two above the longest real instance of
+either, and a differential found bounded and unbounded extracting IDENTICAL
+target lists over 694,676 links.
+
+**One claim, one scanner - applied to a pattern that had two readers.**
+`--suggest-fixes` scanned the whole document while the rule scans per line, so
+it offered to rewrite a link split across a newline that `--validate` had just
+reported clean while exiting 0, and it declined to help with two findings it
+had just printed. The scan now lives in `text.link_sites` and returns three
+values, because the callers need DIFFERENT strings and both are right: a rule
+RESOLVES the normalised target, a patch REPLACES the raw spelling as written.
+Returning only the target would have broken the patch silently. A patch is now
+offered only for a claim a rule reported.
+
+**The mutation harness caught a test that pinned nothing, and it was right.**
+The anchor for that invariant SURVIVED: the test named after it used the
+newline case, which the shared scanner already refuses, so the guard could be
+deleted with every test still green. Fixed by writing a better test - one that
+asserts the scanner still RETURNS the link before asserting no patch - rather
+than by weakening the mutation.
+
+**Two shapes were REFUSED on measurement, which is a result rather than an
+absence.** Backslash-spelled markdown links: of the 125,559 non-external links
+scanned, the eighteen candidates decompose to zero real ones - sixteen are
+regex fragments inside test fixtures and two are a fixture whose whole subject
+is what a backslash does in markdown. And `dead-md-anchor` scans the link
+pattern independently with two normalisations missing, which costs zero
+unexamined sites out of 72,681 fragment-carrying links. Neither earns a
+change.
+
 ## Phase 34 - A shrinker that reported what it had not built (unreleased, 2026-09-08)
 
 **Status.** Suite is 1,036 tests across 62 files: 1,034 passing and 2 skipped.

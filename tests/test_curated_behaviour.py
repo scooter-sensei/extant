@@ -199,7 +199,11 @@ def test_a_small_survey_runs_in_one_process_and_claims_nothing(git_repo,
     repo, commit = git_repo
     for i in range(4):
         commit(f"docs/d{i}.md", f"# Doc {i}\n", f"docs: {i}")
-    session.CONFIG = session.load_config(repo)
+    # `reload_config`, for the reason `_sweep_text` below gives at length: a
+    # bare `CONFIG =` reaches no rule, and these fixtures configure nothing, so
+    # the difference is invisible here and would stay invisible the day one of
+    # them grows a `.extant.toml`.
+    session.reload_config(repo)
     run_sweep(repo, "text")
     printed = capsys.readouterr().out
     assert "worker process(es)" not in printed
@@ -221,7 +225,7 @@ def test_a_document_that_returns_no_result_is_named_not_skipped(git_repo,
     for i in range(3):
         commit(f"docs/d{i}.md", f"# Doc {i}\n\nSee `src/gone{i}.py`.\n",
                f"docs: {i}")
-    session.CONFIG = session.load_config(repo)
+    session.reload_config(repo)
 
     real = sweep._sequential
 
@@ -243,9 +247,19 @@ def test_a_document_that_returns_no_result_is_named_not_skipped(git_repo,
 
 
 def _sweep_text(repo, capsys) -> str:
+    """A survey of `repo` under `repo`'s own settings, as the CLI runs one.
+
+    `reload_config`, not a bare `session.CONFIG = load_config(repo)`. The two
+    look interchangeable and are not: every rule reads the built `Config` on
+    `session._ACTIVE`, which only `_apply_config` writes, and `reload_config`
+    is the public call that does both. Assigning CONFIG alone left this helper
+    surveying under DEFAULTS while claiming to survey under the repository's
+    configuration - so the agreement test below compared two default-configured
+    runs and would have passed however badly a worker read the config.
+    """
     from extant import session
     from extant.sweep import run_sweep
-    session.CONFIG = session.load_config(repo)
+    session.reload_config(repo)
     run_sweep(repo, "text")
     return capsys.readouterr().out
 
@@ -285,6 +299,126 @@ def test_the_parallel_survey_runs_and_agrees_with_the_serial_one(git_repo,
         "the parallel survey disagreed with the serial one")
     # The denominator for this test itself: six documents, six dead pointers.
     assert serial.count("[dead-path-pointer]") == 6, serial
+
+
+def test_a_configured_document_under_a_dot_directory_still_gates(git_repo,
+                                                                 capsys) -> None:
+    """`.github/CONTRIBUTING.md` in extra_docs must be GATED, not surveyed.
+
+    `partition_documents` normalised configured names with `.lstrip("./")`, and
+    `str.lstrip` takes a CHARACTER SET rather than a prefix: the name came back
+    as `github/CONTRIBUTING.md`, which matches nothing git tracks. The document
+    fell into the unreviewed half, was printed under "surveyed only, not gated",
+    and left the exit code at 0 - while `--verify` checked the same file and
+    failed on it. Two modes disagreeing about whether a configured document
+    gates is the shape this project exists to refuse, and `.github/` is the
+    ordinary home for a CONTRIBUTING file.
+
+    Nothing covered `partition_documents` before this, which is why it survived.
+    """
+    from extant.sweep import partition_documents
+    repo, commit = git_repo
+    commit(".extant.toml",
+           "[extant]\nprimary_doc = \"STATUS.md\"\n"
+           "extra_docs = [\".github/CONTRIBUTING.md\"]\n", "config")
+    commit("STATUS.md", "# Status\n\n## Phase 1 - a thing\n\nBody.\n", "status")
+    commit(".github/CONTRIBUTING.md",
+           "# Contributing\n\nSee `scripts/absent.py` for the helper.\n", "doc")
+
+    from extant import session
+    session.reload_config(repo)
+    paths = ["STATUS.md", ".github/CONTRIBUTING.md"]
+    vetted, unvetted = partition_documents(repo, paths)
+    assert ".github/CONTRIBUTING.md" in vetted, (vetted, unvetted)
+    assert unvetted == [], unvetted
+
+    printed = _sweep_text(repo, capsys)
+    assert "2 configured" in printed, printed
+    assert "0 unreviewed" in printed, printed
+
+
+def test_a_configured_name_may_be_written_with_a_leading_dot_slash(git_repo) -> None:
+    """`./STATUS.md` and `STATUS.md` must name one document everywhere.
+
+    Four sites in this module spelled a configured name their own way - one
+    stripped a leading `./`, one only turned backslashes round, and two compared
+    the raw setting. That is the "one claim, two scanners" defect applied to a
+    PATH: the stripping site decided the document was gated while the site that
+    decides which document is PRIMARY did not recognise it, so `has_entries` was
+    false for every file in the survey and every entry-scoped rule was skipped -
+    reported as `0 examined` under "no document makes such claims", which is a
+    wrong diagnosis of a real zero.
+    """
+    from extant import session
+    from extant.sweep import _normalise, partition_documents
+    repo, commit = git_repo
+    commit(".extant.toml", "[extant]\nprimary_doc = \"./STATUS.md\"\n", "config")
+    commit("STATUS.md", "# Status\n\n## Phase 1 - a thing\n\nBody.\n", "status")
+
+    session.reload_config(repo)
+    vetted, _ = partition_documents(repo, ["STATUS.md"])
+    assert vetted == ["STATUS.md"], vetted
+    # The half that used to disagree: the same name, as the primary test spells
+    # it. Equality here is what makes `has_entries` true for the primary file.
+    assert _normalise(session.CONFIG.primary_doc) == "STATUS.md"
+
+
+def test_the_parallel_survey_reads_the_projects_configuration(git_repo,
+                                                              capsys,
+                                                              monkeypatch) -> None:
+    """A worker must judge documents under the SAME settings as its parent.
+
+    The agreement test above cannot see this and never could. It compares two
+    runs of a repository that configures nothing, so both paths use the
+    defaults and agree no matter what a worker reads. Every setting this
+    project has is off the default path by definition, and a survey that drops
+    them all still prints the summary of a healthy run.
+
+    Catches `_worker_init` assigning `session.CONFIG` without applying it, which
+    is the trap `session.context`'s own docstring names: the rules read the
+    built Config on `_ACTIVE`, and only `_apply_config` writes that. Spawned
+    workers rebuild `_ACTIVE` from whatever `load_config` finds beside
+    `session.py` - in a pip or pre-commit install, nothing, so the defaults.
+
+    A CUSTOM PATTERN, not a boolean this repository also sets. The first draft
+    used `release_claims_name_our_tags`, and it passed against the broken code:
+    a worker spawned by this suite re-imports `extant/session.py` from THIS
+    checkout, whose upward search finds THIS repository's `.extant.toml`, where
+    that setting is already true. It agreed by coincidence of where the tests
+    run from. `REFER` appears in no default and in no configuration this
+    project ships, so a worker can only report these six pointers if it is
+    genuinely holding the settings its parent built.
+    """
+    from extant import sweep
+    repo, commit = git_repo
+    commit(".extant.toml",
+           "[extant]\n"
+           r"path_pointer = '\bREFER\b[^`\n]{0,40}`([\w./-]+\.(?:py|md|txt))`'"
+           "\n", "config")
+    for i in range(6):
+        commit(f"docs/d{i}.md",
+               f"# Doc {i}\n\nREFER to `docs/absent{i}.md` for details.\n",
+               f"docs: {i}")
+
+    monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 10 ** 9)
+    serial = _sweep_text(repo, capsys)
+    # The denominator for this test itself. Six documents, six pointers, and if
+    # the pattern ever stops reaching even the SERIAL path this fails here
+    # rather than passing by comparing two equally empty runs.
+    assert serial.count("[dead-path-pointer]") == 6, serial
+    assert "dead-path-pointer 6" in serial, serial
+
+    monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 1)
+    parallel = _sweep_text(repo, capsys)
+    assert "worker process(es)" in parallel, parallel
+    assert "could not start" not in parallel, parallel
+
+    assert parallel.count("[dead-path-pointer]") == 6, (
+        "the parallel survey lost the project's configuration:\n" + parallel)
+    strip = [ln for ln in parallel.splitlines()
+             if "worker process(es)" not in ln]
+    assert strip == serial.splitlines(), (
+        "the parallel survey disagreed with the serial one")
 
 
 def test_a_pool_that_cannot_start_is_announced_not_swallowed(git_repo,

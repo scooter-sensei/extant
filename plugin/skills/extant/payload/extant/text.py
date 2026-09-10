@@ -94,7 +94,7 @@ __all__ = [
     "_blank_uncached",
     "_route_name", "_translation_tree",
     "EXTERNAL", "HEADING", "MARKDOWN_ONLY", "MD_LINK",
-    "format_for",
+    "format_for", "link_sites",
     "current_document", "line_breaks", "line_number_at", "lone_cr_to_lf",
     "numbered_document",
     "percent_decoded",
@@ -103,8 +103,39 @@ __all__ = [
 
 # Markdown link syntax is fixed by the format, not by any project's habits, so
 # unlike the prose patterns this one is not configurable. There is no corpus to
-# measure: `[text](target)` means the same thing everywhere.
-MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
+# measure for the SHAPE: `[text](target)` means the same thing everywhere.
+#
+# Both halves are BOUNDED, and unbounded they were each quadratic. Measured
+# through the shipped CLI, one line, `[a](` repeated - a prefix that commits
+# the engine to a match the subject never completes:
+#     n= 2,000    8 KB      1.11s
+#     n= 4,000   16 KB      3.33s   x3.01
+#     n= 8,000   32 KB     12.14s   x3.65
+#     n=16,000   64 KB     47.60s   x3.92
+#     n=32,000  128 KB    188.83s   x3.97
+# The ratio converges on x4 per doubling, which is the definition of quadratic.
+# A 128 KB markdown file - an unremarkable size - costs over three minutes, and
+# extrapolating the curve a ~1.4 MB one exhausts a six-hour CI job. Nothing
+# needs configuring for this: `--sweep` picks the document up on its own. The
+# unbounded-USER-pattern hang in rules/consistency.py is documented and
+# deliberate; this one was neither.
+#
+# `[^)\s]+?` is the worse of the two and the reason both are bounded rather
+# than just the first. It is lazy, so with no `)` anywhere it expands to the
+# end of the subject once per opener; bounding only `[^\]]*` left 23.5s of a
+# measured 23.8s in place. `commits.py` records the same repair for its own
+# 322-second incident, so the shape of the fix is precedent here, not
+# invention.
+#
+# 4096 is the smallest power of two above the longest real instance of EITHER
+# half, measured over 694,676 markdown links in 176 repositories: link text
+# tops out at 1,278 characters and a target at 3,064. At 4096 the number of
+# real links this stops matching is ZERO - and the direction is the safe one
+# regardless, because a bound can only ever drop a finding, never invent one,
+# and a false positive is the expensive failure here.
+_MD_LINK_SPAN = 4096
+MD_LINK = re.compile(
+    r"\[[^\]]{0,%d}\]\(\s*([^)\s]{1,%d}?)\s*\)" % (_MD_LINK_SPAN, _MD_LINK_SPAN))
 # TLDs for the schemeless arm below, and the whole hazard is that a great many
 # of them are also file extensions - `.md` is Moldova, `.rs` Serbia, `.py`
 # Paraguay - so "any letters after a dot" would read every markdown link as a
@@ -113,8 +144,19 @@ MD_LINK = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+?)\s*\)")
 # ISO-3166 two-letter codes. Then one MEASURED exclusion - every code really
 # used as a file extension in 157 repositories is struck out, which is why
 # `.py` (81,121 files), `.rs` (61,737), `.md` (53,611), `.cc`, `.sh`, `.mk`,
-# `.tf`, `.pl`, `.in`, `.pm`, `.ai`... are absent, along with generic `.info`
+# `.tf`, `.pl`, `.in` and `.pm` are absent, along with generic `.info`
 # (110), `.page` (83), `.tools` (38) and `.xyz` (22).
+#
+# `ai` IS PRESENT, and this paragraph listed it among the struck-out extensions
+# until 2026-09-09 - a sentence stating the opposite of the line directly below
+# it, in the one place this project relies on to stop a measured decision being
+# undone by the next reader. It is in the GENERIC arm, beside `io`, `dev` and
+# `app`, because a documentation link to an `.ai` site is now ordinary. The
+# consequence is real and belongs here rather than being discovered: a bare
+# `[logo](logo.ai)` is read as a URL and is not checked. `assets/logo.ai` is
+# unaffected, because this arm needs `label.` at the START of the target. What
+# bounds the whole suppression is the measurement below - 41 matched targets
+# over 220,990, not one of which resolved to a file that exists.
 _TLD = ("com|org|net|edu|gov|mil|io|ai|dev|app|cloud|tech|club|blog|wiki"
         "|at|be|bg|ca|ch|cl|co|cy|cz|de|dk|ee|eu|fi|gr|hk|hr|hu|ie|is|it|jp"
         "|kr|lt|lu|lv|me|mt|mx|my|nl|no|nz|pe|ph|pt|ro|se|sg|si|sk|th|tr|tv"
@@ -499,6 +541,85 @@ def prose(doc: DocScope, text: str) -> str:
     what the file CONTAINS, not what it claims.
     """
     return _blank(doc, text, inline=False)
+
+
+def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str]]:
+    """Every markdown link a caller will TRY to decide: (line, raw, target).
+
+    Moved here from `rules/md_link.py`, where it was the rule's private
+    scanner, because it had grown a SECOND reader: `gate.suggest_renames`
+    scanned the same documents for the same links with its own filter, and the
+    two disagreed five ways. AGENTS.md names that shape as the recurring defect
+    here and gives the remedy - "if a rule needs the same claims twice, give it
+    one function and have both callers read it". `test_rules_are_leaves` lets
+    only `registry.py` import a rule module, so gate.py could not read it where
+    it was; this module is the home it can.
+
+    It belongs here on the merits too, not merely by elimination. Everything it
+    reads - `strip_code`, `EXTERNAL`, `MD_LINK`, `percent_decoded` - already
+    lives in this file, and it takes nothing off a Context but the DocScope, so
+    nothing had to follow it across. It sat in md_link.py by history.
+
+    THREE values per site, and the third is the reason the merge is not a
+    simple deduplication. The two callers need DIFFERENT strings and both are
+    right:
+
+      `target` is normalised - fragment and query removed, percent-decoded -
+        because a rule RESOLVES it against the filesystem.
+      `raw` is the spelling as written, because a patch REPLACES it in the
+        document, and `text.replace` matches what is on the page rather than
+        what it means.
+
+    Returning only the target would have silently broken the patch generator:
+    a link written `docs/old%20guide.md` has the target `docs/old guide.md`,
+    which does not occur in the document at all, so the replacement would match
+    nothing and the patch would come out empty.
+
+    The refusals below are the UNCONDITIONAL ones - true of the link whatever
+    the repository looks like. Anything that depends on what is on disk, or on
+    the target failing to resolve, stays with the caller.
+    """
+    sites: list[tuple[int, str, str]] = []
+    for number, line in enumerate(strip_code(doc, text).splitlines(), start=1):
+        if "[" not in line or "(" not in line:
+            continue
+        for raw in MD_LINK.findall(line):
+            if EXTERNAL.match(raw) or raw.startswith("#"):
+                continue
+            # The query string is not part of the filename. `?raw=1` and
+            # `?plain=1` are how GitHub serves a file, and leaving them on the
+            # target made every such link resolve to nothing and report a file
+            # that is plainly there as missing.
+            target = raw.split("#", 1)[0].split("?", 1)[0]
+            if not target:
+                continue
+            # `@` opens a generator macro, not a path. Documenter.jl writes
+            # `[text](@ref)` for a cross-reference and JuliaLang/julia carries
+            # 1,779 of them - every single one reported as a dead file, and 96%
+            # of that repository's findings.
+            if target.startswith("@"):
+                continue
+            # A markdown link percent-encodes characters that are awkward in a
+            # URL, and the file on disk carries the decoded name.
+            # nlohmann/json documents `operator[]` and links to it as
+            # `operator%5B%5D.md`, which is the same file spelled for a browser.
+            target = percent_decoded(target)
+            # A `.html` target is a rendered page, in every repository and not
+            # only in a detected one. MEASURED across 20 repositories in two
+            # corpora: 407 markdown links point at a `.html` target and NOT ONE
+            # resolves to a checked-in file. Gating this on generator detection
+            # is what made rails report 276 of its own guide links dead - its
+            # guides compile to HTML with a bespoke builder that ships none of
+            # the configs `sites.py` detects.
+            #
+            # Refused HERE rather than beside the site routes in a rule,
+            # because it is refused whatever the repository looks like and
+            # whatever is on disk. A caller that would never judge this link
+            # must not count it either.
+            if target.endswith(".html"):
+                continue
+            sites.append((number, raw, target))
+    return sites
 
 
 def unique_basename(ctx: Context, target: str) -> bool:

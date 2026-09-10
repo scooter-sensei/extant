@@ -399,3 +399,106 @@ def test_text_remains_the_default_and_is_unchanged(git_repo) -> None:
     assert "line 5: [dead-sha]" in result.stdout
     assert "::error" not in result.stdout
     assert not result.stdout.lstrip().startswith("{")
+
+
+def test_a_path_that_is_not_a_uri_is_encoded_rather_than_emitted_raw() -> None:
+    """SARIF 3.4.3 requires a URI, and repository paths are often not one.
+
+    The tool already refuses to emit `<stdin>` for exactly this reason - `<`
+    and `>` are forbidden, the document becomes invalid, and a code-scanning
+    upload can reject the WHOLE file so every finding in it disappears. That
+    repair guarded one synthetic path. These are real ones, taken from the
+    corpus rather than invented:
+
+      `tests/syntax-tests/source/F#/LICENSE.md`   sharkdp/bat
+      `docs/design/01 - Programming Model.md`     microsoft/autogen
+      `.../with-schema-config/four%.md`           withastro/astro
+
+    Measured over the de-duplicated corpus: 117 of 52,929 markdown documents
+    across 17 of 176 repositories carry a path that is not a valid reference.
+    """
+    from extant import report
+
+    def uri_for(path: str) -> str:
+        doc = json.loads(report.format_sarif([located(path, 1, "dead-sha", "x")]))
+        return (doc["runs"][0]["results"][0]["locations"][0]
+                ["physicalLocation"]["artifactLocation"]["uri"])
+
+    # `#` is a DELIMITER: unencoded, a consumer reads the path as `.../F` and
+    # treats the rest as a fragment, so the alert names a file that does not
+    # exist.
+    assert uri_for("tests/source/F#/LICENSE.md") == "tests/source/F%23/LICENSE.md"
+    # A space is forbidden outright. This is the character that made SonarQube
+    # reject an entire Trivy report rather than one result.
+    assert uri_for("docs/01 - Topics.md") == "docs/01%20-%20Topics.md"
+    # `%` not followed by two hex digits is a malformed escape.
+    assert uri_for("content/four%.md") == "content/four%25.md"
+    # The worst case, because it is VALID as written: left raw it decodes to
+    # `literal thing.md`, so the alert quietly names a DIFFERENT file.
+    assert uri_for("docs/literal%20thing.md") == "docs/literal%2520thing.md"
+    # Non-ASCII is percent-encoded UTF-8. Written as an escape because this
+    # repository is ASCII-only, including its tests.
+    assert uri_for("docs/caf\u00e9.md") == "docs/caf%C3%A9.md"
+
+
+def test_encoding_a_uri_does_not_touch_a_path_that_is_already_one() -> None:
+    """The other half, and the reason the encoding is minimal.
+
+    Over-encoding is conformant too, and it is not free: a consumer that
+    matches the string literally rather than decoding it would stop
+    recognising paths that work today. So every character RFC 3986 already
+    permits in a path segment has to survive untouched - on the corpus that is
+    52,812 of 52,929 documents, i.e. almost all of them.
+    """
+    from extant import report
+
+    for path in ("NEXT_SESSION.md", "docs/plan.md", "a-b_c.d/~x.md",
+                 "docs/(draft)/notes.md", "a,b/c;d/e=f/g@h/i:j.md",
+                 "tests/fixtures/x!y$z&w'v/README.md"):
+        assert report._sarif_uri(path) == path, path
+
+    # 3986 4.2 is the one exception: a colon in the FIRST segment would be
+    # read as a scheme name, so `weird:name` is not a relative reference at
+    # all. Escaped rather than prefixed with `./`, because GitHub matches this
+    # against the diff and a `./` prefix matches no line of it.
+    assert report._sarif_uri("weird:name/x.md") == "weird%3Aname/x.md"
+
+
+def test_sarif_refuses_a_document_outside_the_repository(git_repo, tmp_path,
+                                                         capsys) -> None:
+    """The sibling of the `<stdin>` refusal, at the other door.
+
+    SARIF locates a result by a URI GitHub resolves against the repository
+    root, and a document OUTSIDE the repository has no such path.
+    `finding.rel` falls back to the absolute one and `_sarif_uri` then escapes
+    the drive colon, so `D:/elsewhere/doc.md` was published as
+    `D%3A/elsewhere/doc.md` - a VALID relative reference naming a file the
+    repository does not contain.
+
+    That is strictly worse than the invalid URI it replaced: an invalid one is
+    rejected loudly, and this one resolves quietly to nothing. It is the same
+    "wrong answer wearing a better disguise" that
+    `--check-text --format=sarif` already refuses, and it was reached by
+    fixing that field's ENCODING without asking who else puts a path into it.
+    Found by the gap audit, not by the change that caused it.
+
+    Only SARIF is refused. `text` prints the absolute path, which is honest,
+    and `github` matches its annotation against the diff and simply does not
+    attach. Neither invents a location.
+    """
+    from extant import cli
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+
+    outside = tmp_path / "outside.md"
+    outside.write_text("Landed in `abc1234f`.\n", encoding="utf-8")
+
+    code = cli.main(["--validate", str(outside), "--repo", str(repo),
+                     "--format=sarif"])
+    assert code == 2, "an out-of-repo document must be refused for SARIF"
+    assert "INSIDE the repository" in capsys.readouterr().err
+
+    # The control, and the reason this is a refusal rather than a ban: the
+    # same document is still checkable in the formats that can express it.
+    assert cli.main(["--validate", str(outside), "--repo", str(repo),
+                     "--format=text"]) in (0, 1)

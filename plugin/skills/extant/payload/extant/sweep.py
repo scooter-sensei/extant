@@ -38,6 +38,7 @@ from extant import refs, session
 # naming the import.
 from extant import text as markup
 from extant import strata
+from extant.config import normalise_document
 from extant.finding import Located
 from extant.registry import RULE_ERRORS
 from extant.report import (
@@ -72,10 +73,25 @@ _MAX_WORKERS = 8
 _WORKER_SCOPE = None
 
 
+# The one normaliser, imported rather than written again here. This module had
+# FIVE spellings of "a configured document name" and they disagreed; `gate.py`
+# had a sixth by having none. It now happens once, where the settings are read,
+# so the names arriving on `session.CONFIG` are already normalised and the
+# calls below are idempotent - kept because a reader comparing a configured
+# name against a tracked path should see the question being asked.
+_normalise = normalise_document
+
+
 def _worker_init(config: object) -> None:
-    """Give a freshly spawned worker the config and a run scope of its own."""
+    """Give a freshly spawned worker the config and a run scope of its own.
+
+    `install_config`, never `session.CONFIG = config`. The bare assignment sat
+    here for eight releases and reached no rule; that function records what it
+    cost and why re-reading the configuration here would be wrong rather than
+    merely slower.
+    """
     global _WORKER_SCOPE
-    session.CONFIG = config                # type: ignore[assignment]
+    session.install_config(config)         # type: ignore[arg-type]
     _WORKER_SCOPE = session.run_scope()
     _WORKER_SCOPE.__enter__()
 
@@ -336,9 +352,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
         # not have, so comparing against the configured set alone reported a
         # conflict for a document no exclusion had touched - a different
         # condition, which `--verify` already names as "no such document".
-        configured = {session.CONFIG.primary_doc.replace("\\", "/"),
-                      *(d.replace("\\", "/")
-                        for d in session.CONFIG.extra_docs)}
+        configured = {_normalise(session.CONFIG.primary_doc),
+                      *(_normalise(d) for d in session.CONFIG.extra_docs)}
         kept = {p.replace("\\", "/") for p in paths}
         conflicting = sorted((configured & present) - kept - {""})
         for document in conflicting:
@@ -354,7 +369,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
         return 0
 
     vetted, unvetted = partition_documents(repo, paths)
-    primary = session.CONFIG.primary_doc.replace("\\", "/")
+    primary = _normalise(session.CONFIG.primary_doc)
     sections: list[tuple[str, list[str], bool]] = [
         ("vetted", vetted, True), ("unvetted", unvetted, False)]
     results: dict[str, list[Located]] = {"vetted": [], "unvetted": [],
@@ -635,8 +650,9 @@ def _changed_between(repo: Path, ref: str, candidates: list[str]) -> list[str]:
 
 def _configured_documents() -> list[str]:
     """Primary, archive and extras, in that order, skipping any left unset."""
-    return [d for d in (session.CONFIG.primary_doc, session.CONFIG.archive_doc,
-                        *session.CONFIG.extra_docs) if d]
+    return [_normalise(d) for d in (session.CONFIG.primary_doc,
+                                    session.CONFIG.archive_doc,
+                                    *session.CONFIG.extra_docs) if d]
 
 
 def _live_prose(repo: Path, documents: list[str]) -> str:
@@ -703,7 +719,7 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
         try:
             was = session.validate(
                 repo, previous, base=(repo / relative).parent,
-                has_entries=(relative == session.CONFIG.primary_doc))
+                has_entries=(relative == _normalise(session.CONFIG.primary_doc)))
         finally:
             session.set_document(doc_format=previous_format)
         for finding in was:
@@ -891,6 +907,6 @@ def partition_documents(repo: Path, paths: list[str]) -> tuple[list[str], list[s
     """
     vetted_names = {session.CONFIG.primary_doc, session.CONFIG.archive_doc,
                     *session.CONFIG.extra_docs}
-    normalised = {name.replace("\\", "/").lstrip("./") for name in vetted_names if name}
+    normalised = {_normalise(name) for name in vetted_names if name}
     vetted = [p for p in paths if p in normalised]
     return vetted, [p for p in paths if p not in normalised]

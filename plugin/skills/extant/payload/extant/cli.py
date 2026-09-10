@@ -599,6 +599,36 @@ def main(argv: list[str] | None = None) -> int:
         # nonsensical invocation.
         parser.error("--validate requires a non-empty FILE path")
     if args.validate:
+        # THE SAME REFUSAL as `--check-text --format=sarif` above, at the other
+        # door. SARIF locates a result by a URI that GitHub resolves against
+        # the repository root, and a document OUTSIDE the repository has no
+        # such path: `finding.rel` falls back to the absolute one, and the
+        # encoder then percent-escapes the drive colon, so
+        # `D:/elsewhere/doc.md` is published as `D%3A/elsewhere/doc.md`.
+        #
+        # That is a VALID relative reference naming a file the repository does
+        # not contain - which is strictly worse than the invalid URI it
+        # replaced, because an invalid one is rejected loudly and this one
+        # resolves quietly to nothing. It is the same "wrong answer wearing a
+        # better disguise" the `<stdin>` refusal above was written for, and it
+        # was reached by fixing that field's encoding without asking who ELSE
+        # puts a path into it.
+        #
+        # Only SARIF. `text` prints the absolute path, which is honest, and
+        # `github` matches its own annotation against the diff and simply does
+        # not attach - neither invents a location.
+        if args.format == "sarif":
+            target = Path(args.validate)
+            try:
+                target.resolve().relative_to(repo.resolve())
+            except ValueError:
+                print("--validate --format=sarif needs a document INSIDE the "
+                      "repository: SARIF locates every result by a path "
+                      "relative to the repository root, and this one has "
+                      "none. Use --format=text or --format=github, or point "
+                      "--repo at the repository that contains it.",
+                      file=sys.stderr)
+                return 2
         return run_validate(repo, args, status)
     # M-a: unreachable. The mutually-exclusive group is required, and every
     # member (collect, archive, verify, validate-non-empty) returns above;
