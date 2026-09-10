@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.26.1 (2026-09-10)
 
 A deep-dive review of the payload, and unlike the entry that preceded it this
 one DOES change the tool: eleven modules under `payload/` plus the hook
