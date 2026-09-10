@@ -6,16 +6,16 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 35 - What a deep-dive review of the payload found (unreleased, 2026-09-10)
+## Phase 35 - What a deep-dive review of the payload found (shipped, 2026-09-10)
 
 **Status.** Suite is 1,062 tests across 63 files: 1,060 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule and no suppression. Unlike the
 phase below it, this one DOES change the shipped payload: eleven modules
 under `payload/` plus the hook installer, and one behaviour a caller can see,
-so it needs a release rather than sitting harmlessly above the tag. The tool
-remained released as 0.26.0 and this work sits above that tag, unreleased.
-Mutation campaign is 184 anchors, and every anchor this phase touched was run
-for real rather than only matched.
+so it needed a release rather than sitting harmlessly above the tag. This work
+shipped in 0.26.1. Merged to `main` at `a8a6c90`. Mutation campaign is 184
+anchors, and every anchor this phase touched was run for real rather than only
+matched.
 
 **What it is.** A skeptical review of the whole payload, run over four
 sessions: three finding defects and a fourth auditing the fixes. Everything
@@ -127,13 +127,13 @@ pattern independently with two normalisations missing, which costs zero
 unexamined sites out of 72,681 fragment-carrying links. Neither earns a
 change.
 
-## Phase 34 - A shrinker that reported what it had not built (unreleased, 2026-09-08)
+## Phase 34 - A shrinker that reported what it had not built (shipped, 2026-09-08)
 
 **Status.** Suite is 1,036 tests across 62 files: 1,034 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag and no suppression, and
 moves no exit code. Nothing in the shipped payload changed, so 0.26.0's
-artifact is unaffected and there is nothing to re-release. The tool remained
-released as 0.26.0 and this work sits above that tag, unreleased.
+artifact was unaffected and this needed no release of its own. It went out
+anyway, carried by the phase above it: this work shipped in 0.26.1.
 
 **What it is.** An external review over the whole released range - 81 commits
 since the 0.25.0 tag - reported five findings. Two carried no description and
