@@ -11,12 +11,11 @@ so the tool is exercised on a real document rather than only on fixtures.
 **Status.** Suite is 1,062 tests across 63 files: 1,060 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule and no suppression. Unlike the
 phase below it, this one DOES change the shipped payload: eleven modules
-under `payload/` plus the hook installer, and one behaviour a caller can
-see, so it needs a release rather
-than sitting harmlessly above the tag. The tool remained released as 0.26.0
-and this work sits above that tag, unreleased. Mutation campaign is 184
-anchors, and every anchor this phase touched was run for real rather than only
-matched.
+under `payload/` plus the hook installer, and one behaviour a caller can see,
+so it needs a release rather than sitting harmlessly above the tag. The tool
+remained released as 0.26.0 and this work sits above that tag, unreleased.
+Mutation campaign is 184 anchors, and every anchor this phase touched was run
+for real rather than only matched.
 
 **What it is.** A skeptical review of the whole payload, run over four
 sessions: three finding defects and a fourth auditing the fixes. Everything
@@ -120,12 +119,13 @@ asserts the scanner still RETURNS the link before asserting no patch - rather
 than by weakening the mutation.
 
 **Two shapes were REFUSED on measurement, which is a result rather than an
-absence.** Backslash-spelled markdown links: of 125,559 references, the
-eighteen candidates decompose to zero real ones - sixteen are regex fragments
-inside test fixtures and two are a fixture whose whole subject is what a
-backslash does in markdown. And `dead-md-anchor` scans the link pattern
-independently with two normalisations missing, which costs zero unexamined
-sites out of 72,681 fragment-carrying links. Neither earns a change.
+absence.** Backslash-spelled markdown links: of the 125,559 non-external links
+scanned, the eighteen candidates decompose to zero real ones - sixteen are
+regex fragments inside test fixtures and two are a fixture whose whole subject
+is what a backslash does in markdown. And `dead-md-anchor` scans the link
+pattern independently with two normalisations missing, which costs zero
+unexamined sites out of 72,681 fragment-carrying links. Neither earns a
+change.
 
 ## Phase 34 - A shrinker that reported what it had not built (unreleased, 2026-09-08)
 

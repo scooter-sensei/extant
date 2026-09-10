@@ -621,6 +621,7 @@ def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str]]:
             sites.append((number, raw, target))
     return sites
 
+
 def unique_basename(ctx: Context, target: str) -> bool:
     """Does exactly one tracked markdown file carry this basename?
 
