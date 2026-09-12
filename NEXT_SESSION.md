@@ -6,6 +6,93 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 36 - Ten widenings measured, four shipped, six refused (unreleased, 2026-09-12)
+
+**Status.** Suite is 1,093 tests across 64 files: 1,091 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag, no default and no
+suppression, and moves no exit code. It DOES change the shipped payload: three
+rules read shapes they did not read before, in five modules under `payload/`,
+so it needs a release rather than sitting above the tag. The tool remained
+released as 0.26.1 and this work sits above that tag, unreleased. Mutation
+campaign is 193 anchors; the twelve this phase added or retargeted were each
+applied to a copy and watched turning the suite red, and every other gate on
+the pre-push list ran green against a working-tree extract - smoke, scenarios,
+fuzz with its self-check, `--verify` and `--selftest`.
+
+**What it is.** A specification arrived proposing widenings for nine of the
+thirteen rules, each described as falsifiable and each claiming zero false
+positives on the corpora. None of that had been measured. So all ten were
+counted first - the form, then the findings - over the visible rows of every
+manifest: 132 repositories and 77,401 documents, with the holdout and the
+sixteen reserved benchmark rows left unread. A census instrument and a
+before-and-after sweep driver were written for it in the measurement tree, and
+every finding either widening added was read by hand. The full record, with
+the numbers behind each refusal, is the section "The second widening pass" in
+the design rationale under the skill's references.
+
+**Four shipped, and each is a shape rather than a phrase.** `dead-md-link`
+reads reference-style definitions - 3,171 of them named a local file across 75
+repositories and were examined zero times - and the `href` and `src` of raw
+HTML, 8,488 attributes across 86 repositories. Both go through the one scanner
+the rule and `--suggest-fixes` already share. `dead-line-pointer` reads a range
+to its end, which its own comment had recorded as "a separate measurement": 27
+ranges name a tracked file, one ends past it, none falsely. `dead-sha` reads
+both ends of a dotted range inside one backtick pair, checked and repaired
+through the same splitter; three such ranges exist in 77,401 documents, and
+two of them are an agent's session log recording a fast-forward whose both
+ends a later force-push rewrote away.
+
+**The refusals that came with each.** A footnote's caret is not a link. A
+destination opening with a parenthesis is read literally, because CommonMark
+keeps it: golang writes sixty-three such lines in one testdata README and the
+first draft would have hidden all sixty-three real findings behind a refusal.
+A raw HTML attribute inside a tree a generator builds is neither judged nor
+counted, because the browser resolves it against the page URL and not the
+file - mkdocs' own documentation writes an image two directories up from a
+file that is one up, and the image is there. A colon is not a range
+separator: of 73 line-and-column citations, 69 carry a second number BELOW the
+first. A range that is the text of a compare link belongs to the link.
+
+**Swept: 268 findings added, four relabelled, none removed, all read.** 115
+sit in one repository's documentation site that no generator signature
+detects and that already supplies a quarter of the benchmark's ordinary
+findings through markdown links of the same shape - inherited, not created.
+63 are the golang testdata index. 25 are vendored and 9 are test fixtures,
+both labelled or configurable. Thirteen were confirmed by hand as broken
+images and links in ordinary READMEs. A start already past the end keeps the
+`path:start` spelling it always had, because `detail` is the baseline
+fingerprint and a respelling would re-raise every such finding a project had
+forgiven.
+
+**Six refused on the numbers, which is the point of recording them.** Own-
+repository commit permalinks: 1,211 unresolvable of 86,651, the changelog ones
+duplicating a bare-SHA finding on the same line and the prose ones naming
+commits GitHub still serves from rebased branches - a URL claims a page exists,
+which git here cannot settle. Wider path-pointer extensions, verbs and trailing
+slashes: roughly half of every new site missing, read as tutorial output,
+runtime paths and the English "read". `.mdx` anchor targets: built, swept, 16
+findings, 16 false, every heading living in an imported partial - reverted.
+GitHub Actions `uses:` pins: zero own-repository pins in the 132, so thirty
+action repositories were cloned for it; 574 pins resolve and 20 do not, all 20
+false, sixteen of them branches a clone holds only as remote-tracking refs and
+a CI checkout not at all. JVM, .NET, Swift and version-file floors: one
+repository states such a floor and it agrees with its manifest, and a
+developer's pin is not a floor. `unknown-branch` on standing documents, wider
+branch prefixes, new merge verbs and new live phrases: every match a template,
+a path, a label, or "open on startup".
+
+**One quadratic caught on the way in.** The first HTML pattern, bounded the
+way `MD_LINK` is, still cost every tag start its whole 4096-character walk
+when the closing bracket never came: 12.5 seconds on a 96 KB line. The scan
+walks the line once, tag by tag, and a timing test carries the input that
+exposes the mutation which would put the walk back.
+
+**What this leaves owed.** The corpus report's figures were measured before
+this change and the survey it describes will report more once re-swept; the
+diff above is that re-sweep on the tuning half. The holdout was not opened.
+A `D:\repo` reorganisation happened in the same session and is recorded in
+that directory's own README and move list, not here.
+
 ## Phase 35 - What a deep-dive review of the payload found (shipped, 2026-09-10)
 
 **Status.** Suite is 1,062 tests across 63 files: 1,060 passing and 2 skipped.

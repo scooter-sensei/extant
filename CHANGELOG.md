@@ -1,5 +1,62 @@
 # Changelog
 
+## Unreleased
+
+Three rules read shapes they did not read before. No rule was added and none
+removed, so the rule table is unchanged at thirteen; no flag, default or exit
+code moved. Every widening was counted on 132 repositories before it was
+written, swept after, and every added finding was read - the record, with
+the six proposals that were measured and refused, is in
+`plugin/skills/extant/references/design.md` under "The second widening pass".
+
+**`dead-md-link` reads reference-style definitions and raw HTML.**
+`[guide]: docs/setup.md` is the same claim as an inline link and was examined
+zero times across 3,171 such definitions; the `href` of an `<a>` and the `src`
+of an `<img>` are what a README uses to centre its logo, and were examined
+zero times across 8,488. Both go through the one scanner the rule and
+`--suggest-fixes` already share, so the two cannot disagree about what a link
+is. A footnote's `[^1]:` is not read. An HTML attribute inside a tree a
+generator builds is neither judged nor counted, because the browser resolves
+it against the page URL and not the file - mkdocs' own docs write
+`<img src="../../img/x.png">` two directories up from a file that is one up.
+Swept: 261 findings added, none removed, thirteen of them confirmed broken
+images in ordinary READMEs and 63 a testdata index whose every entry names a
+file since renamed; 115 sit in one repository's documentation site that no
+generator signature detects, which already supplies a quarter of the
+benchmark's ordinary findings through markdown links of the same shape.
+
+**`dead-line-pointer` reads a range to its end.** `file.py:32-116` against a
+94-line file was silent, read by its start alone, and the rule's own comment
+called the end "a separate measurement". Made: 27 ranges name a tracked file,
+one ends past it, none falsely. A colon is not a range - `file.py:10:80` is
+line and column, and 69 of 73 such citations carry a second number below the
+first. A finding names the range only when the range is what failed, so every
+`path:start` finding a baseline already records keeps its fingerprint.
+
+**`dead-sha` reads both ends of a dotted range.** `` `7d6ec08..7499537` ``
+inside one backtick pair named two commits and was read as none; the
+authoring note that asked for two tokens instead is withdrawn for the dotted
+spellings. Both ends are checked and both are repaired by `--sha-map`,
+through the one splitter, and a range that is the text of a compare link is
+left to the link. The arrow spelling is still not read: it is how a rewrite
+map is quoted, left side dead by design.
+
+**Six proposals were measured and refused**, and the numbers are the reason
+this entry names them: own-repository commit permalinks (1,211 unresolvable
+of 86,651, the prose ones commits GitHub serves from rebased branches);
+wider path-pointer extensions, verbs and directories (roughly half of every
+new site missing, read as tutorial output and runtime paths); `.mdx` anchor
+targets (16 findings, 16 false, every heading living in an imported partial);
+GitHub Actions `uses:` pins (20 of 594 own pins unresolvable on a 30-action
+corpus, all branches or placeholders); JVM, .NET, Swift and `.nvmrc` floors
+(no population, and a pin is not a floor); `unknown-branch` on standing
+documents, wider branch prefixes, and new merge verbs and live phrases (every
+match a template, a path, a label, or "open on startup").
+
+The corpus figures in `CORPUS.md` were measured before this change and the
+survey it describes will report more once re-swept; the diff above is that
+re-sweep, on the tuning half, and the holdout has not been opened.
+
 ## 0.26.1 (2026-09-10)
 
 A deep-dive review of the payload, and unlike the entry that preceded it this
