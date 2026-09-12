@@ -53,7 +53,7 @@ from pathlib import Path
 from extant.refs import tracked_markdown
 from extant.scope import Context, DocScope
 
-# TWO of these thirty-four names are public, and the rule is the same one
+# TWO of these names are public, and the rule is the same one
 # every module in this package follows: a name is public when a SIBLING MODULE
 # calls it, and keeps its underscore when it does not.
 #
@@ -88,7 +88,9 @@ from extant.scope import Context, DocScope
 __all__ = [
     "LINE_BREAK", "ORDER_PREFIX",
     "_BREAKS", "_BREAKS_KEPT", "_break_starts",
-    "_FENCE", "_INLINE_CODE", "_LANGUAGE_DIR", "_line_and_terminator",
+    "_FENCE", "_HTML_ATTRIBUTE", "_HTML_TAG_OPEN", "_INLINE_CODE",
+    "_LANGUAGE_DIR", "_REFERENCE_DEFINITION", "_html_references",
+    "_line_and_terminator", "_link_target",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
     "_RST_LITERAL_INTRO", "_STRIPPED", "_blank", "_blank_rst",
     "_blank_uncached",
@@ -543,8 +545,22 @@ def prose(doc: DocScope, text: str) -> str:
     return _blank(doc, text, inline=False)
 
 
-def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str]]:
-    """Every markdown link a caller will TRY to decide: (line, raw, target).
+def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str, bool]]:
+    """Every link a caller will TRY to decide: (line, raw, target, html).
+
+    THREE SHAPES read as one population. The inline `[text](target)` link,
+    the reference-style definition `[label]: target`, and the `href` of an
+    `<a>` or the `src` of an `<img>` written as raw HTML - each names a file
+    the way the first does, and the second and third were read by nothing.
+    The fourth value says whether a site came from HTML, because ONE refusal
+    depends on it and depends on the repository as well: inside a tree a
+    generator builds, a relative HTML `src` is resolved by the browser against
+    the rendered page's URL, not by the generator against the source file, so
+    `../../img/x.png` from `docs/user-guide/theme.md` reaches `docs/img/` on
+    the site and nothing on disk. mkdocs/mkdocs writes exactly that and the
+    image is there. A markdown link in the same position is rewritten by the
+    generator and so still names the file. The rule applies that refusal in
+    its adapter, where it can ask which tree the document is in.
 
     Moved here from `rules/md_link.py`, where it was the rule's private
     scanner, because it had grown a SECOND reader: `gate.suggest_renames`
@@ -579,47 +595,133 @@ def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str]]:
     the repository looks like. Anything that depends on what is on disk, or on
     the target failing to resolve, stays with the caller.
     """
-    sites: list[tuple[int, str, str]] = []
+    sites: list[tuple[int, str, str, bool]] = []
     for number, line in enumerate(strip_code(doc, text).splitlines(), start=1):
-        if "[" not in line or "(" not in line:
-            continue
-        for raw in MD_LINK.findall(line):
-            if EXTERNAL.match(raw) or raw.startswith("#"):
-                continue
-            # The query string is not part of the filename. `?raw=1` and
-            # `?plain=1` are how GitHub serves a file, and leaving them on the
-            # target made every such link resolve to nothing and report a file
-            # that is plainly there as missing.
-            target = raw.split("#", 1)[0].split("?", 1)[0]
-            if not target:
-                continue
-            # `@` opens a generator macro, not a path. Documenter.jl writes
-            # `[text](@ref)` for a cross-reference and JuliaLang/julia carries
-            # 1,779 of them - every single one reported as a dead file, and 96%
-            # of that repository's findings.
-            if target.startswith("@"):
-                continue
-            # A markdown link percent-encodes characters that are awkward in a
-            # URL, and the file on disk carries the decoded name.
-            # nlohmann/json documents `operator[]` and links to it as
-            # `operator%5B%5D.md`, which is the same file spelled for a browser.
-            target = percent_decoded(target)
-            # A `.html` target is a rendered page, in every repository and not
-            # only in a detected one. MEASURED across 20 repositories in two
-            # corpora: 407 markdown links point at a `.html` target and NOT ONE
-            # resolves to a checked-in file. Gating this on generator detection
-            # is what made rails report 276 of its own guide links dead - its
-            # guides compile to HTML with a bespoke builder that ships none of
-            # the configs `sites.py` detects.
-            #
-            # Refused HERE rather than beside the site routes in a rule,
-            # because it is refused whatever the repository looks like and
-            # whatever is on disk. A caller that would never judge this link
-            # must not count it either.
-            if target.endswith(".html"):
-                continue
-            sites.append((number, raw, target))
+        raws: list[tuple[str, bool]] = []
+        if "[" in line and "(" in line:
+            raws += [(raw, False) for raw in MD_LINK.findall(line)]
+        # A reference-style definition, `[label]: target "title"`, is the
+        # same claim as an inline link and was read by nothing. Measured on
+        # the visible corpora before it was admitted - 132 repositories,
+        # 77,401 documents: 3,171 definitions name a local file, across 75
+        # repositories, and the shape had been examined zero times. A
+        # footnote, `[^1]: text`, is not one - GFM and pandoc write it with
+        # the same colon - so the label may not open with a caret. A
+        # destination is read LITERALLY, parentheses included: golang writes
+        # `[cockroach#10214]:(cockroach10214_test.go)` 63 times in one
+        # testdata README, and CommonMark makes the destination the whole
+        # parenthesised run, so the link is dead on GitHub whether or not
+        # the file inside the parentheses exists - and there it does not
+        # either, every one having since been renamed to `.go`.
+        if "[" in line and "]:" in line:
+            definition = _REFERENCE_DEFINITION.match(line)
+            if definition:
+                raws.append((definition.group(1).strip("<>"), False))
+        # Raw HTML. A README centres its logo with `<img src="...">` and
+        # links a sibling with `<a href="...">`, and GitHub resolves both
+        # against the file exactly as it resolves a markdown link. Measured
+        # on the same corpora: 8,488 local attributes across 86 repositories,
+        # 6,714 of them root-absolute site routes that the rule already
+        # declines by the same test it applies to markdown. A value holding a
+        # brace is a template expression - Jekyll's `{{ site.baseurl }}` -
+        # and names no file.
+        if "<" in line:
+            raws += [(raw, True) for raw in _html_references(line)
+                     if "{" not in raw and "}" not in raw]
+        for raw, html in raws:
+            target = _link_target(raw)
+            if target is not None:
+                sites.append((number, raw, target, html))
     return sites
+
+
+# `[label]: destination`, with up to three spaces of indentation and an
+# optional title after the destination, which is CommonMark's shape for a
+# link reference definition. The destination is a run of non-whitespace or an
+# angle-bracketed span, and the caret exclusion is the footnote refusal above.
+_REFERENCE_DEFINITION = re.compile(
+    r"^ {0,3}\[(?!\^)[^\]]{1,%d}\]:[ \t]*(<[^>]{1,%d}>|[^\s<][^\s]{0,%d})"
+    % (_MD_LINK_SPAN, _MD_LINK_SPAN, _MD_LINK_SPAN))
+# Where an anchor or image tag opens, and the `href` or `src` inside one. The
+# lookbehind keeps `data-href="..."` from reading as `href`.
+_HTML_TAG_OPEN = re.compile(r"<(?:a|img)\b", re.I)
+_HTML_ATTRIBUTE = re.compile(
+    r"(?<![\w-])(?:href|src)\s*=\s*([\"'])([^\"'<>\s]{1,%d})\1" % _MD_LINK_SPAN,
+    re.I)
+
+
+def _html_references(line: str) -> list[str]:
+    """The `href` and `src` values of the anchor and image tags on one line.
+
+    ONE walk along the line, tag by tag, rather than one pattern over the
+    whole of it. The pattern form - `<a\\b[^>]{0,4096}?href=` - is bounded
+    the way `MD_LINK` is and still costs every tag start its whole walk when
+    the closing `>` never comes: measured at 12.5 seconds on a 96 KB line of
+    `<a `, which is the shape that once cost `MD_LINK` three minutes. Here a
+    tag runs from its opening to the next `>`, the scan resumes after that
+    `>`, and an opening with no `>` after it is not a tag at all - so no
+    character is walked twice and the line costs what it is long.
+
+    The span a tag may occupy is capped at the same 4096 the link patterns
+    use; an attribute further from its tag's opening than that is not read,
+    which drops a finding and never invents one.
+    """
+    found: list[str] = []
+    position = 0
+    while True:
+        opened = _HTML_TAG_OPEN.search(line, position)
+        if opened is None:
+            return found
+        closed = line.find(">", opened.end())
+        if closed < 0:
+            return found
+        tag = line[opened.end():min(closed, opened.end() + _MD_LINK_SPAN)]
+        found += [m.group(2) for m in _HTML_ATTRIBUTE.finditer(tag)]
+        position = closed + 1
+
+
+def _link_target(raw: str) -> str | None:
+    """The path a link target names, or None for one no caller will judge.
+
+    ONE reader of the unconditional refusals, so a second link shape cannot
+    admit a target the first refuses. Every refusal here is true of the link
+    whatever the repository looks like; anything depending on what is on disk
+    stays with the caller.
+    """
+    if EXTERNAL.match(raw) or raw.startswith("#"):
+        return None
+    # The query string is not part of the filename. `?raw=1` and `?plain=1`
+    # are how GitHub serves a file, and leaving them on the target made every
+    # such link resolve to nothing and report a file that is plainly there as
+    # missing.
+    target = raw.split("#", 1)[0].split("?", 1)[0]
+    if not target:
+        return None
+    # `@` opens a generator macro, not a path. Documenter.jl writes
+    # `[text](@ref)` for a cross-reference and JuliaLang/julia carries 1,779
+    # of them - every single one reported as a dead file, and 96% of that
+    # repository's findings.
+    if target.startswith("@"):
+        return None
+    # A markdown link percent-encodes characters that are awkward in a URL,
+    # and the file on disk carries the decoded name. nlohmann/json documents
+    # `operator[]` and links to it as `operator%5B%5D.md`, which is the same
+    # file spelled for a browser.
+    target = percent_decoded(target)
+    # A `.html` target is a rendered page, in every repository and not only
+    # in a detected one. MEASURED across 20 repositories in two corpora: 407
+    # markdown links point at a `.html` target and NOT ONE resolves to a
+    # checked-in file. Gating this on generator detection is what made rails
+    # report 276 of its own guide links dead - its guides compile to HTML
+    # with a bespoke builder that ships none of the configs `sites.py`
+    # detects.
+    #
+    # Refused HERE rather than beside the site routes in a rule, because it
+    # is refused whatever the repository looks like and whatever is on disk.
+    # A caller that would never judge this link must not count it either.
+    if target.endswith(".html"):
+        return None
+    return target
 
 
 def unique_basename(ctx: Context, target: str) -> bool:

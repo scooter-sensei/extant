@@ -95,7 +95,7 @@ def suggest_renames(repo: Path, base: Path, text: str, relative: str,
     pointed = {f.subject for f in findings
                if f.kind == "dead-path-pointer" and f.subject}
 
-    for _number, raw, target in link_sites(ctx.doc, text):
+    for _number, raw, target, _html in link_sites(ctx.doc, text):
         if target not in linked or resolve_reference(ctx, base, target)[0]:
             continue
         # `target` is what RESOLVES; `raw` is what the document actually says,

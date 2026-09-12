@@ -202,18 +202,24 @@ def test_a_dotted_suffix_after_the_number_is_not_a_line(git_repo) -> None:
 
 # --- narrowings found by a gap audit, pinned so they stay deliberate ---
 
-def test_a_range_is_read_by_its_start(git_repo) -> None:
-    """`app.py:2-9` on a three-line file is SILENT, and that is the choice.
+def test_a_range_is_read_to_its_end(git_repo) -> None:
+    """`app.py:2-9` on a three-line file is REPORTED: lines 4 to 9 are not
+    there.
 
-    Lines 4 to 9 do not exist, so a wider rule would report it. Firing only
-    when the FIRST cited line is already past the end keeps the claim
-    unarguable. Widening to the range end is a separate measurement, and this
-    test is what makes the current behaviour visible rather than accidental.
+    It used to be silent, read by its start alone, and the test pinning that
+    said widening to the end was a separate measurement. The measurement was
+    made on 2026-09-12 over 132 repositories - 27 ranges naming a tracked
+    file, 22 inside it, 4 starting past the end and 1 ending past it, no
+    false positives - and the choice flipped with it. The finding names the
+    whole range, so a reader sees the claim as written.
     """
     repo, commit = git_repo
     commit("app.py", "a\nb\nc\n", "feat: app")
-    assert _check(repo, "See `app.py:2-9`.\n") == []
+    findings = _check(repo, "See `app.py:2-9`.\n")
+    assert [f.subject for f in findings] == ["app.py:2-9"]
+    assert "3 lines" in findings[0].detail
     assert len(_check(repo, "See `app.py:8-9`.\n")) == 1
+    assert _check(repo, "See `app.py:1-3`.\n") == []
 
 
 def test_a_line_column_pointer_is_judged_on_its_line(git_repo) -> None:
@@ -336,7 +342,10 @@ def _sites_without_the_gate(ctx, text: str):
             total = _line_count(ctx, raw)
             if total is None:
                 continue
-            sites.append((number, raw, cited, total))
+            end = int(match.group(3)) if match.group(3) else None
+            if end is not None and end < cited:
+                end = None
+            sites.append((number, raw, cited, total, end))
     return sites
 
 
@@ -373,7 +382,7 @@ def test_the_colon_gate_finds_every_pointer_the_ungated_scan_finds(
         "See core/engine.py:123 for the detail.",
         "Edit docs/plan.md:4 next.",
         "And docs\\plan.md:9 with a backslash.",
-        "A range core/engine.py:211-215 is read by its start.",
+        "A range core/engine.py:211-215 is read to its end.",
         "A column a.py:1:34 is judged on its line.",
         "Meeting at 10:30 in room 4.",
         "http://localhost:8080/x is a port.",

@@ -40,9 +40,26 @@ def _link_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
     keeps the rule's own shape: `check` and `examined` want (line, target) and
     have no use for the raw spelling, which exists for the patch generator
     that has to find the link again in the document.
+
+    ONE refusal is applied here rather than in the scanner, because it needs
+    the repository: a raw HTML `href` or `src` inside a tree a generator
+    builds is resolved by the BROWSER against the rendered page's URL, which
+    the filesystem cannot settle. `<img src="../../img/x.png">` in
+    `docs/user-guide/theme.md` reaches `docs/img/x.png` on the MkDocs site
+    and nothing relative to the file; the same target in a markdown image is
+    rewritten by the generator and still names the file. Refused HERE, not in
+    `check`, so a site the rule will not judge is not counted either.
     """
-    return [(number, target)
-            for number, _raw, target in link_sites(ctx.doc, text)]
+    in_site = None
+    sites: list[tuple[int, str]] = []
+    for number, _raw, target, html in link_sites(ctx.doc, text):
+        if html:
+            if in_site is None:
+                in_site = in_site_tree(ctx)
+            if in_site:
+                continue
+        sites.append((number, target))
+    return sites
 
 
 def check(ctx: Context, text: str) -> list[Finding]:

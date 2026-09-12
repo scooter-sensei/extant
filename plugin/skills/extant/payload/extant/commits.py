@@ -40,7 +40,8 @@ from extant.text import line_breaks, line_number_at
 
 __all__ = [
     "BACKTICKED", "BARE_SHA_TOKEN", "_ASSET_PATH", "_BARE_SHAS", "_LINKED_SHA",
-    "_MERGE_CLAIMS", "_PINNED_REF", "_SHA_CANDIDATES", "_URL", "_UUID",
+    "_MERGE_CLAIMS", "_PINNED_REF", "_SHA_CANDIDATES", "_SHA_RANGE", "_URL",
+    "_UUID", "_range_ends",
     "_document_sha_tokens", "_find_bare_sha_candidates",
     "_find_sha_candidates", "_is_digest_length", "_merge_claims",
     "document_shas",
@@ -51,6 +52,21 @@ __all__ = [
 ]
 
 BACKTICKED = re.compile(r"`([^`]+)`")
+# Two commits joined by git's range operator inside ONE backtick pair:
+# `` `7d6ec08..7499537` `` or `` `a...b` ``. The whole token has to be the
+# range - a command holding one, `` `git log a..b` ``, is a command - and each
+# end is then tested as a token of its own, so a range of numbers or of tags
+# is refused the way a bare one would be.
+#
+# The authoring note in references/design.md used to ask writers to spell a
+# range as two tokens because this shape escaped both checking and repair.
+# Measured on 2026-09-12 over 132 repositories: three ranges in 77,401
+# documents, one of them in an agent's session log recording a fast-forward
+# whose both ends a later force-push rewrote away, which is the population
+# this rule exists for. The arrow spelling `a -> b` occurs zero times and is
+# left alone: it is also how a rewrite map is quoted, with the left side dead
+# by design.
+_SHA_RANGE = re.compile(r"^([0-9a-f]{7,40})(\.\.\.?)([0-9a-f]{7,40})$")
 # I-1: SHA-shaped tokens written WITHOUT backticks. Anchored both sides with
 # \b so a hex-looking run embedded inside a longer word (an identifier, a
 # version tag) never matches - \w includes both hex letters and non-hex
@@ -208,8 +224,14 @@ def spans_overlap(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
 # mirrors, and it cannot: a document does not reliably state which repository
 # it is in. A link to this repository's own commit is unaffected in practice,
 # because a SHA that resolves produces no finding to suppress.
+#
+# A RANGE as link text is the same shape with a compare URL behind it:
+# `` [`6728344..4080341`](.../compare/6728344..4080341) `` in helix's
+# changelog, where the first commit is one a rebase left unreachable while
+# the compare page still serves it. The span covers both ends, so neither is
+# read as this repository's claim.
 _LINKED_SHA = re.compile(
-    r"\[\s*`([0-9a-fA-F]{6,40})`\s*\]\(\s*[^)\s]*?"
+    r"\[\s*`([0-9a-fA-F]{6,40}(?:\.\.\.?[0-9a-fA-F]{6,40})?)`\s*\]\(\s*[^)\s]*?"
     r"/(?:commit|commits|blob|tree|pull|compare)/[^)\s]*\)", re.I)
 
 
@@ -245,10 +267,21 @@ def _find_sha_candidates(text: str) -> list[tuple[int, str]]:
         for match in BACKTICKED.finditer(line):
             if spans_overlap(match.span(1), qualified):
                 continue
-            token = match.group(1)
-            if looks_like_sha(token):
-                out.append((number, token))
+            for token in _range_ends(match.group(1)):
+                if looks_like_sha(token):
+                    out.append((number, token))
     return out
+
+
+def _range_ends(token: str) -> tuple[str, ...]:
+    """The commits a backticked token names: itself, or both ends of a range.
+
+    ONE splitter for the scanner above and for `translate_shas` below, so
+    what is reported and what is repaired stay the same tokens - the same
+    argument that keeps the rewriter beside the scanners at all.
+    """
+    found = _SHA_RANGE.match(token)
+    return (found.group(1), found.group(3)) if found else (token,)
 
 
 # Same idiom as `_STRIPPED` in text.py: keyed on object IDENTITY, so a
@@ -652,13 +685,25 @@ def translate_shas(text: str, mapping: dict[str, str]) -> tuple[str, int]:
     def replace_backticked(match: "re.Match[str]") -> str:
         nonlocal count
         token = match.group(1)
-        if not looks_like_sha(token):
+        # Each end of a range is translated on its own, under the same shape
+        # test and the same ambiguity rule the scanner applies, so what is
+        # repaired is exactly what was reported: `7d6ec08..7499537` has one
+        # end the scanner reads and one it refuses as all digits, and the
+        # first is rewritten while the second stays as written.
+        ends = _range_ends(token)
+        if not any(looks_like_sha(end) for end in ends):
             return match.group(0)
-        new = _translated_value(token, mapping, index)
-        if new is None:
+        pieces: list[str] = []
+        for end in ends:
+            new = (_translated_value(end, mapping, index)
+                   if looks_like_sha(end) else None)
+            if new is not None:
+                count += 1
+            pieces.append(end if new is None else new)
+        if pieces == list(ends):
             return match.group(0)
-        count += 1
-        return f"`{new}`"
+        separator = token[len(ends[0]):len(token) - len(ends[-1])]
+        return f"`{separator.join(pieces)}`"
 
     def replace_bare(line: str) -> str:
         nonlocal count

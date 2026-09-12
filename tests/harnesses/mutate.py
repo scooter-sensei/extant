@@ -401,11 +401,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # `text.link_sites`. md_link.py still has an EXTERNAL check, in
         # `probe`, at a different indent - that one splices a corrupted
         # target and decides nothing, so it is not the site this names.
+        # Retargeted again on 2026-09-12, when the unconditional refusals
+        # became `_link_target`, the one reader every link SHAPE goes
+        # through - so this now proves the refusal for a reference
+        # definition and an HTML attribute as well as an inline link.
         ("external links get checked (needs the network)", text,
-         '            if EXTERNAL.match(raw) or raw.startswith("#"):\n'
-         '                continue',
-         '            if raw.startswith("#"):\n'
-         '                continue'),
+         '    if EXTERNAL.match(raw) or raw.startswith("#"):\n'
+         '        return None',
+         '    if raw.startswith("#"):\n'
+         '        return None'),
         # Retargeted when dead-md-anchor grew to check fragments on OTHER
         # files: the fragment is now split off with partition rather than
         # sliced, and slugging moved behind _heading_text.
@@ -769,8 +773,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "            replacements.append((raw, moved + raw[len(path_part):]))",
          "            replacements.append((target, moved))"),
         ("the shared scanner drops the spelling the document uses", text,
-         "            sites.append((number, raw, target))",
-         "            sites.append((number, target, target))"),
+         "                sites.append((number, raw, target, html))",
+         "                sites.append((number, target, target, html))"),
         ("suggest-fixes rewrites prose as well as references", gate,
          '        updated = updated.replace(f"]({old})", f"]({new})")\n'
          '        updated = updated.replace(f"`{old}`", f"`{new}`")',
@@ -1340,8 +1344,53 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # same meaning, new home.
         ("a .html target is judged again unless a generator is declared",
          text,
-         '            if target.endswith(".html"):\n                continue',
+         '    if target.endswith(".html"):\n        return None',
+         "    if False:\n        return None"),
+        # --- the 2026-09-12 widenings ------------------------------------
+        # Each admits a shape that was read by nothing, and each carries a
+        # refusal beside it. The admissions are anchored so the shape cannot
+        # quietly stop being read - a scanner that drops an arm reports the
+        # same silence as a document with no such link - and the refusals
+        # are anchored because a suppression that stops firing deletes
+        # nothing visible: it reports findings that are false.
+        ("a reference-style definition is no longer read", text,
+         '        if "[" in line and "]:" in line:\n'
+         '            definition = _REFERENCE_DEFINITION.match(line)',
+         '        if False:\n'
+         '            definition = _REFERENCE_DEFINITION.match(line)'),
+        ("a footnote definition is read as a link", text,
+         'r"^ {0,3}\\[(?!\\^)[^\\]]{1,%d}\\]:',
+         'r"^ {0,3}\\[[^\\]]{1,%d}\\]:'),
+        ("an HTML href or src is no longer read", text,
+         '        if "<" in line:\n'
+         '            raws += [(raw, True) for raw in _html_references(line)',
+         '        if False:\n'
+         '            raws += [(raw, True) for raw in _html_references(line)'),
+        ("a templated HTML attribute is resolved as a path", text,
+         '                     if "{" not in raw and "}" not in raw]',
+         '                     ]'),
+        # The walk resumes after the tag's `>`. Resuming at the tag's own end
+        # instead re-reads every overlapping opening and is the quadratic the
+        # walk exists to remove; the timing test is what catches it.
+        ("the HTML walk re-reads overlapping tags", text,
+         "        position = closed + 1",
+         "        position = opened.end()"),
+        ("HTML inside a generated site tree is judged as a file",
+         rules / "md_link.py",
+         "            if in_site:\n                continue",
          "            if False:\n                continue"),
+        ("a line range is read by its start again", rules / "line_pointer.py",
+         "        if (cited if end is None else end) <= total:",
+         "        if cited <= total:"),
+        ("a backticked SHA range is read as one token", commits,
+         "    found = _SHA_RANGE.match(token)\n"
+         "    return (found.group(1), found.group(3)) if found else (token,)",
+         "    return (token,)"),
+        ("the rewriter leaves both ends of a range dead", commits,
+         "        ends = _range_ends(token)\n"
+         "        if not any(looks_like_sha(end) for end in ends):",
+         "        ends = (token,)\n"
+         "        if not any(looks_like_sha(end) for end in ends):"),
         # Next.js routes by file path. Without it, nextra reported 227 of its
         # own links dead.
         ("next.config stops counting as a generator", sites,
