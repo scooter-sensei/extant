@@ -694,3 +694,29 @@ def test_a_bracketed_cross_file_fragment_is_judged_against_that_file(
         repo, "[x](<docs/a b.md#alpha>) and [y](<docs/a b.md#gone>)\n")
     assert examined == 2
     assert [f.subject for f in findings] == ["docs/a b.md#gone"]
+
+
+def test_a_definition_followed_by_prose_is_not_a_definition(git_repo) -> None:
+    """`` [`unused_peekable`]: Now respects `#[allow]` attributes `` is a
+    changelog line, not a link reference definition: CommonMark lets a
+    destination be followed only by an optional title and the end of the
+    line, so this renders as a paragraph and links nothing.
+
+    Found in the benchmark reserve on 2026-09-13, where it was reported as a
+    dead link to `Now`. Catches a definition pattern that stops reading at
+    the destination and never asks what follows it. Zero of the 3,171
+    definitions recorded on the visible corpora carry trailing prose, so the
+    requirement removes nothing there and cannot remove a real definition.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    findings, examined = _md_link(
+        repo, "[`unused_peekable`]: Now respects `#[allow]` on the statement\n"
+              '[a]: docs/gone.md "Title" and then more words\n')
+    assert findings == []
+    assert examined == 0
+    # The same destination with only a title, or nothing, after it is one.
+    findings, examined = _md_link(
+        repo, '[a]: docs/gone.md "Title"\n[b]: docs/gone.md\n[c]: docs/gone.md  \n')
+    assert [f.line for f in findings] == [1, 2, 3]
+    assert examined == 3

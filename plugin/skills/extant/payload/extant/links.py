@@ -277,9 +277,22 @@ def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str, bool]]:
 # optional title after the destination, which is CommonMark's shape for a
 # link reference definition. The destination is a run of non-whitespace or an
 # angle-bracketed span, and the caret exclusion is the footnote refusal above.
+#
+# AND NOTHING ELSE ON THE LINE. The destination may be followed by an
+# optional title and then only whitespace to the end of the line; anything
+# more and the line is a paragraph, not a definition. The first version
+# stopped reading at the destination, so clippy's changelog line
+# `` [`unused_peekable`]: Now respects `#[allow]` attributes... `` was read
+# as a link to a file named `Now` - found on 2026-09-13 in the benchmark
+# reserve, the one place the widening had not been measured. Zero of the
+# 3,171 definitions recorded on the visible corpora carry trailing prose,
+# so the requirement removes nothing there, and it cannot remove a real
+# definition, because a real one never has text after its title. A title on
+# the NEXT line is still a definition: this line ends after the destination.
 _REFERENCE_DEFINITION = re.compile(
     r"^ {0,3}\[(?!\^)[^\]]{1,%d}\]:[ \t]*(<[^>]{1,%d}>|[^\s<][^\s]{0,%d})"
-    % (_MD_LINK_SPAN, _MD_LINK_SPAN, _MD_LINK_SPAN))
+    r"(?:[ \t]+(?:\"[^\"\n]{0,%d}\"|'[^'\n]{0,%d}'|\([^()\n]{0,%d}\)))?[ \t]*$"
+    % ((_MD_LINK_SPAN,) * 6))
 # Where an anchor or image tag opens, and the `href` or `src` inside one. The
 # lookbehind keeps `data-href="..."` from reading as `href`.
 _HTML_TAG_OPEN = re.compile(r"<(?:a|img)\b", re.I)

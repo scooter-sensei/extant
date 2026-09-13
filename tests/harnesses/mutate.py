@@ -1428,6 +1428,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a footnote definition is read as a link", links,
          'r"^ {0,3}\\[(?!\\^)[^\\]]{1,%d}\\]:',
          'r"^ {0,3}\\[[^\\]]{1,%d}\\]:'),
+        # A definition ends after its destination and optional title; a line
+        # that goes on is a paragraph. Found in the benchmark reserve, where
+        # a changelog entry was read as a link to a file named `Now`.
+        ("a definition followed by prose is read as a link", links,
+         '\\([^()\\n]{0,%d}\\)))?[ \\t]*$"\n',
+         '\\([^()\\n]{0,%d}\\)))?"\n'),
         ("an HTML href or src is no longer read", links,
          '        if "<" in line:\n'
          '            raws += [(raw, True) for raw in _html_references(line)',
