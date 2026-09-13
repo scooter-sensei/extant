@@ -114,15 +114,27 @@ across all four tiers: 1,376 findings added and 23 removed since the
 recordings it was published from, every one of them `dead-md-link`. Of the
 333 additions in repositories the widenings were measured on, 331 match a
 row one of the passes read one by one; the other two are the 0.26.1
-review's. The remaining 1,043 sat in the benchmark's reserve, 1,019 of them
-in one repository; that repository's reserve was opened and spent to read
-them, and all 1,019 are raw-HTML links in a DevSite tree the site
+review's. The remaining 1,043 sat in the benchmark's reserve, and the five
+reserve repositories carrying them were opened and spent to read every one.
+1,019 are in tensorflow, all raw-HTML links in a DevSite tree the site
 detection deliberately does not reach - 1,003 routes that resolve once
-`.md` is appended, 15 in a generated index, and one real broken image in a
-vendored README. No new false-positive shape. The 24 in four other reserve
-repositories stay unread, and the report's provenance section says so
-beside the figures that carry them. The heldout and niche reserves were
-not opened.
+`.md` is appended, 15 in a generated index, one real broken image in a
+vendored README. Of the other 24: six fixtures, two pages of mdBooks three
+levels down, two real, 13 rustdoc intra-doc links in markdown that
+`#[doc = include_str!]` pulls into rustdoc - a shape the visible corpora
+never showed, measured at 16 findings across three repositories and left
+for the next pass - and one scanner defect, fixed below. The manifest
+records the openings; the eleven reserve rows with no additions stay
+closed, and the heldout and niche reserves were not opened.
+
+**A reference definition ends after its destination and optional title.**
+`` [`unused_peekable`]: Now respects `#[allow]` attributes... `` in clippy's
+changelog is a paragraph, not a definition - CommonMark lets nothing but a
+title follow the destination - and the pattern added above stopped reading
+at the destination and reported a dead link to a file named `Now`. Found
+in the reserve, the one place that widening had not been measured. Zero of
+the 3,171 definitions on the visible corpora carry trailing prose, so the
+requirement removes nothing there and cannot remove a real definition.
 
 ## 0.26.1 (2026-09-10)
 

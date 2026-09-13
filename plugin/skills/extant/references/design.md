@@ -1398,19 +1398,21 @@ does not exist. Refused on population and on cost; the fixture with a
 nested file and no root one is the test to write when a repository of that
 shape turns up.
 
-### The benchmark reserve, opened for one repository
+### The benchmark reserve, opened and read
 
 Re-recording the corpus report after both passes put a number in it that
 nobody had judged: 1,043 of the benchmark's additions sat in its sixteen
 reserve repositories, 1,019 of them in tensorflow/tensorflow, and the reserve
 is held back precisely so no pass reads it while designing. The report said
-so beside the figure. The operator then chose to spend that one repository's
-reserve on a reading rather than publish an unjudged number, on 2026-09-13,
-and the manifest row records the opening and the date so nothing measured
-later mistakes it for unseen ground.
+so beside the figure. The operator then chose to spend the reserve on a
+reading rather than publish an unjudged number - tensorflow first, then the
+other four repositories with additions - on 2026-09-13. The manifest rows
+record the opening and the date, so nothing measured later mistakes them for
+unseen ground; the eleven reserve rows with no additions stay closed. The
+readings are recorded beside the recordings, and the report renders them.
 
-The reading: all 1,019 are the `href` of raw HTML, the arm the second pass
-added, and 1,018 of them live in `tensorflow/lite/g3doc/`, the DevSite tree
+**tensorflow, 1,019.** All are the `href` of raw HTML, the arm the second
+pass added, and 1,018 live in `tensorflow/lite/g3doc/`, the DevSite tree
 `sites.py` already records as deliberately unreached - its `_book.yaml` sits
 three levels down, and scoping detection that deep silenced six real defects
 in astro and llama_index. 1,003 are routes that resolve the moment `.md` is
@@ -1419,9 +1421,43 @@ generated `all_symbols.md` index that the generator wrote one directory too
 shallow, routes in the same tree whether or not the site serves them; and 1
 is a real broken image in the vendored XLA README under `third_party/`. No
 new false-positive shape, one real finding, and the class it multiplied was
-already on the record. The spend bought exactly that sentence, which is what
-a reserve is for; the 24 additions in four other reserve repositories stay
-unread, and the report says so.
+already on the record.
+
+**The other 24, and the two things they found.** Five are titled image
+links in vscode's copilot scenario and colorize test fixtures, and one is an
+HTML link in an npm package's README copied into deno's bench test data
+without its `docs/` directory - fixtures, which `exclude_paths` is for. Two
+are pages of mdBooks three levels down: clippy's book serves
+`continuous_integration/README.md` under the name `index.md`, and the
+unstable book generates `impl-trait-in-assoc-type.md` at build time. Two are
+real: a rustc-dev-guide page, `generic_arguments.md`, that no longer exists,
+and a dead link in clippy's changelog, labelled historical-record. That
+leaves two shapes the visible corpora had never shown.
+
+The first is a scanner defect, fixed. `` [`unused_peekable`]: Now respects
+`#[allow]` attributes... `` is a changelog line; CommonMark lets a
+definition's destination be followed only by an optional title and the end
+of the line, so it renders as a paragraph and links nothing, and the pattern
+the second pass added stopped reading at the destination and reported a dead
+link to a file named `Now`. Measured before it was changed: zero of the
+3,171 definitions recorded on the visible corpora carry trailing prose, so
+requiring the line to end removes nothing there and cannot remove a real
+definition. The recordings were taken again with the fix, so the report
+describes the tool it ships with.
+
+The second is a candidate for the next pass, measured but not built.
+`` [`float`]: c_float `` in `library/core/src/ffi/c_double.md`, and
+`[value-macro]: macro@crate::value` in turbopack's `vc/README.md`, are
+rustdoc intra-doc links: the markdown is pulled into rustdoc by
+`#[doc = include_str!(...)]` in a sibling `.rs` file, and the destination is
+a Rust path, not a file. 13 of the 24 are this shape, and the visible corpora
+hold 3 more, in a README zed's `gpui.rs` includes.
+Across the 132 visible repositories, five pull 110 markdown files into
+rustdoc this way, and every finding inside one is this shape. The place the
+answer lives is the `.rs` file that names the document, which is a filesystem
+question with one location; what it would cost per run, and whether the
+`::`-bearing destinations alone are worth refusing without it, is the
+measurement the next pass owes before anything is written.
 
 ## Where a decode happens is a decision, not a default
 

@@ -166,7 +166,7 @@
           "share_pct": 22.1
         },
         "documents": 37073,
-        "findings": 56100,
+        "findings": 56099,
         "ordinary_concentration": {
           "findings": 1593,
           "largest_repository": "tensorflow/tensorflow",
@@ -296,7 +296,7 @@
         ],
         "strata": {
           "generated": 1730,
-          "historical-record": 4765,
+          "historical-record": 4764,
           "ordinary": 5706,
           "vendored": 4198,
           "version-snapshot": 39701
@@ -563,7 +563,7 @@
   },
   "holdout": {
     "never_swept_total": 32,
-    "reserved_but_swept": 15,
+    "reserved_but_swept": 11,
     "tiers": {
       "agent": {
         "absent_but_not_reserved": [],
@@ -576,7 +576,7 @@
         "absent_but_not_reserved": [],
         "manifest": 50,
         "never_swept": 0,
-        "reserved": 15,
+        "reserved": 11,
         "swept": 50
       },
       "heldout": {
@@ -725,11 +725,11 @@
   },
   "provenance": {
     "change_since_stage4": {
-      "findings": 1310,
+      "findings": 1309,
       "ordinary": 1277
     },
     "live": {
-      "findings": 56100,
+      "findings": 56099,
       "ordinary": 5706
     },
     "schemeless_narrowing": {
@@ -781,14 +781,14 @@
         "removed": 0
       },
       "bench": {
-        "added": 1340,
+        "added": 1339,
         "added_ordinary": 1295,
         "added_read": 295,
-        "added_reserve": 1043,
+        "added_reserve": 1042,
         "added_visible": 297,
-        "after": 56100,
+        "after": 56099,
         "before": 54772,
-        "net": -1328,
+        "net": -1327,
         "removed": 16,
         "reserve_concentration": {
           "added": 1019,
@@ -814,6 +814,70 @@
             "tier": "bench",
             "tree": "tensorflow/lite/g3doc",
             "verdict": "The known undetected-generator class, multiplied by the raw-HTML arm: no new false-positive shape, and one real finding, labelled vendored."
+          },
+          {
+            "added": 15,
+            "classes": {
+              "page an mdBook three levels down serves from README.md under the name index.md": 1,
+              "page the unstable-book generator writes at build time": 1,
+              "real: a dead link in clippy's changelog, labelled historical-record": 1,
+              "real: a rustc-dev-guide page, generic_arguments.md, that no longer exists": 1,
+              "rustdoc intra-doc links in markdown that a #[doc = include_str!] pulls into rustdoc, not files": 11
+            },
+            "date": "2026-09-13",
+            "read": 15,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "rust-lang/rust",
+            "shape": {
+              "reference definition": 15
+            },
+            "tier": "bench",
+            "verdict": "Thirteen false in three classes and two real. A sixteenth, a definition-shaped changelog line CommonMark reads as a paragraph, was a scanner defect; it was fixed and the recordings taken again, so it is not in these figures."
+          },
+          {
+            "added": 2,
+            "classes": {
+              "rustdoc intra-doc links in markdown that a #[doc = include_str!] pulls into rustdoc, not files": 2
+            },
+            "date": "2026-09-13",
+            "read": 2,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "vercel/next.js",
+            "shape": {
+              "reference definition": 2
+            },
+            "tier": "bench",
+            "verdict": "Both false, the rustdoc class."
+          },
+          {
+            "added": 5,
+            "classes": {
+              "titled image links in test fixtures, the copilot scenario examples and a colorize fixture": 5
+            },
+            "date": "2026-09-13",
+            "read": 5,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "microsoft/vscode",
+            "shape": {
+              "titled markdown image": 5
+            },
+            "tier": "bench",
+            "verdict": "All five fixtures, which exclude_paths is for."
+          },
+          {
+            "added": 1,
+            "classes": {
+              "HTML link in an npm package's README copied into bench test data without its docs directory": 1
+            },
+            "date": "2026-09-13",
+            "read": 1,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "denoland/deno",
+            "shape": {
+              "html href": 1
+            },
+            "tier": "bench",
+            "verdict": "Test data, which exclude_paths is for."
           }
         ]
       },

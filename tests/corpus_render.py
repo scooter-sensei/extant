@@ -488,17 +488,27 @@ def render(fig: dict) -> str:
                 f"reading it spends it.",
                 "",
             ]
-            for r in readings:
+            if readings:
+                dates = sorted({r["date"] for r in readings})
+                L += [
+                    f"{len(readings)} of those repositories had their reserve",
+                    f"opened and spent on {' and '.join(dates)}, so the additions",
+                    f"could be read rather than published unjudged. None of them is",
+                    f"unseen ground for anything measured after that date, and the",
+                    f"manifest says so. What the reading found, repository by",
+                    f"repository:",
+                    "",
+                ]
+            for r in sorted(readings, key=lambda r: -r["read"]):
                 # Largest class first, so the order is the record's and not
-                # whichever order a JSON writer happened to keep.
+                # whichever order a JSON writer happened to keep. A paragraph
+                # per repository rather than a list item, so the wrapper
+                # wraps it.
                 ordered = sorted(r["classes"].items(), key=lambda kv: (-kv[1], kv[0]))
                 classes = "; ".join(f"{_n(v)} {k}" for k, v in ordered)
                 L += [
-                    f"That repository's reserve was opened and spent on",
-                    f"{r['date']}, because {r['reason']}. Its {_n(r['read'])}",
-                    f"were read: {classes}. {r['verdict']} It is no longer unseen",
-                    f"ground for anything measured after that date, and the",
-                    f"manifest says so.",
+                    f"**{r['repo']}**, {_n(r['read'])} read: {classes}.",
+                    f"{r['verdict']}",
                     "",
                 ]
             left = n["added_reserve"] - min(read_in_reserve, n["added_reserve"])

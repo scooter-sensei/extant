@@ -21,7 +21,7 @@ discipline.
 
 | corpus | repositories | documents | findings | ordinary | reporting |
 |:---|---:|---:|---:|---:|---:|
-| bench | 50 | 37,073 | 56,100 | 5,706 (10.2%) | 39 |
+| bench | 50 | 37,073 | 56,099 | 5,706 (10.2%) | 39 |
 | heldout | 20 | 12,579 | 206 | 185 (89.8%) | 16 |
 | niche | 38 | 13,562 | 5,142 | 4,943 (96.1%) | 25 |
 | agent | 17 | 28,815 | 729 | 605 (83.0%) | 14 |
@@ -39,11 +39,11 @@ the total:
 |:---|---:|
 | version-snapshot | 39,701 |
 | ordinary | 5,706 |
-| historical-record | 4,765 |
+| historical-record | 4,764 |
 | vendored | 4,198 |
 | generated | 1,730 |
 
-So 50,394 of 56,100 benchmark findings sit in a kind of tree nobody would act
+So 50,393 of 56,099 benchmark findings sit in a kind of tree nobody would act
 on. They are labelled rather than hidden, and the ordinary count is what the
 summary leads with.
 
@@ -60,11 +60,11 @@ stated reason that is printed with the results.
 | corpus | in manifest | reserved | swept | never swept |
 |:---|---:|---:|---:|---:|
 | agent | 17 | 0 | 17 | 0 |
-| bench | 50 | 15 | 50 | 0 |
+| bench | 50 | 11 | 50 | 0 |
 | heldout | 40 | 20 | 20 | 20 |
 | niche | 50 | 12 | 38 | 12 |
 
-Two different things wear the word. 15 benchmark repositories are flagged
+Two different things wear the word. 11 benchmark repositories are flagged
 reserve but were swept, and are only withheld from tuning decisions. Just the
 32 never-swept ones can answer whether a rule fires on ground nobody has looked
 at, so they are counted apart instead of summed.
@@ -78,7 +78,7 @@ sees - 5 of 50 repositories report anything at all under it. The rest would
 exit 0 forever, which is a validator teaching its adopters it has nothing to
 say.
 
-Counted across every stratum rather than ordinary alone it is 12 of 56,100,
+Counted across every stratum rather than ordinary alone it is 12 of 56,099,
 which is the same story told about a larger pile.
 
 The cause is document SELECTION rather than the rules, so the fix is a wider
@@ -180,7 +180,7 @@ scores without that sentence would read as a result about agents.
 ## What changed since these figures were first published
 
 An earlier write-up recorded 54,790 benchmark findings (4,429 ordinary). The
-current figure is 56,100 (5,706), a change of +1,310. It is the sum of two
+current figure is 56,099 (5,706), a change of +1,309. It is the sum of two
 changes made in this order, and each is stated with its cause rather than left
 for a reader to tell a correction from a mistake.
 
@@ -210,11 +210,11 @@ table holds everything since, not the widenings alone.
 | corpus | before | after | removed | added | added, ordinary | of which read |
 |:---|---:|---:|---:|---:|---:|---:|
 | agent | 712 | 729 | 0 | 17 | 17 | 17 |
-| bench | 54,772 | 56,100 | 16 | 1,340 | 1,295 | 295 |
+| bench | 54,772 | 56,099 | 16 | 1,339 | 1,295 | 295 |
 | heldout | 200 | 206 | 1 | 7 | 7 | 7 |
 | niche | 5,136 | 5,142 | 6 | 12 | 3 | 12 |
 
-Across the four: 1,376 added, 1,322 of them ordinary, and 23 removed - the
+Across the four: 1,375 added, 1,322 of them ordinary, and 23 removed - the
 misreads corrected, and the findings a correction respelled. `of which read` is
 computed, not claimed: each addition in a repository the widenings were
 measured on is matched against the rows those passes read one by one before
@@ -222,24 +222,42 @@ shipping, and 331 of the 333 match. The rest are the review's, not a
 widening's. The readings are in the design record, with the proposals refused
 on them.
 
-The other 1,043 on bench sat in its reserve when the widenings were measured,
+The other 1,042 on bench sat in its reserve when the widenings were measured,
 1,019 of them in tensorflow/tensorflow, and no widening pass read them: the
 reserve is held for exactly that later evaluation, and reading it spends it.
 
-That repository's reserve was opened and spent on 2026-09-13, because the
-re-recorded corpus report carried 1,019 findings the two widening passes had
-added there, unread, and the operator chose to read them rather than publish an
-unjudged number. Its 1,019 were read: 1,003 routes in an undetected DevSite
+5 of those repositories had their reserve opened and spent on 2026-09-13, so
+the additions could be read rather than published unjudged. None of them is
+unseen ground for anything measured after that date, and the manifest says so.
+What the reading found, repository by repository:
+
+**tensorflow/tensorflow**, 1,019 read: 1,003 routes in an undetected DevSite
 tree, each resolving once .md is appended; 15 routes in a generated all_symbols
 index written one directory too shallow, in the same tree; 1 real broken image
 in a vendored README under third_party/xla. The known undetected-generator
 class, multiplied by the raw-HTML arm: no new false-positive shape, and one
-real finding, labelled vendored. It is no longer unseen ground for anything
-measured after that date, and the manifest says so.
+real finding, labelled vendored.
 
-The remaining 24 on bench stay in the reserve, unread; until someone reads
-them, the bench figures above carry 24 findings nobody has judged, and this is
-where that is said.
+**rust-lang/rust**, 15 read: 11 rustdoc intra-doc links in markdown that a
+#[doc = include_str!] pulls into rustdoc, not files; 1 page an mdBook three
+levels down serves from README.md under the name index.md; 1 page the
+unstable-book generator writes at build time; 1 real: a dead link in clippy's
+changelog, labelled historical-record; 1 real: a rustc-dev-guide page,
+generic_arguments.md, that no longer exists. Thirteen false in three classes
+and two real. A sixteenth, a definition-shaped changelog line CommonMark reads
+as a paragraph, was a scanner defect; it was fixed and the recordings taken
+again, so it is not in these figures.
+
+**microsoft/vscode**, 5 read: 5 titled image links in test fixtures, the
+copilot scenario examples and a colorize fixture. All five fixtures, which
+exclude_paths is for.
+
+**vercel/next.js**, 2 read: 2 rustdoc intra-doc links in markdown that a #[doc
+= include_str!] pulls into rustdoc, not files. Both false, the rustdoc class.
+
+**denoland/deno**, 1 read: 1 HTML link in an npm package's README copied into
+bench test data without its docs directory. Test data, which exclude_paths is
+for.
 
 The precision figures were sampled and labelled from the recordings these
 replaced, so they cover none of the additions; the additions that were read

@@ -8,14 +8,14 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 37 - Six more widenings measured, one shipped, five refused (unreleased, 2026-09-13)
 
-**Status.** Suite is 1,106 tests across 64 files: 1,104 passing and 2 skipped.
+**Status.** Suite is 1,107 tests across 64 files: 1,105 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag, no default and no
 suppression, and moves no exit code. It changes the shipped payload: two
 rules read two CommonMark spellings they did not read, in six modules under
 `payload/`, one of them new - the link scanner has a module of its own. The
 tool remained
 released as 0.26.1 and this work sits above that tag with Phase 36,
-unreleased. Mutation campaign is 202 anchors; the eleven this phase added and
+unreleased. Mutation campaign is 203 anchors; the twelve this phase added and
 the eighteen it moved were each applied to a copy and watched turning the
 suite red, and every other gate on the pre-push list ran green against a
 working-tree extract - smoke, scenarios, fuzz with its self-check, `--verify`
