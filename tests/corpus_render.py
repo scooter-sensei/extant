@@ -477,16 +477,39 @@ def render(fig: dict) -> str:
                    if n.get("added_reserve")]
         for tier, n in reserve:
             conc = n.get("reserve_concentration", {})
+            readings = n.get("reserve_readings", [])
+            read_in_reserve = sum(r.get("read", 0) for r in readings)
             L += [
-                f"The other {_n(n['added_reserve'])} on {tier} sit in its",
-                f"reserve, {_n(conc.get('added', 0))} of them in",
-                f"{conc.get('repository', '?')}, and were NOT read. The reserve",
-                f"is held for exactly that later evaluation, and reading it",
-                f"spends it; until someone does, the {tier} figures above carry",
-                f"{_n(n['added_reserve'])} findings nobody has judged, and this",
-                f"is where that is said.",
+                f"The other {_n(n['added_reserve'])} on {tier} sat in its",
+                f"reserve when the widenings were measured,",
+                f"{_n(conc.get('added', 0))} of them in",
+                f"{conc.get('repository', '?')}, and no widening pass read them:",
+                f"the reserve is held for exactly that later evaluation, and",
+                f"reading it spends it.",
                 "",
             ]
+            for r in readings:
+                # Largest class first, so the order is the record's and not
+                # whichever order a JSON writer happened to keep.
+                ordered = sorted(r["classes"].items(), key=lambda kv: (-kv[1], kv[0]))
+                classes = "; ".join(f"{_n(v)} {k}" for k, v in ordered)
+                L += [
+                    f"That repository's reserve was opened and spent on",
+                    f"{r['date']}, because {r['reason']}. Its {_n(r['read'])}",
+                    f"were read: {classes}. {r['verdict']} It is no longer unseen",
+                    f"ground for anything measured after that date, and the",
+                    f"manifest says so.",
+                    "",
+                ]
+            left = n["added_reserve"] - min(read_in_reserve, n["added_reserve"])
+            if left > 0:
+                L += [
+                    f"The remaining {_n(left)} on {tier} stay in the reserve,",
+                    f"unread; until someone reads them, the {tier} figures above",
+                    f"carry {_n(left)} findings nobody has judged, and this is",
+                    f"where that is said.",
+                    "",
+                ]
         if w_unread == 0:
             L += [
                 f"None of the additions sits in a reserve.",

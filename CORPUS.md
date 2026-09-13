@@ -60,11 +60,11 @@ stated reason that is printed with the results.
 | corpus | in manifest | reserved | swept | never swept |
 |:---|---:|---:|---:|---:|
 | agent | 17 | 0 | 17 | 0 |
-| bench | 50 | 16 | 50 | 0 |
+| bench | 50 | 15 | 50 | 0 |
 | heldout | 40 | 20 | 20 | 20 |
 | niche | 50 | 12 | 38 | 12 |
 
-Two different things wear the word. 16 benchmark repositories are flagged
+Two different things wear the word. 15 benchmark repositories are flagged
 reserve but were swept, and are only withheld from tuning decisions. Just the
 32 never-swept ones can answer whether a rule fires on ground nobody has looked
 at, so they are counted apart instead of summed.
@@ -222,11 +222,24 @@ shipping, and 331 of the 333 match. The rest are the review's, not a
 widening's. The readings are in the design record, with the proposals refused
 on them.
 
-The other 1,043 on bench sit in its reserve, 1,019 of them in
-tensorflow/tensorflow, and were NOT read. The reserve is held for exactly that
-later evaluation, and reading it spends it; until someone does, the bench
-figures above carry 1,043 findings nobody has judged, and this is where that is
-said.
+The other 1,043 on bench sat in its reserve when the widenings were measured,
+1,019 of them in tensorflow/tensorflow, and no widening pass read them: the
+reserve is held for exactly that later evaluation, and reading it spends it.
+
+That repository's reserve was opened and spent on 2026-09-13, because the
+re-recorded corpus report carried 1,019 findings the two widening passes had
+added there, unread, and the operator chose to read them rather than publish an
+unjudged number. Its 1,019 were read: 1,003 routes in an undetected DevSite
+tree, each resolving once .md is appended; 15 routes in a generated all_symbols
+index written one directory too shallow, in the same tree; 1 real broken image
+in a vendored README under third_party/xla. The known undetected-generator
+class, multiplied by the raw-HTML arm: no new false-positive shape, and one
+real finding, labelled vendored. It is no longer unseen ground for anything
+measured after that date, and the manifest says so.
+
+The remaining 24 on bench stay in the reserve, unread; until someone reads
+them, the bench figures above carry 24 findings nobody has judged, and this is
+where that is said.
 
 The precision figures were sampled and labelled from the recordings these
 replaced, so they cover none of the additions; the additions that were read

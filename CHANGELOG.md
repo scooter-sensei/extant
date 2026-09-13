@@ -114,11 +114,15 @@ across all four tiers: 1,376 findings added and 23 removed since the
 recordings it was published from, every one of them `dead-md-link`. Of the
 333 additions in repositories the widenings were measured on, 331 match a
 row one of the passes read one by one; the other two are the 0.26.1
-review's. The remaining 1,043 sit in the benchmark's reserve, 1,019 of them
-in one repository, and were not read - the reserve is held for exactly that
-evaluation and reading it spends it - and the report's provenance section
-says so beside the figures that carry them. The heldout and niche reserves
-were not opened.
+review's. The remaining 1,043 sat in the benchmark's reserve, 1,019 of them
+in one repository; that repository's reserve was opened and spent to read
+them, and all 1,019 are raw-HTML links in a DevSite tree the site
+detection deliberately does not reach - 1,003 routes that resolve once
+`.md` is appended, 15 in a generated index, and one real broken image in a
+vendored README. No new false-positive shape. The 24 in four other reserve
+repositories stay unread, and the report's provenance section says so
+beside the figures that carry them. The heldout and niche reserves were
+not opened.
 
 ## 0.26.1 (2026-09-10)
 

@@ -563,7 +563,7 @@
   },
   "holdout": {
     "never_swept_total": 32,
-    "reserved_but_swept": 16,
+    "reserved_but_swept": 15,
     "tiers": {
       "agent": {
         "absent_but_not_reserved": [],
@@ -576,7 +576,7 @@
         "absent_but_not_reserved": [],
         "manifest": 50,
         "never_swept": 0,
-        "reserved": 16,
+        "reserved": 15,
         "swept": 50
       },
       "heldout": {
@@ -794,7 +794,28 @@
           "added": 1019,
           "repositories": 5,
           "repository": "tensorflow/tensorflow"
-        }
+        },
+        "reserve_readings": [
+          {
+            "added": 1019,
+            "classes": {
+              "real broken image in a vendored README under third_party/xla": 1,
+              "routes in a generated all_symbols index written one directory too shallow, in the same tree": 15,
+              "routes in an undetected DevSite tree, each resolving once .md is appended": 1003
+            },
+            "date": "2026-09-13",
+            "read": 1019,
+            "reason": "the re-recorded corpus report carried 1,019 findings the two widening passes had added there, unread, and the operator chose to read them rather than publish an unjudged number",
+            "repo": "tensorflow/tensorflow",
+            "shape": {
+              "html href": 1019
+            },
+            "signature": "_book.yaml and _toc.yaml sit three levels down, where _site_scopes deliberately does not look; sites.py records the six real defects that reaching wider silenced",
+            "tier": "bench",
+            "tree": "tensorflow/lite/g3doc",
+            "verdict": "The known undetected-generator class, multiplied by the raw-HTML arm: no new false-positive shape, and one real finding, labelled vendored."
+          }
+        ]
       },
       "heldout": {
         "added": 7,

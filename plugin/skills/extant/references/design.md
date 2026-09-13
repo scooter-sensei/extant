@@ -1398,6 +1398,31 @@ does not exist. Refused on population and on cost; the fixture with a
 nested file and no root one is the test to write when a repository of that
 shape turns up.
 
+### The benchmark reserve, opened for one repository
+
+Re-recording the corpus report after both passes put a number in it that
+nobody had judged: 1,043 of the benchmark's additions sat in its sixteen
+reserve repositories, 1,019 of them in tensorflow/tensorflow, and the reserve
+is held back precisely so no pass reads it while designing. The report said
+so beside the figure. The operator then chose to spend that one repository's
+reserve on a reading rather than publish an unjudged number, on 2026-09-13,
+and the manifest row records the opening and the date so nothing measured
+later mistakes it for unseen ground.
+
+The reading: all 1,019 are the `href` of raw HTML, the arm the second pass
+added, and 1,018 of them live in `tensorflow/lite/g3doc/`, the DevSite tree
+`sites.py` already records as deliberately unreached - its `_book.yaml` sits
+three levels down, and scoping detection that deep silenced six real defects
+in astro and llama_index. 1,003 are routes that resolve the moment `.md` is
+appended, the same class as angular's `adev/` findings; 15 are links in a
+generated `all_symbols.md` index that the generator wrote one directory too
+shallow, routes in the same tree whether or not the site serves them; and 1
+is a real broken image in the vendored XLA README under `third_party/`. No
+new false-positive shape, one real finding, and the class it multiplied was
+already on the record. The spend bought exactly that sentence, which is what
+a reserve is for; the 24 additions in four other reserve repositories stay
+unread, and the report says so.
+
 ## Where a decode happens is a decision, not a default
 
 `plugin/skills/extant/payload/extant/git.py` ran every git command with
