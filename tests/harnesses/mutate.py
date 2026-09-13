@@ -55,6 +55,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     commits = collect.parent / "extant/commits.py"
     rules = collect.parent / "extant/rules"
     text = collect.parent / "extant/text.py"
+    # The link scanner left text.py for links.py on 2026-09-13, when the
+    # CommonMark title and bracket arms took text.py to nine lines under
+    # its ceiling. Eighteen anchors below moved with it, path only: the
+    # code is byte-identical on the other side of the cut.
+    links = collect.parent / "extant/links.py"
     # The anchor and slug machinery left text.py for its own module when
     # text.py hit its line ceiling. Three anchors below moved with the code -
     # the same follow-the-code rule the notes above describe - and their TEXT
@@ -387,25 +392,91 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # would have the test allocate a string of whatever size the mutation
         # named, which is a harness that runs out of memory rather than a
         # mutation that gets killed.
-        ("the link text is unbounded again", text,
-         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*([^)\\s]{1,%d}?)\\s*\\)"'
-         ' % (_MD_LINK_SPAN, _MD_LINK_SPAN))',
-         '    r"\\[[^\\]]*\\]\\(\\s*([^)\\s]{1,%d}?)\\s*\\)"'
-         ' % (_MD_LINK_SPAN,))'),
-        ("the link target is unbounded again", text,
-         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*([^)\\s]{1,%d}?)\\s*\\)"'
-         ' % (_MD_LINK_SPAN, _MD_LINK_SPAN))',
-         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*([^)\\s]+?)\\s*\\)"'
-         ' % (_MD_LINK_SPAN,))'),
+        # Retargeted 2026-09-13 when the pattern grew a title arm and an
+        # angle-bracketed arm. The two halves keep their bounds and each
+        # mutation still removes exactly one; the tuple count moves with the
+        # `%d` count, so a replacement that dropped a bound and left the
+        # tuple alone would fail to compile rather than mutate.
+        ("the link text is unbounded again", links,
+         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*(<[^<>\\n]{0,%d}>|(?!<)[^)\\s]{1,%d})(?=[\\s)])"\n'
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 6))',
+         '    r"\\[[^\\]]*\\]\\(\\s*(<[^<>\\n]{0,%d}>|(?!<)[^)\\s]{1,%d})(?=[\\s)])"\n'
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 5))'),
+        ("the link target is unbounded again", links,
+         '(?!<)[^)\\s]{1,%d})(?=[\\s)])"\n'
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 6))',
+         '(?!<)[^)\\s]+)(?=[\\s)])"\n'
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 5))'),
+        # --- the 2026-09-13 widening: CommonMark titles and brackets -------
+        # One anchor per arm admitted and one per refusal kept, for the
+        # reason the 2026-09-12 block below gives; the bounds on the two new
+        # arms are anchored the way the old halves are. Each replacement
+        # keeps the `%d` count and the tuple in step.
+        ("a link title is no longer tolerated", links,
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 6))',
+         '    r"\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 3))'),
+        ("an unquoted second word is read as a title", links,
+         '|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 6))',
+         '|\\([^()\\n]{0,%d}\\)|[^)\\s]{1,%d}))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 7))'),
+        ("a link title is unbounded", links,
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 6))',
+         '    r"(?:\\s+(?:\\"[^\\"\\n]*\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 5))'),
+        ("an unclosed angle bracket opens a bare destination", links,
+         "(<[^<>\\n]{0,%d}>|(?!<)[^)\\s]{1,%d})(?=[\\s)])",
+         "(<[^<>\\n]{0,%d}>|[^)\\s]{1,%d})(?=[\\s)])"),
+        ("an angle-bracketed destination is unbounded", links,
+         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*(<[^<>\\n]{0,%d}>|(?!<)[^)\\s]{1,%d})(?=[\\s)])"\n'
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 6))',
+         '    r"\\[[^\\]]{0,%d}\\]\\(\\s*(<[^<>\\n]*>|(?!<)[^)\\s]{1,%d})(?=[\\s)])"\n'
+         '    r"(?:\\s+(?:\\"[^\\"\\n]{0,%d}\\"|\'[^\'\\n]{0,%d}\'|\\([^()\\n]{0,%d}\\)))?\\s*\\)"\n'
+         '    % ((_MD_LINK_SPAN,) * 5))'),
+        ("an angle-bracketed destination keeps its brackets", links,
+         '    if len(raw) >= 2 and raw[0] == "<" and raw[-1] == ">":\n'
+         "        return raw[1:-1]\n",
+         "    if False:\n"
+         "        return raw[1:-1]\n"),
+        # The strip has to come BEFORE the refusals, not merely somewhere.
+        # `<https://cmake.org/>` fails the external test on its bracket and
+        # is resolved as a file, which is the fourteen-finding false class.
+        ("the link target keeps its brackets past the external test", links,
+         "    raw = link_destination(raw)\n"
+         '    if EXTERNAL.match(raw) or raw.startswith("#"):',
+         '    if EXTERNAL.match(raw) or raw.startswith("#"):'),
+        # A patch replaces `](old)` on the page; a title, a bracket or a
+        # percent-encoding puts the target elsewhere on it, and writing the
+        # resolved spelling back would break the link it repairs.
+        ("a patch is written over a spelling the page does not use", gate,
+         "        if path_part != target:\n            continue",
+         "        if False:\n            continue"),
+        ("the anchor rule partitions a bracketed fragment as written",
+         rules / "md_anchor.py",
+         "            raw = link_destination(raw)\n"
+         '            if "#" not in raw or EXTERNAL.match(raw):',
+         '            if "#" not in raw or EXTERNAL.match(raw):'),
         # Retargeted with the scanner: this refusal moved to
-        # `text.link_sites`. md_link.py still has an EXTERNAL check, in
+        # `links.link_sites`. md_link.py still has an EXTERNAL check, in
         # `probe`, at a different indent - that one splices a corrupted
         # target and decides nothing, so it is not the site this names.
-        ("external links get checked (needs the network)", text,
-         '            if EXTERNAL.match(raw) or raw.startswith("#"):\n'
-         '                continue',
-         '            if raw.startswith("#"):\n'
-         '                continue'),
+        # Retargeted again on 2026-09-12, when the unconditional refusals
+        # became `_link_target`, the one reader every link SHAPE goes
+        # through - so this now proves the refusal for a reference
+        # definition and an HTML attribute as well as an inline link.
+        ("external links get checked (needs the network)", links,
+         '    if EXTERNAL.match(raw) or raw.startswith("#"):\n'
+         '        return None',
+         '    if raw.startswith("#"):\n'
+         '        return None'),
         # Retargeted when dead-md-anchor grew to check fragments on OTHER
         # files: the fragment is now split off with partition rather than
         # sliced, and slugging moved behind _heading_text.
@@ -768,9 +839,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the patch replaces on the resolved target, not the written spelling", gate,
          "            replacements.append((raw, moved + raw[len(path_part):]))",
          "            replacements.append((target, moved))"),
-        ("the shared scanner drops the spelling the document uses", text,
-         "            sites.append((number, raw, target))",
-         "            sites.append((number, target, target))"),
+        ("the shared scanner drops the spelling the document uses", links,
+         "                sites.append((number, raw, target, html))",
+         "                sites.append((number, target, target, html))"),
         ("suggest-fixes rewrites prose as well as references", gate,
          '        updated = updated.replace(f"]({old})", f"]({new})")\n'
          '        updated = updated.replace(f"`{old}`", f"`{new}`")',
@@ -1004,10 +1075,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # was designed on; widening it to any `host.tld` reads `README.md` as a
         # Moldovan hostname and silences every link rule at once, which is the
         # shape that looks clean forever.
-        ("a schemeless URL is read as a relative path again", text,
+        ("a schemeless URL is read as a relative path again", links,
          r'    rf"|(?:[a-z0-9-]+\.)+(?:{_TLD})(?:[/?#]|$)"        # example.com[/path]',
          r'    rf"|(?!x)x"                                        # example.com[/path]'),
-        ("the schemeless arm widens to any dotted suffix", text,
+        ("the schemeless arm widens to any dotted suffix", links,
          '_TLD = ("com|org|net|edu|gov|mil|io|ai|dev|app|cloud|tech|club|blog|wiki"',
          '_TLD = ("[a-z]{2,}"  # noqa'),
 
@@ -1335,13 +1406,58 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # repositories in two corpora, with ZERO resolving to a checked-in
         # file. Re-gating it on generator detection is what made rails report
         # 276 of its own guide links dead.
-        # Retargeted, not rewritten: the refusal moved to `text.link_sites`
+        # Retargeted, not rewritten: the refusal moved to `links.link_sites`
         # when the scanner was shared with gate.suggest_renames. Same line,
         # same meaning, new home.
         ("a .html target is judged again unless a generator is declared",
-         text,
-         '            if target.endswith(".html"):\n                continue',
+         links,
+         '    if target.endswith(".html"):\n        return None',
+         "    if False:\n        return None"),
+        # --- the 2026-09-12 widenings ------------------------------------
+        # Each admits a shape that was read by nothing, and each carries a
+        # refusal beside it. The admissions are anchored so the shape cannot
+        # quietly stop being read - a scanner that drops an arm reports the
+        # same silence as a document with no such link - and the refusals
+        # are anchored because a suppression that stops firing deletes
+        # nothing visible: it reports findings that are false.
+        ("a reference-style definition is no longer read", links,
+         '        if "[" in line and "]:" in line:\n'
+         '            definition = _REFERENCE_DEFINITION.match(line)',
+         '        if False:\n'
+         '            definition = _REFERENCE_DEFINITION.match(line)'),
+        ("a footnote definition is read as a link", links,
+         'r"^ {0,3}\\[(?!\\^)[^\\]]{1,%d}\\]:',
+         'r"^ {0,3}\\[[^\\]]{1,%d}\\]:'),
+        ("an HTML href or src is no longer read", links,
+         '        if "<" in line:\n'
+         '            raws += [(raw, True) for raw in _html_references(line)',
+         '        if False:\n'
+         '            raws += [(raw, True) for raw in _html_references(line)'),
+        ("a templated HTML attribute is resolved as a path", links,
+         '                     if "{" not in raw and "}" not in raw]',
+         '                     ]'),
+        # The walk resumes after the tag's `>`. Resuming at the tag's own end
+        # instead re-reads every overlapping opening and is the quadratic the
+        # walk exists to remove; the timing test is what catches it.
+        ("the HTML walk re-reads overlapping tags", links,
+         "        position = closed + 1",
+         "        position = opened.end()"),
+        ("HTML inside a generated site tree is judged as a file",
+         rules / "md_link.py",
+         "            if in_site:\n                continue",
          "            if False:\n                continue"),
+        ("a line range is read by its start again", rules / "line_pointer.py",
+         "        if (cited if end is None else end) <= total:",
+         "        if cited <= total:"),
+        ("a backticked SHA range is read as one token", commits,
+         "    found = _SHA_RANGE.match(token)\n"
+         "    return (found.group(1), found.group(3)) if found else (token,)",
+         "    return (token,)"),
+        ("the rewriter leaves both ends of a range dead", commits,
+         "        ends = _range_ends(token)\n"
+         "        if not any(looks_like_sha(end) for end in ends):",
+         "        ends = (token,)\n"
+         "        if not any(looks_like_sha(end) for end in ends):"),
         # Next.js routes by file path. Without it, nextra reported 227 of its
         # own links dead.
         ("next.config stops counting as a generator", sites,

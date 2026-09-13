@@ -45,7 +45,8 @@ from extant.report import (
     BASELINE_NAME, Collector, load_baseline, render_findings, write_baseline,
 )
 from extant.sites import resolve_reference
-from extant.text import format_for, link_sites, prose
+from extant.links import link_sites
+from extant.text import format_for, prose
 
 __all__ = ["report_denominators", "run_check_text", "run_validate",
            "suggest_renames"]
@@ -95,7 +96,7 @@ def suggest_renames(repo: Path, base: Path, text: str, relative: str,
     pointed = {f.subject for f in findings
                if f.kind == "dead-path-pointer" and f.subject}
 
-    for _number, raw, target in link_sites(ctx.doc, text):
+    for _number, raw, target, _html in link_sites(ctx.doc, text):
         if target not in linked or resolve_reference(ctx, base, target)[0]:
             continue
         # `target` is what RESOLVES; `raw` is what the document actually says,

@@ -1,5 +1,118 @@
 # Changelog
 
+## Unreleased
+
+Four rules read shapes they did not read before, over two measured passes.
+No rule was added and none removed, so the rule table is unchanged at
+thirteen; no flag, default or exit code moved. Every widening was counted on
+132 repositories before it was written, swept after, and every added finding
+was read - the record, with the eleven proposals that were measured and
+refused, is in `plugin/skills/extant/references/design.md` under "The second
+widening pass" and "The third widening pass".
+
+**`dead-md-link` reads reference-style definitions and raw HTML.**
+`[guide]: docs/setup.md` is the same claim as an inline link and was examined
+zero times across 3,171 such definitions; the `href` of an `<a>` and the `src`
+of an `<img>` are what a README uses to centre its logo, and were examined
+zero times across 8,488. Both go through the one scanner the rule and
+`--suggest-fixes` already share, so the two cannot disagree about what a link
+is. A footnote's `[^1]:` is not read. An HTML attribute inside a tree a
+generator builds is neither judged nor counted, because the browser resolves
+it against the page URL and not the file - mkdocs' own docs write
+`<img src="../../img/x.png">` two directories up from a file that is one up.
+Swept: 261 findings added, none removed, thirteen of them confirmed broken
+images in ordinary READMEs and 63 a testdata index whose every entry names a
+file since renamed; 115 sit in one repository's documentation site that no
+generator signature detects, which already supplies a quarter of the
+benchmark's ordinary findings through markdown links of the same shape.
+
+**`dead-line-pointer` reads a range to its end.** `file.py:32-116` against a
+94-line file was silent, read by its start alone, and the rule's own comment
+called the end "a separate measurement". Made: 27 ranges name a tracked file,
+one ends past it, none falsely. A colon is not a range - `file.py:10:80` is
+line and column, and 69 of 73 such citations carry a second number below the
+first. A finding names the range only when the range is what failed, so every
+`path:start` finding a baseline already records keeps its fingerprint.
+
+**`dead-sha` reads both ends of a dotted range.** `` `7d6ec08..7499537` ``
+inside one backtick pair named two commits and was read as none; the
+authoring note that asked for two tokens instead is withdrawn for the dotted
+spellings. Both ends are checked and both are repaired by `--sha-map`,
+through the one splitter, and a range that is the text of a compare link is
+left to the link. The arrow spelling is still not read: it is how a rewrite
+map is quoted, left side dead by design.
+
+**Six proposals were measured and refused**, and the numbers are the reason
+this entry names them: own-repository commit permalinks (1,211 unresolvable
+of 86,651, the prose ones commits GitHub serves from rebased branches);
+wider path-pointer extensions, verbs and directories (roughly half of every
+new site missing, read as tutorial output and runtime paths); `.mdx` anchor
+targets (16 findings, 16 false, every heading living in an imported partial);
+GitHub Actions `uses:` pins (20 of 594 own pins unresolvable on a 30-action
+corpus, all branches or placeholders); JVM, .NET, Swift and `.nvmrc` floors
+(no population, and a pin is not a floor); `unknown-branch` on standing
+documents, wider branch prefixes, and new merge verbs and live phrases (every
+match a template, a path, a label, or "open on startup").
+
+**`dead-md-link` and `dead-md-anchor` read a link the way CommonMark does.**
+A title after the destination - `[guide](docs/a.md "The guide")`, in double
+quotes, single quotes or parentheses - made the whole link invisible to both
+rules, because the destination class forbade the space before it: 499
+titled links name a local file across 15 repositories and were examined zero
+times. An angle-bracketed destination, `[x](<docs/a b.md>)`, is the format's
+spelling for a target holding a space, and was read WITH its brackets - so a
+spaced target was refused, and an external URL holding a parenthesis,
+`<https://en.wikipedia.org/wiki/Shebang_(Unix)>`, was cut at the parenthesis,
+missed the external test and was reported as a dead file: 14 findings on the
+visible corpora, every one false, now gone. A destination that opens with
+`<` must close with one, so `[x](<docs/a.md)` is not a link; two bare words
+are still not a link, because a title must be delimited. Four findings whose
+destination really is a bracketed `[sha](url)` or `(url)` - a changelog
+generator's artefact, dead on GitHub either way - keep being reported and
+change their spelling to the destination CommonMark reads, which re-raises
+them against a baseline once. Neither spelling gets a repair patch, as a
+reference definition does not. Swept: 14 removed, 58 added (70 counting a
+message repeated in one file), every one read;
+38 of the 58 are the same undetected documentation site as before, five are
+a vendored README's images, three a version snapshot's, six test fixtures,
+and one a real broken image in an ordinary README.
+
+**Internally**, the link scanner moved to `extant/links.py`: `MD_LINK`,
+`EXTERNAL`, `link_sites`, the HTML walk and the one reader of the
+unconditional refusals, byte for byte, because `text.py` reached 918 lines
+against a 927-line ceiling and the link machinery was the block with the
+cleanest edge - the same reason and the same cut `anchors.py` got. The bare
+destination in `MD_LINK` is greedy now, with a lookahead for the space or
+parenthesis that must follow: lazy, with the title arm behind it, the
+8,000-opener hostile line the bounds test carries doubled from 1.44s to
+2.85s against a five-second margin; greedy it takes 1.09s. Two range tests
+in the suite abbreviated a real SHA to seven characters, which are all
+digits one run in twenty-five and refused by design; they abbreviate to a
+prefix carrying a letter and a digit now.
+
+**Five more proposals were measured and refused** on the same 132
+repositories: script paths inside fenced shell blocks for
+`dead-path-pointer` (2,534 invocations, 1,013 naming no tracked file, six of
+them real - the rest tutorial files the reader was just told to create,
+build outputs, placeholders and commands written relative to a package
+directory); backticked cells under a `Path`, `File` or `Location` table
+header (3,170 cells, 2,120 naming nothing tracked: session logs, scaffold
+listings, build outputs and tool names - a table says what a file is, not
+where it is); `manifest-floor-mismatch` in agent and contributor documents
+and the phrase "the floor is" (zero occurrences of the phrase outside this
+repository; three claims in the wider document set, all agreeing with their
+manifest); built-in version pairs for `inconsistent-artifact` (eleven
+comparable pairs on 132 repositories, all agreeing, and the proposed Claude
+plugin pair matches nothing in either repository that has both files -
+including this one); nested `.gitattributes` for `raw-lfs-blob` (the
+per-file verdict already composes through `check-attr`; zero repositories
+keep their only LFS filter in a nested file, and the root read is the gate
+that spares the 128 without LFS a spawn per document).
+
+The corpus figures in `CORPUS.md` were measured before these changes and the
+survey it describes will report more once re-swept; the diffs above are that
+re-sweep, on the tuning half, and the holdout has not been opened.
+
 ## 0.26.1 (2026-09-10)
 
 A deep-dive review of the payload, and unlike the entry that preceded it this

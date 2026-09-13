@@ -11,7 +11,8 @@ from extant.sites import (
     has_global_anchors, has_partial_anchors, partial_anchors, project_anchors,
     resolve_reference,
 )
-from extant.text import EXTERNAL, MD_LINK, strip_code
+from extant.links import EXTERNAL, MD_LINK, link_destination
+from extant.text import strip_code
 
 __all__ = ["RULE", "check", "examined", "probe"]
 
@@ -62,6 +63,13 @@ def _fragment_sites(
         if "#" not in line or "[" not in line:
             continue
         for raw in MD_LINK.findall(line):
+            # Brackets off before the `#` is looked for. Partitioned as
+            # written, `<#heading>` has the target `<` and the fragment
+            # `heading>`, and `<docs/a b.md#heading>` a target opening with
+            # a bracket that names no file. `link_destination` is the one
+            # reader of that spelling, and the finding then names the
+            # destination it judged rather than the spelling on the page.
+            raw = link_destination(raw)
             if "#" not in raw or EXTERNAL.match(raw):
                 continue
             target, _, fragment = raw.partition("#")
@@ -199,7 +207,7 @@ def examined(ctx: Context, text: str) -> int:
 
 def probe(ctx: Context, text: str) -> str | None:
     for match in MD_LINK.finditer(strip_code(ctx.doc, text)):
-        if not match.group(1).startswith("#"):
+        if not link_destination(match.group(1)).startswith("#"):
             continue
         start, end = match.span(1)
         return text[:start] + "#extant-selftest-no-such-heading" + text[end:]

@@ -6,6 +6,183 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 37 - Six more widenings measured, one shipped, five refused (unreleased, 2026-09-13)
+
+**Status.** Suite is 1,106 tests across 64 files: 1,104 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag, no default and no
+suppression, and moves no exit code. It changes the shipped payload: two
+rules read two CommonMark spellings they did not read, in six modules under
+`payload/`, one of them new - the link scanner has a module of its own. The
+tool remained
+released as 0.26.1 and this work sits above that tag with Phase 36,
+unreleased. Mutation campaign is 202 anchors; the eleven this phase added and
+the eighteen it moved were each applied to a copy and watched turning the
+suite red, and every other gate on the pre-push list ran green against a
+working-tree extract - smoke, scenarios, fuzz with its self-check, `--verify`
+and `--selftest`.
+
+**What it is.** A second specification proposed six widenings across five
+rules, each described as measured - on this repository alone, which is the
+corpus every rule was designed on. So all six were counted first over the
+same visible population as Phase 36, 132 repositories and 77,401 documents,
+holdout and reserved benchmark rows unread, with a second census instrument
+beside the first in the measurement tree. One was built; the full record,
+with the number that refused each of the other five, is the section "The
+third widening pass" in the design rationale under the skill's references.
+
+**One shipped: links read the way CommonMark reads them.** A title after the
+destination, in double quotes, single quotes or parentheses, made the whole
+link invisible to `dead-md-link` and `dead-md-anchor`: 499 titled links name
+a local file across 15 repositories and were examined zero times. An
+angle-bracketed destination, the format's spelling for a target holding a
+space, was read with its brackets on - so a spaced target was refused, and an
+external URL holding a parenthesis was cut at the parenthesis, missed the
+external test and was reported as a dead file: 14 findings on the visible
+corpora, every one false. One function takes the brackets off for every
+caller, in front of every refusal. A destination that opens with a bracket
+must close with one, and two bare words are still not a link.
+
+**Swept: 14 removed, 58 added, all read.** Seventy counting a message repeated
+on several lines of one file. The fourteen are the false class
+above, four of them re-reported under the destination CommonMark actually
+reads - a changelog generator's `[sha](url)` inside the brackets, dead on
+GitHub either way. Of the 58, 38 sit in the same undetected documentation
+site Phase 36 recorded as supplying a quarter of the benchmark's ordinary
+findings; five are a vendored README's images, three a version snapshot's,
+six are test fixtures, one is a route in a Vite site that already reports
+nine of the same shape, and one is a real broken image in an ordinary
+README. `dead-md-link` examines 484 more sites and `dead-md-anchor` three.
+
+**Two costs paid on the way.** With the title arm behind it, the lazy
+destination class tried that arm before every character it extended by, and
+the hostile line in the bounds test doubled from 1.44s to 2.85s against a
+five-second margin; greedy with a lookahead for the space or parenthesis
+that must follow, it takes 1.09s with the same result on every shape. And
+the pattern took `text.py` to 918 lines against a 927-line ceiling, so the
+link scanner left for `links.py` byte for byte, the way the anchor machinery
+left for `anchors.py`, with eighteen mutation anchors following by path.
+
+**Five refused on the numbers.** Script paths inside fenced shell blocks:
+2,534 invocations across 81 repositories, 1,013 naming no tracked file, 869
+of those bare tutorial names and six of the rest real; narrowed to root-level
+documents, 19 unresolved and none real, so every narrowing that removed the
+false ones removed the six with them. Table cells under a `Path`, `File` or
+`Location` header: 3,170 cells, 2,120 naming nothing tracked - agent session
+logs, scaffold listings in version snapshots, build outputs and tool names,
+because a table says what a file is rather than where it is. The phrase "the
+floor is" for `manifest-floor-mismatch`: zero occurrences outside this
+repository; and the wider document set, run through the rule's own scanner,
+examines three claims that all agree with their manifest, while a contributor
+guide's floor is the developer's rather than the install floor the manifest
+declares. Built-in version pairs for `inconsistent-artifact`: eleven
+comparable pairs on 132 repositories, all agreeing, and the proposed plugin
+pair matches nothing in either repository that has both files, this one
+included. Nested `.gitattributes` for `raw-lfs-blob`: the per-file verdict
+already composes through `check-attr`, zero repositories keep their only LFS
+filter in a nested file, and the root read is what spares the 128
+repositories without LFS a git spawn per document against a budget with no
+headroom.
+
+**One intermittent found and fixed.** A mutation was reported caught by a
+SHA-range test that has nothing to do with links, and the reason was in the
+test: it abbreviated a real commit to seven characters, which are all digits
+one run in twenty-five and refused by the scanner as a number, by design.
+Both range tests abbreviate to the shortest prefix carrying a letter and a
+digit now.
+
+**What this leaves owed.** The corpus report's figures were measured before
+Phase 36 and this one; the two diffs are that re-sweep on the tuning half.
+The holdout was not opened. `AGENTS.md` and `CONTRIBUTING.md` still state
+this project's own floor in a phrase no rule reads, which is the case the
+specification was written from and the one the corpus does not contain.
+
+## Phase 36 - Ten widenings measured, four shipped, six refused (unreleased, 2026-09-12)
+
+**Status.** Suite is 1,093 tests across 64 files: 1,091 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag, no default and no
+suppression, and moves no exit code. It DOES change the shipped payload: three
+rules read shapes they did not read before, in five modules under `payload/`,
+so it needs a release rather than sitting above the tag. The tool remained
+released as 0.26.1 and this work sits above that tag, unreleased. Mutation
+campaign is 193 anchors; the twelve this phase added or retargeted were each
+applied to a copy and watched turning the suite red, and every other gate on
+the pre-push list ran green against a working-tree extract - smoke, scenarios,
+fuzz with its self-check, `--verify` and `--selftest`.
+
+**What it is.** A specification arrived proposing widenings for nine of the
+thirteen rules, each described as falsifiable and each claiming zero false
+positives on the corpora. None of that had been measured. So all ten were
+counted first - the form, then the findings - over the visible rows of every
+manifest: 132 repositories and 77,401 documents, with the holdout and the
+sixteen reserved benchmark rows left unread. A census instrument and a
+before-and-after sweep driver were written for it in the measurement tree, and
+every finding either widening added was read by hand. The full record, with
+the numbers behind each refusal, is the section "The second widening pass" in
+the design rationale under the skill's references.
+
+**Four shipped, and each is a shape rather than a phrase.** `dead-md-link`
+reads reference-style definitions - 3,171 of them named a local file across 75
+repositories and were examined zero times - and the `href` and `src` of raw
+HTML, 8,488 attributes across 86 repositories. Both go through the one scanner
+the rule and `--suggest-fixes` already share. `dead-line-pointer` reads a range
+to its end, which its own comment had recorded as "a separate measurement": 27
+ranges name a tracked file, one ends past it, none falsely. `dead-sha` reads
+both ends of a dotted range inside one backtick pair, checked and repaired
+through the same splitter; three such ranges exist in 77,401 documents, and
+two of them are an agent's session log recording a fast-forward whose both
+ends a later force-push rewrote away.
+
+**The refusals that came with each.** A footnote's caret is not a link. A
+destination opening with a parenthesis is read literally, because CommonMark
+keeps it: golang writes sixty-three such lines in one testdata README and the
+first draft would have hidden all sixty-three real findings behind a refusal.
+A raw HTML attribute inside a tree a generator builds is neither judged nor
+counted, because the browser resolves it against the page URL and not the
+file - mkdocs' own documentation writes an image two directories up from a
+file that is one up, and the image is there. A colon is not a range
+separator: of 73 line-and-column citations, 69 carry a second number BELOW the
+first. A range that is the text of a compare link belongs to the link.
+
+**Swept: 268 findings added, four relabelled, none removed, all read.** 115
+sit in one repository's documentation site that no generator signature
+detects and that already supplies a quarter of the benchmark's ordinary
+findings through markdown links of the same shape - inherited, not created.
+63 are the golang testdata index. 25 are vendored and 9 are test fixtures,
+both labelled or configurable. Thirteen were confirmed by hand as broken
+images and links in ordinary READMEs. A start already past the end keeps the
+`path:start` spelling it always had, because `detail` is the baseline
+fingerprint and a respelling would re-raise every such finding a project had
+forgiven.
+
+**Six refused on the numbers, which is the point of recording them.** Own-
+repository commit permalinks: 1,211 unresolvable of 86,651, the changelog ones
+duplicating a bare-SHA finding on the same line and the prose ones naming
+commits GitHub still serves from rebased branches - a URL claims a page exists,
+which git here cannot settle. Wider path-pointer extensions, verbs and trailing
+slashes: roughly half of every new site missing, read as tutorial output,
+runtime paths and the English "read". `.mdx` anchor targets: built, swept, 16
+findings, 16 false, every heading living in an imported partial - reverted.
+GitHub Actions `uses:` pins: zero own-repository pins in the 132, so thirty
+action repositories were cloned for it; 574 pins resolve and 20 do not, all 20
+false, sixteen of them branches a clone holds only as remote-tracking refs and
+a CI checkout not at all. JVM, .NET, Swift and version-file floors: one
+repository states such a floor and it agrees with its manifest, and a
+developer's pin is not a floor. `unknown-branch` on standing documents, wider
+branch prefixes, new merge verbs and new live phrases: every match a template,
+a path, a label, or "open on startup".
+
+**One quadratic caught on the way in.** The first HTML pattern, bounded the
+way `MD_LINK` is, still cost every tag start its whole 4096-character walk
+when the closing bracket never came: 12.5 seconds on a 96 KB line. The scan
+walks the line once, tag by tag, and a timing test carries the input that
+exposes the mutation which would put the walk back.
+
+**What this leaves owed.** The corpus report's figures were measured before
+this change and the survey it describes will report more once re-swept; the
+diff above is that re-sweep on the tuning half. The holdout was not opened.
+A `D:\repo` reorganisation happened in the same session and is recorded in
+that directory's own README and move list, not here.
+
 ## Phase 35 - What a deep-dive review of the payload found (shipped, 2026-09-10)
 
 **Status.** Suite is 1,062 tests across 63 files: 1,060 passing and 2 skipped.

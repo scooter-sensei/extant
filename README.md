@@ -127,13 +127,13 @@ Thirteen rules. Every one answers a question git or the filesystem can settle.
 | `unknown-branch` | "work is on branch X" when git has never seen that name |
 | `dead-release-tag` | "released in v2.1" when that tag is in your repo but reached no integration branch. Also when no such tag exists, if you set `release_claims_name_our_tags` - the installer does |
 | `dead-path-pointer` | "see the file at this path" when the file moved |
-| `dead-md-link` | `[a link](to/a/file.md)` whose target is gone |
+| `dead-md-link` | `[a link](to/a/file.md)` whose target is gone; also a `[label]: file.md` definition and the `href` or `src` of a raw HTML tag. A link with a title, `[a link](file.md "Title")`, and one spelled `[a link](<a file.md>)` are read the way CommonMark reads them |
 | `dead-md-anchor` | a `#jump-to-section` link with no such heading, in this file or a linked one |
 | `inconsistent-artifact` | two files in your project stating different values for the same thing |
 | `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |
 | `raw-lfs-blob` | an asset your `.gitattributes` says is in Git LFS, committed into git as a real binary instead |
 | `manifest-floor-mismatch` | your README says "requires Python 3.8+" while `pyproject.toml` says `>=3.10`. Only in a README or install guide, never in a changelog |
-| `dead-line-pointer` | "see `core/engine.py:123`" when that file has 40 lines. Only for files git tracks, and it never judges what line 123 now contains |
+| `dead-line-pointer` | "see `core/engine.py:123`" when that file has 40 lines, or a range `:100-250` ending past it. Only for files git tracks, and it never judges what line 123 now contains |
 
 Five details that are easy to miss:
 
