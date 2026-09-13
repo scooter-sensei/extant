@@ -1445,19 +1445,46 @@ requiring the line to end removes nothing there and cannot remove a real
 definition. The recordings were taken again with the fix, so the report
 describes the tool it ships with.
 
-The second is a candidate for the next pass, measured but not built.
-`` [`float`]: c_float `` in `library/core/src/ffi/c_double.md`, and
-`[value-macro]: macro@crate::value` in turbopack's `vc/README.md`, are
-rustdoc intra-doc links: the markdown is pulled into rustdoc by
-`#[doc = include_str!(...)]` in a sibling `.rs` file, and the destination is
-a Rust path, not a file. 13 of the 24 are this shape, and the visible corpora
-hold 3 more, in a README zed's `gpui.rs` includes.
-Across the 132 visible repositories, five pull 110 markdown files into
-rustdoc this way, and every finding inside one is this shape. The place the
-answer lives is the `.rs` file that names the document, which is a filesystem
-question with one location; what it would cost per run, and whether the
-`::`-bearing destinations alone are worth refusing without it, is the
-measurement the next pass owes before anything is written.
+The second was built the next day, and the measurement that shaped it is
+the interesting part. `` [`float`]: c_float `` in
+`library/core/src/ffi/c_double.md`, and `[value-macro]: macro@crate::value`
+in turbopack's `vc/README.md`, are rustdoc intra-doc links: the markdown is
+pulled into rustdoc by `#[doc = include_str!(...)]` in a sibling `.rs` file,
+and the destination is a Rust path, not a file. 13 of the 24 are this shape,
+and the visible corpora hold 2 more, in a README zed's `gpui.rs` includes.
+Both halves of the refusal are needed - the shape alone is `[x]: LICENSE` in
+any README, and the inclusion alone leaves `[guide](docs/guide.md)` a file
+rustdoc links to as a file - so `dead-md-link` declines a destination shaped
+like a Rust path only inside a document some `.rs` file pulls into rustdoc,
+in the adapter where the site-tree refusal already lives, neither judged nor
+counted.
+
+**Where to look for the including file was measured, not chosen.** Across
+the 132 visible repositories, five pull 176 markdown files into rustdoc.
+Finding every one means reading every `.rs` file in the repository: 668
+seconds across the corpora, rust alone 419, which is not a question a hook
+can ask. Reading only the `.rs` files in the document's own directory and
+its `src/` child - a crate keeps its README beside `src/lib.rs`, and rust's
+`c_*.md` sit beside `primitives.rs` - takes 1.4 seconds in total and finds
+78 of the 176, including every document that carries one of the 15
+findings. The 98 it misses have their including file two directories up,
+`..` or `../../src`, and hold no link of this shape at all, so the bound
+drops no refusal on any corpus measured. A refusal missed reports a finding
+somebody can argue with; a search widened without a measurement is how a
+suppression grows quietly, and a mutation anchor now bites on exactly that
+widening.
+
+Two details keep the inclusion test honest. The literal is resolved against
+the source file's directory and compared with the document's path, never
+matched by basename, because `docs/src/lib.rs` including the crate's
+`../../README.md` would otherwise claim `docs/README.md` too. And the
+attribute shape is `#[doc = include_str!`, not a bare `include_str!`, which
+also embeds a template or a fixture as a string - and rust's `primitives.rs`
+shows why the literal is looked for anywhere in the file rather than inside
+the parentheses: it writes `include_str!($Docfile)` and passes `"c_double.md"`
+to the macro. The answer is memoised per directory for the run, and asked
+only once a link of the shape is on the page, so a document with none pays
+for no source read.
 
 ## Where a decode happens is a decision, not a default
 

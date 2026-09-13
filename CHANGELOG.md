@@ -136,6 +136,21 @@ in the reserve, the one place that widening had not been measured. Zero of
 the 3,171 definitions on the visible corpora carry trailing prose, so the
 requirement removes nothing there and cannot remove a real definition.
 
+**`dead-md-link` leaves rustdoc's intra-doc links to rustdoc.**
+`` [`float`]: c_float `` in markdown that `#[doc = include_str!(...)]` pulls
+into rustdoc names a Rust item, not a file, and 15 such links were reported
+as dead files - 13 in the benchmark reserve, 2 on the visible corpora. A
+destination shaped like a Rust path - an identifier, a `::` path, a
+`macro@` disambiguator - is now neither judged nor counted inside a
+document some `.rs` file beside it, or in its `src/` child, pulls into
+rustdoc. Only those two directories are read, because reading every `.rs`
+file in a repository took 668 seconds across the corpora and the two took
+1.4, finding every document that carried a finding; the 98 included
+documents the bound misses hold no link of this shape. The including
+literal is resolved against the source file's directory, never matched by
+basename, and a bare `include_str!` that embeds a template is not the
+signal. Swept: the 15 findings removed, none added.
+
 ## 0.26.1 (2026-09-10)
 
 A deep-dive review of the payload, and unlike the entry that preceded it this
