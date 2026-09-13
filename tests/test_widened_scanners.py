@@ -720,3 +720,130 @@ def test_a_definition_followed_by_prose_is_not_a_definition(git_repo) -> None:
         repo, '[a]: docs/gone.md "Title"\n[b]: docs/gone.md\n[c]: docs/gone.md  \n')
     assert [f.line for f in findings] == [1, 2, 3]
     assert examined == 3
+
+
+# --- dead-md-link: rustdoc intra-doc links (2026-09-14) ----------------------
+#
+# Markdown that a `#[doc = include_str!(...)]` pulls into rustdoc is rustdoc
+# input, and a link destination in it with the shape of a Rust path - a bare
+# identifier, a `::` path, a `macro@` disambiguator - is an intra-doc link,
+# not a file. Read in the benchmark reserve on 2026-09-13: 13 such links in
+# rust and next.js, 2 more in a README zed's `gpui.rs` includes, every one
+# reported as a dead file. Measured before it was written: five visible
+# repositories pull 176 markdown files into rustdoc this way, and every
+# finding inside one is this shape. The including `.rs` file is looked for
+# in the document's own directory and its `src/` child only - the unbounded
+# search cost 668 seconds across the corpora, rust alone 419, and the bounded
+# one 1.4; the 98 documents it misses hold no link of this shape.
+
+
+def _rust_readme(repo: Path, text: str, doc: str = "crates/gpui/README.md"):
+    from extant import session as hc
+    from extant.rules import md_link as rule
+    _reset()
+    hc._DOC = hc.DocScope(link_base=repo / Path(doc).parent, doc_path=doc)
+    ctx = hc.context(repo)
+    return rule.check(ctx, text), rule.examined(ctx, text)
+
+
+def test_an_intra_doc_link_in_a_rustdoc_included_readme_is_not_a_file(git_repo) -> None:
+    """`[ownership]: _ownership_and_data_flow` in a README that
+    `#![doc = include_str!("../README.md")]` pulls into rustdoc names a
+    module, and was reported as a dead file.
+
+    Catches a scanner that never asks what includes the document.
+    """
+    repo, commit = git_repo
+    commit("crates/gpui/src/gpui.rs",
+           '#![doc = include_str!("../README.md")]\npub mod _ownership_and_data_flow {}\n',
+           "feat: gpui")
+    findings, examined = _rust_readme(
+        repo, "See [ownership].\n\n[ownership]: _ownership_and_data_flow\n")
+    assert findings == []
+    assert examined == 0
+
+
+def test_a_sibling_source_file_naming_the_document_counts_too(git_repo) -> None:
+    """rust's `primitives.rs` writes `#[doc = include_str!($Docfile)]` and
+    passes `"c_double.md"` to the macro, so the literal is not an argument of
+    `include_str!` itself and sits beside the document rather than under
+    `src/`. Catches a search that reads only `src/`, and one that requires
+    the literal inside the `include_str!` parentheses.
+    """
+    repo, commit = git_repo
+    commit("library/core/src/ffi/primitives.rs",
+           'macro_rules! type_alias { ($Docfile:tt, $Alias:ident = $Real:ty;) => {\n'
+           '    #[doc = include_str!($Docfile)] pub type $Alias = $Real; } }\n'
+           'type_alias! { "c_double.md", c_double = f64; }\n',
+           "feat: ffi")
+    findings, examined = _rust_readme(
+        repo, "Equivalent to C's `double` type.\n\n[`float`]: c_float\n",
+        doc="library/core/src/ffi/c_double.md")
+    assert findings == []
+    assert examined == 0
+
+
+def test_the_same_link_outside_rustdoc_is_still_judged(git_repo) -> None:
+    """The refusal is keyed on the document being rustdoc input, not on the
+    shape alone: `[x]: c_float` in a README nothing includes is a dead link.
+
+    Three wrong implementations, each caught by one document here: a
+    refusal applied wherever the shape appears; a search that matches the
+    literal by basename, so `docs/src/lib.rs` including the CRATE's
+    `../../README.md` claims `docs/README.md` too; and one that reads a bare
+    `include_str!` - a template embedded as a string - as a doc attribute.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    findings, examined = _rust_readme(repo, "[x]: c_float\n", doc="README.md")
+    assert [f.subject for f in findings] == ["c_float"]
+    assert examined == 1
+    commit("docs/src/lib.rs", '#![doc = include_str!("../../README.md")]\n', "feat: lib")
+    commit("docs/README.md", "# docs\n", "docs: nested")
+    findings, examined = _rust_readme(repo, "[x]: c_float\n", doc="docs/README.md")
+    assert [f.subject for f in findings] == ["c_float"]
+    assert examined == 1
+    commit("tpl/src/main.rs", 'const T: &str = include_str!("../README.md");\n', "feat: tpl")
+    commit("tpl/README.md", "# tpl\n", "docs: tpl")
+    findings, examined = _rust_readme(repo, "[x]: c_float\n", doc="tpl/README.md")
+    assert [f.subject for f in findings] == ["c_float"]
+    assert examined == 1
+
+
+def test_a_path_shaped_link_in_an_included_readme_is_still_judged(git_repo) -> None:
+    """rustdoc renders `[guide](docs/guide.md)` as a relative link, and the
+    file is what it names. Catches a refusal that declines every link in a
+    rustdoc document rather than the ones shaped like a Rust path."""
+    repo, commit = git_repo
+    commit("crates/gpui/src/gpui.rs", '#![doc = include_str!("../README.md")]\n',
+           "feat: gpui")
+    findings, examined = _rust_readme(
+        repo, "[guide](docs/guide.md) and ![logo](img/logo.png)\n\n[api]: api.md\n")
+    assert sorted(f.subject for f in findings) == ["api.md", "docs/guide.md", "img/logo.png"]
+    assert examined == 3
+
+
+def test_module_paths_and_disambiguators_are_intra_doc_links(git_repo) -> None:
+    """`turbo_frozenmap::FrozenMap` and `macro@crate::value`, both from
+    turbopack's `vc/README.md`. Catches a shape test that admits only a bare
+    identifier."""
+    repo, commit = git_repo
+    commit("vc/mod.rs", '#[doc = include_str!("README.md")]\npub mod vc {}\n', "feat: vc")
+    findings, examined = _rust_readme(
+        repo, "[`FrozenMap`]: turbo_frozenmap::FrozenMap\n[value-macro]: macro@crate::value\n"
+              "[x](Self::method) and [y](fn@crate::run)\n", doc="vc/README.md")
+    assert findings == []
+    assert examined == 0
+
+
+def test_the_including_file_is_looked_for_beside_the_document_or_under_src(git_repo) -> None:
+    """The search is bounded to the document's directory and its `src/`
+    child, and the bound is a measured cost decision: every `.rs` file in the
+    repository is 668 seconds across the corpora. A document included from
+    two levels up is therefore still judged - a missed refusal, never an
+    invented one. Catches a search widened without the measurement."""
+    repo, commit = git_repo
+    commit("crate/src/lib.rs", '#![doc = include_str!("../docs/guide/intro.md")]\n', "feat: lib")
+    findings, examined = _rust_readme(repo, "[x]: c_float\n", doc="crate/docs/guide/intro.md")
+    assert [f.subject for f in findings] == ["c_float"]
+    assert examined == 1

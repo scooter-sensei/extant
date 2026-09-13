@@ -1434,6 +1434,39 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a definition followed by prose is read as a link", links,
          '\\([^()\\n]{0,%d}\\)))?[ \\t]*$"\n',
          '\\([^()\\n]{0,%d}\\)))?"\n'),
+        # --- the 2026-09-14 refusal: rustdoc intra-doc links -----------------
+        # A destination shaped like a Rust path, in a document a
+        # `#[doc = include_str!]` pulls into rustdoc, is an intra-doc link.
+        # Both halves are anchored, and so is every way the inclusion test
+        # could quietly widen: the attribute shape, the resolved-path match,
+        # and the two-directory bound that was measured rather than chosen.
+        ("an intra-doc link in a rustdoc document is judged as a file",
+         rules / "md_link.py",
+         "            if included:\n                continue",
+         "            if False:\n                continue"),
+        ("the intra-doc shape admits a path with a slash", rules / "md_link.py",
+         '    r"^(?:[a-z]+@)?[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")',
+         '    r"^(?:[a-z]+@)?[^\\s]+$")'),
+        ("every document reads as rustdoc", sites,
+         "        if document in _rustdoc_includes_of(ctx, directory):\n"
+         "            return True\n    return False\n",
+         "        if document in _rustdoc_includes_of(ctx, directory):\n"
+         "            return True\n    return True\n"),
+        ("a bare include_str! counts as a doc attribute", sites,
+         '_DOC_INCLUDE = re.compile(r"#!?\\[\\s*doc\\s*=\\s*include_str!")',
+         '_DOC_INCLUDE = re.compile(r"include_str!")'),
+        ("the including literal is matched by basename", sites,
+         "        if document in _rustdoc_includes_of(ctx, directory):",
+         '        if document.rsplit("/", 1)[-1] in {\n'
+         '                i.rsplit("/", 1)[-1]\n'
+         "                for i in _rustdoc_includes_of(ctx, directory)}:"),
+        ("the search reads the document's directory alone", sites,
+         '    for directory in (parent, parent / "src"):',
+         '    for directory in (parent,):'),
+        ("the search is widened to a parent's src without a measurement", sites,
+         '    for directory in (parent, parent / "src"):',
+         '    for directory in (parent, parent / "src", parent.parent / "src",\n'
+         '                      parent.parent.parent / "src"):'),
         ("an HTML href or src is no longer read", links,
          '        if "<" in line:\n'
          '            raws += [(raw, True) for raw in _html_references(line)',

@@ -1,6 +1,7 @@
 """dead-md-link: does the file this document links to exist?"""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from extant.contract import Rule
@@ -8,7 +9,9 @@ from extant.finding import Finding
 from extant.probes import MISSING_PATH
 from extant.refs import renamed_to
 from extant.scope import Context
-from extant.sites import in_site_tree, is_generated_site, resolve_reference
+from extant.sites import (
+    in_site_tree, is_generated_site, resolve_reference, rustdoc_included,
+)
 from extant.links import EXTERNAL, MD_LINK, link_destination, link_sites
 from extant.text import numbered_document, strip_code, unique_basename
 # `probe` below keeps its own MD_LINK scan rather than reading `link_sites`,
@@ -17,7 +20,15 @@ from extant.text import numbered_document, strip_code, unique_basename
 # `finditer` gives and a list of sites cannot. It is not a second reader of the
 # same claim - it decides nothing and reports nothing.
 
-__all__ = ["RULE", "check", "examined", "probe"]
+__all__ = ["RULE", "_INTRA_DOC", "check", "examined", "probe"]
+
+# The shape of a rustdoc intra-doc link destination: a Rust path - one
+# identifier, or several joined by `::` - with an optional item-kind
+# disambiguator in front, `macro@`, `fn@`, `struct@`. No slash, no dot, so
+# every file with an extension and every path with a directory is still a
+# file. Applied only inside a document rustdoc includes; see `_link_sites`.
+_INTRA_DOC = re.compile(
+    r"^(?:[a-z]+@)?[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
 
 
 def _link_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
@@ -47,14 +58,30 @@ def _link_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
     and nothing relative to the file; the same target in a markdown image is
     rewritten by the generator and still names the file. Refused HERE, not in
     `check`, so a site the rule will not judge is not counted either.
+
+    A SECOND refusal of the same kind, since 2026-09-14. A destination shaped
+    like a Rust path - `c_float`, `turbo_frozenmap::FrozenMap`,
+    `macro@crate::value` - in a document that a `#[doc = include_str!(...)]`
+    pulls into rustdoc is an intra-doc link, resolved by rustdoc against the
+    crate's items and never by the filesystem. Both halves are needed: the
+    shape alone is `[x]: LICENSE` in any README, and the inclusion alone
+    leaves `[guide](docs/guide.md)` a file rustdoc links to as a file. The
+    inclusion is asked of `sites.rustdoc_included` only once a link of the
+    shape is on the page, so a document with none pays for no source read.
     """
     in_site = None
+    included = None
     sites: list[tuple[int, str]] = []
     for number, _raw, target, html in link_sites(ctx.doc, text):
         if html:
             if in_site is None:
                 in_site = in_site_tree(ctx)
             if in_site:
+                continue
+        if _INTRA_DOC.match(target):
+            if included is None:
+                included = rustdoc_included(ctx)
+            if included:
                 continue
         sites.append((number, target))
     return sites

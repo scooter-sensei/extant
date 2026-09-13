@@ -191,6 +191,15 @@ class RunScope:
     site_dirs: dict[Any, Any] = field(default_factory=dict)
     reference_resolutions: dict[Any, Any] = field(default_factory=dict)
 
+    # Whether a `.rs` file beside a document pulls it into rustdoc, keyed by
+    # the document's path. A question about the CHECKOUT again - it reads
+    # source files - and asked at most once per document per run, only when a
+    # link in that document has the shape of a Rust path and resolved to no
+    # file, which is rare. Same lifetime as the three above and for the same
+    # reason: the source files it reads are part of the checkout `dircache`
+    # says is static.
+    rustdoc_includes: dict[Any, Any] = field(default_factory=dict)
+
     # NOT a cache, and the one field a fresh scope is asked about rather than
     # read from. True only while a caller reads many documents from one static
     # checkout and writes nothing while doing so; validate() then leaves this

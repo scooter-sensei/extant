@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from extant.anchors import anchors
 from extant.refs import tracked_markdown
@@ -35,9 +35,10 @@ __all__ = [
     "_depth_below",
     "_listdir", "_numbered_docs_scopes", "_numbered_docs_tree",
     "_site_dirs", "_site_scopes", "_top_level",
+    "_DOC_INCLUDE", "_MARKDOWN_LITERAL", "_rustdoc_includes_of",
     "has_global_anchors", "has_partial_anchors", "in_site_tree",
     "is_generated_site", "looks_like_a_path", "partial_anchors",
-    "project_anchors", "resolve_reference",
+    "project_anchors", "resolve_reference", "rustdoc_included",
 ]
 
 # An absolute path, which resolves against the filesystem root rather than
@@ -582,6 +583,94 @@ def in_site_tree(ctx: Context) -> bool:
     if document is None:
         return True
     return document.split("/")[0] in scopes
+
+
+# `#[doc = include_str!(...)]` and its inner-attribute spelling, which is how
+# a crate makes a markdown file its documentation. A bare `include_str!` is
+# not the signal: it also embeds a template or a fixture as a string, and a
+# link in one of those is whatever the program does with it.
+_DOC_INCLUDE = re.compile(r"#!?\[\s*doc\s*=\s*include_str!")
+# Every quoted markdown path in a source file. Not only the argument of
+# `include_str!`: rust's `primitives.rs` writes `include_str!($Docfile)` and
+# passes `"c_double.md"` to the macro, so the literal is anywhere in the file
+# and is resolved against the file's own directory below.
+_MARKDOWN_LITERAL = re.compile(r'"([^"\n]{1,200}\.(?:md|markdown))"')
+
+
+def rustdoc_included(ctx: Context) -> bool:
+    """Does a `.rs` file beside this document pull it into rustdoc?
+
+    Markdown a `#[doc = include_str!(...)]` includes is rustdoc input, and a
+    link destination in it shaped like a Rust path - `c_float`,
+    `turbo_frozenmap::FrozenMap`, `macro@crate::value` - is an intra-doc
+    link that rustdoc resolves against the crate's items, not a file. Read in
+    the benchmark reserve on 2026-09-13: 13 such links in rust and next.js
+    reported as dead files, 2 more in a README zed includes on the visible
+    corpora, and every finding inside a document included this way was one.
+
+    BOUNDED to the document's own directory and its `src/` child, and the
+    bound is a measured cost rather than a guess. Reading every `.rs` file in
+    the repository to answer this took 668 seconds across the corpora - rust
+    alone 419 - which is not a question a hook can ask; these two directories
+    took 1.4 seconds in total and found every one of the 15. The 98 included
+    documents the bound misses, whose including file sits two directories up,
+    hold no link of this shape, so the bound drops no refusal on any corpus
+    measured. A refusal missed reports a finding somebody can argue with; a
+    search widened without a measurement is how a suppression grows quietly.
+
+    The literal is RESOLVED against the source file's directory and compared
+    with the document's path, never matched by basename: `docs/src/lib.rs`
+    including the crate's `../../README.md` must not claim `docs/README.md`.
+    Memoised per DIRECTORY on the run - the set of documents its source files
+    include - so a crate's `src/` is read once however many documents ask,
+    and asked only when a link of the shape is on the page, so a document
+    with none pays for no file read at all.
+    """
+    document = current_document(ctx.doc)
+    if document is None:
+        return False
+    parent = PurePosixPath(document).parent
+    for directory in (parent, parent / "src"):
+        if document in _rustdoc_includes_of(ctx, directory):
+            return True
+    return False
+
+
+def _rustdoc_includes_of(ctx: Context, directory: PurePosixPath) -> set[str]:
+    """Every document, as a repository-relative path, that a `.rs` file in
+    `directory` pulls into rustdoc. One read of each source file per run."""
+    memo = ctx.run.rustdoc_includes
+    key = str(directory)
+    if key in memo:
+        return memo[key]
+    included: set[str] = set()
+    probe = ctx.repo / directory
+    try:
+        names = _listdir(ctx, probe)
+    except OSError:
+        names = set()
+    for name in sorted(names):
+        if not name.endswith(".rs"):
+            continue
+        try:
+            source = (probe / name).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not _DOC_INCLUDE.search(source):
+            continue
+        for literal in _MARKDOWN_LITERAL.findall(source):
+            parts: list[str] = []
+            for part in _components(str(directory / literal)):
+                if part in ("", "."):
+                    continue
+                if part == "..":
+                    if parts:
+                        parts.pop()
+                    continue
+                parts.append(part)
+            included.add("/".join(parts))
+    memo[key] = included
+    return included
 
 
 def _numbered_docs_scopes(ctx: Context) -> set[str]:
