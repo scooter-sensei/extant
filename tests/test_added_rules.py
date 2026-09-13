@@ -1412,7 +1412,7 @@ def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> No
         "if it now judges it, this test is pinning the wrong thing"
     )
     # The setup has to be capable of producing a patch, or this proves nothing.
-    from extant.text import link_sites
+    from extant.links import link_sites
     ctx = hc.context(repo)
     assert any(t == "guide/transports" for _n, _r, t, _h in link_sites(ctx.doc, body)), (
         "the shared scanner must still RETURN this link, or the invariant is "
@@ -1496,7 +1496,7 @@ def test_the_shared_scanner_carries_the_raw_spelling_beside_the_target() -> None
     not HTML.
     """
     from extant.scope import DocScope
-    from extant.text import link_sites
+    from extant.links import link_sites
 
     doc = DocScope(link_base=None, doc_format="markdown")
     sites = link_sites(doc, "a [x](docs/a%20b.md?raw=1#top) b\n")

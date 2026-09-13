@@ -45,7 +45,8 @@ from extant.report import (
     BASELINE_NAME, Collector, load_baseline, render_findings, write_baseline,
 )
 from extant.sites import resolve_reference
-from extant.text import format_for, link_sites, prose
+from extant.links import link_sites
+from extant.text import format_for, prose
 
 __all__ = ["report_denominators", "run_check_text", "run_validate",
            "suggest_renames"]

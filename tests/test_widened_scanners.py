@@ -136,7 +136,7 @@ def test_the_patch_generator_sees_a_reference_definition(git_repo) -> None:
     onto the one scanner precisely so it cannot disagree with the rule about
     what a link is. Catches a widening applied to the rule alone.
     """
-    from extant.text import link_sites
+    from extant.links import link_sites
     from extant import session as hc
     _reset()
     sites = link_sites(hc.DocScope(), "[guide]: docs/old%20guide.md\n")
@@ -336,6 +336,23 @@ def _dead_sha(repo: Path, text: str):
     return rule.check(ctx, text), rule.examined(ctx, text)
 
 
+def _abbrev(sha: str) -> str:
+    """The shortest prefix of at least seven characters that the scanner
+    will read as a commit.
+
+    `looks_like_sha` refuses an all-digit token by design - a number is not
+    a commit - and a real seven-character abbreviation is all digits about
+    4% of the time, so a test written `real[:7]` went red on one run in
+    twenty-five. Found on 2026-09-13 when a mutation was reported caught by
+    this file's range test rather than by the bounds test it was written for.
+    """
+    for width in range(7, len(sha) + 1):
+        prefix = sha[:width]
+        if any(c.isalpha() for c in prefix) and any(c.isdigit() for c in prefix):
+            return prefix
+    return sha
+
+
 def test_both_ends_of_a_backticked_range_are_resolved(git_repo) -> None:
     """`` `7d6ec08..7499537` `` names two commits and was read as none.
 
@@ -346,7 +363,7 @@ def test_both_ends_of_a_backticked_range_are_resolved(git_repo) -> None:
     repo, commit = git_repo
     real = commit("a.py", "a = 1\n", "feat: a")
     dead = "deadbee" + "0" * 33
-    findings, examined = _dead_sha(repo, f"Pushed `main` (`{real[:7]}..{dead}`).\n")
+    findings, examined = _dead_sha(repo, f"Pushed `main` (`{_abbrev(real)}..{dead}`).\n")
     assert examined == 2
     assert [f.subject for f in findings] == [dead]
     assert findings[0].kind == "dead-sha"
@@ -358,7 +375,7 @@ def test_the_three_dot_spelling_is_a_range_too(git_repo) -> None:
     repo, commit = git_repo
     real = commit("a.py", "a = 1\n", "feat: a")
     dead = "deadbee" + "0" * 33
-    findings, examined = _dead_sha(repo, f"Compare `{dead}...{real[:7]}`.\n")
+    findings, examined = _dead_sha(repo, f"Compare `{dead}...{_abbrev(real)}`.\n")
     assert examined == 2
     assert [f.subject for f in findings] == [dead]
 
@@ -442,7 +459,7 @@ def test_the_html_scan_is_not_quadratic() -> None:
     growth, not a benchmark.
     """
     import time
-    from extant.text import _html_references
+    from extant.links import _html_references
     worst = 0.0
     for line in ("<a " * 32000,
                  '<a href="' * 32000,
@@ -457,7 +474,7 @@ def test_the_html_scan_is_not_quadratic() -> None:
 
 def test_the_html_scan_still_reads_a_real_tag() -> None:
     """The speed fix must not have been achieved by matching nothing."""
-    from extant.text import _html_references
+    from extant.links import _html_references
     line = ('<p align="center"><a href="docs/faq.md"><img src=\'assets/logo.png\''
             ' width="600" /></a> <A HREF="x.md" data-href="no.md"></A></p>')
     assert _html_references(line) == ["docs/faq.md", "assets/logo.png", "x.md"]
@@ -475,3 +492,205 @@ def test_the_rewriter_repairs_the_end_it_can_read_beside_one_it_cannot() -> None
     out, count = translate_shas("Pushed (`7d6ec08..7499537`).\n", {old: new})
     assert count == 1
     assert out == "Pushed (`9e9e9e9..7499537`).\n"
+
+
+# --- dead-md-link and dead-md-anchor: CommonMark destinations (2026-09-13) ---
+#
+# Two spellings CommonMark fixes and `MD_LINK` did not read. A title after the
+# destination, `[t](docs/a.md "The guide")`, made the whole link invisible:
+# 499 such links name a local file across 15 repositories, examined zero
+# times. An angle-bracketed destination, `[t](<docs/a b.md>)`, was read WITH
+# its brackets, so a spaced target was refused and an external URL holding a
+# parenthesis - `<https://en.wikipedia.org/wiki/Shebang_(Unix)>` - was cut at
+# the parenthesis, missed the external test, and was reported as a dead file:
+# 14 findings on the visible corpora, every one false.
+
+def _md_anchor(repo: Path, text: str):
+    from extant import session as hc
+    from extant.rules import md_anchor as rule
+    _reset()
+    ctx = hc.context(repo)
+    return rule.check(ctx, text), rule.examined(ctx, text)
+
+
+def test_a_titled_link_to_a_missing_file_is_reported(git_repo) -> None:
+    """`[guide](docs/gone.md "The guide")` is a link with a title.
+
+    Catches a destination class that forbids whitespace before the closing
+    parenthesis, which drops every titled link from both link rules.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    findings, examined = _md_link(repo, 'Read the [guide](docs/gone.md "The guide").\n')
+    assert [f.subject for f in findings] == ["docs/gone.md"]
+    assert findings[0].line == 1
+    assert examined == 1
+
+
+def test_every_title_spelling_is_a_title(git_repo) -> None:
+    """Double quotes, single quotes and parentheses all delimit a title.
+
+    Catches a title arm that knows one delimiter.
+    """
+    repo, commit = git_repo
+    commit("docs/a.md", "# a\n", "docs: a")
+    findings, examined = _md_link(
+        repo, "[a](docs/a.md 'Single')\n[b](docs/a.md (Paren))\n"
+              '[c](docs/a.md\t"Tab before")\n')
+    assert findings == []
+    assert examined == 3
+
+
+def test_two_bare_words_are_not_a_link(git_repo) -> None:
+    """`[x](docs/a.md docs/b.md)` has no title and is not a link.
+
+    Catches a title arm that accepts an unquoted second word, which would read
+    the first word as a target the author never linked.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    findings, examined = _md_link(repo, "[x](docs/gone.md docs/other.md)\n")
+    assert findings == []
+    assert examined == 0
+
+
+def test_an_angle_bracketed_destination_is_read_without_its_brackets_inline(
+        git_repo) -> None:
+    """`[x](<docs/a b.md>)` is CommonMark's spelling for a spaced target.
+
+    Catches a scanner that resolves a file literally named `<docs/a b.md>`,
+    and one that refuses the space and drops the link.
+    """
+    repo, commit = git_repo
+    commit("docs/a b.md", "# a\n", "docs: spaced")
+    findings, examined = _md_link(repo, "[x](<docs/a b.md>)\n")
+    assert findings == []
+    assert examined == 1
+    findings, examined = _md_link(repo, "[x](<docs/gone b.md>)\n")
+    assert [f.subject for f in findings] == ["docs/gone b.md"]
+    assert examined == 1
+
+
+def test_a_bracketed_external_url_holding_a_parenthesis_is_not_a_path(
+        git_repo) -> None:
+    """`[x](<https://en.wikipedia.org/wiki/Shebang_(Unix)>)`.
+
+    The corpus case, fourteen times over: read with its brackets the target
+    was cut at the parenthesis, failed the external test on its leading `<`,
+    and was reported as a dead file. Catches a bracket arm that stops at a
+    parenthesis, and a refusal applied before the brackets come off.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    findings, examined = _md_link(
+        repo, "See [shebang](<https://en.wikipedia.org/wiki/Shebang_(Unix)>) "
+              "and [cmake](<https://cmake.org/>).\n")
+    assert findings == []
+    assert examined == 0
+
+
+def test_an_unclosed_angle_bracket_opens_no_destination(git_repo) -> None:
+    """`[x](<docs/a.md)` is not a link: a destination that opens with `<`
+    must close with `>`.
+
+    Catches a bare-destination arm that admits a leading `<`, which would
+    read `<docs/a.md` as a file and report it missing.
+    """
+    repo, commit = git_repo
+    commit("docs/a.md", "# a\n", "docs: a")
+    findings, examined = _md_link(repo, "[x](<docs/a.md)\n")
+    assert findings == []
+    assert examined == 0
+
+
+def test_a_bracketed_destination_may_carry_a_title(git_repo) -> None:
+    """The two spellings compose: `[x](<docs/a b.md> "Title")`."""
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    findings, examined = _md_link(repo, '[x](<docs/gone b.md> "Title")\n')
+    assert [f.subject for f in findings] == ["docs/gone b.md"]
+    assert examined == 1
+
+
+def test_the_patch_generator_sees_the_spelling_on_the_page(git_repo) -> None:
+    """`raw` is what the document says; `target` is what resolves.
+
+    For a titled link the title is not part of either. For a bracketed one
+    the brackets stay on `raw`, so the patch generator's `path_part != target`
+    guard refuses to repair it rather than writing a replacement that drops
+    the brackets and breaks a spaced target. Catches a scanner that strips
+    the brackets from `raw` as well.
+    """
+    from extant.links import link_sites
+    from extant import session as hc
+    _reset()
+    sites = link_sites(hc.DocScope(),
+                       '[a](docs/a.md "Title")\n[b](<docs/a b.md>)\n'
+                       '\n[c]: <docs/a b.md>\n')
+    assert sites == [(1, "docs/a.md", "docs/a.md", False),
+                     (2, "<docs/a b.md>", "docs/a b.md", False),
+                     (4, "<docs/a b.md>", "docs/a b.md", False)]
+
+
+def test_a_titled_or_bracketed_link_gets_no_repair_patch(git_repo) -> None:
+    """The limit design.md states: the patch generator replaces `](old)` on
+    the page, and a title or a bracket puts the target elsewhere on it.
+
+    The finding is still reported - the patch is refused, not the claim. A
+    plain link to the same renamed file on the same page still gets its
+    patch, which is what proves the refusal is the spelling's and not the
+    rename's. Catches a generator that writes `](new)` over a bracketed or
+    titled spelling and breaks the link it was repairing, and one that has
+    silently stopped offering patches at all.
+    """
+    import subprocess
+    from extant import gate
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("docs/a b.md", "# a\n", "docs: spaced")
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+    for old, new in (("docs/a b.md", "docs/c d.md"),
+                     ("docs/plan.md", "docs/design.md")):
+        subprocess.run(["git", "mv", old, new], cwd=repo, check=True,
+                       capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "docs: renames"], cwd=repo,
+                   check=True, capture_output=True)
+    text = ('[a](<docs/a b.md>) and [b](docs/plan.md "Plan") '
+            'and [c](docs/plan.md).\n')
+    hc._SCOPE = hc.RunScope()
+    findings = hc.validate(repo, text)
+    assert sorted(f.subject for f in findings if f.kind == "dead-md-link") == [
+        "docs/a b.md", "docs/plan.md", "docs/plan.md"]
+    patch = gate.suggest_renames(repo, repo, text, "NEXT_SESSION.md", findings)
+    assert ('+[a](<docs/a b.md>) and [b](docs/plan.md "Plan") '
+            'and [c](docs/design.md).') in patch
+
+
+def test_a_bracketed_or_titled_fragment_is_an_anchor(git_repo) -> None:
+    """`[x](<#gone>)` and `[x](#gone "Title")` name a heading in this file.
+
+    Catches an anchor rule that partitions the raw spelling on `#` with the
+    bracket still attached, reading `<` as a target file, and one that never
+    sees the titled link at all.
+    """
+    repo, commit = git_repo
+    commit("README.md", "# x\n", "docs: readme")
+    findings, examined = _md_anchor(
+        repo, "# Here\n\n[a](<#gone>) and [b](#gone \"Title\") and [c](<#here>)\n")
+    assert examined == 3
+    assert [f.subject for f in findings] == ["#gone", "#gone"]
+    assert findings[0].line == 3
+
+
+def test_a_bracketed_cross_file_fragment_is_judged_against_that_file(
+        git_repo) -> None:
+    """`[x](<docs/a b.md#gone>)`: the file resolves, the heading does not.
+
+    Catches an anchor rule that resolves the bracketed spelling as a path.
+    """
+    repo, commit = git_repo
+    commit("docs/a b.md", "# Alpha\n", "docs: spaced")
+    findings, examined = _md_anchor(
+        repo, "[x](<docs/a b.md#alpha>) and [y](<docs/a b.md#gone>)\n")
+    assert examined == 2
+    assert [f.subject for f in findings] == ["docs/a b.md#gone"]
