@@ -21,7 +21,7 @@ discipline.
 
 | corpus | repositories | documents | findings | ordinary | reporting |
 |:---|---:|---:|---:|---:|---:|
-| bench | 50 | 37,073 | 56,099 | 5,706 (10.2%) | 39 |
+| bench | 50 | 37,073 | 56,084 | 5,691 (10.1%) | 39 |
 | heldout | 20 | 12,579 | 206 | 185 (89.8%) | 16 |
 | niche | 38 | 13,562 | 5,142 | 4,943 (96.1%) | 25 |
 | agent | 17 | 28,815 | 729 | 605 (83.0%) | 14 |
@@ -38,18 +38,18 @@ the total:
 | stratum | findings |
 |:---|---:|
 | version-snapshot | 39,701 |
-| ordinary | 5,706 |
+| ordinary | 5,691 |
 | historical-record | 4,764 |
 | vendored | 4,198 |
 | generated | 1,730 |
 
-So 50,393 of 56,099 benchmark findings sit in a kind of tree nobody would act
+So 50,393 of 56,084 benchmark findings sit in a kind of tree nobody would act
 on. They are labelled rather than hidden, and the ordinary count is what the
 summary leads with.
 
 Concentration is reported rather than left to be discovered: the largest single
 contributor to the benchmark's ordinary findings is `tensorflow/tensorflow`, at
-1,593 of them (27.9%).
+1,593 of them (28.0%).
 
 ## The reserve
 
@@ -73,12 +73,12 @@ at, so they are counted apart instead of summed.
 
 A survey of the whole repository is not what an adopter gets. The installer
 configures the one or two documents it can name with confidence, and on the
-benchmark that gate covers **7 of the 5,706 ordinary findings** the survey
+benchmark that gate covers **7 of the 5,691 ordinary findings** the survey
 sees - 5 of 50 repositories report anything at all under it. The rest would
 exit 0 forever, which is a validator teaching its adopters it has nothing to
 say.
 
-Counted across every stratum rather than ordinary alone it is 12 of 56,099,
+Counted across every stratum rather than ordinary alone it is 12 of 56,084,
 which is the same story told about a larger pile.
 
 The cause is document SELECTION rather than the rules, so the fix is a wider
@@ -95,7 +95,7 @@ that later moves becomes a finding until somebody edits the config:
 | `docs2-ord` | 497 | 497 | 1,978 | 22 |
 | `docs3-ord` | 1,123 | 1,123 | 3,305 | 24 |
 | `docs4-ord` | 1,139 | 1,139 | 5,525 | 24 |
-| `ordinary` | 5,706 | 5,706 | 25,189 | 39 |
+| `ordinary` | 5,691 | 5,691 | 25,189 | 39 |
 
 Two of those rows are worth reading against each other. `root` gates 73
 findings against `installed`'s 12 and is still the worse policy: per path it
@@ -180,7 +180,7 @@ scores without that sentence would read as a result about agents.
 ## What changed since these figures were first published
 
 An earlier write-up recorded 54,790 benchmark findings (4,429 ordinary). The
-current figure is 56,099 (5,706), a change of +1,309. It is the sum of two
+current figure is 56,084 (5,691), a change of +1,294. It is the sum of two
 changes made in this order, and each is stated with its cause rather than left
 for a reader to tell a correction from a mistake.
 
@@ -210,11 +210,11 @@ table holds everything since, not the widenings alone.
 | corpus | before | after | removed | added | added, ordinary | of which read |
 |:---|---:|---:|---:|---:|---:|---:|
 | agent | 712 | 729 | 0 | 17 | 17 | 17 |
-| bench | 54,772 | 56,099 | 16 | 1,339 | 1,295 | 295 |
+| bench | 54,772 | 56,084 | 18 | 1,326 | 1,282 | 295 |
 | heldout | 200 | 206 | 1 | 7 | 7 | 7 |
 | niche | 5,136 | 5,142 | 6 | 12 | 3 | 12 |
 
-Across the four: 1,375 added, 1,322 of them ordinary, and 23 removed - the
+Across the four: 1,362 added, 1,309 of them ordinary, and 25 removed - the
 misreads corrected, and the findings a correction respelled. `of which read` is
 computed, not claimed: each addition in a repository the widenings were
 measured on is matched against the rows those passes read one by one before
@@ -222,7 +222,7 @@ shipping, and 331 of the 333 match. The rest are the review's, not a
 widening's. The readings are in the design record, with the proposals refused
 on them.
 
-The other 1,042 on bench sat in its reserve when the widenings were measured,
+The other 1,029 on bench sat in its reserve when the widenings were measured,
 1,019 of them in tensorflow/tensorflow, and no widening pass read them: the
 reserve is held for exactly that later evaluation, and reading it spends it.
 
@@ -244,16 +244,18 @@ levels down serves from README.md under the name index.md; 1 page the
 unstable-book generator writes at build time; 1 real: a dead link in clippy's
 changelog, labelled historical-record; 1 real: a rustc-dev-guide page,
 generic_arguments.md, that no longer exists. Thirteen false in three classes
-and two real. A sixteenth, a definition-shaped changelog line CommonMark reads
-as a paragraph, was a scanner defect; it was fixed and the recordings taken
-again, so it is not in these figures.
+and two real. The eleven rustdoc links are refused by the tool since 2026-09-14
+and are not in these figures, so the table shows the four that remain. A
+sixteenth, a definition-shaped changelog line CommonMark reads as a paragraph,
+was a scanner defect; it was fixed and the recordings taken again.
 
 **microsoft/vscode**, 5 read: 5 titled image links in test fixtures, the
 copilot scenario examples and a colorize fixture. All five fixtures, which
 exclude_paths is for.
 
 **vercel/next.js**, 2 read: 2 rustdoc intra-doc links in markdown that a #[doc
-= include_str!] pulls into rustdoc, not files. Both false, the rustdoc class.
+= include_str!] pulls into rustdoc, not files. Both false, the rustdoc class,
+refused by the tool since 2026-09-14 and not in these figures.
 
 **denoland/deno**, 1 read: 1 HTML link in an npm package's README copied into
 bench test data without its docs directory. Test data, which exclude_paths is

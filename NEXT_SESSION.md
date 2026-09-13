@@ -92,8 +92,8 @@ digit now.
 
 **The corpus report was re-recorded, and the reserve was read.** All four
 tiers were swept again with the payload this phase ships, one payload hash
-across every repository where the earlier recordings carried two: 1,376
-findings added and 23 removed since the recordings the report was published
+across every repository where the earlier recordings carried two: 1,362
+findings added and 25 removed since the recordings the report was published
 from, all of them the widened link rule. 331 of the 333 additions in visible
 repositories match a row Phase 36 or this phase read one by one; the other
 two are Phase 35's. The other 1,043 sat in the benchmark's sixteen-repository
@@ -119,8 +119,9 @@ directories 1.4 - and the 98 included documents it misses hold no link of
 this shape. Swept: the 15 findings removed, none added. The rest of the 24
 were six fixtures, two pages of mdBooks three levels down, and two real. The
 manifest records the five openings; eleven reserve rows with no additions
-stay closed. The recordings were taken again with the fix, so the report
-describes the tool it ships with, and the recording instrument now decodes a
+stay closed. The recordings were taken again with the fix and again with
+the refusal, so the report describes the tool it ships with - bench is
+56,084 - and the recording instrument now decodes a
 SARIF URI back to a path, because the 0.26.1 writer percent-encodes one as
 the spec asks and every join downstream is on the tracked path.
 

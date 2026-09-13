@@ -110,7 +110,7 @@ keep their only LFS filter in a nested file, and the root read is the gate
 that spares the 128 without LFS a spawn per document).
 
 `CORPUS.md` was re-recorded after both passes, with one payload installed
-across all four tiers: 1,376 findings added and 23 removed since the
+across all four tiers: 1,362 findings added and 25 removed since the
 recordings it was published from, every one of them `dead-md-link`. Of the
 333 additions in repositories the widenings were measured on, 331 match a
 row one of the passes read one by one; the other two are the 0.26.1

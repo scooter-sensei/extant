@@ -166,14 +166,14 @@
           "share_pct": 22.1
         },
         "documents": 37073,
-        "findings": 56099,
+        "findings": 56084,
         "ordinary_concentration": {
           "findings": 1593,
           "largest_repository": "tensorflow/tensorflow",
-          "share_pct": 27.9
+          "share_pct": 28.0
         },
-        "ordinary_findings": 5706,
-        "ordinary_share": 10.2,
+        "ordinary_findings": 5691,
+        "ordinary_share": 10.1,
         "policies": {
           "agent": {
             "gated": 14,
@@ -211,9 +211,9 @@
             "repos": 5
           },
           "ordinary": {
-            "gated": 5706,
+            "gated": 5691,
             "no_answer": 0,
-            "ordinary": 5706,
+            "ordinary": 5691,
             "pinned_paths": 25189,
             "repos": 39
           },
@@ -297,7 +297,7 @@
         "strata": {
           "generated": 1730,
           "historical-record": 4764,
-          "ordinary": 5706,
+          "ordinary": 5691,
           "vendored": 4198,
           "version-snapshot": 39701
         }
@@ -725,12 +725,12 @@
   },
   "provenance": {
     "change_since_stage4": {
-      "findings": 1309,
-      "ordinary": 1277
+      "findings": 1294,
+      "ordinary": 1262
     },
     "live": {
-      "findings": 56099,
-      "ordinary": 5706
+      "findings": 56084,
+      "ordinary": 5691
     },
     "schemeless_narrowing": {
       "bench": {
@@ -781,18 +781,18 @@
         "removed": 0
       },
       "bench": {
-        "added": 1339,
-        "added_ordinary": 1295,
+        "added": 1326,
+        "added_ordinary": 1282,
         "added_read": 295,
-        "added_reserve": 1042,
+        "added_reserve": 1029,
         "added_visible": 297,
-        "after": 56099,
+        "after": 56084,
         "before": 54772,
-        "net": -1327,
-        "removed": 16,
+        "net": -1312,
+        "removed": 18,
         "reserve_concentration": {
           "added": 1019,
-          "repositories": 5,
+          "repositories": 4,
           "repository": "tensorflow/tensorflow"
         },
         "reserve_readings": [
@@ -832,7 +832,7 @@
               "reference definition": 15
             },
             "tier": "bench",
-            "verdict": "Thirteen false in three classes and two real. A sixteenth, a definition-shaped changelog line CommonMark reads as a paragraph, was a scanner defect; it was fixed and the recordings taken again, so it is not in these figures."
+            "verdict": "Thirteen false in three classes and two real. The eleven rustdoc links are refused by the tool since 2026-09-14 and are not in these figures, so the table shows the four that remain. A sixteenth, a definition-shaped changelog line CommonMark reads as a paragraph, was a scanner defect; it was fixed and the recordings taken again."
           },
           {
             "added": 2,
@@ -847,7 +847,7 @@
               "reference definition": 2
             },
             "tier": "bench",
-            "verdict": "Both false, the rustdoc class."
+            "verdict": "Both false, the rustdoc class, refused by the tool since 2026-09-14 and not in these figures."
           },
           {
             "added": 5,
