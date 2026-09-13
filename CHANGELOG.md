@@ -109,9 +109,16 @@ per-file verdict already composes through `check-attr`; zero repositories
 keep their only LFS filter in a nested file, and the root read is the gate
 that spares the 128 without LFS a spawn per document).
 
-The corpus figures in `CORPUS.md` were measured before these changes and the
-survey it describes will report more once re-swept; the diffs above are that
-re-sweep, on the tuning half, and the holdout has not been opened.
+`CORPUS.md` was re-recorded after both passes, with one payload installed
+across all four tiers: 1,376 findings added and 23 removed since the
+recordings it was published from, every one of them `dead-md-link`. Of the
+333 additions in repositories the widenings were measured on, 331 match a
+row one of the passes read one by one; the other two are the 0.26.1
+review's. The remaining 1,043 sit in the benchmark's reserve, 1,019 of them
+in one repository, and were not read - the reserve is held for exactly that
+evaluation and reading it spends it - and the report's provenance section
+says so beside the figures that carry them. The heldout and niche reserves
+were not opened.
 
 ## 0.26.1 (2026-09-10)
 

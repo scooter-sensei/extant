@@ -90,9 +90,24 @@ one run in twenty-five and refused by the scanner as a number, by design.
 Both range tests abbreviate to the shortest prefix carrying a letter and a
 digit now.
 
-**What this leaves owed.** The corpus report's figures were measured before
-Phase 36 and this one; the two diffs are that re-sweep on the tuning half.
-The holdout was not opened. `AGENTS.md` and `CONTRIBUTING.md` still state
+**The corpus report was re-recorded, and one number in it is unread.** All
+four tiers were swept again with the payload this phase ships, one payload
+hash across every repository where the earlier recordings carried two:
+1,376 findings added and 23 removed since the recordings the report was
+published from, all of them the widened link rule. 331 of the 333
+additions in visible repositories match a row Phase 36 or this phase read
+one by one; the other two are Phase 35's. The other 1,043 sit in the
+benchmark's sixteen-repository reserve, 1,019 of them in one repository,
+and were not read, because the reserve is held for exactly that evaluation
+and reading it spends it. The report's provenance section carries the
+split, computed from the reading records rather than asserted. The
+recording instrument now decodes a SARIF URI back to a path, because the
+0.26.1 writer percent-encodes one as the spec asks and every join
+downstream is on the tracked path.
+
+**What this leaves owed.** The reading of that reserve, which is somebody's
+decision to spend it rather than this phase's. The heldout and niche
+reserves were not opened. `AGENTS.md` and `CONTRIBUTING.md` still state
 this project's own floor in a phrase no rule reads, which is the case the
 specification was written from and the one the corpus does not contain.
 

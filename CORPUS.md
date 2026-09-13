@@ -21,10 +21,10 @@ discipline.
 
 | corpus | repositories | documents | findings | ordinary | reporting |
 |:---|---:|---:|---:|---:|---:|
-| bench | 50 | 37,073 | 54,772 | 4,419 (8.1%) | 39 |
-| heldout | 20 | 12,579 | 200 | 178 (89.0%) | 16 |
-| niche | 38 | 13,562 | 5,136 | 4,942 (96.2%) | 25 |
-| agent | 17 | 28,815 | 712 | 588 (82.6%) | 14 |
+| bench | 50 | 37,073 | 56,100 | 5,706 (10.2%) | 39 |
+| heldout | 20 | 12,579 | 206 | 185 (89.8%) | 16 |
+| niche | 38 | 13,562 | 5,142 | 4,943 (96.1%) | 25 |
+| agent | 17 | 28,815 | 729 | 605 (83.0%) | 14 |
 
 Counted over the swept population, which is the same population the precision
 figures use. Across all four that is 122 distinct repositories; the tiers share
@@ -37,19 +37,19 @@ the total:
 
 | stratum | findings |
 |:---|---:|
-| version-snapshot | 39,698 |
-| historical-record | 4,763 |
-| ordinary | 4,419 |
-| vendored | 4,172 |
-| generated | 1,720 |
+| version-snapshot | 39,701 |
+| ordinary | 5,706 |
+| historical-record | 4,765 |
+| vendored | 4,198 |
+| generated | 1,730 |
 
-So 50,353 of 54,772 benchmark findings sit in a kind of tree nobody would act
+So 50,394 of 56,100 benchmark findings sit in a kind of tree nobody would act
 on. They are labelled rather than hidden, and the ordinary count is what the
 summary leads with.
 
 Concentration is reported rather than left to be discovered: the largest single
-contributor to the benchmark's ordinary findings is `angular/angular`, at 1,147
-of them (26.0%).
+contributor to the benchmark's ordinary findings is `tensorflow/tensorflow`, at
+1,593 of them (27.9%).
 
 ## The reserve
 
@@ -73,12 +73,12 @@ at, so they are counted apart instead of summed.
 
 A survey of the whole repository is not what an adopter gets. The installer
 configures the one or two documents it can name with confidence, and on the
-benchmark that gate covers **7 of the 4,419 ordinary findings** the survey
+benchmark that gate covers **7 of the 5,706 ordinary findings** the survey
 sees - 5 of 50 repositories report anything at all under it. The rest would
 exit 0 forever, which is a validator teaching its adopters it has nothing to
 say.
 
-Counted across every stratum rather than ordinary alone it is 12 of 54,772,
+Counted across every stratum rather than ordinary alone it is 12 of 56,100,
 which is the same story told about a larger pile.
 
 The cause is document SELECTION rather than the rules, so the fix is a wider
@@ -90,12 +90,12 @@ that later moves becomes a finding until somebody edits the config:
 |:---|---:|---:|---:|---:|
 | `installed` | 12 | 7 | 66 | 5 |
 | `root` | 73 | 21 | 260 | 17 |
-| `root+docs` | 220 | 168 | 522 | 20 |
-| `root+docs-ord` | 168 | 168 | 490 | 14 |
-| `docs2-ord` | 498 | 498 | 1,978 | 22 |
-| `docs3-ord` | 1,125 | 1,125 | 3,305 | 24 |
-| `docs4-ord` | 1,141 | 1,141 | 5,525 | 24 |
-| `ordinary` | 4,419 | 4,419 | 25,189 | 39 |
+| `root+docs` | 221 | 169 | 522 | 21 |
+| `root+docs-ord` | 169 | 169 | 490 | 15 |
+| `docs2-ord` | 497 | 497 | 1,978 | 22 |
+| `docs3-ord` | 1,123 | 1,123 | 3,305 | 24 |
+| `docs4-ord` | 1,139 | 1,139 | 5,525 | 24 |
+| `ordinary` | 5,706 | 5,706 | 25,189 | 39 |
 
 Two of those rows are worth reading against each other. `root` gates 73
 findings against `installed`'s 12 and is still the worse policy: per path it
@@ -180,9 +180,13 @@ scores without that sentence would read as a result about agents.
 ## What changed since these figures were first published
 
 An earlier write-up recorded 54,790 benchmark findings (4,429 ordinary). The
-current figure is 54,772 (4,419). The whole difference is 18 findings removed
-by one narrowing: a schemeless URL such as `www.example.com/x` was being read
-as a relative path and reported as a dead link.
+current figure is 56,100 (5,706), a change of +1,310. It is the sum of two
+changes made in this order, and each is stated with its cause rather than left
+for a reader to tell a correction from a mistake.
+
+**One narrowing removed findings.** A schemeless URL such as
+`www.example.com/x` was being read as a relative path and reported as a dead
+link.
 
 | corpus | before | after | removed | added |
 |:---|---:|---:|---:|---:|
@@ -193,6 +197,40 @@ as a relative path and reported as a dead link.
 `added` is a set difference rather than a subtraction of totals, so it would
 show a narrowing that removed real findings and invented new ones. It reports
 0.
+
+**Two widening passes, and one review, added findings.** Four rules read shapes
+they had not read - a reference-style link definition, the `href` and `src` of
+raw HTML, a line range to its end, both ends of a dotted commit range, a link
+carrying a title and an angle-bracketed destination - and two misreads were
+corrected on the way: an angle-bracketed URL cut at a parenthesis and reported
+as a file, and a link to `.` reported as a missing one. The recordings the
+narrowing was published from were taken with the tool as it then was, so the
+table holds everything since, not the widenings alone.
+
+| corpus | before | after | removed | added | added, ordinary | of which read |
+|:---|---:|---:|---:|---:|---:|---:|
+| agent | 712 | 729 | 0 | 17 | 17 | 17 |
+| bench | 54,772 | 56,100 | 16 | 1,340 | 1,295 | 295 |
+| heldout | 200 | 206 | 1 | 7 | 7 | 7 |
+| niche | 5,136 | 5,142 | 6 | 12 | 3 | 12 |
+
+Across the four: 1,376 added, 1,322 of them ordinary, and 23 removed - the
+misreads corrected, and the findings a correction respelled. `of which read` is
+computed, not claimed: each addition in a repository the widenings were
+measured on is matched against the rows those passes read one by one before
+shipping, and 331 of the 333 match. The rest are the review's, not a
+widening's. The readings are in the design record, with the proposals refused
+on them.
+
+The other 1,043 on bench sit in its reserve, 1,019 of them in
+tensorflow/tensorflow, and were NOT read. The reserve is held for exactly that
+later evaluation, and reading it spends it; until someone does, the bench
+figures above carry 1,043 findings nobody has judged, and this is where that is
+said.
+
+The precision figures were sampled and labelled from the recordings these
+replaced, so they cover none of the additions; the additions that were read
+were read in full rather than sampled.
 
 ## How this file is kept honest
 
