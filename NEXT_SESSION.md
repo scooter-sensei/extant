@@ -6,6 +6,96 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 37 - Six more widenings measured, one shipped, five refused (unreleased, 2026-09-13)
+
+**Status.** Suite is 1,106 tests across 64 files: 1,104 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag, no default and no
+suppression, and moves no exit code. It changes the shipped payload: two
+rules read two CommonMark spellings they did not read, in six modules under
+`payload/`, one of them new - the link scanner has a module of its own. The
+tool remained
+released as 0.26.1 and this work sits above that tag with Phase 36,
+unreleased. Mutation campaign is 202 anchors; the eleven this phase added and
+the eighteen it moved were each applied to a copy and watched turning the
+suite red, and every other gate on the pre-push list ran green against a
+working-tree extract - smoke, scenarios, fuzz with its self-check, `--verify`
+and `--selftest`.
+
+**What it is.** A second specification proposed six widenings across five
+rules, each described as measured - on this repository alone, which is the
+corpus every rule was designed on. So all six were counted first over the
+same visible population as Phase 36, 132 repositories and 77,401 documents,
+holdout and reserved benchmark rows unread, with a second census instrument
+beside the first in the measurement tree. One was built; the full record,
+with the number that refused each of the other five, is the section "The
+third widening pass" in the design rationale under the skill's references.
+
+**One shipped: links read the way CommonMark reads them.** A title after the
+destination, in double quotes, single quotes or parentheses, made the whole
+link invisible to `dead-md-link` and `dead-md-anchor`: 499 titled links name
+a local file across 15 repositories and were examined zero times. An
+angle-bracketed destination, the format's spelling for a target holding a
+space, was read with its brackets on - so a spaced target was refused, and an
+external URL holding a parenthesis was cut at the parenthesis, missed the
+external test and was reported as a dead file: 14 findings on the visible
+corpora, every one false. One function takes the brackets off for every
+caller, in front of every refusal. A destination that opens with a bracket
+must close with one, and two bare words are still not a link.
+
+**Swept: 14 removed, 58 added, all read.** Seventy counting a message repeated
+on several lines of one file. The fourteen are the false class
+above, four of them re-reported under the destination CommonMark actually
+reads - a changelog generator's `[sha](url)` inside the brackets, dead on
+GitHub either way. Of the 58, 38 sit in the same undetected documentation
+site Phase 36 recorded as supplying a quarter of the benchmark's ordinary
+findings; five are a vendored README's images, three a version snapshot's,
+six are test fixtures, one is a route in a Vite site that already reports
+nine of the same shape, and one is a real broken image in an ordinary
+README. `dead-md-link` examines 484 more sites and `dead-md-anchor` three.
+
+**Two costs paid on the way.** With the title arm behind it, the lazy
+destination class tried that arm before every character it extended by, and
+the hostile line in the bounds test doubled from 1.44s to 2.85s against a
+five-second margin; greedy with a lookahead for the space or parenthesis
+that must follow, it takes 1.09s with the same result on every shape. And
+the pattern took `text.py` to 918 lines against a 927-line ceiling, so the
+link scanner left for `links.py` byte for byte, the way the anchor machinery
+left for `anchors.py`, with eighteen mutation anchors following by path.
+
+**Five refused on the numbers.** Script paths inside fenced shell blocks:
+2,534 invocations across 81 repositories, 1,013 naming no tracked file, 869
+of those bare tutorial names and six of the rest real; narrowed to root-level
+documents, 19 unresolved and none real, so every narrowing that removed the
+false ones removed the six with them. Table cells under a `Path`, `File` or
+`Location` header: 3,170 cells, 2,120 naming nothing tracked - agent session
+logs, scaffold listings in version snapshots, build outputs and tool names,
+because a table says what a file is rather than where it is. The phrase "the
+floor is" for `manifest-floor-mismatch`: zero occurrences outside this
+repository; and the wider document set, run through the rule's own scanner,
+examines three claims that all agree with their manifest, while a contributor
+guide's floor is the developer's rather than the install floor the manifest
+declares. Built-in version pairs for `inconsistent-artifact`: eleven
+comparable pairs on 132 repositories, all agreeing, and the proposed plugin
+pair matches nothing in either repository that has both files, this one
+included. Nested `.gitattributes` for `raw-lfs-blob`: the per-file verdict
+already composes through `check-attr`, zero repositories keep their only LFS
+filter in a nested file, and the root read is what spares the 128
+repositories without LFS a git spawn per document against a budget with no
+headroom.
+
+**One intermittent found and fixed.** A mutation was reported caught by a
+SHA-range test that has nothing to do with links, and the reason was in the
+test: it abbreviated a real commit to seven characters, which are all digits
+one run in twenty-five and refused by the scanner as a number, by design.
+Both range tests abbreviate to the shortest prefix carrying a letter and a
+digit now.
+
+**What this leaves owed.** The corpus report's figures were measured before
+Phase 36 and this one; the two diffs are that re-sweep on the tuning half.
+The holdout was not opened. `AGENTS.md` and `CONTRIBUTING.md` still state
+this project's own floor in a phrase no rule reads, which is the case the
+specification was written from and the one the corpus does not contain.
+
 ## Phase 36 - Ten widenings measured, four shipped, six refused (unreleased, 2026-09-12)
 
 **Status.** Suite is 1,093 tests across 64 files: 1,091 passing and 2 skipped.

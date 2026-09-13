@@ -127,7 +127,7 @@ Thirteen rules. Every one answers a question git or the filesystem can settle.
 | `unknown-branch` | "work is on branch X" when git has never seen that name |
 | `dead-release-tag` | "released in v2.1" when that tag is in your repo but reached no integration branch. Also when no such tag exists, if you set `release_claims_name_our_tags` - the installer does |
 | `dead-path-pointer` | "see the file at this path" when the file moved |
-| `dead-md-link` | `[a link](to/a/file.md)` whose target is gone; also a `[label]: file.md` definition and the `href` or `src` of a raw HTML tag |
+| `dead-md-link` | `[a link](to/a/file.md)` whose target is gone; also a `[label]: file.md` definition and the `href` or `src` of a raw HTML tag. A link with a title, `[a link](file.md "Title")`, and one spelled `[a link](<a file.md>)` are read the way CommonMark reads them |
 | `dead-md-anchor` | a `#jump-to-section` link with no such heading, in this file or a linked one |
 | `inconsistent-artifact` | two files in your project stating different values for the same thing |
 | `dead-pinned-ref` | an install snippet pinning a version of your project that does not exist |

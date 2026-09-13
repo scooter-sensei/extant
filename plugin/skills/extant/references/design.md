@@ -1205,6 +1205,199 @@ progress on pod creation" and "staged on the target": 47 sites, none a merge
 status. The four shipped phrases are a small closed set because a validator
 that cries wolf stops being read.
 
+## The third widening pass: six proposed, one shipped
+
+A second specification arrived on 2026-09-13, proposing six widenings across
+five rules and, as before, describing each as falsifiable with zero false
+positives - measured this time on this repository alone, which is the corpus
+every rule here was designed on and so settles nothing. All six were counted
+first over the same visible population as the pass above, 132 repositories
+and 77,401 documents, with the holdout and the sixteen reserved benchmark rows
+left unread; the instrument is `widening_census2.py` beside the first one.
+One was built, and the refusals below carry the numbers because the next
+specification will propose them again.
+
+### Shipped
+
+**CommonMark titles and angle-bracketed destinations.** Two spellings the
+format fixes and `MD_LINK` did not read. A title after the destination,
+`[guide](docs/a.md "The guide")`, made the whole link invisible to both link
+rules because the destination class forbade the space before it: 499 titled
+links name a local target across 15 repositories and were examined zero
+times. An angle-bracketed destination, `[x](<docs/a b.md>)`, is how the format
+spells a target holding a space, and was read WITH its brackets - so a spaced
+target was refused, and an external URL holding a parenthesis,
+`<https://en.wikipedia.org/wiki/Shebang_(Unix)>`, was cut at the parenthesis,
+failed the external test on its leading `<`, and was resolved as a file: 14
+findings on the visible corpora, every one false, in bun, OWASP, zed, astro,
+angular, llama_index, sonic-pi's vendored libgit2 and axe-core's changelog.
+The pattern captures the destination as written, brackets included, because
+the patch generator has to find it on the page; `link_destination` takes them
+off for every caller that resolves or partitions one, in front of every
+refusal. A
+bare destination may not open with `<`, because a destination that opens with
+one must close with one, so `[x](<docs/a.md)` is not a link rather than a link
+to a file named `<docs/a.md>`; and two bare words are still not a link,
+because a title must be delimited. Neither spelling gets a repair patch:
+`suggest_renames` replaces `](old)` on the page, and a title or a bracket
+puts the target elsewhere on it, so the finding stands and no patch is
+written - the same silence a reference definition already gets, and a
+missing repair over an invented one.
+
+Swept: **14 findings removed and 58 added - 70 counting a message repeated
+on several lines of one file - every one read.** Ten of the fourteen were
+the false class above and are gone; four are respelled - three
+axe-core changelog lines whose destination is literally
+`[635445b](https://github.com/...)`, a changelog generator's artefact that is
+dead on GitHub whether read to the parenthesis or to the bracket, and a
+llama_index README linking to `(https://github.com/nlmatics/llmsherpa)`,
+which is the golang testdata shape again. The `detail` of those four changes,
+which re-raises them against a baseline; the old spelling was a misread of
+the destination rather than a fingerprint anyone chose. Of the 58 added, 38
+are angular's `adev/` tree - sixteen images and twenty-two routes - which the
+pass above already records as an undetected site supplying a quarter of the
+benchmark's ordinary findings; inherited, not created. Five are zstd's
+benchmark images in a README vendored into RetroArch without its `doc/`
+directory, three are query-graph images in a bazel version snapshot whose
+directory the snapshot did not keep, four are documents in fastapi's
+translation-fixer test data and two are astro mdx fixtures using the `~/`
+alias, which the rule already reports three times unwidened. One is a real
+broken image in an ordinary README, qmk's dactyl_manuform schematic, whose
+`blackpill_f411/` directory holds five config files and no PNG. One is a
+route in seqflow's Vite-built website, which already carries nine of the
+same shape. Denominators: `dead-md-link` from 170,360 to 170,844 examined,
+`dead-md-anchor` plus three.
+
+Two things the change cost and one it found. The lazy destination class,
+left as it was with the title group behind it, tried that group before every
+character it extended by, and the 8,000-opener `[a](` line the bounds test
+carries went from 1.44s to 2.85s against a five-second margin - still linear,
+and too close for a slower runner. Greedy with a lookahead for the space or
+parenthesis that must follow, the run is taken once and the group entered
+once: 1.09s, the same result on every shape either arm reads, and the timing
+test now carries the title and bracket openers too. `text.py` reached 918
+lines against a 927-line ceiling, so the link scanner - `MD_LINK`,
+`EXTERNAL`, `link_sites`, the HTML walk and `_link_target` - left for
+`links.py` the way the anchor machinery left for `anchors.py`: byte for
+byte, eighteen mutation anchors following by path alone, and nothing left
+behind reading a name that moved. And a mutation was once reported caught by
+the wrong test, which is how the range tests in `test_widened_scanners.py`
+were found to abbreviate a real SHA to seven characters that `looks_like_sha`
+refuses one run in twenty-five, when all seven are digits; they abbreviate to
+the shortest prefix carrying a letter and a digit now.
+
+### Refused
+
+**Script invocations inside fenced shell blocks, for `dead-path-pointer`.**
+The argument offered was the one `dead-pinned-ref` makes above: an install
+snippet is the block a reader copies verbatim, and `python
+tests/harnesses/mutate.py` in an agent instruction file is the same kind of
+block. Counted from the RAW text, since `prose()` blanks every fence: 2,534
+invocations across 81 repositories, 1,485 naming a tracked file and 1,013
+not. 869 of the 1,013 are bare names, and 348 of those are typer's
+documentation alone - `python main.py`, the file the tutorial has just told
+the reader to create - with click's `hello.py`, sonic-pi's
+`./linux-build-all.sh` run from a directory the previous line entered, and
+z3's `./bootstrap-vcpkg.sh` from another repository beside them. 144 carry a
+directory component. 108 name a directory that does not exist either:
+`path_to_your_working_directory/`, `dist/index.js`,
+`./cross-build/wasm32-emscripten/build/python/python.sh`,
+`./node_modules/jest/bin/jest.js`, a vendored README's scripts, and commands
+written relative to a package directory that is neither the document's nor
+the root. 36 name a directory that exists, 21 distinct, and six of those are
+real on inspection - llama_index's `scripts/merge_external_docs.py`, angular's
+`integration/run_tests.sh`, node's `tools/gn-gen.py`, agno's
+`cookbook/gemini_3/5_grounding.py`, dosbox's `scripts/build.sh` and
+openinterpreter's `scripts/write_provider_catalog.py` - beside `scripts/foo.sh`
+as a placeholder, `test/repro-XXXX.js`, pdns's `builder/build.sh` inside a
+submodule and goose's `scripts/` named relative to `ui/desktop/`. Narrowed to
+root-level documents, which is the population the install-snippet argument
+is actually about: 65 invocations, 19 not resolving, and none of the 19 real.
+Every narrowing that removed the false ones removed the six real ones with
+them, which the note on symbol-aware line pointers above names as the
+signature of a rule with no population rather than one with bad keying.
+Six real findings under a thousand false is worse than the 191-over-654
+the existing rule already runs at, not better.
+
+**Table cells under a `Path`, `File` or `Location` header.** 3,170 backticked
+cells under a path-shaped header across 49 repositories: 827 resolve, 2,120
+do not, 127 are absolute and 96 placeholders. The headers say what the cells
+are. `Tool` governs 688 cells and 674 of them are bare tool names, `Package`
+158 npm names, `Component` and `Module` 217 more of the same. Under the eight
+headers the specification proposes and the three shapes that could be a path
+- a slash, an extension, a trailing slash - 951 cells resolve to nothing,
+and reading them by repository: 343 are unraid's agent session logs listing
+the files each session created and modified, relative to a sub-project the
+document is not in; 184 are crewAI's scaffold listing (`crew.py`, `.env`,
+`knowledge/`) in twenty version snapshots of one installation page; 70 are
+bazel's tutorial layouts; 50 are mem0's workflow filenames relative to
+`.github/workflows/`; 47 are agno's cookbook indexes. The smaller subsets read
+the same way: every missing `Script` is an acceptance script in an agent
+process file, the missing directories are `dist/`, `out/`, `node_modules/`,
+`release/` and `.wanta-dev/`, and the slashed files are `packet.h/cc`
+shorthand, `scripts/x.py::run_arm_p` citations and plan tables with a
+Modify/Delete column. A table names what a file IS, not where it is - the
+same finding as the 23-of-88 measurement that keyed this rule on operative
+markers in the first place, at a larger scale.
+
+**`manifest-floor-mismatch` in agent and contributor documents, and the
+phrase "the floor is".** The phrase first: over every document, 17 sites use
+"floor" or "minimum" beside a version, and not one reads "the floor is
+<language> <version>" - nine say "a minimum of X" and eight "the minimum
+version is X", twelve of them in changelogs, blog posts and third-party
+subjects (TypeScript 3.8 for jest's definitions, macOS 10.7, iOS 13.0,
+OpenSSL 1.0.2, an ARM cross compiler) and five in vendored READMEs. The
+phrase exists in this repository and in none of the 132. The document
+widening was measured through the rule's own `_floor_claims` with the wider
+`_ENTRY_DOC`, over every AGENTS, CLAUDE, CONTRIBUTING, DEVELOPMENT, SETUP,
+ENVIRONMENT and HACKING file: three claims in three repositories - dspy's
+CONTRIBUTING "Python 3.10 or later is required", skyvern's CLAUDE.md
+"Requires Python 3.11+", openemr's CONTRIBUTING "Requires PHP 8.3+" - and all
+three agree with their manifest. Three examined and zero findings is not a
+widening. It also carries a clause-4 concern the census could not test: a
+contributor guide states what a DEVELOPER needs, and a project whose type
+checker wants a newer interpreter than its users do would be the first
+repository this shape spoke on, falsely. The two sides name the same fact in
+a README and an install guide; they need not in a CONTRIBUTING file.
+
+**Built-in version pairs for `inconsistent-artifact`.** Measured pair by
+pair. `pyproject.toml` against a package `__init__.py`: 33 repositories carry
+the manifest, 23 have no `__version__` in a package `__init__` at all, 9
+declare `dynamic = ["version"]` so the manifest holds nothing to compare, and
+one - jztan/pdf-mcp - is comparable and agrees. `package.json` against
+`package-lock.json`: 13 repositories carry both, 9 are comparable and agree,
+4 state no top-level version in either file. `Cargo.toml` against
+`Cargo.lock`: 9 carry both, 8 root manifests declare no package version,
+one is comparable and agrees. The Claude plugin pair: two
+repositories carry both files and neither is comparable, because
+`marketplace.json` states its version per plugin inside a list - as this
+repository's does - so the pattern the specification writes matches nothing
+in either. Eleven comparisons on 132 repositories, zero disagreements, and
+the pattern proposed for this project's own manifests would not have read
+them. The note above `"consistency": {}` in `config.py` says a guessed
+default "would either match nothing or accuse an innocent repository", and
+the measurement found the first half. The presets in `install.py` already
+write these pairs at install time, with the files located and the patterns
+verified to match before a line is emitted, which is the user-asserted form
+the clause-4 argument asks for.
+
+**Nested `.gitattributes` for `raw-lfs-blob`.** The per-file verdict already
+composes: it comes from `git check-attr --stdin`, which reads every
+`.gitattributes` in the tree with negations and later rules applied, and the
+rule's own comment says so. What keys on the root file is the gate, and the
+gate is right on every visible repository: 85 track a `.gitattributes`, 4
+route anything through LFS at the root, 23 track a nested one, 2 hold an LFS
+filter in a nested one - tabby in four sub-projects, autogen in a test images
+directory - and both of those beside a root filter. Repositories whose only
+LFS filter is nested: zero. The gate exists to spare the 128 repositories
+without LFS the `ls-tree -r` that finding a nested file needs, and it would
+spend that spawn in every one of them, once per `validate()` and once per
+`count_examined()`, against a `--verify` budget with no headroom by design.
+`subject_file` naming the root file is a defect only on the population that
+does not exist. Refused on population and on cost; the fixture with a
+nested file and no root one is the test to write when a repository of that
+shape turns up.
+
 ## Where a decode happens is a decision, not a default
 
 `plugin/skills/extant/payload/extant/git.py` ran every git command with
@@ -1304,7 +1497,8 @@ written to stop.
 
 ## A schemeless URL is not a path, and the fix is a suppression
 
-`EXTERNAL` in `text.py` decided "not ours to check" for every link rule, and it
+`EXTERNAL` - in `text.py` then, in `links.py` since the link scanner left on
+2026-09-13 - decided "not ours to check" for every link rule, and it
 recognised a URI scheme or a protocol-relative `//` and nothing else. So
 `[docs](www.skyvern.com/docs)` and `[author](github.com/josh-l-wang)` were
 joined to the document's directory and reported as dead links.
