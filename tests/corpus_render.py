@@ -402,17 +402,22 @@ def render(fig: dict) -> str:
         ]
 
     L += ["## What changed since these figures were first published", ""]
-    if "removed_since_stage4" in prov:
-        r = prov["removed_since_stage4"]
+    if "change_since_stage4" in prov:
+        r = prov["change_since_stage4"]
+        sign = "+" if r["findings"] >= 0 else "-"
         L += [
             f"An earlier write-up recorded",
             f"{_n(prov['stage4_frozen']['findings'])} benchmark findings",
             f"({_n(prov['stage4_frozen']['ordinary'])} ordinary). The current",
             f"figure is {_n(prov['live']['findings'])}",
-            f"({_n(prov['live']['ordinary'])}). The whole difference is",
-            f"{_n(r['findings'])} findings removed by one narrowing: a schemeless",
-            f"URL such as `www.example.com/x` was being read as a relative path",
-            f"and reported as a dead link.",
+            f"({_n(prov['live']['ordinary'])}), a change of",
+            f"{sign}{_n(abs(r['findings']))}. It is the sum of two changes made",
+            f"in this order, and each is stated with its cause rather than left",
+            f"for a reader to tell a correction from a mistake.",
+            "",
+            f"**One narrowing removed findings.** A schemeless URL such as",
+            f"`www.example.com/x` was being read as a relative path and reported",
+            f"as a dead link.",
             "",
             "| corpus | before | after | removed | added |",
             "|:---|---:|---:|---:|---:|",
@@ -428,7 +433,105 @@ def render(fig: dict) -> str:
             f"new ones. It reports {_n(added)}.",
             "",
         ]
-
+    if prov.get("widening"):
+        w = prov["widening"]
+        w_added = sum(n["added"] for n in w.values())
+        w_removed = sum(n["removed"] for n in w.values())
+        w_ordinary = sum(n["added_ordinary"] for n in w.values())
+        w_visible = sum(n.get("added_visible", n["added"]) for n in w.values())
+        w_read = sum(n.get("added_read", 0) for n in w.values())
+        w_unread = sum(n.get("added_reserve", 0) for n in w.values())
+        L += [
+            f"**Two widening passes, and one review, added findings.** Four",
+            f"rules read shapes they had not read - a reference-style link",
+            f"definition, the `href` and `src` of raw HTML, a line range to its",
+            f"end, both ends of a dotted commit range, a link carrying a title",
+            f"and an angle-bracketed destination - and two misreads were",
+            f"corrected on the way: an angle-bracketed URL cut at a parenthesis",
+            f"and reported as a file, and a link to `.` reported as a missing",
+            f"one. The recordings the narrowing was published from were taken",
+            f"with the tool as it then was, so the table holds everything since,",
+            f"not the widenings alone.",
+            "",
+            "| corpus | before | after | removed | added | added, ordinary | of which read |",
+            "|:---|---:|---:|---:|---:|---:|---:|",
+        ]
+        for tier, n in sorted(w.items()):
+            L.append(f"| {tier} | {_n(n['before'])} | {_n(n['after'])} | "
+                     f"{_n(n['removed'])} | {_n(n['added'])} | "
+                     f"{_n(n['added_ordinary'])} | "
+                     f"{_n(n.get('added_read', 0))} |")
+        L += [
+            "",
+            f"Across the four: {_n(w_added)} added, {_n(w_ordinary)} of them",
+            f"ordinary, and {_n(w_removed)} removed - the misreads corrected, and",
+            f"the findings a correction respelled. `of which read` is computed,",
+            f"not claimed: each addition in a repository the widenings were",
+            f"measured on is matched against the rows those passes read one by",
+            f"one before shipping, and {_n(w_read)} of the {_n(w_visible)} match.",
+            f"The rest are the review's, not a widening's. The readings are in",
+            f"the design record, with the proposals refused on them.",
+            "",
+        ]
+        reserve = [(tier, n) for tier, n in sorted(w.items())
+                   if n.get("added_reserve")]
+        for tier, n in reserve:
+            conc = n.get("reserve_concentration", {})
+            readings = n.get("reserve_readings", [])
+            read_in_reserve = sum(r.get("read", 0) for r in readings)
+            L += [
+                f"The other {_n(n['added_reserve'])} on {tier} sat in its",
+                f"reserve when the widenings were measured,",
+                f"{_n(conc.get('added', 0))} of them in",
+                f"{conc.get('repository', '?')}, and no widening pass read them:",
+                f"the reserve is held for exactly that later evaluation, and",
+                f"reading it spends it.",
+                "",
+            ]
+            if readings:
+                dates = sorted({r["date"] for r in readings})
+                L += [
+                    f"{len(readings)} of those repositories had their reserve",
+                    f"opened and spent on {' and '.join(dates)}, so the additions",
+                    f"could be read rather than published unjudged. None of them is",
+                    f"unseen ground for anything measured after that date, and the",
+                    f"manifest says so. What the reading found, repository by",
+                    f"repository:",
+                    "",
+                ]
+            for r in sorted(readings, key=lambda r: -r["read"]):
+                # Largest class first, so the order is the record's and not
+                # whichever order a JSON writer happened to keep. A paragraph
+                # per repository rather than a list item, so the wrapper
+                # wraps it.
+                ordered = sorted(r["classes"].items(), key=lambda kv: (-kv[1], kv[0]))
+                classes = "; ".join(f"{_n(v)} {k}" for k, v in ordered)
+                L += [
+                    f"**{r['repo']}**, {_n(r['read'])} read: {classes}.",
+                    f"{r['verdict']}",
+                    "",
+                ]
+            left = n["added_reserve"] - min(read_in_reserve, n["added_reserve"])
+            if left > 0:
+                L += [
+                    f"The remaining {_n(left)} on {tier} stay in the reserve,",
+                    f"unread; until someone reads them, the {tier} figures above",
+                    f"carry {_n(left)} findings nobody has judged, and this is",
+                    f"where that is said.",
+                    "",
+                ]
+        if w_unread == 0:
+            L += [
+                f"None of the additions sits in a reserve.",
+                "",
+            ]
+        L += [
+            f"The precision figures were sampled and labelled from the",
+            f"recordings these replaced, so they cover none of the additions;",
+            f"the additions that were read were read in full rather than",
+            f"sampled.",
+            "",
+        ]
     L += [
         "## How this file is kept honest",
         "",

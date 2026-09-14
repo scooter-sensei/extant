@@ -65,15 +65,23 @@ __all__ = ["RULE", "check", "examined", "probe"]
 _LINE_POINTER = re.compile(
     r"(?<![\w/.\\-])"
     r"((?:[\w.\-]+[/\\])*[\w.\-]+\.[A-Za-z]\w{0,9})"
-    r":(\d{1,6})"
+    r":(\d{1,6})(?:-(\d{1,6}))?"
     r"(?![\w.])")
 # Two narrowings the pattern makes silently, recorded so they are choices
 # rather than accidents:
 #
-# A RANGE is read by its start. `SKILL.md:211-215` is checked at 211, so a
-# file of 213 lines is not reported even though 214 and 215 are missing.
-# Firing only when the FIRST cited line is already past the end keeps the
-# claim unarguable; widening it to the range end is a separate measurement.
+# A RANGE is read to its END, and only a `-` makes one. `SKILL.md:211-215`
+# is judged at 215, so a file of 213 lines is reported. This was "a separate
+# measurement" when the rule shipped reading the start alone, and it was
+# made on 2026-09-12 over 132 repositories: 27 ranges name a tracked file,
+# 4 begin past the end and were already reported, 22 sit inside the file,
+# and ONE ends past it - lobehub/lobe-chat citing `...Injector.ts:32-116`
+# of a 94-line file, in an agent-written README. Zero false positives, one
+# finding. A colon is NOT a range separator: `engine.py:10:80` is line 10,
+# column 80, the form every compiler and editor prints, and 69 of the 73
+# such citations on the same corpora carry a second number BELOW the first.
+# An end below its start names no range either, and the site is read by
+# its start as before.
 #
 # Six digits at most. A line number of 1,234,567 does not match at all,
 # rather than matching its first six digits and judging the wrong line.
@@ -121,7 +129,9 @@ def _line_count(ctx: Context, relative: str) -> int | None:
 # _blank_uncached, but does not compare it - a known latent bug recorded
 # there; this cache's format comparison is exactly what that one is missing.
 # Measured on pytest's 308 documents: 617 calls, 1.19s.
-_POINTER_SITES: "tuple[str, Path, str, list[tuple[int, str, int, int]]] | None" = None
+_POINTER_SITES: (
+    "tuple[str, Path, str, list[tuple[int, str, int, int, int | None]]] | None"
+) = None
 
 
 def _forget_sites() -> None:
@@ -148,13 +158,17 @@ def _forget_sites() -> None:
     _POINTER_SITES = None
 
 
-def _line_pointer_sites(ctx: Context, text: str) -> list[tuple[int, str, int, int]]:
-    """Pointers this rule can actually decide, as (line, target, cited, total).
+def _line_pointer_sites(
+        ctx: Context, text: str) -> list[tuple[int, str, int, int, int | None]]:
+    """Pointers this rule can decide, as (line, target, cited, total, end).
 
     The DENOMINATOR, computed exactly where the rule computes its findings, so
     the two describe one population. A pointer whose target this repository
     does not track is not counted: the rule cannot decide it, and reporting
     coverage it does not have is worse than reporting none.
+
+    `end` is the last line of a `start-end` range, or None when the citation
+    names one line or its range runs backwards.
     """
     global _POINTER_SITES
     if (_POINTER_SITES is not None and _POINTER_SITES[0] is text
@@ -167,8 +181,8 @@ def _line_pointer_sites(ctx: Context, text: str) -> list[tuple[int, str, int, in
 
 
 def _line_pointer_sites_uncached(
-        ctx: Context, text: str) -> list[tuple[int, str, int, int]]:
-    sites: list[tuple[int, str, int, int]] = []
+        ctx: Context, text: str) -> list[tuple[int, str, int, int, int | None]]:
+    sites: list[tuple[int, str, int, int, int | None]] = []
     for number, line in enumerate(prose(ctx.doc, text).splitlines(), start=1):
         # `_LINE_POINTER` carries a literal `:` between its two groups, with no
         # alternation and nothing optional around it, so a line without one
@@ -202,7 +216,10 @@ def _line_pointer_sites_uncached(
             total = _line_count(ctx, raw)
             if total is None:
                 continue
-            sites.append((number, raw, cited, total))
+            end = int(match.group(3)) if match.group(3) else None
+            if end is not None and end < cited:
+                end = None
+            sites.append((number, raw, cited, total, end))
     return sites
 
 
@@ -217,14 +234,23 @@ def check(ctx: Context, text: str) -> list[Finding]:
     line 211 of a 167-line file exist.
     """
     findings: list[Finding] = []
-    for number, raw, cited, total in _line_pointer_sites(ctx, text):
-        if cited <= total:
+    for number, raw, cited, total, end in _line_pointer_sites(ctx, text):
+        # The LAST line the citation names. A range is a claim about every
+        # line in it, and the one that can be missing is the end.
+        if (cited if end is None else end) <= total:
             continue
+        # The finding names the range only when the range is what failed.
+        # A start already past the end was reported as `path:start` before
+        # ranges were read, and `detail` is the baseline fingerprint: spelling
+        # those findings differently would re-raise every one a project had
+        # recorded, which is the quiet failure a baseline has.
+        pointer = (f"{raw}:{cited}" if end is None or cited > total
+                   else f"{raw}:{cited}-{end}")
         findings.append(Finding(
             number, "dead-line-pointer",
-            f"points at `{raw}:{cited}`, but that file has {total} line"
+            f"points at `{pointer}`, but that file has {total} line"
             f"{'' if total == 1 else 's'}",
-            subject=f"{raw}:{cited}"))
+            subject=pointer))
     return findings
 
 
@@ -252,7 +278,7 @@ def probe(ctx: Context, text: str) -> str | None:
     sites = _line_pointer_sites(ctx, text)
     if not sites:
         return None
-    number, raw, cited, total = sites[0]
+    number, raw, cited, total, _end = sites[0]
     lines = text.splitlines(keepends=True)
     index = number - 1
     if index >= len(lines):

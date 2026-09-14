@@ -9,7 +9,8 @@ from extant.probes import MISSING_PATH, sub_group
 from extant.refs import renamed_to
 from extant.scope import Context
 from extant.sites import resolve_reference
-from extant.text import EXTERNAL, percent_decoded, prose
+from extant.links import EXTERNAL, percent_decoded
+from extant.text import prose
 
 __all__ = ["RULE", "_PATH_SITES", "_path_pointer_sites",
            "_path_pointer_sites_uncached", "check", "examined", "probe"]

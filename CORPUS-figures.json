@@ -57,40 +57,40 @@
           "share_pct": 94.4
         },
         "documents": 28815,
-        "findings": 712,
+        "findings": 729,
         "ordinary_concentration": {
           "findings": 250,
           "largest_repository": "Aider-AI/aider",
-          "share_pct": 42.5
+          "share_pct": 41.3
         },
-        "ordinary_findings": 588,
-        "ordinary_share": 82.6,
+        "ordinary_findings": 605,
+        "ordinary_share": 83.0,
         "policies": {
           "agent": {
-            "gated": 14,
+            "gated": 18,
             "no_answer": 0,
-            "ordinary": 14,
+            "ordinary": 18,
             "pinned_paths": 42,
             "repos": 6
           },
           "docs2-ord": {
-            "gated": 53,
+            "gated": 61,
             "no_answer": 0,
-            "ordinary": 53,
+            "ordinary": 61,
             "pinned_paths": 254,
             "repos": 11
           },
           "docs3-ord": {
-            "gated": 96,
+            "gated": 104,
             "no_answer": 0,
-            "ordinary": 96,
+            "ordinary": 104,
             "pinned_paths": 608,
             "repos": 11
           },
           "docs4-ord": {
-            "gated": 103,
+            "gated": 111,
             "no_answer": 0,
-            "ordinary": 103,
+            "ordinary": 111,
             "pinned_paths": 1013,
             "repos": 11
           },
@@ -102,30 +102,30 @@
             "repos": 0
           },
           "ordinary": {
-            "gated": 588,
+            "gated": 605,
             "no_answer": 0,
-            "ordinary": 588,
+            "ordinary": 605,
             "pinned_paths": 2407,
             "repos": 14
           },
           "root": {
-            "gated": 32,
+            "gated": 40,
             "no_answer": 0,
-            "ordinary": 32,
+            "ordinary": 40,
             "pinned_paths": 82,
             "repos": 9
           },
           "root+docs": {
-            "gated": 37,
+            "gated": 45,
             "no_answer": 0,
-            "ordinary": 36,
+            "ordinary": 44,
             "pinned_paths": 123,
             "repos": 10
           },
           "root+docs-ord": {
-            "gated": 36,
+            "gated": 44,
             "no_answer": 0,
-            "ordinary": 36,
+            "ordinary": 44,
             "pinned_paths": 113,
             "repos": 10
           }
@@ -155,7 +155,7 @@
         "strata": {
           "generated": 1,
           "historical-record": 4,
-          "ordinary": 588,
+          "ordinary": 605,
           "version-snapshot": 119
         }
       },
@@ -166,14 +166,14 @@
           "share_pct": 22.1
         },
         "documents": 37073,
-        "findings": 54772,
+        "findings": 56084,
         "ordinary_concentration": {
-          "findings": 1147,
-          "largest_repository": "angular/angular",
-          "share_pct": 26.0
+          "findings": 1593,
+          "largest_repository": "tensorflow/tensorflow",
+          "share_pct": 28.0
         },
-        "ordinary_findings": 4419,
-        "ordinary_share": 8.1,
+        "ordinary_findings": 5691,
+        "ordinary_share": 10.1,
         "policies": {
           "agent": {
             "gated": 14,
@@ -183,23 +183,23 @@
             "repos": 8
           },
           "docs2-ord": {
-            "gated": 498,
+            "gated": 497,
             "no_answer": 0,
-            "ordinary": 498,
+            "ordinary": 497,
             "pinned_paths": 1978,
             "repos": 22
           },
           "docs3-ord": {
-            "gated": 1125,
+            "gated": 1123,
             "no_answer": 0,
-            "ordinary": 1125,
+            "ordinary": 1123,
             "pinned_paths": 3305,
             "repos": 24
           },
           "docs4-ord": {
-            "gated": 1141,
+            "gated": 1139,
             "no_answer": 0,
-            "ordinary": 1141,
+            "ordinary": 1139,
             "pinned_paths": 5525,
             "repos": 24
           },
@@ -211,9 +211,9 @@
             "repos": 5
           },
           "ordinary": {
-            "gated": 4419,
+            "gated": 5691,
             "no_answer": 0,
-            "ordinary": 4419,
+            "ordinary": 5691,
             "pinned_paths": 25189,
             "repos": 39
           },
@@ -225,18 +225,18 @@
             "repos": 17
           },
           "root+docs": {
-            "gated": 220,
+            "gated": 221,
             "no_answer": 0,
-            "ordinary": 168,
+            "ordinary": 169,
             "pinned_paths": 522,
-            "repos": 20
+            "repos": 21
           },
           "root+docs-ord": {
-            "gated": 168,
+            "gated": 169,
             "no_answer": 0,
-            "ordinary": 168,
+            "ordinary": 169,
             "pinned_paths": 490,
-            "repos": 14
+            "repos": 15
           }
         },
         "population": "swept repositories with status ok",
@@ -295,11 +295,11 @@
           "zed-industries__zed"
         ],
         "strata": {
-          "generated": 1720,
-          "historical-record": 4763,
-          "ordinary": 4419,
-          "vendored": 4172,
-          "version-snapshot": 39698
+          "generated": 1730,
+          "historical-record": 4764,
+          "ordinary": 5691,
+          "vendored": 4198,
+          "version-snapshot": 39701
         }
       },
       "heldout": {
@@ -309,40 +309,40 @@
           "share_pct": 69.0
         },
         "documents": 12579,
-        "findings": 200,
+        "findings": 206,
         "ordinary_concentration": {
-          "findings": 44,
+          "findings": 45,
           "largest_repository": "lobehub/lobe-chat",
-          "share_pct": 24.7
+          "share_pct": 24.3
         },
-        "ordinary_findings": 178,
-        "ordinary_share": 89.0,
+        "ordinary_findings": 185,
+        "ordinary_share": 89.8,
         "policies": {
           "agent": {
-            "gated": 9,
+            "gated": 5,
             "no_answer": 0,
-            "ordinary": 9,
+            "ordinary": 5,
             "pinned_paths": 57,
-            "repos": 4
+            "repos": 3
           },
           "docs2-ord": {
-            "gated": 27,
+            "gated": 23,
             "no_answer": 0,
-            "ordinary": 27,
+            "ordinary": 23,
             "pinned_paths": 498,
             "repos": 7
           },
           "docs3-ord": {
-            "gated": 37,
+            "gated": 33,
             "no_answer": 0,
-            "ordinary": 37,
+            "ordinary": 33,
             "pinned_paths": 1227,
             "repos": 9
           },
           "docs4-ord": {
-            "gated": 39,
+            "gated": 35,
             "no_answer": 0,
-            "ordinary": 39,
+            "ordinary": 35,
             "pinned_paths": 1482,
             "repos": 9
           },
@@ -354,30 +354,30 @@
             "repos": 0
           },
           "ordinary": {
-            "gated": 182,
+            "gated": 185,
             "no_answer": 0,
-            "ordinary": 182,
+            "ordinary": 185,
             "pinned_paths": 6467,
             "repos": 16
           },
           "root": {
-            "gated": 26,
+            "gated": 22,
             "no_answer": 0,
-            "ordinary": 18,
+            "ordinary": 14,
             "pinned_paths": 114,
-            "repos": 7
+            "repos": 6
           },
           "root+docs": {
-            "gated": 31,
+            "gated": 27,
             "no_answer": 0,
-            "ordinary": 23,
+            "ordinary": 19,
             "pinned_paths": 213,
             "repos": 7
           },
           "root+docs-ord": {
-            "gated": 23,
+            "gated": 19,
             "no_answer": 0,
-            "ordinary": 23,
+            "ordinary": 19,
             "pinned_paths": 200,
             "repos": 5
           }
@@ -408,8 +408,8 @@
           "zellij-org__zellij"
         ],
         "strata": {
-          "historical-record": 16,
-          "ordinary": 178,
+          "historical-record": 15,
+          "ordinary": 185,
           "vendored": 6
         }
       },
@@ -420,14 +420,14 @@
           "share_pct": 36.0
         },
         "documents": 13562,
-        "findings": 5136,
+        "findings": 5142,
         "ordinary_concentration": {
           "findings": 4490,
           "largest_repository": "PX4/PX4-Autopilot",
-          "share_pct": 90.9
+          "share_pct": 90.8
         },
-        "ordinary_findings": 4942,
-        "ordinary_share": 96.2,
+        "ordinary_findings": 4943,
+        "ordinary_share": 96.1,
         "policies": {
           "agent": {
             "gated": 2,
@@ -437,23 +437,23 @@
             "repos": 2
           },
           "docs2-ord": {
-            "gated": 113,
+            "gated": 114,
             "no_answer": 0,
-            "ordinary": 113,
+            "ordinary": 114,
             "pinned_paths": 1308,
             "repos": 15
           },
           "docs3-ord": {
-            "gated": 4595,
+            "gated": 4596,
             "no_answer": 0,
-            "ordinary": 4595,
+            "ordinary": 4596,
             "pinned_paths": 6177,
             "repos": 15
           },
           "docs4-ord": {
-            "gated": 4598,
+            "gated": 4599,
             "no_answer": 0,
-            "ordinary": 4598,
+            "ordinary": 4599,
             "pinned_paths": 6714,
             "repos": 16
           },
@@ -465,30 +465,30 @@
             "repos": 0
           },
           "ordinary": {
-            "gated": 4942,
+            "gated": 4943,
             "no_answer": 0,
-            "ordinary": 4942,
+            "ordinary": 4943,
             "pinned_paths": 12875,
             "repos": 25
           },
           "root": {
-            "gated": 41,
+            "gated": 42,
             "no_answer": 0,
-            "ordinary": 31,
+            "ordinary": 32,
             "pinned_paths": 190,
             "repos": 10
           },
           "root+docs": {
-            "gated": 79,
+            "gated": 80,
             "no_answer": 0,
-            "ordinary": 63,
+            "ordinary": 64,
             "pinned_paths": 444,
             "repos": 13
           },
           "root+docs-ord": {
-            "gated": 63,
+            "gated": 64,
             "no_answer": 0,
-            "ordinary": 63,
+            "ordinary": 64,
             "pinned_paths": 419,
             "repos": 10
           }
@@ -539,8 +539,8 @@
         "strata": {
           "generated": 19,
           "historical-record": 118,
-          "ordinary": 4942,
-          "vendored": 55,
+          "ordinary": 4943,
+          "vendored": 60,
           "version-snapshot": 2
         }
       }
@@ -563,7 +563,7 @@
   },
   "holdout": {
     "never_swept_total": 32,
-    "reserved_but_swept": 16,
+    "reserved_but_swept": 11,
     "tiers": {
       "agent": {
         "absent_but_not_reserved": [],
@@ -576,7 +576,7 @@
         "absent_but_not_reserved": [],
         "manifest": 50,
         "never_swept": 0,
-        "reserved": 16,
+        "reserved": 11,
         "swept": 50
       },
       "heldout": {
@@ -724,17 +724,20 @@
     }
   },
   "provenance": {
-    "live": {
-      "findings": 54772,
-      "ordinary": 4419
+    "change_since_stage4": {
+      "findings": 1294,
+      "ordinary": 1262
     },
-    "removed_since_stage4": {
-      "findings": 18,
-      "ordinary": 10
+    "live": {
+      "findings": 56084,
+      "ordinary": 5691
     },
     "schemeless_narrowing": {
       "bench": {
         "added": 0,
+        "added_ordinary": 0,
+        "added_reserve": 0,
+        "added_visible": 0,
         "after": 54772,
         "before": 54790,
         "net": 18,
@@ -742,6 +745,9 @@
       },
       "heldout": {
         "added": 0,
+        "added_ordinary": 0,
+        "added_reserve": 0,
+        "added_visible": 0,
         "after": 200,
         "before": 204,
         "net": 4,
@@ -749,6 +755,9 @@
       },
       "niche": {
         "added": 0,
+        "added_ordinary": 0,
+        "added_reserve": 0,
+        "added_visible": 0,
         "after": 5136,
         "before": 5159,
         "net": 23,
@@ -758,6 +767,142 @@
     "stage4_frozen": {
       "findings": 54790,
       "ordinary": 4429
+    },
+    "widening": {
+      "agent": {
+        "added": 17,
+        "added_ordinary": 17,
+        "added_read": 17,
+        "added_reserve": 0,
+        "added_visible": 17,
+        "after": 729,
+        "before": 712,
+        "net": -17,
+        "removed": 0
+      },
+      "bench": {
+        "added": 1326,
+        "added_ordinary": 1282,
+        "added_read": 295,
+        "added_reserve": 1029,
+        "added_visible": 297,
+        "after": 56084,
+        "before": 54772,
+        "net": -1312,
+        "removed": 18,
+        "reserve_concentration": {
+          "added": 1019,
+          "repositories": 4,
+          "repository": "tensorflow/tensorflow"
+        },
+        "reserve_readings": [
+          {
+            "added": 1019,
+            "classes": {
+              "real broken image in a vendored README under third_party/xla": 1,
+              "routes in a generated all_symbols index written one directory too shallow, in the same tree": 15,
+              "routes in an undetected DevSite tree, each resolving once .md is appended": 1003
+            },
+            "date": "2026-09-13",
+            "read": 1019,
+            "reason": "the re-recorded corpus report carried 1,019 findings the two widening passes had added there, unread, and the operator chose to read them rather than publish an unjudged number",
+            "repo": "tensorflow/tensorflow",
+            "shape": {
+              "html href": 1019
+            },
+            "signature": "_book.yaml and _toc.yaml sit three levels down, where _site_scopes deliberately does not look; sites.py records the six real defects that reaching wider silenced",
+            "tier": "bench",
+            "tree": "tensorflow/lite/g3doc",
+            "verdict": "The known undetected-generator class, multiplied by the raw-HTML arm: no new false-positive shape, and one real finding, labelled vendored."
+          },
+          {
+            "added": 15,
+            "classes": {
+              "page an mdBook three levels down serves from README.md under the name index.md": 1,
+              "page the unstable-book generator writes at build time": 1,
+              "real: a dead link in clippy's changelog, labelled historical-record": 1,
+              "real: a rustc-dev-guide page, generic_arguments.md, that no longer exists": 1,
+              "rustdoc intra-doc links in markdown that a #[doc = include_str!] pulls into rustdoc, not files": 11
+            },
+            "date": "2026-09-13",
+            "read": 15,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "rust-lang/rust",
+            "shape": {
+              "reference definition": 15
+            },
+            "tier": "bench",
+            "verdict": "Thirteen false in three classes and two real. The eleven rustdoc links are refused by the tool since 2026-09-14 and are not in these figures, so the table shows the four that remain. A sixteenth, a definition-shaped changelog line CommonMark reads as a paragraph, was a scanner defect; it was fixed and the recordings taken again."
+          },
+          {
+            "added": 2,
+            "classes": {
+              "rustdoc intra-doc links in markdown that a #[doc = include_str!] pulls into rustdoc, not files": 2
+            },
+            "date": "2026-09-13",
+            "read": 2,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "vercel/next.js",
+            "shape": {
+              "reference definition": 2
+            },
+            "tier": "bench",
+            "verdict": "Both false, the rustdoc class, refused by the tool since 2026-09-14 and not in these figures."
+          },
+          {
+            "added": 5,
+            "classes": {
+              "titled image links in test fixtures, the copilot scenario examples and a colorize fixture": 5
+            },
+            "date": "2026-09-13",
+            "read": 5,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "microsoft/vscode",
+            "shape": {
+              "titled markdown image": 5
+            },
+            "tier": "bench",
+            "verdict": "All five fixtures, which exclude_paths is for."
+          },
+          {
+            "added": 1,
+            "classes": {
+              "HTML link in an npm package's README copied into bench test data without its docs directory": 1
+            },
+            "date": "2026-09-13",
+            "read": 1,
+            "reason": "the operator chose to read every reserve addition rather than leave 24 unjudged",
+            "repo": "denoland/deno",
+            "shape": {
+              "html href": 1
+            },
+            "tier": "bench",
+            "verdict": "Test data, which exclude_paths is for."
+          }
+        ]
+      },
+      "heldout": {
+        "added": 7,
+        "added_ordinary": 7,
+        "added_read": 7,
+        "added_reserve": 0,
+        "added_visible": 7,
+        "after": 206,
+        "before": 200,
+        "net": -6,
+        "removed": 1
+      },
+      "niche": {
+        "added": 12,
+        "added_ordinary": 3,
+        "added_read": 12,
+        "added_reserve": 0,
+        "added_visible": 12,
+        "after": 5142,
+        "before": 5136,
+        "net": -6,
+        "removed": 6
+      }
     }
   },
   "sha_census": {

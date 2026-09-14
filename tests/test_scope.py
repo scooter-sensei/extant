@@ -75,7 +75,14 @@ sys.path.insert(0, str(PAYLOAD))
 # version of the usual reason: a rewrite is precisely the event that changes
 # this answer, so a map held past its call would go on explaining dead SHAs
 # with the previous rewrite's mapping.
-CACHE_FIELDS = 27
+#
+# Plus ONE for rustdoc: `rustdoc_includes`, whether a `.rs` file beside a
+# document pulls it into rustdoc, keyed by the document's path. A question
+# about the CHECKOUT like the four above - it reads source files - and asked
+# only once a link shaped like a Rust path has failed to resolve, so a
+# document with none pays for no file read. Read only while `dircache` says
+# the checkout is static, like the rest.
+CACHE_FIELDS = 28
 
 # Not a cache. `stable` says whether a caller has taken ownership of this
 # scope's lifetime for many documents, which is what the retired module-level

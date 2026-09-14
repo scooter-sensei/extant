@@ -57,7 +57,7 @@ def test_the_link_pattern_states_a_bound_on_both_halves() -> None:
     number itself: remove either bound and the over-long case starts matching,
     and this fails on every machine at the same input.
     """
-    from extant.text import MD_LINK, _MD_LINK_SPAN
+    from extant.links import MD_LINK, _MD_LINK_SPAN
 
     at_bound = "[" + "a" * _MD_LINK_SPAN + "](target.md)"
     past_bound = "[" + "a" * (_MD_LINK_SPAN + 1) + "](target.md)"
@@ -80,7 +80,7 @@ def test_ordinary_links_are_untouched_by_the_bound() -> None:
     patterns extracting identical target lists, so the number of real links
     this stops matching is zero.
     """
-    from extant.text import MD_LINK
+    from extant.links import MD_LINK
 
     assert MD_LINK.findall("see [the guide](docs/guide.md) now") == ["docs/guide.md"]
     assert MD_LINK.findall("[a](x) and [b](y)") == ["x", "y"]
@@ -101,7 +101,7 @@ def test_a_document_of_link_openers_does_not_take_minutes() -> None:
     unbounded one. Deliberately not tighter: this must not become the test
     that flakes under load.
     """
-    from extant.text import MD_LINK
+    from extant.links import MD_LINK
 
     hostile = "[a](" * 8000
     start = time.perf_counter()
@@ -114,3 +114,45 @@ def test_a_document_of_link_openers_does_not_take_minutes() -> None:
     # allowed to stand in for the other.
     brackets = "[" * 8000 + "("
     _with_deadline(lambda: MD_LINK.findall(brackets), seconds=5.0)
+
+
+def test_the_title_and_bracket_arms_are_bounded_too() -> None:
+    """The two arms added for CommonMark titles and angle-bracketed
+    destinations carry the same bound as the halves they sit between.
+
+    Same deterministic shape as the test above: matching at the bound and
+    not one character past it pins the number, so removing either new bound
+    fails here on every machine at the same input.
+    """
+    from extant.links import MD_LINK, _MD_LINK_SPAN
+
+    title_at = '[t](x.md "' + "a" * _MD_LINK_SPAN + '")'
+    title_past = '[t](x.md "' + "a" * (_MD_LINK_SPAN + 1) + '")'
+    assert MD_LINK.findall(title_at) == ["x.md"]
+    assert MD_LINK.findall(title_past) == [], "the title is not bounded"
+
+    bracket_at = "[t](<" + "a" * _MD_LINK_SPAN + ">)"
+    bracket_past = "[t](<" + "a" * (_MD_LINK_SPAN + 1) + ">)"
+    assert MD_LINK.findall(bracket_at) == ["<" + "a" * _MD_LINK_SPAN + ">"]
+    assert MD_LINK.findall(bracket_past) == [], "the bracketed arm is not bounded"
+
+
+def test_a_document_of_titled_or_bracketed_openers_does_not_take_minutes() -> None:
+    """The behavioural half for the new arms, at the same five-second margin.
+
+    A title that never closes and a bracket that never closes are the two
+    prefixes that commit the engine to a match the subject never completes,
+    which is the shape that made the original pattern quadratic. Each is
+    tried repeated, so every opener pays its walk, and once with a long tail,
+    so one opener pays the whole bound.
+    """
+    from extant.links import MD_LINK
+
+    for hostile in ('[a](x "' * 8000,
+                    "[a](<" * 8000,
+                    '[a](x "' + "b" * 100000,
+                    "[a](<" + "b" * 100000,
+                    "[a](x (" * 8000):
+        start = time.perf_counter()
+        _with_deadline(lambda: MD_LINK.findall(hostile), seconds=5.0)
+        assert time.perf_counter() - start < 5.0, hostile[:12]

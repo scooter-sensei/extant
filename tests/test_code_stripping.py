@@ -83,7 +83,8 @@ def test_a_span_taken_from_the_stripped_text_lands_on_the_original() -> None:
     what makes `text[:start] + replacement + text[end:]` replace the thing that
     was matched.
     """
-    from extant.text import MD_LINK, strip_code
+    from extant.links import MD_LINK
+    from extant.text import strip_code
     text = DOC                                   # CRLF, as Windows checks out
 
     stripped = strip_code(_doc_scope(), text)
