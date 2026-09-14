@@ -114,16 +114,18 @@ across all four tiers: 1,362 findings added and 25 removed since the
 recordings it was published from, every one of them `dead-md-link`. Of the
 333 additions in repositories the widenings were measured on, 331 match a
 row one of the passes read one by one; the other two are the 0.26.1
-review's. The remaining 1,043 sat in the benchmark's reserve, and the five
-reserve repositories carrying them were opened and spent to read every one.
+review's. The remaining 1,029 sat in the benchmark's reserve - 1,043 when
+they were read, before the fix and the refusal below took fourteen of them
+away - and the five reserve repositories carrying them were opened and spent
+to read every one.
 1,019 are in tensorflow, all raw-HTML links in a DevSite tree the site
 detection deliberately does not reach - 1,003 routes that resolve once
 `.md` is appended, 15 in a generated index, one real broken image in a
 vendored README. Of the other 24: six fixtures, two pages of mdBooks three
 levels down, two real, 13 rustdoc intra-doc links in markdown that
-`#[doc = include_str!]` pulls into rustdoc - a shape the visible corpora
-never showed, measured at 16 findings across three repositories and left
-for the next pass - and one scanner defect, fixed below. The manifest
+`#[doc = include_str!]` pulls into rustdoc - a shape no reading of the
+visible corpora had named, refused below - and one scanner defect, fixed
+below. The manifest
 records the openings; the eleven reserve rows with no additions stay
 closed, and the heldout and niche reserves were not opened.
 

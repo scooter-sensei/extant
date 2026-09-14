@@ -11,15 +11,16 @@ so the tool is exercised on a real document rather than only on fixtures.
 **Status.** Suite is 1,113 tests across 64 files: 1,111 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag, no default and no
 suppression, and moves no exit code. It changes the shipped payload: two
-rules read two CommonMark spellings they did not read, in six modules under
-`payload/`, one of them new - the link scanner has a module of its own. The
-tool remained
-released as 0.26.1 and this work sits above that tag with Phase 36,
-unreleased. Mutation campaign is 210 anchors; the nineteen this phase added and
-the eighteen it moved were each applied to a copy and watched turning the
-suite red, and every other gate on the pre-push list ran green against a
-working-tree extract - smoke, scenarios, fuzz with its self-check, `--verify`
-and `--selftest`.
+rules read two CommonMark spellings they did not read, a reference definition
+ends where CommonMark ends it, and `dead-md-link` leaves rustdoc's intra-doc
+links to rustdoc, in eight modules under `payload/`, one of them new - the
+link scanner has a module of its own. The tool remained released as 0.26.1
+and this work sits above that tag with Phase 36, unreleased. Mutation
+campaign is 210 anchors; the nineteen this phase added and the eighteen it
+moved were each applied to a copy and watched turning the suite red, and
+every other gate on the pre-push list ran green against a working-tree
+extract - smoke, scenarios, fuzz with its self-check, `--verify` and
+`--selftest`.
 
 **What it is.** A second specification proposed six widenings across five
 rules, each described as measured - on this repository alone, which is the
@@ -95,35 +96,36 @@ tiers were swept again with the payload this phase ships, one payload hash
 across every repository where the earlier recordings carried two: 1,362
 findings added and 25 removed since the recordings the report was published
 from, all of them the widened link rule. 331 of the 333 additions in visible
-repositories match a row Phase 36 or this phase read one by one; the other
-two are Phase 35's. The other 1,043 sat in the benchmark's sixteen-repository
-reserve, which no pass had read because the reserve is held for exactly that
-evaluation and reading it spends it. The operator spent the reserve of the
-five repositories carrying them on the reading rather than publish an
-unjudged number. Tensorflow's 1,019 are raw-HTML links in a DevSite tree the
-site detection deliberately does not reach: 1,003 routes that resolve once
-the extension is appended, 15 in a generated index written a directory too
-shallow, one real broken image in a vendored README - the known
+repositories match a row Phase 36 or this phase read one by one; the other two
+are Phase 35's. The other 1,029 sat in the benchmark's sixteen-repository
+reserve - 1,043 when they were read, before the fix and the refusal below took
+fourteen of them away - which no pass had read because the reserve is held for
+exactly that evaluation and reading it spends it. The operator spent the
+reserve of the five repositories carrying them on the reading rather than
+publish an unjudged number. Tensorflow's 1,019 are raw-HTML links in a DevSite
+tree the site detection deliberately does not reach: 1,003 routes that resolve
+once the extension is appended, 15 in a generated index written a directory
+too shallow, one real broken image in a vendored README - the known
 undetected-generator class and no new shape. The other 24 held two shapes the
 visible corpora never showed. One was a scanner defect, fixed the same day: a
 definition-shaped changelog line that CommonMark reads as a paragraph, because
 nothing but a title may follow a destination, and the pattern stopped reading
 at the destination. The other is rustdoc's intra-doc links in markdown that
 `#[doc = include_str!]` pulls into rustdoc, 13 of the 24 and two more on the
-visible corpora, built the next day as a refusal in the link rule's adapter:
-a destination shaped like a Rust path, inside a document a `.rs` file beside
-it or in its `src/` child pulls into rustdoc, is neither judged nor counted.
-The bound on where the including file is looked for is a measured cost -
-every `.rs` file in a repository is 668 seconds across the corpora, the two
-directories 1.4 - and the 98 included documents it misses hold no link of
-this shape. Swept: the 15 findings removed, none added. The rest of the 24
-were six fixtures, two pages of mdBooks three levels down, and two real. The
-manifest records the five openings; eleven reserve rows with no additions
-stay closed. The recordings were taken again with the fix and again with
-the refusal, so the report describes the tool it ships with - bench is
-56,084 - and the recording instrument now decodes a
-SARIF URI back to a path, because the 0.26.1 writer percent-encodes one as
-the spec asks and every join downstream is on the tracked path.
+visible corpora, built the next day as a refusal in the link rule's adapter: a
+destination shaped like a Rust path, inside a document a `.rs` file beside it
+or in its `src/` child pulls into rustdoc, is neither judged nor counted. The
+bound on where the including file is looked for is a measured cost - every
+`.rs` file in a repository is 668 seconds across the corpora, the two
+directories 1.4 - and the 98 included documents it misses hold no link of this
+shape. Swept: the 15 findings removed, none added. The rest of the 24 were six
+fixtures, two pages of mdBooks three levels down, and two real. The manifest
+records the five openings; eleven reserve rows with no additions stay closed.
+The recordings were taken again with the fix and again with the refusal, so
+the report describes the tool it ships with - bench is 56,084 - and the
+recording instrument now decodes a SARIF URI back to a path, because the
+0.26.1 writer percent-encodes one as the spec asks and every join downstream
+is on the tracked path.
 
 **What this leaves owed.** The heldout and niche reserves were not opened.
 `AGENTS.md` and `CONTRIBUTING.md` still state this project's own floor in a
