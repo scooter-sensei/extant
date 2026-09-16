@@ -80,6 +80,15 @@ def _pinned_refs(ctx: Context, text: str) -> list[tuple[int, str]]:
     a line that is perfectly correct. Only pins aimed at us are answerable, so
     only those are asked about.
     """
+    # A pin needs a `rev:` line, literally - `_PIN_REV` is case-sensitive
+    # and anchored on it - so a document without one holds nothing to govern,
+    # and neither the remote nor the line walk is asked for. Most documents:
+    # 5 of ruff's 650 hold `rev:`. Cheapest question first, because on CI
+    # the remote is a spawn per document where the config cannot be read,
+    # and it was paid on every document rather than on the ones with a pin;
+    # tests/test_spawn_budget.py counts it that way now.
+    if "rev:" not in text:
+        return []
     own = _own_remote(ctx)
     if own is None:
         return []

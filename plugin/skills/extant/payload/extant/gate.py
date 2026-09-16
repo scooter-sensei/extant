@@ -38,18 +38,18 @@ from extant import session
 from extant.commits import load_sha_map, translate_shas
 from extant.config import StatusConfig
 from extant.finding import Finding, rel
-from extant.git import is_shallow
+from extant.git import is_partial, is_shallow
 from extant.refs import renamed_to
 from extant.registry import RULE_ERRORS
 from extant.report import (
     BASELINE_NAME, Collector, load_baseline, render_findings, write_baseline,
 )
-from extant.sites import resolve_reference
+from extant.sites import reference_path, relative_spelling, resolve_reference
 from extant.links import link_sites
 from extant.text import format_for, prose
 
-__all__ = ["report_denominators", "run_check_text", "run_validate",
-           "suggest_renames"]
+__all__ = ["report_denominators", "report_repository_notes",
+           "run_check_text", "run_validate", "suggest_renames"]
 
 # What `--check-text` calls the document when `--as-path` was not given.
 # Named rather than blank: every diagnostic line here begins "checked <name>",
@@ -109,21 +109,39 @@ def suggest_renames(repo: Path, base: Path, text: str, relative: str,
         path_part = raw.split("#", 1)[0].split("?", 1)[0]
         if path_part != target:
             continue
-        moved = renamed_to(ctx, target)
+        # Looked up under the path the link RESOLVES to and spelled back
+        # RELATIVE TO THE DOCUMENT, the two halves of one fact: the map's keys
+        # and answers are repository-relative, a link is relative to its page.
+        # Asked as written, `[it](old.md)` in `docs/` found nothing; answered
+        # as written, it would have been repointed at `docs/new.md`, which from
+        # `docs/` names `docs/docs/new.md`. A root-relative link stays rooted.
+        rooted = target.startswith("/")
+        named = (target.lstrip("/") if rooted
+                 else reference_path(repo, base, target) or target)
+        moved = renamed_to(ctx, named)
         if moved:
+            spelled = "/" + moved if rooted else relative_spelling(repo, base, moved)
             # The fragment or query survives the move. `[x](a.md#install)` is
             # repointed to `[x](b.md#install)`, which the previous code could
             # not do at all: it replaced on the fragment-stripped target, so
             # `](a.md)` matched nothing in a document that says `](a.md#install)`
             # and the patch came out empty.
-            replacements.append((raw, moved + raw[len(path_part):]))
+            replacements.append((raw, spelled + raw[len(path_part):]))
 
     for raw in ctx.config.path_pointer.findall(prose(ctx.doc, text)):
         if raw not in pointed or resolve_reference(ctx, repo, raw)[0]:
             continue
+        # The rule's own order: from the root as written, then from beside
+        # the document, spelled back the way each was asked.
         moved = renamed_to(ctx, raw)
         if moved:
             replacements.append((raw, moved))
+            continue
+        if base != repo:
+            beside_path = reference_path(repo, base, raw)
+            moved = renamed_to(ctx, beside_path) if beside_path is not None else None
+            if moved:
+                replacements.append((raw, relative_spelling(repo, base, moved)))
 
     if not replacements:
         return ""
@@ -173,6 +191,20 @@ def report_denominators(diag, repo: Path, name: str,
         diag("  NOTE: these rules matched nothing at all - either this "
              "document makes no such claims, or the pattern is wrong: "
              + ", ".join(blind))
+    report_repository_notes(diag, repo)
+    return errors_reported
+
+
+def report_repository_notes(diag, repo: Path) -> None:
+    """What the checkout is, when that changes what a count means.
+
+    Split out of `report_denominators` when `--introduced-since` needed the
+    same two notes under a different denominator line: a gate on a depth-
+    limited pull-request checkout has every older SHA dead, and the note is
+    what separates that from a document full of invented ones. One
+    implementation, so the two modes cannot describe one checkout in two
+    voices.
+    """
     # Beside the denominators for the same reason they are printed at all: a
     # `dead-sha` count taken from a shallow clone describes the slice that was
     # cloned rather than the repository, and a reader cannot tell those apart
@@ -195,7 +227,18 @@ def report_denominators(diag, repo: Path, name: str,
         diag("  NOTE: this is a shallow repository, so commit SHAs were "
              "checked against the history present locally rather than "
              "against everything upstream.")
-    return errors_reported
+    # The same shape from the other direction: the history is all here and
+    # some of the OBJECTS are not. They stay not here - `environment()` in
+    # extant/git.py refuses the retrieval git would otherwise do mid-command
+    # - so a rename hint or a blob-reading rule answers from less than the
+    # repository holds, and the reader is told so rather than left to infer
+    # it from a hint that did not appear. Worded without the words the
+    # network-shape scan refuses in a literal, as the note above is.
+    if is_partial(repo):
+        diag("  NOTE: this is a partial repository, so objects not present "
+             "locally were left missing rather than retrieved over the "
+             "network. A rename hint or a blob-reading rule answers from "
+             "what is here.")
 
 
 def _diagnostic_stream(args: argparse.Namespace):

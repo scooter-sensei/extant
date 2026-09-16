@@ -13,6 +13,7 @@ import subprocess
 
 from extant.contract import Rule
 from extant.finding import Finding
+from extant.git import environment
 from extant.scope import Context
 
 __all__ = ["RULE", "check", "examined", "probe"]
@@ -69,7 +70,8 @@ def _lfs_governed(ctx: Context) -> list[tuple[str, str]]:
     try:
         listing = subprocess.run(
             ["git", "ls-tree", "-r", "-z", "HEAD"], cwd=ctx.repo,
-            capture_output=True, check=True).stdout.decode("utf-8", "replace")
+            capture_output=True, check=True,
+            env=environment()).stdout.decode("utf-8", "replace")
     except (subprocess.CalledProcessError, OSError):
         ctx.run.lfs[key] = []
         return []   # unborn HEAD: nothing is committed to judge
@@ -99,7 +101,8 @@ def _lfs_governed(ctx: Context) -> list[tuple[str, str]]:
     try:
         raw = subprocess.run(
             ["git", "check-attr", "-z", "--stdin", "filter"], cwd=ctx.repo,
-            input=payload, capture_output=True, check=True).stdout
+            input=payload, capture_output=True, check=True,
+            env=environment()).stdout
     except (subprocess.CalledProcessError, OSError):
         ctx.run.lfs[key] = []
         return []
@@ -147,7 +150,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
         out = subprocess.run(
             ["git", "cat-file", "--batch-check=%(objectname) %(objectsize)"],
             cwd=ctx.repo, input=request, capture_output=True,
-            check=True).stdout.decode("utf-8", "replace")
+            check=True, env=environment()).stdout.decode("utf-8", "replace")
     except (subprocess.CalledProcessError, OSError):
         return findings
     for line in out.split("\n"):
@@ -168,7 +171,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
         try:
             stream = subprocess.run(["git", "cat-file", "--batch"], cwd=ctx.repo,
                                     input=request, capture_output=True,
-                                    check=True).stdout
+                                    check=True, env=environment()).stdout
         except (subprocess.CalledProcessError, OSError):
             return findings
         # `<sha> blob <size>\n<content>\n`, repeated. Parsed by declared length

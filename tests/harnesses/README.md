@@ -521,8 +521,9 @@ elsewhere; it would have broken silently the first time somebody edited one.
 that.** It used to be five states times seven modes - thirty-five pairs, which
 is exactly the repository count CI passes, so the plan was walked to completion
 with zero random draws and the job was a deterministic scenario suite. Stage 6
-added seven modes, four of which had never been run at all, and the follow-on
-added `--sha-map` as an eighth, so five times fifteen is seventy-five. At
+added seven modes, four of which had never been run at all, the follow-on
+added `--sha-map` as an eighth, and `--introduced-since` arrived on 2026-09-14
+the day it was written, so five times sixteen is eighty. At
 thirty-five repositories the harness now samples, its existing warning about
 that fires, and "which modes did this run actually execute" stopped being
 answerable from the arithmetic - so it is printed. A mode nobody runs is a mode
@@ -1327,6 +1328,75 @@ loophole open whether or not it was. It reported identically before and after
 the loophole was closed. That is this harness committing the exact defect it
 exists to detect, and no amount of running it would have surfaced that; only
 reading it did.
+
+## Coverage - the suite's own denominator
+
+The tool measures its reach obsessively and the suite measured its own not
+at all, until 2026-09-15. The number is a denominator like every other one
+here - printed, recorded, never gated on - and the instrument is `coverage`
+from `requirements-dev.txt`, configured in `pyproject.toml` under
+`[tool.coverage]`.
+
+**The suite runs the tool as a subprocess in most of the tests that drive a
+mode**, and so do all three harnesses. A plain `pytest --cov` measures none
+of those processes, which is how the internals review arrived at gate.py at
+54 per cent and cli.py at 66 and read them as untested exit-code logic. The
+measurement below instruments every process instead: a `sitecustomize.py`
+under `tests/harnesses/coverage_hook/` calls `coverage.process_startup()`,
+which starts measuring whenever `COVERAGE_PROCESS_START` names a config file,
+and every child - the tool, its survey workers, the git hooks it installs -
+inherits both. `source_pkgs` names the package rather than a path so the
+copies the harnesses install into their arenas as `tools/extant` count, and
+`[tool.coverage.paths]` folds them back onto the checkout at combine time.
+
+```sh
+export PYTHONPATH="$PWD/tests/harnesses/coverage_hook"
+export COVERAGE_PROCESS_START="$PWD/pyproject.toml"
+export COVERAGE_FILE="$PWD/.coverage"
+python -m pytest -n auto --dist loadfile \
+  --deselect tests/test_extant_config.py::test_the_module_imports_with_no_toml_parser_at_all \
+  --deselect tests/test_extant_config.py::test_a_config_file_with_no_parser_names_the_remedy
+python tests/harnesses/smoke.py "$PKG" "$ARENA"
+python tests/harnesses/scenarios.py "$PKG" "$ARENA"
+python tests/harnesses/fuzz.py "$PKG" "$ARENA" --seed 20260824 --repos 35
+python -m coverage combine
+python -m coverage report
+```
+
+The two deselected tests remove `tomllib` from `sys.modules` to simulate a
+Python with no TOML parser, and `coverage` has already imported it to read
+its own configuration by the time they run; under the hook they fail for
+that reason and no other. `$PKG` must be an extract of the same tree the
+suite ran from, or the fold merges two versions of a file. Run each source
+into its own `COVERAGE_FILE` directory to read them apart. Measured on
+Windows, so a POSIX-only line counts as unreached here and a Windows-only
+one as reached; the whole chain took twenty minutes, most of it fuzz.
+
+Measured on 2026-09-15 against 4,065 statements under `payload/extant/`,
+before the tests the measurement earned were written:
+
+| module | suite, subprocesses unmeasured | suite | suite + smoke + scenarios + fuzz |
+|:---|---:|---:|---:|
+| gate.py | 56.6% | 95.2% | 95.6% |
+| cli.py | 68.1% | 90.4% | 91.2% |
+| sweep.py | 86.1% | 96.7% | 97.1% |
+| report.py | 83.7% | 97.6% | 98.6% |
+| whole package | 89.1% | 94.3% | 95.0% |
+
+The first column is the review's measurement reproduced (its 54, 66, 81, 83
+and 87 were taken on 0.26.1's 3,505 statements). The harnesses add one line
+to gate.py and two to cli.py, and that is NOT a reason to have fewer of
+them: coverage counts statements, not inputs. fuzz.py runs the same lines
+over 35 hostile repositories and asserts crash, exit, denominator, format
+and concurrency properties that no line count can express, and scenarios.py
+runs them on projects shaped nothing like this one. What the union found was
+205 statements reached by nothing. The ones that decide an exit code or a
+refusal are tested now in `tests/test_unreached_exits.py` - the line that
+carries a worker's rule error into `RULE_ERRORS` had never executed in
+either survey mode, and deleting it turns an errored parallel survey into a
+clean exit 0 - and the rest are degraded paths: a git that is missing, a
+config file that will not decode, an exclusion glob that will not compile.
+Re-measured after those thirteen tests, suite alone: gate.py 96.8 per cent, cli.py 98.0, `introduced_since.py` 95.6, the package 95.4; in union with the harnesses gate.py 97.2, cli.py 98.8, the package 95.9, and 165 statements reached by nothing. Branch coverage, measured once for the record with `branch = true` and the suite alone: 1,381 of 1,496 branches (92.3 per cent), 113 of them taken one way only - gate.py 86.8 per cent of its 106 branches, cli.py 92.6 of 94. Lines are what the table above counts; a branch figure sees `if index.complete:` taken both ways where a line figure cannot.
 
 ## Reading the output
 

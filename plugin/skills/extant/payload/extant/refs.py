@@ -10,7 +10,7 @@ The three that were moved for that reason, and where they came from:
 
 * rename detection (`_rename_map`, `renamed_to`) sat with the live-claim rule,
   and both `dead-md-link` and `dead-path-pointer` were calling into it.
-* object resolution (`_sha_exists`, `resolve_shas`, `_batch_shas`) sat with the
+* object resolution (`_sha_of`, `resolve_shas`, `_batch_shas`) sat with the
   SHA rule, and the merge rule was calling into it.
 * `named_in_merge_history` sat among the site helpers, which is where the
   branch rule happened to need it.
@@ -30,11 +30,12 @@ leaf rule rather than a change of mind:
 * `_batch_shas` is listed nowhere at all. It is `resolve_shas`'s own batching
   helper and cannot stay behind without this module importing the shim.
 
-`_batch_shas` is also the one place in this package that runs git through
-subprocess directly rather than through the seam, because `cat-file
---batch-check` is fed on stdin and `Git.run(repo, *args)` cannot express that.
-tests/test_scope.py names it and counts it, so the gap is a number somebody
-chose rather than one nobody noticed.
+`_batch_shas` and `_settle` are the two places in this module that run git
+through subprocess directly rather than through the seam, because `cat-file
+--batch-check` and `rev-list --stdin` are fed on stdin and
+`Git.run(repo, *args)` cannot express that. tests/test_scope.py names them
+and counts them, so the gap is a number somebody chose rather than one nobody
+noticed.
 
 Every function takes the `Context` it reads instead of a module global. The
 repository is `ctx.repo`, git is `ctx.git`, memoised answers live on `ctx.run`
@@ -45,6 +46,7 @@ from __future__ import annotations
 import re
 import subprocess
 
+from extant.git import environment
 from extant.scope import Context
 
 # Eight of these names lost their underscore in Task 9, when the rules became
@@ -53,25 +55,53 @@ from extant.scope import Context
 # module calls it - and `test_no_module_reaches_past_another_modules_surface`
 # turns reaching for an underscore name across that boundary into a hard
 # failure, so the choice was between promoting them and lying about the
-# boundary. `_ancestor_index`, `_rename_map` and `_sha_exists` keep theirs:
-# each has exactly one caller, and it is in this file.
+# boundary. `_ancestor_index`, `_rename_map`, `_settle` and `_sha_of` keep
+# theirs: each has exactly one caller, and it is in this file.
 __all__ = [
-    "SHA_SHAPE", "_INTEGRATION_NAMES", "_ancestor_index", "_from_table",
-    "_rename_map", "_sha_exists", "branch_exists", "integrated_by",
+    "DOCUMENT_SUFFIXES", "INDEX_BOUND", "SHA_SHAPE", "_INTEGRATION_NAMES",
+    "_Ancestry", "_ancestor_index",
+    "_from_table",
+    "_rename_map", "_settle", "_sha_of", "branch_exists", "commit_id",
+    "integrated_by",
     "integration_refs",
-    "named_in_merge_history", "reachable_from", "ref_table", "renamed_to",
+    "named_in_merge_history", "settle_ancestry", "reachable_from",
+    "ref_table", "renamed_to",
     "resolve_ref", "resolve_shas", "tracked_markdown",
 ]
 
 SHA_SHAPE = re.compile(r"^[0-9a-f]{7,40}$")
 
+# How many commits of a ref's history the ancestry index holds, and the
+# number was measured before it was chosen. `rev-list` without a commit-graph
+# - the state of every one of 195 corpus clones and of every fresh CI
+# checkout - walks about 33 microseconds per commit on this machine, so a
+# full index of rust's 338,850 commits cost 10.6 s and 77 MB per ref per
+# worker, and `-n` bounds that walk linearly: 20,001 commits in 0.68 s,
+# 50,001 in 1.6 s, 100,001 in 3.1 s. At fifty thousand, 179 of the 195 clones
+# are indexed completely and pay exactly what they paid before, one spawn per
+# ref per run; the sixteen above it pay at most 1.6 s and about 6 MB per ref
+# per worker, and settle what the index cannot hold through `_settle`. A
+# module constant rather than a setting, because a knob nobody turns is dead
+# configuration; the tests set it to one so the path past the bound runs on
+# every fixture rather than only on a repository nobody tests against.
+INDEX_BOUND = 50_000
 
-def _sha_exists(ctx: Context, sha: str) -> bool:
+# The file suffixes a survey reads. Named, because two other places have to
+# agree with this tuple exactly: `_HISTORICAL` in extant/strata.py carries
+# the same four spellings in a pattern, and `--introduced-since` hands them
+# to `git diff` as pathspecs so the diff it reads covers the documents the
+# sweep reads and no others.
+DOCUMENT_SUFFIXES = ("md", "markdown", "mdx", "rst")
+
+
+def _sha_of(ctx: Context, token: str) -> str | None:
+    """The full commit id one token names, or None; the per-token spawn the
+    batch below falls back to when its line count disagrees with its input."""
     try:
-        ctx.git.run(ctx.repo, "cat-file", "-e", f"{sha}^{{commit}}")
-        return True
-    except subprocess.CalledProcessError:
-        return False
+        return ctx.git.run(ctx.repo, "rev-parse", "--verify", "--quiet",
+                           f"{token}^{{commit}}").strip() or None
+    except (subprocess.CalledProcessError, OSError):
+        return None
 
 
 def resolve_shas(ctx: Context, tokens: list[str]) -> set[str]:
@@ -96,6 +126,11 @@ def resolve_shas(ctx: Context, tokens: list[str]) -> set[str]:
     about the repository, identical whoever asks, so the answer is kept per
     TOKEN and the batch below carries only what has not been asked yet. The
     lifetime is stated on `RunScope.shas`.
+
+    THE FULL SHA IS KEPT, not a boolean, because the ancestry index answers by
+    full-SHA membership now and the batch line already carries it. A memo of
+    booleans would have `reachable_from` spawn a `rev-parse` per abbreviated
+    token to learn what this call had just been told.
     """
     unique = sorted(set(tokens))
     if not unique:
@@ -111,52 +146,119 @@ def resolve_shas(ctx: Context, tokens: list[str]) -> set[str]:
         # `_OWN_REMOTE` mistake in a second place: `None` and "not resolved"
         # are ANSWERS, not misses.
         for token in unasked:
-            known[(repo_key, token)] = token in alive
-    return {token for token in unique if known[(repo_key, token)]}
+            known[(repo_key, token)] = alive.get(token)
+    return {token for token in unique if known[(repo_key, token)] is not None}
 
 
-def _batch_shas(ctx: Context, unique: list[str]) -> set[str]:
-    """The batch itself. Separate only so the memo above stays readable."""
+def _batch_shas(ctx: Context, unique: list[str]) -> dict[str, str]:
+    """The batch itself, token -> the full commit id it names, resolved ones
+    only. Separate only so the memo above stays readable."""
     payload = "".join(f"{token}^{{commit}}\n" for token in unique)
     proc = subprocess.run(
         ["git", "cat-file", "--batch-check"],
         cwd=ctx.repo, input=payload, capture_output=True, text=True, encoding="utf-8",
+        env=environment(),
     )
     lines = proc.stdout.splitlines()
     if len(lines) != len(unique):
-        return {token for token in unique if _sha_exists(ctx, token)}
-    return {
-        token for token, line in zip(unique, lines)
+        found = {token: _sha_of(ctx, token) for token in unique}
+        return {token: sha for token, sha in found.items() if sha is not None}
+    resolved: dict[str, str] = {}
+    for token, line in zip(unique, lines):
+        parts = line.split()
         # Explicit success only. `<input> missing` is one failure shape;
         # `<input> ambiguous` is another, and "does not end in missing" let
-        # it through as though the object had resolved.
-        if len(line.split()) == 3 and not line.rstrip().endswith("missing")
-    }
+        # it through as though the object had resolved. The first field of a
+        # success line is the object `^{commit}` peeled to - a commit, its own
+        # id for a raw SHA and the tagged commit's for an annotated tag.
+        if len(parts) == 3 and parts[1] == "commit":
+            resolved[token] = parts[0]
+    return resolved
+
+
+def commit_id(ctx: Context, rev: str) -> str | None:
+    """The full commit id `rev` names here, or None.
+
+    ONE TOKEN, ONE RESOLVER. A SHA-shaped rev is resolved the way `dead-sha`
+    resolves it - through the `cat-file` batch and its per-token memo - and a
+    name through the ref table and its `rev-parse` fallback. Sending a token
+    down the name path would look up a seven-character hex string in the tag
+    table first, which is where a tag named like a prefix would answer for a
+    commit; sending it through the batch answers with git's own precedence,
+    once, and records the answer where the rule that found it already looks.
+    """
+    if SHA_SHAPE.match(rev):
+        resolve_shas(ctx, [rev])
+        return ctx.run.shas[(str(ctx.repo), rev)]
+    return resolve_ref(ctx, rev)
 
 
 def branch_exists(ctx: Context, branch: str) -> bool:
-    """Does `rev-parse --verify` resolve this name?
+    """Does a BRANCH by this name exist?
 
-    STILL A SPAWN, deliberately, while `resolve_ref` below answers the same
-    shape of question from the ref table one `for-each-ref` builds. The reason
-    is not that nobody noticed: `rev-parse --verify <bare-name>` follows git's
-    tags-before-heads precedence, so this currently answers True for a TAG
-    named like a branch. Answering from the `heads` table instead would change
-    that.
+    It asked `rev-parse --verify <name>` for a long time, and that follows
+    git's tags-before-heads precedence, so it answered True for a TAG named
+    like a branch. This docstring called that a behaviour question wearing a
+    performance fix's clothing and asked for a corpus measurement before it
+    changed. Measured on 2026-09-16 over the 152 visible corpus clones: 23
+    names in 7 repositories are both a branch and a tag - `v1.10.2`,
+    `package-2.1.0`, `release-2013.1`, release lines tagged at their own name
+    - so the divergence is real, and the two rules that ask this question ask
+    about branches: `unknown-branch` wants a branch or a merge commit naming
+    one, and a live claim about a tag is a live claim about nothing.
 
-    Arguably more correct; certainly not neutral. It is a behaviour question
-    wearing a performance fix's clothing, and it belongs in its own change with
-    its own corpus measurement rather than inside one that claims to be free.
+    Three answers, in the order git itself would look:
+
+      * a LOCAL head of that name, from the ref table one `for-each-ref` has
+        already built for the call - no process, which is the spawn the old
+        docstring declined to save for free;
+      * a name that is only a TAG, which git's precedence would have accepted:
+        asked once more, for a remote-tracking branch under `refs/remotes/`
+        exactly where `rev-parse` would have found one had the tag not been
+        in the way;
+      * a spelling neither table holds - `origin/feature`, `HEAD`, a SHA -
+        which is `rev-parse --verify` as before, so nothing a document names
+        today stops existing.
     """
-    try:
-        ctx.git.run(ctx.repo, "rev-parse", "--verify", branch)
+    heads, tags = ref_table(ctx)
+    if branch in heads:
         return True
-    except subprocess.CalledProcessError:
-        return False
+    candidates = ([f"refs/remotes/{branch}", f"refs/remotes/{branch}/HEAD"]
+                  if branch in tags else [branch])
+    for candidate in candidates:
+        try:
+            ctx.git.run(ctx.repo, "rev-parse", "--verify", "--quiet", candidate)
+            return True
+        except subprocess.CalledProcessError:
+            continue
+    return False
 
 
-def _ancestor_index(ctx: Context, ref: str) -> dict[str, list[str]] | None:
-    """Every commit reachable from `ref`, indexed by its 7-character prefix.
+class _Ancestry:
+    """What one ref's history has answered so far, in one run scope.
+
+    `commits` is the bounded index: the first `INDEX_BOUND + 1` commits
+    `rev-list` printed, so a member is an ancestor whatever else is true.
+    `complete` says whether that was the whole history, in which case a
+    non-member is not an ancestor and nothing need be asked. `settled` holds
+    what `_settle` has since learned about commits past the bound, keyed by
+    full SHA - the memo the batches fill, so a sweep asks about each commit
+    at most once per ref however many documents cite it.
+
+    One object rather than three scope fields, because the three share one
+    lifetime and one key, and a reader who finds them apart would have to
+    prove they cannot disagree.
+    """
+    __slots__ = ("commits", "complete", "settled")
+
+    def __init__(self, commits: frozenset, complete: bool) -> None:
+        self.commits = commits
+        self.complete = complete
+        self.settled: dict[str, bool] = {}
+
+
+def _ancestor_index(ctx: Context, ref: str) -> _Ancestry | None:
+    """The newest `INDEX_BOUND + 1` commits reachable from `ref`, as full SHAs.
 
     ONE `git rev-list` answers what would otherwise be one
     `git merge-base --is-ancestor` per claim. Measured on a 5000-commit
@@ -165,9 +267,28 @@ def _ancestor_index(ctx: Context, ref: str) -> dict[str, list[str]] | None:
     distinct commits and wins by roughly 800x at two thousand, which took that
     stress case from 105 seconds to about a second.
 
-    Used unconditionally rather than above some threshold, deliberately. A
-    size-based switch would create a second path that only runs on large inputs,
-    which is precisely the code that never gets exercised by a test.
+    BOUNDED, since 2026-09-15, and the docstring that stood here argued against
+    exactly that: "a size-based switch would create a second path that only
+    runs on large inputs, which is precisely the code that never gets
+    exercised by a test". The argument was right and the answer is not to
+    leave the walk unbounded but to exercise the path: `INDEX_BOUND` is a
+    constant tests/test_ancestry_bound.py sets to one, so every rule that asks
+    ancestry runs past the bound on every fixture, and the mutation campaign
+    holds anchors on both sides of it. What the bound buys is in the constant's
+    own comment; what it costs is that a history longer than the bound settles
+    its older commits through `_settle`, one batch per rule and ref.
+
+    ONE MORE LINE THAN THE BOUND is asked for, so that "incomplete" is a fact
+    the output states - a history of exactly the bound's length would
+    otherwise be indistinguishable from a cut one, and the cut would then be
+    answered as a complete index answers: no, without asking.
+
+    Membership is by FULL SHA. The index used to bucket commits by their
+    seven-character prefix so an abbreviated token could be matched with
+    `startswith`; every rev that reaches here now carries its full id -
+    `commit_id` reads it from the `cat-file` memo or the ref table - so the
+    buckets and the scan went, and with them 77 MB of lists on rust's history
+    against 42 MB for the strings alone, unbounded; bounded, about 6 MB.
 
     Keyed by ref because "integrated" is no longer one question about one
     branch. Re-measured on the gitflow fixture: two rev-lists cost 61 ms
@@ -183,19 +304,27 @@ def _ancestor_index(ctx: Context, ref: str) -> dict[str, list[str]] | None:
     if key in ctx.run.ancestors:
         return ctx.run.ancestors[key]
     try:
-        out = ctx.git.run(ctx.repo, "rev-list", ref)
+        out = ctx.git.run(ctx.repo, "rev-list", "-n", str(INDEX_BOUND + 1), ref)
     except (subprocess.CalledProcessError, OSError):
         ctx.run.ancestors[key] = None
         return None
-    index: dict[str, list[str]] = {}
-    for full in out.split():
-        index.setdefault(full[:7], []).append(full)
+    listed = out.split()
+    index = _Ancestry(frozenset(listed), complete=len(listed) <= INDEX_BOUND)
     ctx.run.ancestors[key] = index
     return index
 
 
 def reachable_from(ctx: Context, rev: str, ref: str) -> bool:
-    """Is `rev` an ancestor of `ref`? Batched through the index when possible."""
+    """Is `rev` an ancestor of `ref`? From the index, else from what
+    `_settle` learned, else by settling this one rev on its own.
+
+    The last of those is one spawn per question, which is the shape the index
+    exists to remove: a rule that asks past the bound should have called
+    `settle_ancestry` with everything it is about to ask, so the misses go
+    out in one batch. Kept as the answer of last resort rather than an error,
+    because a slow right answer is still a right answer - and
+    tests/test_spawn_budget.py is what notices the slowness.
+    """
     index = _ancestor_index(ctx, ref)
     if index is None:
         try:
@@ -203,13 +332,98 @@ def reachable_from(ctx: Context, rev: str, ref: str) -> bool:
             return True
         except (subprocess.CalledProcessError, OSError):
             return False
-    if SHA_SHAPE.match(rev):
-        # A document carries an abbreviated commit; rev-list returns full ones.
-        # `startswith` covers the 40-character case too, which is its own prefix.
-        return any(full.startswith(rev) for full in index.get(rev[:7], ()))
-    # A branch or tag name: resolve it once, then answer from the index.
-    resolved = resolve_ref(ctx, rev)
-    return bool(resolved) and resolved in index.get(resolved[:7], ())
+    commit = commit_id(ctx, rev)
+    if commit is None:
+        return False
+    if commit in index.commits:
+        return True
+    if index.complete:
+        return False
+    if commit not in index.settled:
+        _settle(ctx, index, [commit], ref)
+    return index.settled[commit]
+
+
+def settle_ancestry(ctx: Context, questions: list[tuple[str, str]]) -> None:
+    """Settle every (rev, ref) in `questions` that the index cannot, one batch
+    per ref, so the `reachable_from` calls that follow spawn nothing.
+
+    Called by a rule before its judging loop with everything the loop will
+    ask. Nothing here changes an answer: a rev the index holds is not fed, a
+    rev already settled is not fed again, a ref with a complete index or no
+    index at all is left to `reachable_from`, which answers those without a
+    batch. What it changes is the spawn count, from one per claim to one per
+    ref per rule - and on the 92 per cent of histories the bound covers, to
+    none at all beyond the index itself.
+    """
+    pending: dict[str, list[str]] = {}
+    for rev, ref in questions:
+        index = _ancestor_index(ctx, ref)
+        if index is None or index.complete:
+            continue
+        commit = commit_id(ctx, rev)
+        if commit is None or commit in index.commits or commit in index.settled:
+            continue
+        misses = pending.setdefault(ref, [])
+        if commit not in misses:
+            misses.append(commit)
+    for ref, misses in pending.items():
+        _settle(ctx, ctx.run.ancestors[(str(ctx.repo), ref)], misses, ref)
+
+
+def _settle(ctx: Context, index: _Ancestry, commits: list[str], ref: str) -> None:
+    """One `rev-list --stdin --not REF` for every commit the bounded index
+    could not place, recorded on `index.settled`.
+
+    THE OUTPUT IS THE EXCLUSIVE HISTORY OF THE INPUTS, not a list of answers,
+    and the review that proposed this call had that half wrong: it passed
+    `--no-walk` and reported output "proportional to the answer", but
+    `--no-walk` has no effect once a `--not` makes the arguments a range - on
+    git 2.53 the output with and without it is byte-identical. What the call
+    does print is every commit reachable from an input and not from REF. So
+    an input that is printed is not an ancestor, an input that is not printed
+    is one, and for a document whose claims are all true the output is empty.
+    Measured on rust without a commit-graph, 50 inputs: 0.63 s when every
+    input is within a thousand first-parent commits of the tip, 7.9 s when
+    one is near the root, against 10.6 s for the unbounded index the bound
+    replaced.
+
+    FED FULL SHAS, and only ones this run has already resolved as commits -
+    through the `cat-file` batch or the ref table - which is what makes the
+    abort the review warned about unreachable by construction: one input git
+    cannot resolve fails the whole call with exit 128 and nothing on stdout,
+    and a full id of a commit this repository holds cannot be that input.
+    Should it happen anyway - the repository changed under the run - the
+    fallback is the one `reachable_from` has always had, a `merge-base
+    --is-ancestor` per commit, so the answer is the same and only the spawn
+    count is not.
+
+    Bytes in and bytes out. `subprocess` in text mode writes the payload with
+    the platform's line ending, which on Windows hands git `\\r\\n`; git
+    happens to tolerate it, and `_batch_shas` has been relying on that
+    tolerance. This site does not. The output is hex and newlines, so the
+    decode cannot fail; it is done here, where a reader can see it.
+    """
+    payload = b"".join(commit.encode("ascii") + b"\n" for commit in commits)
+    try:
+        proc = subprocess.run(
+            ["git", "rev-list", "--stdin", "--not", ref],
+            cwd=ctx.repo, input=payload, capture_output=True,
+            env=environment(),
+        )
+    except OSError:
+        proc = None
+    if proc is not None and proc.returncode == 0:
+        printed = set(proc.stdout.decode("ascii", "replace").split())
+        for commit in commits:
+            index.settled[commit] = commit not in printed
+        return
+    for commit in commits:
+        try:
+            ctx.git.run(ctx.repo, "merge-base", "--is-ancestor", commit, ref)
+            index.settled[commit] = True
+        except (subprocess.CalledProcessError, OSError):
+            index.settled[commit] = False
 
 
 def _from_table(ref: str, heads: dict[str, str],
@@ -431,6 +645,27 @@ def _rename_map(ctx: Context) -> dict[str, str]:
     to touch the old name. Measured directly, since the pathspec version looked
     obviously correct and silently found nothing on a repository where the
     rename was two commits old.
+
+    `-M` IS PASSED, since 2026-09-16, because `git log --name-status` detects
+    renames only when the repository's `diff.renames` says so, and asked
+    without it this map was empty on any project that set that to false -
+    no hint, no note, and nothing to say the hint had been possible. Found
+    when a corpus identity gate showed 0 outputs changing where a count had
+    predicted 2: every one of the 152 visible corpus clones carries
+    `diff.renames=false`, written by the clone script, so on that corpus the
+    hint had never once fired. The environment this process starts with
+    already frees the answer from `core.quotePath`; this frees it from
+    `diff.renames`. It costs nothing where detection was already on, and a
+    partial clone fails the same way with or without it - rename detection
+    reads blob content, lazy fetching is refused, and the failure lands in
+    the `except` below as it always did.
+
+    `-n 200` bounds the COMMITS walked, not the renames found - on this
+    repository every rename sits inside the last 200 of 355 commits. Raising
+    it was measured and refused on 2026-09-16: of 501 dead link and pointer
+    findings on the nine full clones, 2 name a target renamed beyond the
+    window, and one of those would have been hinted WRONGLY, a vendored
+    README's `CONTRIBUTING.md` matched to this repository's own moved file.
     """
     key = str(ctx.repo)
     if key in ctx.run.renames:
@@ -438,7 +673,7 @@ def _rename_map(ctx: Context) -> dict[str, str]:
     mapping: dict[str, str] = {}
     try:
         out = ctx.git.run(ctx.repo, "log", "--diff-filter=R", "--name-status",
-                          "--format=", "-n", "200")
+                          "--format=", "-n", "200", "-M")
     except (subprocess.CalledProcessError, OSError):
         out = ""
     for line in out.splitlines():
@@ -513,7 +748,7 @@ def tracked_markdown(ctx: Context) -> list[str]:
     # checked, and returning [] on error is precisely how one is produced.
     out = ctx.git.run(ctx.repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")
     files = sorted(p for p in out.split("\0")
-                   if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))
+                   if p.strip() and p.rsplit(".", 1)[-1] in DOCUMENT_SUFFIXES)
     if ctx.run.dircache is not None:
         ctx.run.tracked_markdown[key] = files
     return files

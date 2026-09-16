@@ -56,15 +56,21 @@
 #                 expires the reflog. Nothing is attached to gc, so in
 #                 practice the breakage surfaces on the next fresh clone.
 #
-# Two things follow, and neither is built here because neither is measured:
-# a rule asking whether a cited commit is still REACHABLE would catch the
-# rebase case at the moment it happens; and git feeds this hook
-# `<old-sha> <new-sha>` pairs on stdin, byte-for-byte the commit-map format
-# `--sha-map` already parses, which is the only record a rebase leaves. The
-# hook currently drains those pairs and discards them. Persisting them would
-# let a finding name the replacement after a rebase the way it already does
-# after filter-repo. Measure how often a rebase is the cause before building
-# either.
+# Two things followed from that, and one of them is built now. A rule asking
+# whether a cited commit is still REACHABLE would catch the rebase case at
+# the moment it happens, and is still not built, because it is not measured.
+# The other: git feeds this hook `<old-sha> <new-sha>` pairs on stdin,
+# byte-for-byte the commit-map format `--sha-map` already parses, which is
+# the only record a rebase leaves - and since 2026-09-15 the hook KEEPS them,
+# in `extant/rewrites` under the shared git directory, before it does
+# anything slow. `dead-sha`'s hint and `--sha-map` read that journal beside
+# the filter-repo map, through one reader, so a rebase is explained the way
+# a filter-repo already was. The population is stated rather than measured,
+# because no clone can show it: the journal exists only on the machine that
+# rewrote, and the finding it explains appears there only once the reflog
+# expires - so the hook also SAYS, at the one moment the repair is cheap,
+# which tracked documents cite a commit this rewrite renamed, and names the
+# repair without making it. Check, never author.
 
 set -u
 
@@ -244,9 +250,6 @@ if [ "${1:-}" = "--after-rewrite" ]; then
     REWRITE_KIND="${2:-}"
 fi
 
-# post-commit already reported this one. See the header.
-[ "$AFTER_REWRITE" -eq 1 ] && [ "$REWRITE_KIND" = "amend" ] && exit 0
-
 # Three answers from ONE git process. This hook runs on every commit, and two
 # of the three calls this batching removes are a process each, for information
 # git will hand over all at once. Split with the shell's own word splitting
@@ -288,6 +291,38 @@ GIT_DIR_PATH=$1
 TOPLEVEL=$2
 COMMON_DIR=$3
 MAIN_TREE=$(dirname "$COMMON_DIR")
+
+# THE JOURNAL, written first. Git hands post-rewrite one `<old> <new>
+# [extra-info]` line per rewritten commit on stdin, and nothing else ever
+# learns those pairs. They are appended to the journal as the two ids, in
+# the commit-map's own spelling, BEFORE the guards, the interpreter search
+# and the check below - stdin is read at the speed of the shell, so a long
+# rebase never fills the pipe the installer's shim used to drain into
+# /dev/null. Beside the filter-repo commit-map under the shared git
+# directory, because a rewrite belongs to the repository and a linked
+# worktree shares it. An amend is journaled too, even though the check
+# below declines it: the check is what post-commit already ran, and the
+# renamed id is a fact only this hook is told.
+#
+# A 7-character prefix of each old id goes to a probe file for the `git
+# grep` further down - one process however many commits were rewritten,
+# where one `-e` per pair would overrun a 32 KB command line on Windows at
+# a few hundred. Removed on every exit; the journal is the record.
+JOURNAL=""
+PROBE=""
+REWRITTEN=0
+if [ "$AFTER_REWRITE" -eq 1 ]; then
+    JOURNAL="$COMMON_DIR/extant/rewrites"
+    PROBE="$COMMON_DIR/extant/cited.$$"
+    mkdir -p "$COMMON_DIR/extant" 2>/dev/null
+    trap 'rm -f "$PROBE"' EXIT
+    while read -r _old _new _rest || [ -n "$_old" ]; do
+        [ -n "$_old" ] && [ -n "$_new" ] || continue
+        printf '%s %s\n' "$_old" "$_new" >> "$JOURNAL"
+        printf '%.7s\n' "$_old" >> "$PROBE"
+        REWRITTEN=$((REWRITTEN + 1))
+    done
+fi
 
 # Never disturb an in-progress operation. A rebase or cherry-pick commits
 # repeatedly and would fire this on every step; MERGE_HEAD means a merge is
@@ -344,6 +379,34 @@ DOC="$TOPLEVEL/$DOC_NAME"
 
 # A checkout predating the tool is a legitimate silent skip.
 [ -f "$TOOL" ] || exit 0
+
+# WHICH TRACKED DOCUMENTS CITE A COMMIT THIS REWRITE RENAMED. After a local
+# rebase the old ids still resolve through the reflog, so the check below
+# finds nothing - while every clone and every CI run already sees them dead.
+# This is the one moment the repair is cheap, and the only place that knows
+# it: one `git grep` over the journal's prefixes, across every document the
+# sweep reads, and a line naming the repair. Not made - `--sha-map` stays
+# the explicit opt-in that rewrites prose - and silent when nothing cites a
+# renamed commit, which is the ordinary rebase.
+if [ "$REWRITTEN" -gt 0 ] && [ -s "$PROBE" ]; then
+    CITED=$(git -C "$TOPLEVEL" grep -l -I -F -f "$PROBE" -- \
+                '*.md' '*.markdown' '*.mdx' '*.rst' 2>/dev/null)
+    if [ -n "$CITED" ]; then
+        _oldifs=$IFS
+        IFS='
+'
+        # shellcheck disable=SC2086
+        set -- $CITED
+        IFS=$_oldifs
+        echo "[extant] $REWRITTEN commit(s) rewritten; documents citing them: $*"
+        echo "[extant]   the old ids still resolve here, through the reflog, and nowhere else"
+        echo "[extant]   repair: \"${PY:-python}\" tools/extant_collect.py --verify --sha-map \"$JOURNAL\""
+    fi
+fi
+
+# post-commit already reported this one. See the header. After the journal
+# and the note above, because both are facts only this hook is told.
+[ "$AFTER_REWRITE" -eq 1 ] && [ "$REWRITE_KIND" = "amend" ] && exit 0
 
 # A missing DOCUMENT is only legitimately silent when nothing claimed one exists.
 # If .extant.toml names it, its absence means this commit went unvalidated, and

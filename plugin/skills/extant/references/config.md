@@ -156,7 +156,7 @@ Each was measured against one project's real prose. See `porting.md`.
 | `todo_markers` | `TODO`/`FIXME`/`XXX`. |
 | `code_suffixes` | Extensions scanned for TODOs. Excludes docs deliberately - a spec discussing TODO is not a TODO. |
 | `todo_exclude_files` / `todo_exclude_dirs` | Paths exempt from the TODO scan, so the tool does not report its own source. |
-| `exclude_paths` | Documents `--sweep` should not read at all. Empty by default. See below - this is the one setting that can make a repository look clean by not looking at it. |
+| `exclude_paths` | Documents `--sweep` and `--introduced-since` should not read at all. Empty by default. See below - this is the one setting that can make a repository look clean by not looking at it. |
 
 ### `exclude_paths`
 

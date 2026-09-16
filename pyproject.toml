@@ -68,3 +68,29 @@ py-modules = ["extant_collect"]
 # assembling an empty RULES - but it would only be loud for the pre-commit
 # path, which is the one path nobody runs locally.
 packages = ["extant", "extant.rules"]
+
+# The SUITE's own denominator, and nothing the tool reads. Measured on
+# 2026-09-15 with every process the suite and the harnesses spawn instrumented:
+# 95.9 per cent of the package's statements, with gate.py at 97.2 and cli.py at
+# 98.8 - against 56.6 and 68.1 when the suite's own `run_tool` subprocesses go
+# unmeasured, which is what a plain `pytest --cov` reports and what the
+# internals review took for untested exit-code logic. The instructions that
+# reproduce the number are in tests/harnesses/README.md; the package is named
+# rather than pathed so the arena copies the harnesses install as `tools/extant`
+# count too, and `[tool.coverage.paths]` folds them back onto these files.
+# Never a gate: a denominator is printed, not failed on.
+[tool.coverage.run]
+source_pkgs = ["extant"]
+parallel = true
+concurrency = ["multiprocessing", "thread"]
+
+[tool.coverage.paths]
+extant = [
+    "plugin/skills/extant/payload/extant",
+    "*/tools/extant",
+    "*/payload/extant",
+]
+
+[tool.coverage.report]
+show_missing = true
+precision = 1

@@ -18,7 +18,8 @@ latin-1 or Shift-JIS commit subject written before an `encoding` header was
 routine - emits these bytes from `git log`, and sweeping other people's
 repositories is the job.
 
-`extant/sweep.py`'s `_document_at` had already diagnosed exactly this and
+`extant/sweep.py`'s `_document_at` - `extant/deleted_since.py`'s since the
+mode moved - had already diagnosed exactly this and
 worked around it locally. What it could not do from where it sits is fix the
 module every rule asks its questions through.
 """

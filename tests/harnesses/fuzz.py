@@ -261,6 +261,14 @@ MODES = [
     ["--sweep", "--format=github"],
     ["--selftest"],
     ["--deleted-since", "HEAD"],
+    # THE SURVEY THAT GATES, added the day it was written rather than found
+    # missing later: every mode outside this list is a crash this harness
+    # cannot see. `HEAD~1` is the `initial` commit of every generated
+    # repository, so the whole status document is `+` lines and the gate
+    # path runs everywhere; on the shallow and empty states the ref does not
+    # resolve and the refusal path runs instead - which is the shape a
+    # depth-limited CI checkout produces, and worth fuzzing on its own.
+    ["--introduced-since", "HEAD~1"],
     # THE FORMAT AXIS ON THE GATING MODES. It was bolted only to `--sweep`, so
     # the FORMATS and DENOM-AGREE properties had never once seen the output of
     # a run that GATES - and `--validate --format=sarif` had never been
@@ -336,7 +344,8 @@ STDIN_MODES = ("--check-text",)
 # is a harness fault rather than a pass: `_rule_counts` returning nothing makes
 # the DENOMINATOR check iterate nothing and succeed, so a tool that stopped
 # reporting its denominator would read exactly like a tool with clean counts.
-MODES_WITH_DENOMINATOR = ("--sweep", "--verify", "--validate")
+MODES_WITH_DENOMINATOR = ("--sweep", "--verify", "--validate",
+                          "--introduced-since")
 
 # How many of the 13 rules a run must see EXAMINE something before its result
 # means anything. Measured, not guessed: seed 20260824 at 35 repositories
@@ -1721,7 +1730,7 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     # pass for any mode, so a run that printed findings and exited 0 would have
     # gone unremarked. Gating modes only: `--sweep` surveys and reports without
     # gating, which is its documented job.
-    if mode[0] in ("--validate", "--verify") and not refused:
+    if mode[0] in ("--validate", "--verify", "--introduced-since") and not refused:
         printed = _findings_printed(out, mode, first.stdout or "")
         if printed and first.returncode == 0:
             faults.append(("EXIT", f"{' '.join(mode)}: findings printed and "

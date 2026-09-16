@@ -37,7 +37,7 @@ session was told to read end to end.
 
 | File | Role |
 |---|---|
-| `tools/extant_collect.py` | Collector + validator. Modes: `--sweep`, `--validate`, `--verify`, `--deleted-since`, `--search`, `--collect`, `--archive`, `--selftest`. Counted from the parser, never written out here: this line said "Six modes" while listing six and omitting `--search`. |
+| `tools/extant_collect.py` | Collector + validator. Modes: `--sweep`, `--validate`, `--verify`, `--introduced-since`, `--deleted-since`, `--check-text`, `--search`, `--collect`, `--archive`, `--selftest`. Counted from the parser, never written out here: this line said "Six modes" while listing six and omitting `--search`. |
 | `tools/extant/` | The package the shim delegates to. `config.py` holds all project-specific values and reads `.extant.toml`; the rest is the collector split into modules. Installed as a directory, so a new module needs no entry here. |
 | `tools/hooks/extant-verify` | Re-checks the document after every commit and merge |
 | `tools/hooks/main-tree-guard` | OPT-IN pre-commit guard, wired only by `sh tools/hooks/install --with-trunk-guard`. Refuses a commit in the main working tree while it is off trunk. The ONLY component that can block anything, so never enable it on a user's behalf. |
@@ -61,6 +61,19 @@ dates are the forbidden class for a rule, which is exactly why a measurement
 written into prose needs the date that makes its staleness visible to a
 reader. Promoting a file into `extra_docs` is what turns a
 survey into a gate, and is the intended adoption path.
+
+`--introduced-since REF` is the gate that needs no configuration: it reads
+the documents this checkout changed since it forked from REF and fails only
+on the findings that sit on lines the change added or edited. Nothing is
+named, pinned or baselined - the diff is the ratchet. It computes the merge
+base itself, so pass the base branch (`main`) in CI; a ref it cannot resolve
+is a refusal with exit 2, never a pass that examined nothing. Findings on
+older lines of the same documents are counted and set aside, tracked
+documents outside the range are counted as unread, and the two
+repository-wide rules do not run, because their findings sit at a line
+nothing wrote. It gates on claims a change WROTE, not on claims it broke
+without touching - a pure rename, a heading removed under another document's
+anchor - which `--verify` and `--sweep` report.
 
 `--deleted-since REF` reports claims that were present at REF, are still
 false today, and are no longer written down anywhere. It ALWAYS exits 0.
@@ -97,7 +110,7 @@ requires `--as-path`, since SARIF locates results by URI. Nothing on stdin is
 an error, not an empty document: a pipe that delivers nothing would otherwise
 report every rule clean.
 
-`--validate`, `--verify`, `--sweep` and `--deleted-since` take `--format=text` (default), `--format=github`
+`--validate`, `--verify`, `--sweep`, `--introduced-since` and `--deleted-since` take `--format=text` (default), `--format=github`
 for Actions annotations, or `--format=sarif`. SARIF puts nothing but JSON on
 stdout; every human diagnostic moves to stderr.
 
@@ -129,7 +142,11 @@ the replacement from it automatically, and `--sha-map <path>` applies the
 substitution across a document. That is the one place this tool rewrites prose,
 so it is opt-in: the new value comes from a file git wrote rather than from
 anything inferred, and a prefix two old commits share is left alone rather than
-guessed at.
+guessed at. A rebase or an amend leaves no map, but the installed
+`post-rewrite` hook keeps the pairs git hands it in `.git/extant/rewrites`,
+read beside the map and accepted by `--sha-map`; after a local rebase the old
+ids still resolve through the reflog, so the hook says which tracked documents
+cite a renamed commit and names the repair, at the moment it is cheap.
 
 **Adopting on an old repository.** `--write-baseline` records every current
 finding once; `--baseline` then checks only NEW claims. Use it when the first

@@ -125,10 +125,10 @@ def set_document(**changes: object) -> None:
 def document() -> DocScope:
     """The document currently installed.
 
-    A reader, so that `--sweep` and `--deleted-since` can save one and put it
-    back without naming this module's global. Both of them replace the document
-    per file and both have to restore it on the failing path; see `run_sweep`
-    for the bug that taught them to.
+    A reader, so that `--sweep`, `--deleted-since` and `--introduced-since` can
+    save one and put it back without naming this module's global. All three
+    replace the document per file and all three have to restore it on the
+    failing path; see `run_sweep` for the bug that taught them to.
     """
     return _DOC
 
@@ -302,7 +302,9 @@ def context(repo: Path) -> Context:
     return Context(config=_ACTIVE, run=_SCOPE, doc=_DOC, repo=repo, git=_GIT)
 
 
-def count_examined(repo: Path, text: str) -> dict[str, int]:
+def count_examined(repo: Path, text: str,
+                   applies: Callable[[Rule], bool] | None = None,
+                   ) -> dict[str, int]:
     """Per-rule denominators. See extant.registry.count_examined.
 
     A fold over the registry now, rather than one dict of thirteen entries
@@ -310,8 +312,12 @@ def count_examined(repo: Path, text: str) -> dict[str, int]:
     rule removes the opportunity, because the module that finds a rule's
     candidates is the module that counts them and the two can no longer
     describe different populations.
+
+    `applies` names the rules that read this document, so a caller that
+    will print only some of the counts does not pay for the rest; the
+    registry says what it costs to. Left None, every rule is counted.
     """
-    return _registry.count_examined(context(repo), text)
+    return _registry.count_examined(context(repo), text, applies)
 
 
 def report_rule_errors(emit, mark: int = 0) -> int:

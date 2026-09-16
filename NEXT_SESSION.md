@@ -6,6 +6,663 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 46 - Five correctness items counted, four changes made (unreleased, 2026-09-16)
+
+**Status.** Suite is 1,300 tests across 72 files: 1,297 passing and 3
+skipped, 13 added across `tests/test_config_discovery.py` (new),
+`tests/test_ref_resolution.py`, `tests/test_added_rules.py` and
+`tests/test_caching.py`. Thirteen rules; no mode added; no default or exit
+code moved; one NOTE removed with its condition. The tool remained released
+as 0.26.1 and this work sits above that tag with Phases 36 to 45,
+unreleased. Mutation campaign is 268 anchors: six written here and three
+retargeted on the patch generator's and the rename walk's changed lines,
+each applied to a copy and watched turning the suite red - 9 of 9 killed
+across two campaigns, none survived, none unapplied. The 152 visible
+corpus clones were swept before and after, twice: the first run showed 0
+outputs changed where a count had predicted 2, which is how the
+`diff.renames` finding below was made, and the second, after the fix,
+showed 152 compared and exactly those 2 differing - ruff's mdtest sibling
+and moby's vendored otel changelog, each gaining precisely the rename hint
+the count said it would. The rest of the pre-push list ran against a
+working-tree extract: smoke green with 45 checks; scenarios green, 25
+scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories,
+13 of 13 rules reached, no fault; `--self-check` with 21 of 21 properties
+going red, after one of the fuzzer's own breakage anchors - PROCESS, on
+the blanking memo's hit condition - was retargeted; `--verify` clean and
+`--selftest` with 7 fired and 0 silent.
+
+**What it is.** The review's section 6, measured together because each item
+ends in a number, then implemented where the number admitted it. 6.1: the
+blanking memo's key omitted the document format, a latent bug six files
+recorded; counted at 0 of 868,986 memo hits over the 152 visible clones and
+fixed regardless, the two workaround clears in the tests gone. 6.3: the
+rename map's `-n 200` bounds commits walked, not rename commits; on the
+nine autopsy clones 501 dead link and pointer findings carry 0 hints, 497
+were renamed nowhere, 2 beyond the window - refused on that number - and 2
+inside it but missed because the hint was looked up under the target as
+written; fixed through one resolver (`sites.reference_path`,
+`sites.relative_spelling`) that both link rules and `--suggest-fixes` read,
+which also stopped the patch splicing a repository-relative path into a
+document-relative link. The gate then found the third cause of the zero:
+the map is asked of `git log --name-status`, whose rename detection follows
+the repository's `diff.renames`, and every visible clone sets it to false;
+`_rename_map` passes `-M` now, at no cost where detection was already on. 6.4: 23 names in 7 clones are both a branch and a
+tag, so `branch_exists` answers from the ref table's heads and asks git for
+a remote-tracking branch only when the name is a tag; a tag alone is no
+longer a branch to `unknown-branch` or `stale-live-claim`. 6.5: 652,705
+URL-shaped destinations, 0 a tracked file - the `EXTERNAL` list stands and
+the index-first reordering is refused. 6.6: 0 of 152 clones carry either
+kind of configuration, so the rule is decided by semantics - `main()` reads
+settings from `--repo` the way `cli()` did, the NOTE that reported the
+difference is gone, and `--config`, `--config-from-script` and
+`[tool.extant]` are refused for want of a population. The full record is
+the section "Five correctness items, counted; four changes, and what the
+counts refused" in the design rationale under the skill's references; the
+apparatus is `m9_probes.py`, `m9_stripped.py` and `m9_stripped_one.py` in
+the extant-hardening checkout, outputs under `D:/repo/out-correctness/`.
+
+**What this leaves owed.** Everything Phase 45 left. New: the review's
+4.10, 4.5, 6.2's closure note and 4.2's NOTE line, which were named as the
+rest of a probe tranche and not taken here; and the memory note that said
+the shim ignores the target repository's configuration, which stopped being
+true this phase.
+
+## Phase 45 - The post-rewrite journal, and a declared stratum refused (unreleased, 2026-09-15)
+
+**Status.** Suite is 1,287 tests across 71 files: 1,284 passing and 3
+skipped, 14 added in `tests/test_rewrite_map.py` and `tests/test_hooks.py`.
+Thirteen rules; no mode added; no default or exit code moved; no verdict
+moved on any clone, because the record this phase adds exists only on the
+machine that rewrote. The tool remained released as 0.26.1 and this work
+sits above that tag with Phases 36 to 44, unreleased. Mutation campaign is
+262 anchors, six written here and the first this project has had on the
+verify hook or the rewrite-map reader, each applied to a copy and watched
+turning the suite red - 6 of 6 killed, none survived, none unapplied, in 57
+minutes. The 152 visible corpus clones swept before and after: 152
+compared, 0 differ, as the record's location predicts. The rest of the
+pre-push list ran against a working-tree extract: smoke green with 45
+checks; scenarios green, 25 scenarios and 213 assertions; fuzz at seed
+20260824 over 35 repositories, 13 of 13 rules reached, no fault;
+`--self-check` with 21 of 21 properties going red; `--verify` clean and
+`--selftest` with 7 fired and 0 silent.
+
+**What it is.** The review's last line, taken one item at a time. 4.7,
+built: git writes one `<old> <new>` pair per rewritten commit to the
+`post-rewrite` hook's stdin and to nothing else, and the installed shim
+drained them into `/dev/null`. The hook keeps them now in
+`.git/extant/rewrites`, the commit-map's own spelling beside it, before it
+does anything slow; `rewrite_hint` and `--sha-map` read both records
+through the one lookup they share, follow a chain of rewrites to its end,
+offer nothing for an id the two records dispute, and tolerate git's third
+field. After a local rebase the old ids still resolve through the reflog,
+so the hook also prints - once, only when a tracked document cites a
+renamed commit - which documents and what repair, and makes none. The
+population is stated, not measured: 0 of 7,418 dead-SHA findings across the
+152 visible clones carry a hint and a journal cannot change that on a
+clone; the gate is the fixture, git firing the installed hook on a real
+rebase, the reflog expired, the finding naming the rebased id. 4.6,
+refused: over the same clones 17 of 65,360 findings would leave `ordinary`
+under a declared `linguist-vendored` or `linguist-generated`, in three
+repositories, and 5 would enter it where bazel declares paths not
+generated; 12,326 of the 12,697 attributed documents carry only
+`linguist-documentation`, which names no stratum. The full record is the
+two sections "The post-rewrite journal: the record a rebase leaves, kept"
+and "A declared stratum, measured and refused" in the design rationale
+under the skill's references; the apparatus is `m8_attributes.py` in the
+extant-hardening checkout, output under `D:/repo/out-attributes/`.
+
+**What this leaves owed.** Everything Phase 44 left. New: 8.2, the agent
+surfaces, not designed - the `PostToolUse` hook is one file in a plugin that
+ships no hooks today, and the review's real probe is an agent pilot that
+needs a person; a re-run of `tools/hooks/install` on every existing install
+before its post-rewrite shim feeds the journal; and the reachability rule
+the hook's header still names as the other thing that would catch a rebase
+at the moment it happens, still unmeasured.
+
+## Phase 44 - One document scan, measured and refused; its bar all but met without it (unreleased, 2026-09-15)
+
+**Status.** Suite is 1,273 tests across 71 files: 1,270 passing and 3
+skipped, 36 added in `tests/test_unread_work.py`, `tests/test_prefilters.py`
+and `tests/test_caching.py`. Thirteen rules; no mode added; no default or
+exit code moved; no verdict moved - the 152 visible corpus clones swept
+before and after through the shipped payload, byte for byte, 152 compared
+and 0 differing. The tool remained released as 0.26.1 and this work sits
+above that tag with Phases 36 to 43, unreleased. Mutation campaign is 256
+anchors: ten written and one retargeted, each applied to a copy and
+watched turning the suite red - 12 of 12 killed, a Phase 39 anchor pulled
+in by a label prefix among them, none survived, none unapplied, in 64
+minutes. Sequential in-process sweep of ruff 5.75 s -> 3.65 s and of
+next.js 7.52 s -> 6.36 s, medians of three on the shipped code. The rest
+of the pre-push list ran against a working-tree extract: smoke green with
+45 checks; scenarios green, 25 scenarios and 213 assertions; fuzz at seed
+20260824 over 35 repositories, 13 of 13 rules reached, no fault;
+`--self-check` with 21 of 21 properties going red, after three of the
+fuzzer's own breakage anchors - CRASH, HANG and MODE-AGREE, all naming the
+`count_examined` signature or call this phase changed - were retargeted,
+which `mutate.py --check-only` cannot see and only that step does;
+`--verify` clean and `--selftest` with 7 fired and 0 silent.
+
+**What it is.** Item seven's second half in the review's order, 3.1: one
+tokenizer pass per document feeding every rule from a span table, then
+extract every claim first and resolve once per repository; identical
+findings and a sequential ruff sweep under 3.5 s as its own bar. Measured
+with a clock around every scanner rather than a profiler, exclusive of
+anything a scanner calls that is itself timed: the rule-owned scans are
+3.23 s of a 5.87 s sweep, above the 2.4 s the bar needs - but a shared
+pass removes only the second walk `examined` makes over what `check` read
+(0.45 s across every scanner called twice) and the per-pass line loops
+(275 ms across nine), 0.7 s of the 2.4; the resolve-once half is already
+there at two `cat-file` spawns per 650 documents; and the rewrite would
+retarget 39 of 246 anchors. Refused on that number, the way 3.3 was.
+
+**What the clock found instead, and what shipped.** Four changes, none a
+span table, each prototyped at runtime over the untouched payload and
+swept byte-identically before it was written: `dead-md-anchor` slugs a
+document's own headings on demand - 0.84 s, 14%, read by 11 of ruff's 650
+documents (`own_anchors`, the closure `ambient_anchors` already was);
+`--sweep` no longer computes the denominators it discards - `count_examined`
+takes the predicate as `applies`, the sweep hands it the `functools.partial`
+of `rule_applies` it filters with, a skipped rule is present at 0, `--verify`
+passes nothing (0.63 s, 11%); the backticked-SHA scan and the path-pointer
+scan skip a line missing a character every match must contain, the first
+by reading its two fixed patterns and the second through `required_literals`
+in `text.py`, the companion of `leading_literals`, which derives the
+character from the configured pattern and yields nothing for a top-level
+alternation, a quantified or grouped literal, a letter under `IGNORECASE`
+or any `VERBOSE` pattern (0.32 s and 0.54 s); and `link_sites` and the
+release-claim scan keep the identity memo the SHA and merge scans keep,
+format and pattern in the key, `_fragment_sites` left alone because it
+reads the disk and its second walk is 0.057 s. Recorded, not changed: the
+rename map's one `log --diff-filter=R` spawn is 1.3 s of ruff's sweep and
+3.5 s of next.js's on a `blob:none` clone, beside item 6.3. The full
+record is the section "One document scan, measured and refused; its bar
+all but met without it" in the design rationale under the skill's
+references; the apparatus is `m7_scanners.py`, `m7_overhead.py`,
+`m7_variants.py`, `m7_identity.py` and `m7_sweep_one.py` in the
+extant-hardening checkout, outputs under `D:/repo/out-identity44/`.
+
+**What this leaves owed.** Everything Phase 43 left. New: the `_fragment_sites`
+second walk, if anyone wants 0.057 s for a memo with a lifetime; the
+rename-map spawn's cost on a partial clone; and `mutate.py --only` matching
+a label by prefix, so a label that is the start of another runs both. Next
+in the review's order: 4.7 the `post-rewrite` journal, 4.6 the
+`.gitattributes` stratum, 8.2 the agent surfaces - independent of each
+other and of everything above.
+
+## Phase 43 - A path index, measured and refused (unreleased, 2026-09-15)
+
+**Status.** Suite is 1,237 tests across 70 files: 1,234 passing and 3
+skipped, unchanged by this phase, which changed no code. Thirteen rules;
+no mode added; no verdict moved. What changed is the record: a design.md
+section, a CHANGELOG paragraph, this entry. The tool remained released as
+0.26.1 and this work sits above that tag with Phases 36 to 42, unreleased.
+The mutation campaign is 246 anchors, unchanged; nothing was run against
+an extract because nothing under the payload changed, and `--verify` is
+clean on the records.
+
+**What it is.** Item seven of the review's order, 3.3: answer every link
+and path pointer from one `ls-tree -r HEAD` set instead of the filesystem
+walk, on the premise that the walk is what the sweep's inner loop pays.
+Measured first, the premise is wrong by two orders of magnitude: on ruff
+the walk costs 0.02 s of a 5.9 s sweep (455 calls, 164 listings), on
+next.js 0.09 s of 9.0, on kubernetes/website 0.46 s of 129; the 27% Phase
+39 gave the link rule is the link scan and the slugging, not the walk. Two
+prototypes stood in for it on ruff - index-first with the walk on a miss,
+index-only with a case-folded map - and swept byte-identically at 5.91 s
+and 5.83 s against 5.90. Refused as a performance change on those numbers.
+
+**The verdict half, counted where it could be.** Every reference the rules
+resolved across the 152 visible clones, the 43 held-out rows untouched:
+115,364 distinct, 49,840 resolved, 27,710 dead. Resolved and absent from
+HEAD's tree: 0 of 49,840 - the review's deciding count, and it decides
+nothing, because every clone is pristine and cannot hold the build output
+the review's cost is about. Settled instead: 1,175 resolved targets are
+directories, all implied by tracked files; 33 dead references are case
+mismatches against a tracked file; 0 go through a symlink or into a
+submodule; index and HEAD never disagree. And found: 1,022 dead references
+in 28 repositories name gitignored paths - generated documentation, dead
+in any fresh clone and resolving wherever the docs were built - the one
+real case for an authoritative index, as a verdict change. Not made: it
+would also turn a staged, uncommitted target dead at pre-commit time
+unless the index were HEAD plus `ls-files`, and none of it can be counted
+on pristine clones. The full record is the section "A path index, measured
+and refused" in the design rationale under the skill's references.
+
+**What this leaves owed.** Everything Phases 40 to 42 left. New: the
+authoritative-index proposal with its named population - repositories
+with a docs build, measured on a checkout that has run it - if anyone
+wants the 1,022 machine-dependent verdicts made deterministic. Next in the
+review's order is 3.1, the single scan, whose premise is the same inner
+loop and whose measurement starts from the profile this phase took.
+
+## Phase 42 - The suite's denominator, and the thirteen exit paths it had never run (unreleased, 2026-09-15)
+
+**Status.** Suite is 1,237 tests across 70 files: 1,234 passing and 3
+skipped. Thirteen rules, unchanged; no mode added; no default or exit code
+moved; no line of the payload changed except that none needed to - every
+change here is a test, a record or a dev-side configuration. New:
+`tests/test_unreached_exits.py` and the coverage hook under
+`tests/harnesses/coverage_hook/`; `coverage>=7` in `requirements-dev.txt`
+and `[tool.coverage]` tables in `pyproject.toml`. The tool remained
+released as 0.26.1 and this work sits above that tag with Phases 36 to 41,
+unreleased. Mutation campaign is 246 anchors: six written against the exit
+paths the measurement found, each applied to a copy and watched turning the
+suite red - 6 of 6 killed on a copy, none survived, none unapplied, in 56
+minutes. The rest of the pre-push list ran against a working-tree extract:
+smoke and scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories, 13 of 13 rules reached, no fault; `--self-check` with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7 fired and 0 silent..
+
+**What it is.** Item six of the review's order, 9.2, and the first tranche
+whose deliverable is a measurement rather than a change to the tool. The
+review said the suite had no denominator of its own, put gate.py at 54 per
+cent and cli.py at 66 under pytest, and reasoned that the three harnesses
+drive those paths as subprocesses coverage cannot see. Measured with every
+spawned process instrumented, the unknown was the suite's own subprocesses:
+most of the tests that drive a mode run the tool the way a hook does, and a
+plain `pytest --cov` sees none of them. Suite alone, gate.py 95.2 and cli.py
+90.4; the harnesses add one line and two. Reproduced the review's column to
+within two points on every module it named by measuring the same way it
+did. The full record - the table, the 205 unreached statements read one by
+one, the branch figures, and the two artefacts of measuring - is the
+section "The suite's own denominator, and the number the review could not
+see" in the design rationale under the skill's references, and the
+reproducible command is in `tests/harnesses/README.md`.
+
+**What the 205 held, and what was done about it.** The console-script
+entry `cli()` - the pip, pipx and pre-commit path, the one route that reads
+the checked-out repository's own settings - executed by nothing. Both
+refusals of `--introduced-since` that exit 2. The line in each survey mode
+that carries a rule error out of a worker into `RULE_ERRORS`: never
+executed, and deleting it turns a rule that crashed inside a worker into a
+clean survey with exit 0. `--check-text` with no usable stdin and with an
+unreadable baseline. `--selftest` on a primary document that is not UTF-8.
+The unresolvable-ref fallback in `reachable_from`, unreachable from every
+rule by construction. Thirteen tests, each naming the line it reaches;
+mutation anchors on the six that decide an exit code. After them: gate.py
+97.2, cli.py 98.8, the package 95.9 in union, 165 statements unreached -
+every one a degraded path, recorded and not tested. Branch coverage,
+measured once for the record: 92.3 per cent of 1,496 branches.
+
+**The audit changed the measurement's honesty in four places.** The
+"in-process" column still measured the survey's worker processes, and says
+so. A rule error inside a worker cannot be injected into a spawned worker,
+so the test pins the parent's handling of what a worker reports, which is
+the line that had never run. The diff refusal is reached for real through a
+`blob:none` clone and the Phase 38 guard; the `ls-tree` refusal has no real
+state and is injected, and the test says which. And 0.7 points from three
+harnesses is stated beside the sentence that stops it reading as a reason
+to delete them: coverage counts statements, not inputs.
+
+**What this leaves owed.** Everything Phases 40 and 41 left: the merge
+replay and the `diff-scoped` row, a `since` input on the action, the fuzz
+oracle for `+` lines, the rename hint inside `detail`, `--sweep`'s two
+notes, the commit-graph note, the per-worker and per-document index
+builds. New: the 165 degraded paths are a list, not a plan; `--check-text
+--suggest-fixes --as-path` emits a patch nothing has ever read. Next in the
+review's order is 3.3, the path index.
+
+## Phase 41 - The ancestry index is bounded, and the batch the review proposed was measured first (unreleased, 2026-09-15)
+
+**Status.** Suite is 1,224 tests across 69 files: 1,221 passing and 3
+skipped. Thirteen rules, unchanged; no mode added, no default or exit code
+moved, and no verdict changed anywhere it was measured. The payload changes
+in `plugin/skills/extant/payload/extant/refs.py` and the three rules that
+ask ancestry, `plugin/skills/extant/payload/extant/rules/merge.py`,
+`plugin/skills/extant/payload/extant/rules/live_claim.py` and
+`plugin/skills/extant/payload/extant/rules/release_tag.py`, plus the
+docstrings in `plugin/skills/extant/payload/extant/scope.py` and
+`plugin/skills/extant/payload/extant/git.py` that described the old shapes.
+The tool remained released as 0.26.1 and this work sits above that tag with
+Phases 36 to 40, unreleased. Mutation campaign is 240 anchors: five written
+against the new code, one retargeted from the prefix scan it named to the
+line that answers a miss on a complete index, and one whose text the
+refactor kept re-run to prove it still bites - 7 of 7 killed on a copy, none
+survived, none unapplied, in 14 minutes. The rest of the pre-push list ran
+against a working-tree extract: smoke and scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories, 13 of 13 rules reached, `--introduced-since` drawn twice, no fault; `--self-check` with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7 fired and 0 silent.
+
+**What it is.** Item five of the review's order, batch ancestry. The risk it
+named was real and the primitive it named was not. `_ancestor_index` ran
+`git rev-list <ref>` and held every reachable commit: on rust's 338,850
+commits, without a commit-graph, 10.6 s and 77 MB per integration ref per
+worker, and no clone of the 195 in the corpus has a commit-graph, nor does a
+fresh CI checkout. The review offered `rev-list --no-walk --stdin --not
+<ref>` as one spawn with output "proportional to the answer". On a fixture
+whose answer is known by construction it printed the exclusive history of
+its inputs: `--no-walk` has no effect beside `--not`, the call is a walk to
+the deepest input, and it costs 7.9 s on rust when one input is old and
+0.63 s when all fifty are recent. What shipped is a bounded index -
+`rev-list -n 50001`, full-SHA membership, a flag saying whether the history
+was cut - with that batch answering only past the bound, once per rule and
+ref, fed the full SHAs this run already resolved. 179 of 195 clones are under
+the bound and pay exactly what they paid before. The full record, with the
+cost table for six histories and the four representations that were
+measured for the index, is the section "The ancestry index is bounded, and
+a batch settles what lies past it" in the design rationale under the
+skill's references.
+
+**The audit changed four things before a line was written.** A SHA-shaped
+rev that no batch has seen resolves through `cat-file` like every other
+token rather than through the tag table, where a tag named like a prefix
+would answer for a commit. The index is a frozenset of the seam's own lines
+rather than the sorted 20-byte blob that was measured beside it, because
+the bound caps the memory and the blob's remaining 5 MB per ref per worker
+did not buy a custom binary search. The batch is fed and read as bytes,
+since text mode writes `\r\n` on Windows and the older `cat-file` batch has
+been relying on git tolerating that. And the review's commit-graph note was
+left out: its deciding gap is measured at 7.5x on the index and 27x on the
+batch, but the only deterministic trigger is a fact of the run scope, and
+the notes print after that scope closes. One more arrived from the suite
+itself: the batching call was named `prefetch_ancestry`, and the scan that
+keeps network verbs out of the operational source reads identifiers; it is
+`settle_ancestry`.
+
+**Measured before and after.** Twelve corpus repositories, 13,043 documents:
+4 ask an ancestry question at all, all release claims naming old tags; this
+repository asks forty times. Verdict identity: those twelve and this one
+swept three ways - the payload before the change, this payload at the
+default bound, this payload with the bound forced to one so every question
+goes through the batch - byte-identical, with the bound-one run issuing 3
+batches here, 1 in babel and 2 in kubernetes/website. On this repository
+`--verify` spawns exactly what it spawned before; only the `rev-list`
+argument list carries the bound.
+
+**What this leaves owed.** Everything Phase 40 left: the merge replay and
+the `diff-scoped` row, a `since` input on the action, the fuzz oracle for
+`+` lines, the rename hint inside `detail`, `--sweep`'s two notes. New: the
+commit-graph note with its measured gap, which needs the incomplete-index
+fact plumbed out of the run scope; each survey worker still builds its own
+index and `--verify` still rebuilds it per document, both bounded now,
+neither removed. Next in the review's order is 9.2, coverage of the
+harness-driven modes.
+
+## Phase 40 - A gate with no document to configure: `--introduced-since` (unreleased, 2026-09-14)
+
+**Status.** Suite is 1,206 tests across 68 files: 1,203
+passing and 3 skipped. Thirteen rules, unchanged; one mode
+added, `--introduced-since REF`, and no default or existing exit code moved.
+The payload gains one module,
+`plugin/skills/extant/payload/extant/introduced_since.py`, and four others
+change for it: the sweep module promotes `survey` and factors the exclusion
+and conflict block into `apply_exclusions` so the two survey-shaped modes
+share one implementation, the gate module factors the shallow and partial
+notes into `report_repository_notes`, the refs module names
+`DOCUMENT_SUFFIXES` so the diff's pathspecs and `tracked_markdown` read one
+tuple, and the command-line module wires the mode and refuses the five
+flags that suppress or rewrite. The tool
+remained released as 0.26.1 and this work sits above that tag with Phases
+36 to 39, unreleased. Mutation campaign is 235 anchors: eight written
+against the new module and three retargeted by the refactors, each applied
+to a copy and watched turning the suite red - 11 of 11 killed, none survived, none unapplied, in 61 minutes. The rest of the
+pre-push list ran against a working-tree extract: smoke and scenarios green; fuzz at seed 20260824 over 35 repositories, 13 of 13 rules reached, the new mode drawn twice in the rotation, no fault; `--self-check` with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7 fired and 0 silent.
+
+**What it is.** Item four of the review's order, the diff-scoped gate, and
+the first sweep-shaped mode that decides an exit code. The measured problem
+it answers is in CORPUS.md: a default install gates 7 of the 5,691 ordinary
+findings the survey sees, and every wider policy buys reach by pinning
+paths - 66 to 3,305 of them - that later move and become findings until
+somebody edits the configuration. This mode pins nothing. It sweeps the
+documents the working tree changed since its merge base with REF, keeps
+the findings that sit on lines the range added or edited, and fails on
+those. Findings on older lines of the same documents are counted and set
+aside, tracked documents outside the range are counted as unread, and the
+two repository-wide rules do not run, because their findings sit at a line
+nothing wrote. The full record - both ends of the range and the wrong
+alternative each was decided against, the byte-level read of the diff, the
+two document shapes that are named rather than mapped - is the section
+"`--introduced-since`: a gate with no document to configure" in the design
+rationale under the skill's references.
+
+**The audit changed five things before a line was written.** The diff is
+read as bytes outside the git seam, which translates a bare carriage return
+and would have cut a document line in two with the second half arriving as
+a hunk header - a seventh direct subprocess site, recorded in the ledger in
+`tests/test_scope.py` with its reason. Git's C-style path quoting is undone,
+and every shape a repository's diff configuration could change under the
+parser is pinned on the command line. The repository-scoped rules are
+skipped by name. The mode is in the fuzzer's mode list and its three
+ledgers, because a mode outside them is the blind spot that harness's own
+comment names. And the action is left as it is, its `mode` input taking
+`verify` or `sweep`, with the README wiring the mode as a plain step - the
+REF has nowhere to go in that input, and half-wiring it would be worse
+than saying so.
+
+**Measured before it was written, and where it could not be.** The bench,
+heldout, niche and agent tiers are all `blob:none` clones - `depth = "full"`
+in a manifest means full history - so a diff against an older tree there
+goes to the network for the old blobs, which the Phase 38 guard refuses.
+Only the autopsy tier holds blobs, and 9 of its 13 are visible rows at
+their bench pin. Recorded findings intersected with the lines the last N
+first-parent commits touched, over those nine and 2,810 findings: 2 at the
+last commit, 8 at ten, 24 at thirty, 40 at a hundred - every hit through
+thirty in `obra/superpowers`, the one agent-tooling project of the nine,
+and 37 of the 40 at a hundred ordinary, the other 3 vendored. Only one
+superpowers finding is in any adjudication file, so the precision of
+exactly this population is unmeasured. Two edge shapes were counted across
+the 114 visible corpus repositories and 78,878 tracked documents: 1 holds a
+bare carriage return, GDAL's `byte.rst` raster fixture, and 1 holds a NUL.
+On this checkout, the tranche's own edits: 6 changed documents, 829
+introduced lines, 0 findings on them, 29 set aside on older lines of the
+same documents; against `HEAD~3` the two example claims Phase 37 wrote into
+CHANGELOG.md and README.md gate, which is the contract holding.
+
+**What this leaves owed.** The replay the review asked for - a worktree at
+each of the last N merges, a sweep there, the findings on lines that merge
+added, adjudicated - is runnable offline on the same nine repositories and
+nowhere else without a deliberate retrieval of old blobs, and would produce
+the `diff-scoped` row for CORPUS.md's policy table. A `since` input on the
+action. A fuzz oracle asserting that every gated finding's line is a `+`
+line of the same diff, which the CRLF and encoding axes would exercise. The
+rename hint inside a `dead-path-pointer` finding's `detail`, carried from
+Phase 39. `--sweep` still prints neither the shallow nor the partial note;
+the helper that would give it both now exists in `gate.py`. Next in the
+review's order is 4.1, batch ancestry with `rev-list --no-walk --stdin`.
+
+## Phase 39 - Four hot spots re-measured without the profiler: two taken, one tidied, one refused (unreleased, 2026-09-14)
+
+**Status.** Suite is 1,176 tests across 67 files: 1,174 passing and 2
+skipped. Thirteen rules, unchanged - no rule, flag, default or suppression
+added, no exit code moved, and no finding moved: 87,189 documents across
+152 visible corpus repositories were digested before and after - both
+blanking flavours, the anchor set, the release, merge and pin lists - with
+no field differing. The payload changes in four modules under `payload/`:
+`text.py` gains the pre-filter, `commits.py` and `rules/release_tag.py`
+consult it, `rules/pinned_ref.py` asks its cheapest question first, and
+`anchors.py` compiles its slug patterns once. The tool remained released as
+0.26.1 and this work sits above that tag with Phases 36 to 38, unreleased.
+Mutation campaign is 227 anchors; the seven this phase added and the one it
+retargeted were each applied to a copy and watched turning the suite red,
+and every other gate on the pre-push list ran green against a working-tree
+extract - smoke, scenarios, fuzz with its self-check, `--verify` and
+`--selftest`.
+
+**What it is.** Item three of the review's order: four scan hot spots it
+had read off a cProfile of a sequential ruff sweep, projected as "the
+cheapest 2x available". Measured wall-clock on this machine before anything
+was designed, the sweep is 7.1-7.3 s and two of the review's premises do
+not hold: git is a fifth of the run rather than nothing, and cProfile
+overweights small-call-heavy code, so the blanking loop's reported cost was
+several times its real one. The full table, and what each item measured,
+is the section "Where a sweep's time goes, measured without the profiler"
+in the design rationale under the skill's references.
+
+**Two pre-filters taken, and what made them more than a substring test.**
+Both configurable scans open with a literal alternation a document must
+hold, and the words are rare - release words in 3.6% of 108,647 corpus
+documents, merge words in 2.9%, `rev:` in 0.1%. The words are DERIVED from
+the pattern, never assumed: a leading group of plain literals, refused for
+every shape where they are not necessary - a quantifier after the group, a
+top-level alternation later, a word boundary or inline flag first, a
+`\w+` inside - each of which is a test, so a configured pattern of another
+shape scans in full. Deriving them once onto the built configuration was
+the first design and would have been wrong, because tests replace a pattern
+in place. And `IGNORECASE` folds four characters onto ASCII letters that
+`lower()` does not - verified on the default pattern with a dotted capital
+I - so a text holding any of them is let through unread. `_pinned_refs`
+asks for `rev:` before the remote, and `tests/test_spawn_budget.py` now
+counts the documents holding a pin from the files - three of five - rather
+than assuming every document pays.
+
+**One tidied, one refused.** The slug patterns are compiled once: 892 ms to
+826 ms over ruff's anchors, identical results, a tidy-up rather than a
+performance item. The blanking rewrite is refused with three numbers: the
+review's region-based rewrite, made exact to the segmentation the loop
+uses, is 3x slower; an inlined-peel rewrite saves 110 ms for a second copy
+of the peel this project unified after the CRLF defect; a one-peel rewrite
+saves 50 ms inside the sweep's 180 ms run-to-run spread. Item 6.2 closes on
+a count instead of a change: 15 of 108,647 documents hold a line breaker
+one numbering honours and the other does not.
+
+**Measured: 7.34 s to 6.43 s, medians of four, 1.14x.** The review's 2x was
+a profiler artefact. What the same measurement found about Phase 38: every
+bench-tier clone is `blob:none`, and a sweep of ruff with the 0.26.1
+payload takes 11.1 s, 4.6 s of it one `cat-file --batch-check` asking
+GitHub for every hex token the documents hold that the clone does not -
+0.03 s with the guard. That is the mechanism behind Phase 25's "fewer
+findings each time as the object store warmed", named.
+
+**What this leaves owed.** The rename hint sits inside a `dead-path-pointer`
+finding's `detail`, so inside the baseline fingerprint, although it varies
+with the checkout - shallow, partial, or a rename older than the 200
+commits read - which is the argument that moved the commit-map hint into a
+field of its own; the rename hint should follow it, and a corpus
+re-recording on the bench tier would otherwise pair a removal with an
+addition for every hinted dead pointer. The levers for a larger sweep
+saving are the link rule's filesystem walk, the two SHA candidate scanners
+at 0.76 s, and the rename-map `git log`. The review's fourth item, a
+diff-scoped gate, is next.
+
+## Phase 38 - The environment every git process inherits, and the five other places a rewrite can live (unreleased, 2026-09-14)
+
+**Status.** Suite is 1,141 tests across 66 files: 1,139 passing and 2 skipped.
+Thirteen rules, unchanged - this adds no rule, no flag, no default and no
+suppression, and moves no exit code. It changes the shipped payload in
+seven modules under `payload/`, one of them new: every git process the tool
+starts now gets one environment, built in `git.py` and handed to the seam
+and to the six `subprocess` sites in `refs.py`, `deleted_since.py` and
+`rules/lfs.py` that bypass it; `gate.py` prints a note for a partial
+repository beside the shallow one; `cli.py` says when `--repo` is not a
+repository root; and `--deleted-since` has a module of its own,
+`deleted_since.py`, beside the survey it left. The tool remained
+released as 0.26.1 and this work sits above that tag with Phases 36 and 37,
+unreleased. Mutation campaign is 220 anchors; the ten this phase added were
+each applied to a copy and watched turning the suite red, and every other
+gate on the pre-push list ran green against a working-tree extract - smoke,
+scenarios, fuzz with its self-check, `--verify` and `--selftest`.
+
+**What it is.** A fifty-item review of the internals, read against 0.26.1,
+led with two wrong answers it had reproduced and put their general form
+second. This phase is those two items and nothing further down its list.
+The full record, with what was verified before each change and what each
+one costs, is the section "The environment a git process inherits is an
+answer, and it was the wrong one" in the design rationale under the skill's
+references.
+
+**A leaked `GIT_DIR` answered about another repository, silently.** `_git`
+ran git with `cwd=repo` and the environment it was started with, and those
+decide different things: the directory decides which working tree git looks
+at, `GIT_DIR` decides whose history it answers about - and git exports it to
+every hook it runs. Verified here before the change: from a second
+repository, `GIT_DIR=../r1/.git git log -1` printed the first repository's
+subject while `rev-parse --show-toplevel` still named the second. So a hook
+checking any checkout but the one it fired in had every git-backed rule
+answering about the other one's history over this one's files, in a run
+that printed what a clean run prints. The test cites one commit from each
+of two repositories and asks which is dead; under each of the four leaks
+that move that answer, `dead-sha` named the wrong commit, or none. The
+seven variables that name a repository are dropped from every git process,
+and the child also gets `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=`,
+`GIT_OPTIONAL_LOCKS=0`, `LC_ALL=C` and `core.quotePath=false`. The scrub is
+checked at the subprocess boundary over three modes with the denominator
+that every direct site was reached: nine of fourteen processes were
+unscrubbed the first time that test ran, because a scrub at the seam alone
+leaves the `cat-file` batches, the attribute query and `git show` on the
+operator's environment. `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS` are
+kept, because CI carries `safe.directory` in them and `git -c` reaches its
+hooks through them; the quoting setting is appended to the operator's own
+set rather than put in its place.
+
+**The quoting was a defect of its own.** With `core.quotePath` at its
+default, `log --name-status` prints a renamed path holding a non-ASCII
+character octal-quoted, so the rename map keyed on a spelling no document
+writes: the pointer was still reported dead, and the "renamed to" hint
+silently did not appear. `--deleted-since` compared such a document's name
+against `diff --name-only` the same way, never matched it, and examined
+nothing. Both verified on the commands themselves, both pinned.
+
+**A partial repository no longer touches the network.** In a `blob:none`
+copy git retrieves any missing blob from the promisor remote the moment a
+command wants it, mid-command - the half-hour stall Phase 25 recorded
+without naming the mechanism, and a network call in a tool whose README
+promises none. `GIT_NO_LAZY_FETCH=1` in the child's environment leaves a
+missing object missing. Verified by hand first: a rename with an edit,
+which an exact rename would not need a blob for, made `log --diff-filter=R`
+retrieve the old blob and print `R063`; under the guard it exited 128 and
+the blob stayed missing. The test compares the set of missing objects before
+a `--verify` with the set after, and with the guard removed one object was
+retrieved. The cost is the rename hint for a file whose old contents are
+not local, and the note beside the denominators is what replaces it; git
+honours the variable from 2.42, the floor is 2.31, and below 2.42 the note
+is what remains. `--sweep` prints neither this note nor the shallow one, and
+that gap is recorded rather than closed.
+
+**The audit of the guard found its one new way to be wrong.** `--deleted-since`
+reads a document as it stood at the ref with `git show`, and a failed read
+meant "absent then" - so in a partial repository, where the old version's
+blob is exactly what the transport left out, the mode examined nothing,
+counted nothing unreadable, and dropped the deleted false claim it exists to
+report; unguarded, git would have retrieved the blob and reported it. A
+failed read in a partial repository now asks `ls-tree` whether the tree at
+the ref listed the path, and a version that was there is counted as one
+that could not be read. The distinction took
+`plugin/skills/extant/payload/extant/sweep.py` past its line ceiling, so
+`--deleted-since` moved to
+`plugin/skills/extant/payload/extant/deleted_since.py`, byte for byte, with
+eight mutation anchors following by path. The same audit found the
+review's own mirror example was not path-changing in the sense the rule
+reads, and retargeted the seven-scope fixture at one that is.
+
+**The remote fast path read one file, and a rewrite can live in five other
+places.** `remote_url` reads the repository's config instead of spawning
+`remote get-url` and declined when THAT file mentioned a rewrite or an
+include - and `url.<base>.insteadOf` is equally effective from the global
+config, the system config, a conditional include of either, the
+`GIT_CONFIG_COUNT` triplet or the `GIT_CONFIG_PARAMETERS` that `git -c`
+exports. A sandbox that injects the triplet found it: one row of the
+divergence table went red with git saying `https://` where the file said
+`git@`. That rewrite changes the host and lands on the same `owner/name`,
+and the audit found the obvious mirror does too - the rule compares the last
+two path segments, so `internal/mirror/acme/widget` still reads as
+`acme/widget`, and the first end-to-end test failed by finding the rule
+unmoved. The rewrite worth the reads moves the repository under another
+owner, and had `dead-pinned-ref` comparing a project's pins against a
+repository git would not name. The guard now stats and reads every global
+and system file it can name without asking git, including the one beside a
+Git for Windows install, and scans both environment injections. Seven scopes
+are tested with an owner-changing rewrite, each first confirming git itself
+reports it, and the rule is tested end to end answering `widgets/widget`
+through the spawn the guard falls back to;
+the denominator beside them is that with every other scope pinned empty the
+plain spelling is still answered from disk. The read costs 1.41 ms where it
+cost 0.19, against the 28.92 ms spawn it replaces; a global config carrying
+the ordinary work-and-personal `includeIf` pays that spawn again, and a git
+built with its system directory somewhere this cannot name is the stated
+residual. Two tests that assert an answer from disk now pin the other scopes
+empty, so they cannot fail on a developer's machine and pass on CI.
+
+**`--repo` below the root is said, not refused.** From a subdirectory git
+walks up and answers about the checkout above while every document and path
+resolves against `--repo`; the run now names the root git is answering
+about, on stderr, by a walk of stats rather than a spawn, because the budget
+in `tests/test_spawn_budget.py` has no spare margin. A `--repo` with no
+repository above it - a `git archive` extract - gets a note in front of the
+rule errors that would otherwise have to imply the cause.
+
+**What this leaves owed.** The review's list below its first two items:
+four measured hot spots in the document scan, a diff-scoped gate, batched
+ancestry for large repositories, coverage of the harness-driven modes, the
+path index. The install-time detector still runs git with the environment it
+inherits; it does not ship and does not run from a hook. And the heldout and
+niche reserves remain unopened.
+
 ## Phase 37 - Six more widenings measured, one shipped, five refused (unreleased, 2026-09-13)
 
 **Status.** Suite is 1,113 tests across 64 files: 1,111 passing and 2 skipped.
@@ -2883,5 +3540,7 @@ prefixes `feat:`, `fix:`, `docs:`, and `chore:`.
 
 Two rules for anyone editing an entry above: paraphrase a past status rather
 than quoting it, because no rule can distinguish a quotation from a claim; and
-write a commit range as two separate backticked tokens rather than one, because
-a range inside a single pair is not recognised as a reference.
+write a commit range with git's own dots, `a..b` or `a...b` inside one pair,
+or as two separate backticked tokens - both ends of a dotted range are read
+since 2026-09-12, while an arrow inside one pair, `a -> b`, is not, because
+that is how a rewrite map is quoted with its left side dead by design.

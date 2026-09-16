@@ -17,7 +17,9 @@ from pathlib import Path
 # implementation, called by SubprocessGit and named nowhere outside this file.
 __all__ = ["Git", "SubprocessGit", "CountingGit",
            "_PLAIN_VALUE", "_UNSETTLED_BY", "_names_remote", "_own_git_dir",
-           "common_git_dir", "is_shallow", "remote_url", "rewrite_map_path"]
+           "common_git_dir", "environment", "is_partial", "is_shallow",
+           "remote_url", "repository_root", "rewrite_journal_path",
+           "rewrite_map_path"]
 
 
 class Git:
@@ -63,13 +65,17 @@ class CountingGit(Git):
     wrongly, the first time. Here the delegation happens inside SubprocessGit,
     BELOW the interface, so it cannot be seen twice.
 
-    Not a spawn count, and must not be read as one. Six git invocations across
-    this package do not fit `run(repo, *args)` - three `cat-file` batches fed
-    on stdin (two in extant/rules/lfs.py, one in extant/refs.py's
-    `_batch_shas`), a `-z` listing paired with `check-attr --stdin` (both in
-    extant/rules/lfs.py), and a `git show` that must return bytes
-    (extant/sweep.py's `_document_at`) - so they call subprocess directly and
-    are invisible here. tests/test_spawn_budget.py counts at the subprocess
+    Not a spawn count, and must not be read as one. Eight git invocations
+    across this package do not fit `run(repo, *args)` - three `cat-file`
+    batches fed on stdin (two in extant/rules/lfs.py, one in extant/refs.py's
+    `_batch_shas`), the `rev-list --stdin` batch beside it in `_settle` that
+    places the commits a bounded ancestry index could not, a `-z` listing
+    paired with `check-attr --stdin` (both in extant/rules/lfs.py), a `git
+    show` that must return bytes (extant/deleted_since.py's `_document_at`),
+    and a `git diff -U0` that must return bytes too
+    (extant/introduced_since.py's `introduced_lines`, because `_git` below
+    translates a bare carriage return and a patch is written in git's line
+    discipline) - so they call subprocess directly and are invisible here. tests/test_spawn_budget.py counts at the subprocess
     boundary for exactly that reason, and tests/test_scope.py prints both
     populations so the gap is a number somebody chose rather than one nobody
     noticed.
@@ -131,6 +137,46 @@ def is_shallow(repo: Path) -> bool:
     return (shared / "shallow").is_file()
 
 
+def is_partial(repo: Path) -> bool:
+    """True when this repository was copied with an object filter.
+
+    The transport then left objects out - `blob:none` keeps every commit and
+    tree and only the blobs the checkout needed - and git retrieves each
+    missing one from the promisor remote the moment a command wants it, over
+    the network, mid-command. `environment()` turns that off with
+    `GIT_NO_LAZY_FETCH`, so here a missing object stays missing: rename
+    detection over an absent blob fails and the hint is not offered, and a
+    rule that reads blob contents reads fewer. Both are answers about less
+    than the repository holds, which is the shallow case's shape exactly, and
+    it gets the same note beside the denominators.
+
+    Read from the shared config rather than asked of git, for the reasons
+    `is_shallow` gives. `remote.<name>.promisor = true` is what git itself
+    checks; `remote.<name>.partialclonefilter` and the older
+    `extensions.partialclone` are the other two spellings a filter leaves
+    behind, matched on their common prefix. Section headers are not needed:
+    no other key git writes is spelled either way.
+    """
+    shared = common_git_dir(repo)
+    if shared is None:
+        return False
+    try:
+        text = (shared / "config").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line[0] in "#;[":
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip().lower()
+        if key == "promisor" and value.strip().lower() == "true":
+            return True
+        if key.startswith("partial"):
+            return True
+    return False
+
+
 def common_git_dir(repo: Path) -> Path | None:
     """The SHARED git directory - `.git` of the original clone - or None.
 
@@ -178,6 +224,37 @@ def common_git_dir(repo: Path) -> Path | None:
     except (OSError, UnicodeDecodeError):
         return None
     return _normal(shared if shared.is_absolute() else gitdir / shared)
+
+
+def repository_root(path: Path) -> Path | None:
+    """The directory git would answer about when run in `path`, or None.
+
+    Found the way git finds it: `path` itself if it holds a `.git`, else the
+    nearest parent that does, else nothing. So `--repo` naming a subdirectory
+    returns the checkout above it - which is exactly what has to be said out
+    loud, because git then answers about that checkout while every document
+    and path in the run resolves against the subdirectory. Verified before
+    this existed: `rev-parse --show-toplevel` from `r2/sub/deeper` prints
+    `r2`, quietly.
+
+    Stats, not a spawn, for the reason `common_git_dir` gives, and because
+    this is asked once per run in front of a budget with no spare margin. A
+    bare repository - `HEAD` beside `objects` and `refs`, no `.git` - counts
+    as its own root, which is also how git reads one.
+
+    Lexical: `abspath` and no `resolve()`, so a symlinked checkout is named
+    the way the operator named it, and the comparison the caller makes
+    against `--repo` is between two spellings of one convention.
+    """
+    start = Path(os.path.abspath(path))
+    for candidate in (start, *start.parents):
+        pointer = candidate / ".git"
+        if pointer.is_dir() or pointer.is_file():
+            return candidate
+        if ((candidate / "HEAD").is_file() and (candidate / "objects").is_dir()
+                and (candidate / "refs").is_dir()):
+            return candidate
+    return None
 
 
 def _own_git_dir(repo: Path) -> Path | None:
@@ -230,16 +307,23 @@ def _normal(path: Path) -> Path:
 # right direction to be wrong in here.
 #
 #   insteadof       `url.<base>.insteadOf` rewrites the URL git hands back.
-#                   The caller reduces it to `owner/name`, so a rewrite that
-#                   changes only the HOST lands on an identical answer - but
-#                   one that changes the PATH does not, and nothing here can
-#                   tell which kind it is looking at without becoming git.
+#                   The caller reduces it to `owner/name` - the LAST TWO
+#                   path segments - so a rewrite that changes the host, or
+#                   keeps those two under a longer prefix, lands on an
+#                   identical answer; one that moves the repository under
+#                   another owner does not, and nothing here can tell which
+#                   kind it is looking at without becoming git.
 #   include         `include.path` and `includeIf` pull in another file, which
 #                   may define the remote or redefine it. NOT a corner case: a
 #                   GitHub Actions runner writes four
 #                   `[includeIf "gitdir:..."]` sections into every checkout,
 #                   so this path declines on CI and the spawn is paid there.
 #                   Measured from a failing run, not assumed.
+#
+# Matched in the repository's own file here, and in every OTHER scope git
+# reads by `_unsettled_elsewhere` below - which was the half that was missing:
+# a rewrite in `~/.gitconfig`, the system file or the environment is just as
+# effective, and the guard read only the file in front of it.
 #
 # `extensions.worktreeConfig` belongs to the same family and is deliberately
 # NOT in this list, because refusing on the word alone made this change worth
@@ -290,14 +374,21 @@ def remote_url(repo: Path, name: str) -> str | None:
     to be interpreted - and for a third this pair does not have: `--verify`
     opens one RunScope per document, so this repository-level fact was asked
     once per file. Measured on this machine, Windows: `git remote get-url
-    origin` costs 28.92 ms (median of 20) and this read costs 0.19 ms (median
+    origin` costs 28.92 ms (median of 20) and this read cost 0.19 ms (median
     of 200), a factor of 156, five times per `--verify` over this repository.
+    Re-measured at 1.41 ms once `_unsettled_elsewhere` began statting the
+    global and system scopes as well - ten candidate files, most of them
+    absent, opened and read - which is still a factor of 20, and those reads
+    are what stops this answering wrongly under a rewrite written anywhere
+    but here.
 
     WHERE IT DOES NOT FIRE, stated because the saving is otherwise easy to
     overclaim: a GitHub Actions checkout carries four `[includeIf "gitdir:..."]`
     sections and a `config.worktree`, and either alone is enough for this to
-    decline. So CI keeps paying the five spawns, and this is a developer-machine
-    win rather than a universal one. That was measured from a red CI run whose
+    decline. So CI keeps paying the spawns - one per document holding a
+    `rev:` pin, three of five here, since `_pinned_refs` stopped asking on a
+    document with nothing to govern - and this is a developer-machine win
+    rather than a universal one. That was measured from a red CI run whose
     spawn budget said 8 where a developer checkout says 5 - the guard doing
     exactly what it is for, on a config nobody here writes by hand.
 
@@ -333,6 +424,8 @@ def remote_url(repo: Path, name: str) -> str | None:
     own = _own_git_dir(repo)
     if own is None or (own / "config.worktree").is_file():
         return None
+    if _unsettled_elsewhere():
+        return None
     found: list[str] = []
     in_section = False
     for raw in text.splitlines():
@@ -357,6 +450,153 @@ def remote_url(repo: Path, name: str) -> str | None:
     # FIRST of several, and a second `url` line is unusual enough that being
     # sure is worth the 27 ms rather than being nearly sure for free.
     return found[0] if len(found) == 1 else None
+
+
+def _unsettled_elsewhere() -> bool:
+    """Could a scope other than the repository's own file change the answer?
+
+    `url.<base>.insteadOf` is equally effective from the global config, the
+    system config, a conditional include of either, the `GIT_CONFIG_COUNT`
+    triplet, or the `GIT_CONFIG_PARAMETERS` that `git -c` exports to every
+    process it starts, hooks included. The guard above read none of them.
+    Found by a sandbox that injected exactly that: the `scp-style-ssh` row of
+    tests/test_remote_from_disk.py went red with
+    `git=https://github.com/acme/widget.git file=git@github.com:acme/widget.git`.
+
+    That particular rewrite changes only the host and lands on the same
+    `owner/name`. So does a mirror that keeps `owner/name` under a longer
+    prefix, because the caller compares the LAST TWO path segments - the
+    audit found the obvious example, `https://internal/mirror/acme/widget`,
+    was exactly that. The one worth the reads moves the repository under
+    another owner - `url.git@internal:widgets/.insteadOf =
+    https://github.com/acme/` - and then `dead-pinned-ref` compares a
+    project's pins against a repository git would not name, silently.
+
+    Reads and stats only, in the over-refusing direction the local guard
+    takes: a file that mentions a rewrite, an include or a remote at all
+    declines, and one that cannot be read declines. Following an include -
+    with its `gitdir:`, `onbranch:` and `hasconfig:` conditions - would be
+    reimplementing git rather than consulting it, which is where this
+    technique stops.
+
+    The cost, stated: a developer whose global config carries the ordinary
+    work-and-personal `includeIf` pays the spawn again on every run. Correct
+    and slow is the degradation this fast path was designed for.
+    """
+    for path in _other_config_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue          # absent, which is the common case
+        except UnicodeDecodeError:
+            return True
+        if _mentions_a_remote(text):
+            return True
+    return any(_mentions_a_remote(value) for value in _injected_config())
+
+
+def _mentions_a_remote(text: str) -> bool:
+    """A rewrite, an include, or a remote of its own: anything in another
+    scope that can put a different `remote.<name>.url` in front of git.
+
+    A remote SECTION is refused here and not in the repository's own file,
+    where the remote is expected: `git remote get-url` reports the FIRST
+    value, scopes are read system, global, then local, so a remote defined
+    globally wins the lookup over the one in the file.
+    """
+    lowered = text.lower()
+    return (any(word in lowered for word in _UNSETTLED_BY)
+            or "[remote" in lowered or "remote." in lowered)
+
+
+def _other_config_files() -> list[Path]:
+    """Every file git reads as global or system configuration, as far as it
+    can be named without asking git. Absent files are fine; the caller
+    skips them.
+
+    Global: `GIT_CONFIG_GLOBAL` REPLACES both `~/.gitconfig` and the XDG
+    file, so when it is set only it is read - that is what lets a test pin
+    the scope to an empty file, and it is git's documented meaning rather
+    than a shortcut. Otherwise `~` is found the way git finds it, `HOME`
+    first, and every spelling of home this process can see is read, because
+    reading one too many over-refuses and reading one too few answers
+    wrongly.
+
+    System: `GIT_CONFIG_SYSTEM` replaces `/etc/gitconfig` the same way.
+    Otherwise `/etc/gitconfig` and `etc/gitconfig` under the install prefix
+    of the `git` on PATH, which is where a Git for Windows or a Homebrew git
+    keeps its system file - measured here: `C:/Program Files/Git/etc/gitconfig`
+    beside a `git.exe` two directories below it. Finding that git is stats
+    along PATH, not a process. A build whose system directory is somewhere
+    else entirely - Apple's git keeps its under `usr/share/git-core` - is the
+    residual this cannot see, and the reason the repository's own file stays
+    the guard's first question.
+    """
+    env = os.environ
+    files: list[Path] = []
+    if "GIT_CONFIG_GLOBAL" in env:
+        files.append(Path(env["GIT_CONFIG_GLOBAL"]))
+    else:
+        homes: list[str] = []
+        drive, path = env.get("HOMEDRIVE"), env.get("HOMEPATH")
+        for home in (env.get("HOME"), drive + path if drive and path else None,
+                     env.get("USERPROFILE"), os.path.expanduser("~")):
+            if home and home not in homes:
+                homes.append(home)
+        files += [Path(home) / ".gitconfig" for home in homes]
+        xdg = env.get("XDG_CONFIG_HOME") or os.path.join(homes[0], ".config")
+        files.append(Path(xdg) / "git" / "config")
+    if "GIT_CONFIG_SYSTEM" in env:
+        files.append(Path(env["GIT_CONFIG_SYSTEM"]))
+    else:
+        files.append(Path("/etc/gitconfig"))
+        exe = _git_on_path()
+        if exe:
+            for spelling in (Path(exe), Path(os.path.realpath(exe))):
+                files += [parent / "etc" / "gitconfig"
+                          for parent in list(spelling.parents)[:3]]
+        if env.get("ProgramData"):
+            files.append(Path(env["ProgramData"]) / "Git" / "config")
+    return files
+
+
+def _git_on_path() -> str | None:
+    """`shutil.which("git")`, without importing shutil.
+
+    That module pulls the compression modules in behind it - 14 ms of import
+    on this machine - and every post-commit hook pays every import before it
+    validates anything. This is the part of `which` the lookup needs: the
+    first `git` on PATH, under the Windows spellings where they apply.
+    """
+    names = ["git.exe", "git.cmd", "git.bat"] if os.name == "nt" else ["git"]
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory:
+            continue
+        for name in names:
+            candidate = os.path.join(directory, name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    return None
+
+
+def _injected_config() -> list[str]:
+    """Configuration arriving through the environment: the KEYS of the
+    `GIT_CONFIG_COUNT` triplet, and `GIT_CONFIG_PARAMETERS` whole.
+
+    Keys are enough for the triplet - a rewrite, an include or a remote all
+    name themselves in the key. A count git cannot parse is returned as
+    unsettling, because git refuses it too and the spawn will say so.
+    """
+    env = os.environ
+    found: list[str] = []
+    if env.get("GIT_CONFIG_PARAMETERS"):
+        found.append(env["GIT_CONFIG_PARAMETERS"])
+    try:
+        count = int(env.get("GIT_CONFIG_COUNT") or "0")
+    except ValueError:
+        return ["remote."]
+    found += [env.get(f"GIT_CONFIG_KEY_{i}", "") for i in range(count)]
+    return found
 
 
 def _names_remote(head: str, name: str) -> bool:
@@ -399,11 +639,134 @@ def rewrite_map_path(repo: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def rewrite_journal_path(repo: Path) -> Path | None:
+    """The journal the post-rewrite hook keeps, or None if there is none.
+
+    A `filter-repo` run leaves the commit-map above; a rebase or an amend
+    leaves nothing - except the `<old> <new>` pairs git writes to the
+    post-rewrite hook's stdin, and to nothing else. The shipped hook
+    appends them to `extant/rewrites` under the shared git directory, in
+    the commit-map's own spelling, since 2026-09-15. Beside the commit-map
+    rather than under the worktree, for the same reason it is: a rewrite
+    belongs to the repository, and a linked worktree shares it.
+
+    What this record can and cannot do is stated where it is written, in
+    `hooks/extant-verify`: after a local rebase the old ids still resolve
+    through the reflog, so no finding appears until that expires, and the
+    file exists only on the machine that rewrote. It is the repair hint at
+    the one moment the repair is cheap, not a new finding.
+    """
+    shared = common_git_dir(repo)
+    if shared is None:
+        return None
+    candidate = shared / "extant" / "rewrites"
+    return candidate if candidate.is_file() else None
+
+
+# Environment variables that name a repository, and are dropped from every git
+# process this package starts. `cwd=repo` decides which working tree git looks
+# at; any of these decides whose HISTORY it answers about, and git exports
+# `GIT_DIR` and `GIT_WORK_TREE` to every hook it runs. Verified before the
+# fix: from a second repository, `GIT_DIR=../r1/.git git log -1` printed the
+# first repository's subject while `rev-parse --show-toplevel` still named the
+# second. So a hook checking any checkout other than the one it fired in - a
+# submodule, a linked worktree, a sibling in a monorepo - had every git-backed
+# rule answering about the wrong repository, in a run that printed exactly
+# what a clean one prints. tests/test_git_environment.py pins the four that
+# move the answer to "does this commit exist"; the other three are dropped
+# with them because they name a repository in the same way.
+_LOCATION_VARIABLES = frozenset((
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE",
+))
+
+# What every child is told, over whatever the operator's shell says.
+#
+#   GIT_TERMINAL_PROMPT=0   never wait for a password. Nothing here should
+#   GIT_ASKPASS=            need one, and a hook that blocks on a prompt - or
+#                           pops an askpass dialog - is a hook that gets
+#                           uninstalled.
+#   GIT_OPTIONAL_LOCKS=0    do not take `index.lock` to refresh the index on
+#                           the way past. A validator that made somebody's
+#                           concurrent `git commit` fail with "index.lock
+#                           exists" would be worse than one that found
+#                           nothing.
+#   LC_ALL=C                git's own messages in one language, whatever the
+#                           locale. Nothing parses them; the reader of a
+#                           report should still see the same stderr on every
+#                           machine.
+#   GIT_NO_LAZY_FETCH=1     in a partial repository, an object that is not
+#                           present locally is MISSING rather than retrieved
+#                           over the network mid-run. That retrieval is how a
+#                           sweep of one repository once stalled for half an
+#                           hour, and it contradicts the README's promise
+#                           that nothing here touches the network. Honoured
+#                           from git 2.42; older versions ignore it, and the
+#                           partial-repository note beside the denominators
+#                           is what remains for them.
+_CHILD_SETTINGS = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ASKPASS": "",
+    "GIT_OPTIONAL_LOCKS": "0",
+    "LC_ALL": "C",
+    "GIT_NO_LAZY_FETCH": "1",
+}
+
+
+def environment() -> dict[str, str]:
+    """The environment for a git process: the operator's, minus what names a
+    repository, plus the settings above.
+
+    Built per call rather than once at import. The environment can change
+    between two calls in one process - a test sets a variable, a hook exports
+    one - and a copy taken at import would silently answer from the state of
+    the process at some earlier moment, which is the cache-lifetime failure
+    `scope.py` exists to end.
+
+    The `GIT_CONFIG_*` injections and `GIT_CONFIG_PARAMETERS` are deliberately
+    NOT dropped. They carry configuration rather than a location - CI uses
+    them for `safe.directory`, and `git -c` passes its arguments to hooks
+    through them - and a child that lost them would fail where the parent
+    works. What they CAN do is rewrite a remote URL; `remote_url` reads them
+    for that and declines the fast path when they might.
+    """
+    env = {name: value for name, value in os.environ.items()
+           if name not in _LOCATION_VARIABLES}
+    env.update(_CHILD_SETTINGS)
+    # `core.quotePath` off, carried in the environment rather than as a `-c`
+    # in front of every subcommand, so that the argv every test and budget
+    # records stays the question that was asked. On by default, it prints a
+    # path holding any byte above ASCII as a quoted, octal-escaped string,
+    # and the rename map read out of `log --name-status` then held
+    # `"docs/\303\234bersicht.md"` where a document writes the umlaut - so
+    # a renamed non-ASCII path was still reported dead but lost its "renamed
+    # to" hint, and `--deleted-since` compared such a path against
+    # `diff --name-only` and never matched it. The `-z` listings are
+    # unaffected; `-z` already turns the quoting off.
+    #
+    # APPENDED to the operator's own `GIT_CONFIG_COUNT` set, never in place
+    # of it: git reads the triplet from index 0 to count-1, and an empty
+    # count is unset. A count git cannot parse is left exactly as it is,
+    # because git refuses it with "bogus count" in the parent as well, and
+    # repairing it here would have the child working where the operator's
+    # own git does not.
+    try:
+        count = int(env.get("GIT_CONFIG_COUNT") or "0")
+    except ValueError:
+        return env
+    if count < 0:
+        return env
+    env[f"GIT_CONFIG_KEY_{count}"] = "core.quotePath"
+    env[f"GIT_CONFIG_VALUE_{count}"] = "false"
+    env["GIT_CONFIG_COUNT"] = str(count + 1)
+    return env
+
+
 def _git(repo: Path, *args: str) -> str:
     """Run a git command in `repo`, returning stdout. Raises on non-zero.
 
     BYTES, decoded here, and the reason is the one `_document_at` in
-    extant/sweep.py already writes at its own call site - it just never
+    extant/deleted_since.py already writes at its own call site - it just never
     reached this function, which is the one every rule asks its questions
     through. `text=True` moves the decode INSIDE subprocess, and where it
     happens there is not the same on every platform:
@@ -440,7 +803,8 @@ def _git(repo: Path, *args: str) -> str:
     newlines sees exactly what it saw before.
     """
     done = subprocess.run(
-        ["git", *args], cwd=repo, capture_output=True, check=True
+        ["git", *args], cwd=repo, capture_output=True, check=True,
+        env=environment(),
     )
     decoded = done.stdout.decode("utf-8", "replace")
     return decoded.replace("\r\n", "\n").replace("\r", "\n")

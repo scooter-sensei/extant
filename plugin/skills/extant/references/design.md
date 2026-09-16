@@ -1505,8 +1505,10 @@ One silent wrong answer and one crash, out of one line, chosen by the operating
 system. The silent half is the one that matters here: a rule handed None finds
 nothing, and finding nothing prints exactly what a clean document prints.
 
-**It was already diagnosed, one call site away.** `_document_at` in
-`plugin/skills/extant/payload/extant/sweep.py` carries a paragraph describing
+**It was already diagnosed, one call site away.** `_document_at` - in
+`plugin/skills/extant/payload/extant/sweep.py` then, in
+`plugin/skills/extant/payload/extant/deleted_since.py` since the mode left on
+2026-09-14 - carries a paragraph describing
 this mechanism exactly, because that mode hit it and was repaired there by
 capturing bytes. What a fix in that position cannot do is repair the module
 every rule asks its questions through.
@@ -1632,6 +1634,1068 @@ TLD and then a path, query, fragment or end of string, which is what keeps
 and was rejected on measurement rather than taste: it drops the fix from 55
 targets to 33, because `webbench.ai`, `hanboards.com` and `stratakb.com` carry
 no path at all.
+
+## The environment a git process inherits is an answer, and it was the wrong one
+
+`_git` in `plugin/skills/extant/payload/extant/git.py` ran `["git", *args]`
+with `cwd=repo` and whatever environment the process was started with. Those
+two decide different things. `cwd` decides which WORKING TREE git looks at;
+`GIT_DIR` - and six variables like it - decides whose HISTORY it answers
+about. Git exports `GIT_DIR` and `GIT_WORK_TREE` to every hook it runs, a
+pre-commit framework sets them too, and a harness that drives one
+repository's hook against another's checkout passes them straight through.
+
+Verified before anything was changed, on this machine: from a second
+repository, `GIT_DIR=../r1/.git git log -1` printed the first repository's
+subject while `git rev-parse --show-toplevel` still named the second. So a
+hook checking any checkout other than the one it fired in - a submodule, a
+linked worktree, a sibling in a monorepo - had every git-backed rule
+answering about the wrong repository, and the run printed exactly what a
+clean one prints. The test that pins it cites one commit from each of two
+repositories and asks which is dead; under any of the four leaks that move
+that answer, `dead-sha` reported the wrong one, or - with an alternate
+object directory - neither.
+
+**Every git process now gets one environment**, built by `environment()` in
+the same file: the operator's, minus the seven variables that name a
+repository, plus `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=`,
+`GIT_OPTIONAL_LOCKS=0`, `LC_ALL=C` and `GIT_NO_LAZY_FETCH=1`. Applied at the
+seam AND at the six sites that call `subprocess` directly - the `cat-file`
+batches, the attribute query, `git show` - because a scrub at the seam alone
+would have left the SHA rule, the LFS rule and `--deleted-since` answering
+from the leaked location while everything else answered from the right
+one. The structural test records every git process three modes start, with
+the environment each was handed, and its denominator is that each direct
+site was actually reached: nine of fourteen were unscrubbed the first time it
+ran.
+
+**`GIT_CONFIG_COUNT`, its keys and values, and `GIT_CONFIG_PARAMETERS` are
+deliberately kept.** They carry configuration rather than a location. CI uses
+the triplet for `safe.directory`, and `git -c` passes its arguments to every
+process it starts through `GIT_CONFIG_PARAMETERS` - verified by reading a
+hook's environment under `git -c` - so a child that lost them would fail where
+the parent works. What they can do is rewrite a remote URL, and that is
+handled where the URL is read, below.
+
+**`core.quotePath=false` rides in the same environment**, appended to the
+operator's own `GIT_CONFIG_COUNT` set rather than passed as `-c` in front of
+every subcommand, so the argv every test and budget records stays the
+question that was asked. On by default, the setting prints a path holding
+any byte above ASCII as a quoted, octal-escaped string. Two readers were
+caught by it, both verified on the command itself: the rename map read out
+of `log --name-status` held `"docs/\303\234bersicht.md"` where a document
+writes the umlaut, so the pointer was still reported dead and the "renamed
+to" hint silently did not appear; and `--deleted-since` compared such a
+document's name against `diff --name-only`, never matched it, and examined
+nothing. The `-z` listings were never affected; `-z` turns the quoting off.
+
+**`--repo` below the root is said, not refused.** From a subdirectory git
+walks up and answers about the checkout above while every document and path
+resolves against `--repo` - `rev-parse --show-toplevel` from `r2/sub/deeper`
+prints `r2`, quietly. `repository_root` finds the root the way git does, by
+stat rather than by spawn, because the budget in `tests/test_spawn_budget.py`
+has no spare margin and a question asked once per run is still a question.
+A note rather than a refusal because `--repo <subdir>` has worked since the
+flag existed. A directory with no repository above it - a `git archive`
+extract - gets a note too, in front of the thirteen rule errors that would
+otherwise have to imply the cause.
+
+### The remote guard read one file, and a rewrite can live in five other places
+
+`remote_url` reads the repository's own config file instead of spawning
+`remote get-url`, and declines when that file mentions `insteadOf` or an
+include. But `url.<base>.insteadOf` is equally effective from `~/.gitconfig`,
+the XDG file, `/etc/gitconfig`, a conditional include of any of them, the
+`GIT_CONFIG_COUNT` triplet, or the `GIT_CONFIG_PARAMETERS` that `git -c`
+exports. The guard read none of those. A sandbox that injects exactly that
+found it: the `scp-style-ssh` row of `tests/test_remote_from_disk.py` went
+red with `git=https://github.com/acme/widget.git
+file=git@github.com:acme/widget.git`.
+
+That rewrite changes only the host and lands on the same `owner/name`, which
+is what the guard's comment had reasoned about. **The audit of this fix
+found that the obvious counter-example does too.** `_normalise_remote`
+compares the LAST TWO path segments, so
+`url.https://internal/mirror/.insteadOf = https://github.com/` - git reports
+`https://internal/mirror/acme/widget.git`, verified - still reads as
+`acme/widget`, and the first end-to-end test, written against that mirror,
+failed by finding the rule unmoved. The rewrite the guard is for moves the
+repository under another owner: `url.git@internal:widgets/.insteadOf =
+https://github.com/acme/`, which git reports as `git@internal:widgets/widget.git`
+and the rule reads as `widgets/widget`. Then `dead-pinned-ref` compares a
+project's pins against a repository git would not name, silently - and the
+end-to-end test asserts the rule now answers `widgets/widget` through the
+spawn the guard falls back to.
+
+**Fixed with reads, not a spawn.** `_unsettled_elsewhere` stats and reads
+every file git treats as global or system configuration that can be named
+without asking git - `GIT_CONFIG_GLOBAL` when set, else `~/.gitconfig` under
+every spelling of home the process can see and the XDG file;
+`GIT_CONFIG_SYSTEM` when set, else `/etc/gitconfig` and `etc/gitconfig`
+under the install prefix of the `git` on PATH, which is where Git for Windows
+keeps its system file (`C:/Program Files/Git/etc/gitconfig` here) - and scans
+the two environment injections. Any mention of a rewrite, an include, or a
+remote of its own declines. A remote SECTION is refused in these scopes and
+not in the repository's file where it is expected, because `get-url` reports
+the FIRST value and scopes are read system, global, then local: a remote
+defined globally wins the lookup.
+
+Seven scopes are each tested with the path-changing rewrite, each asserting
+first that git itself reports the mirror - so a fixture that failed to
+reproduce the divergence cannot pass by accident - and then that the fast
+path declines. The denominator beside them: with every other scope pinned
+empty, the plain spelling is still answered from disk, because a guard that
+declines everywhere passes the seven rows and buys nothing.
+
+**Three costs, stated.** The read went from 0.19 ms to 1.41 ms (median of
+200) - ten candidate files, most of them absent, opened and read; the walk
+along PATH for git is 0.09 ms of it, and `shutil.which` was not used for it
+because importing `shutil` pulls the compression modules in behind it, 14 ms
+on a hook that pays every import. Against the 28.92 ms spawn it replaces
+that is still a factor of 20. A developer whose global config carries
+the ordinary work-and-personal `includeIf` now pays the spawn on every run -
+following an include, with its `gitdir:`, `onbranch:` and `hasconfig:`
+conditions, would be reimplementing git rather than consulting it, which is
+where this technique stops. And a git built with its system directory
+somewhere this cannot name is the residual; it is why the repository's own
+file stays the guard's first question rather than its only one.
+
+Two tests that asserted an answer FROM DISK now run under a fixture that pins
+the other scopes empty. Without it they would fail on the machine of any
+developer whose real `~/.gitconfig` carries an include and pass on CI, which
+is the shape of failure this whole file is about.
+
+### A partial repository, and a promise the README makes
+
+`git clone --filter=blob:none` keeps every commit and tree and only the blobs
+the checkout needed. Any command that then wants another blob retrieves it
+from the promisor remote, mid-command, over the network - and the README says
+nothing here touches the network. Phase 25 measured it without naming it:
+sweeping one such repository stalled for half an hour while rename detection
+went blob by blob to the server, and reported fewer findings each time as the
+object store warmed.
+
+Verified by hand on git 2.53 before the test was written: in a `blob:none`
+copy holding one rename WITH an edit, `git log --diff-filter=R --name-status`
+retrieved the old blob and printed `R063`; under `GIT_NO_LAZY_FETCH=1` the
+same command exited 128 with "could not fetch ... from promisor remote" and
+the blob stayed missing. The edit matters: an exact rename is matched by
+object id and needs no blob, so a fixture built with `git mv` alone proves
+nothing.
+
+So the guard costs the rename hint for exactly that case, and it is taken
+anyway: a stated guarantee outranks a hint, and a hint that arrives by way of
+a network stall is not a hint anyone waits for. What replaces it is the note.
+`is_partial` reads the shared config for `remote.<name>.promisor = true` -
+what git itself checks - or either spelling of the filter key, and the run
+prints beside the denominators that objects not present locally were left
+missing, where the shallow note already prints. The test of the guarantee
+is the set of missing objects before a `--verify` compared with the set
+after, on a document pointing at the old name of the renamed file; with the
+guard removed, one object was retrieved.
+
+`GIT_NO_LAZY_FETCH` is honoured from git 2.42 and the floor is 2.31. Below
+2.42 the retrieval still happens and the note is what remains; the test skips
+there and prints the version rather than passing on a git that ignores it.
+
+**Measured a day later, on the bench tier, which is `blob:none` throughout.**
+A sequential sweep of ruff with the 0.26.1 payload takes 11.1 s, and 4.6 s
+of it is ONE `cat-file --batch-check`: the SHA rule's batch asks about every
+hex token the documents hold, a token that is not a local object is one the
+promisor remote might have, and git asked GitHub for each. With the guard
+the same batch takes 0.03 s and the sweep 7.3 s. That is the mechanism
+behind the "fewer findings each time as the object store warmed" that Phase
+25 saw without naming: a dead SHA that GitHub happened to hold was fetched
+and reported alive, and each run left the clone holding more. It is also a
+change in what `dead-sha` answers on a partial clone - about what is here,
+as on a shallow one - which is what the note beside the denominators now
+says.
+
+**The guard had one new way to be wrong, and the audit of it found that.**
+`--deleted-since` reads each configured document as it stood at the ref with
+`git show`, and None from that read meant "absent then". In a partial
+repository the old version's blob is exactly what the transport left out, so
+with retrieval refused the read fails - and "absent" hid the deleted false
+claim the mode exists to report. Measured on the fixture: examined 0,
+unreadable 0, silence, where the full copy reports the claim. Before the
+guard, git would have retrieved the blob and reported it; the guard turned a
+network call into a silent wrong answer, which is a worse trade than the one
+it was meant to make. `_document_at` now asks a second question when `git
+show` fails in a partial repository - did the tree at the ref list this path,
+which `ls-tree` answers from the tree alone - and raises `MissingObject` for
+a path that was there, landing it in the mode's "could not be read" count
+beside the undecodable versions. A copy whose trees are missing too cannot
+answer the second question either, and is reported as unreadable rather than
+absent: "could not be read" is true of it, "was not there" is not known to
+be. The distinction took `sweep.py` from 912 lines to 962 against the
+927-line ceiling, so the `--deleted-since` mode moved to
+`plugin/skills/extant/payload/extant/deleted_since.py` - the cut the old
+module docstring had already drawn as "the two survey modes" - with eight
+mutation anchors following by path.
+
+**The shallow note is printed only by `--validate`, `--verify` and
+`--check-text`.** `--sweep` never printed it, and the partial note inherits
+that gap. Recorded here rather than fixed, because the survey's diagnostics
+are a different shape - one summary over many documents - and the shallow
+case is the one Phase 25 measured a sweep getting wrong.
+
+## Where a sweep's time goes, measured without the profiler
+
+A review of the internals read a cProfile of a sequential ruff sweep and
+proposed four changes to the document scan, projecting "the cheapest 2x
+available". Two of its premises did not survive measuring the same sweep
+wall-clock, on this machine, with nothing instrumented but the clock: 650
+documents, 7.1-7.3 s, on the `blob:none` clone the bench tier keeps.
+
+| where the time goes | s | share |
+|:---|---:|---:|
+| `dead-md-link` - the link scan and the filesystem walk behind it | 1.94 | 27% |
+| git, five spawns, `log --diff-filter=R -n 200` and `ls-tree -r` the large ones | 1.51 | 21% |
+| `dead-sha` - blanking 0.54, the two SHA candidate scanners 0.76 | 1.38 | 19% |
+| `dead-md-anchor` - slugging three spellings per heading | 1.10 | 15% |
+| `_release_claims` | 0.71 | 10% |
+| `_pinned_refs` / `_merge_claims` | 0.34 / 0.29 | 9% |
+
+Git is a fifth of the run rather than "~0": the review's sandbox had a fast
+filesystem and a full clone. And cProfile overweights code that makes many
+small calls, so `_line_and_terminator`'s reported 0.45 s of self time is
+about 0.1 s real - which decided the first item.
+
+**5.1, the blanking rewrite, refused on the numbers.** Three exact
+rewrites of `_blank_uncached` were built against the current 486-497 ms
+for both flavours over ruff. The review's region-based one - fence lines
+found by one scan, regions blanked by one substitution each, exact to the
+`splitlines` segmentation with the eight breakers only that function
+honours excluded from the inline class - is byte-identical on all 1,300
+(document, flavour) pairs and 1,662 ms: a per-character substitution over
+a fenced region costs more than the per-line loop it replaces. A per-line
+rewrite with the terminator peel inlined is 383 ms, 1.30x, and a second
+copy of the peel this project unified after the CRLF defect, with a
+mutation anchor guarding the one copy. A rewrite that keeps the one peel and
+appends the 81% of lines that need no work verbatim is 434 ms, 1.12x -
+some 50 ms in a sweep whose run-to-run spread is 180 ms. None is worth a
+second implementation or a retargeted anchor.
+
+**The two line numberings, item 6.2, answered without changing code.**
+Eight sites number lines with `enumerate(splitlines())` and two with
+`line_number_at`, and they differ only on a document holding one of the
+breakers `splitlines` honours and `LINE_BREAK` does not. Counted across
+185 repositories and 108,647 documents read strictly: 15 hold one - 12 a
+form feed, 2 `U+2028`, 1 `U+2029` - and 13 of those between backticks on a
+line. The numberings can differ on 0.014% of documents; the item closes on
+that number.
+
+**5.3 and 5.4, the pre-filters, taken - with the derivation and the fold
+that made them more than a substring test.** Both scans run a pattern the
+user may configure, so the words a document must hold come from the
+pattern itself: `leading_literals` in
+`plugin/skills/extant/payload/extant/text.py` reads a leading `(?:a|b|c)`
+of plain literals and refuses every shape where the words are not
+necessary - a quantifier after the group, a top-level `|` later in the
+pattern, a `\b` or inline flag first, a `\w+` inside the alternation -
+each of which is a test. A configured pattern of any other shape scans in
+full. Deriving the words once onto the built `Config` was the first
+design and would have been wrong: tests replace a pattern with
+`dataclasses.replace`, and the stored words would have belonged to the
+pattern before it.
+
+The comparison is not `lower()` alone. `re.IGNORECASE` folds four
+characters onto ASCII letters that `str.lower()` does not - dotted and
+dotless capital I, long s, the Kelvin sign - verified: `SH<U+0130>PPED in 1.0`
+matches the default release pattern and `lower()` leaves no "shipped" in
+it. A text holding any of the four is let through unread. Conservative in
+every direction: a wrong True costs a scan that finds nothing, a wrong
+False would cost a claim, and the corpus differential below is what says
+the second never happened.
+
+Over the corpus the words are rare - release words in 3.6% of 108,647
+documents, merge words in 2.9%, `rev:` in 0.1% - which is why a pre-filter
+pays: on ruff, 19, 12 and 5 of 650. `_pinned_refs` asks for `rev:` before
+it asks for the remote, so on CI, where the remote is a spawn per document
+that the config cannot answer, only the documents holding a pin pay it -
+three of this repository's five - and `tests/test_spawn_budget.py` counts
+them from the files rather than assuming every document.
+
+**5.2, the precompiled slug patterns, kept as a tidy-up.** `anchors()`
+went from 892 ms to 826 ms with identical results; the `re` module's cache
+made the string spellings a dictionary lookup per call, 232,581 of them,
+and not a compile. One mutation anchor followed the spelling.
+
+**The differential.** `scan_differential.py` in the measurement tree
+records, per tracked document of the 152 visible manifest rows, digests of
+both blanking flavours, the anchor set, and the release, merge and pin
+lists, from whichever payload it is pointed at; run against HEAD's payload
+and the changed one and compared per document, so a divergence names the
+file. Git is never asked - the pin walk is given one fixed remote in both
+runs.
+
+**Found on the way, recorded rather than fixed here.** Every bench-tier
+clone is `blob:none`, so `GIT_NO_LAZY_FETCH` changed that tier's output:
+rename hints no longer appear there, and a `dead-path-pointer` finding
+carries its hint INSIDE `detail` - "; git shows it renamed to ..." - which
+is the baseline fingerprint. The hint varies with the checkout, shallow or
+partial or a rename older than the 200 commits read, and that is the
+argument that moved the commit-map hint out of the identity and into a
+field of its own. The rename hint should follow it; a CORPUS.md
+re-recording on the bench tier would otherwise show a removed-and-added
+pair for every hinted dead pointer.
+
+## `--introduced-since`: a gate with no document to configure
+
+The measurement in CORPUS.md is the product problem: a default install
+gates 7 of the 5,691 ordinary findings the survey sees, 5 of 50 benchmark
+repositories report anything under it, and every wider policy in that table
+buys reach by pinning paths - 66 for the installed set, 3,305 for
+`docs3-ord` - that later move and become findings until somebody edits the
+configuration. The cause is document SELECTION, not the rules. This mode
+removes the selection: it sweeps the documents a change touched and gates
+on the findings that sit on lines the change wrote. Nothing is named,
+pinned or baselined, and the row it earns in that table has `paths pinned`
+at zero.
+
+**The range is the merge base to the working tree**, and both ends were
+decided against a wrong alternative. The working tree rather than HEAD,
+because the sweep reads the working tree: diffed against HEAD, a line
+inserted above a committed claim shifts every number the diff reports away
+from the ones the findings carry - on this checkout the two coincided only
+because the uncommitted edit sat below the claim. The merge base rather
+than REF, because on a branch that has diverged from REF a plain `diff REF`
+shows every line REF has since deleted as a `+` line, which would gate the
+branch on claims it never wrote; on a pull-request checkout HEAD already
+contains the base and the two are one commit. A ref with no merge base is
+a refusal with exit 2, where `--deleted-since` examines nothing and exits
+0 - right for a mode that never gates, and wrong here, since a gate that
+examined nothing and passed is the failure this project exists to refuse.
+The likely first report is a depth-limited CI checkout whose base lies
+beyond the depth, and the refusal says so.
+
+**What it does not gate on is stated rather than tuned.** It gates on
+claims a change WROTE, never on claims a change BROKE without writing: a
+pure rename has no `+` line, so the relative links the move broke are not
+on the diff, and neither is another document's anchor into a heading the
+change removed. The two repository-scoped rules do not run, because their
+findings sit at line 1 of `.gitattributes` or `.extant.toml` - a synthetic
+line nothing wrote - and the output names them. And it reads only the
+documents the range changed, which `sweep.py`'s docstring forbids a SURVEY
+from doing: that promise is about describing the repository, where a claim
+dies when the repository changes and not the document, and this mode's
+question lives in changed documents by construction. The count of tracked
+documents it did not read is printed so the narrowing is visible.
+
+**The diff is read as bytes outside the seam**, which cost a seventh
+direct `subprocess` site in tests/test_scope.py's ledger. `_git` translates
+every `\r` in a result to `\n` - right for the metadata it returns - and
+a patch is written in git's line discipline: a document line holding a
+bare `\r` would be cut in two, its second half arriving with no `+` prefix,
+and a fragment beginning `@@ -` would then read as a hunk header. The
+parser honours a `+++` line only outside a hunk, because inside one every
+content line carries a prefix and a document line reading `++ b/x` arrives
+as `+++ b/x`; it undoes git's C-style path quoting, which `core.quotePath`
+off leaves for quotes, backslashes and control characters; and it pins
+every shape a repository's configuration could otherwise change under it -
+`diff.noprefix`, `diff.mnemonicPrefix`, `diff.external`, `diff.context`,
+`diff.interHunkContext`, a textconv driver. The one bug the parser had
+before its tests first ran - a second hunk of the same file arriving in
+hunk state and being ignored - was found on reading it back; the test that
+would have caught it is now a mutation anchor, so it stays caught.
+
+**Two shapes are named and counted rather than mapped.** A document holding
+a bare `\r` is one this tool numbers differently from git - it counts
+every spelling of a line break, git counts `\n` - so its findings cannot be
+placed on git's lines. Counted across the 114 visible corpus repositories
+and 78,878 tracked documents: 1, and it is GDAL's `autotest/gdrivers/data/
+rst/byte.rst`, a raster fixture and not prose. Its findings are surveyed,
+counted and do not gate. A document git reads as binary - a NUL byte -
+prints no hunks and is named as not examined; the same count found 1.
+
+**Measured before it was written, on the only tier that could answer
+offline.** The bench, heldout, niche and agent tiers are all `blob:none`
+clones - `depth = "full"` in a manifest means full history - so `git diff`
+against an older tree there would go to the network for the old blobs, and
+the guard from Phase 38 refuses. Only `autopsy/` holds blobs, and 9 of its
+13 are visible rows sitting at their bench pin. Recorded bench findings
+intersected with `git diff -U0 HEAD~N HEAD` there, on 2026-09-14:
+
+| range | findings on touched lines | ordinary | repositories reporting, of 9 |
+|:---|---:|---:|---:|
+| last commit | 2 | 2 | 1 |
+| last 10 | 8 | 8 | 1 |
+| last 30 | 24 | 24 | 1 |
+| last 100 | 40 | 37 | 3 |
+
+2,810 findings across the nine. Every hit through thirty commits is in
+`obra/superpowers`, the one agent-tooling project of the nine - 18
+`bare-dead-sha`, 4 `dead-sha`, 2 `dead-path-pointer` - and only 1
+superpowers finding is in any adjudication file, so the precision of
+exactly this population is unmeasured. The 3 non-ordinary at a hundred
+commits are `vendored`, in moby, where `exclude_paths` is the one-line
+answer. On this repository the same intersection at `HEAD~10` is 2 of 31:
+a dotted-range example in CHANGELOG.md and the rule-table example in
+README.md, the class `.extant.toml` already keeps out of `--verify`.
+
+This is a proxy - false today, on lines written then - and not the mode's
+population. The measurement the review asked for is a replay: worktree at
+each of the last N first-parent merges, sweep there, keep the findings on
+lines that merge added, and adjudicate them. It is runnable offline on the
+same nine repositories and nowhere else without a deliberate retrieval of
+old blobs, and it is owed, with the CORPUS.md row it would produce.
+
+**Strata gate; they still label.** CORPUS.md restricts every wider policy
+to the ordinary stratum because pinning `CHANGELOG.md` gates on its whole
+history. A touched line has no history: a changelog line written in this
+change is a live claim by the person writing it. So every finding on an
+introduced line gates whatever its document's stratum, the stratum is
+carried as it is everywhere else, and a vendored tree that a change bumps
+is what `exclude_paths` - honoured here, counts printed - is for.
+
+**Owed.** The action's `mode` input takes `verify` or `sweep` and the REF
+has nowhere to go, so the README wires the mode as a plain step; a `since`
+input is the next change. The replay above. And a fuzz oracle asserting
+that every gated finding's line is a `+` line of the same diff, which the
+CRLF and encoding axes would exercise on hostile documents; the mode is in
+the fuzzer's mode list and its three ledgers, so the crash, exit,
+denominator, format and concurrency properties already reach it.
+
+## The ancestry index is bounded, and a batch settles what lies past it
+
+The review's item 4.1 named the risk correctly and the remedy wrongly. The
+risk: `_ancestor_index` ran `git rev-list <ref>` and held every commit
+reachable from the ref, so the cost of asking "is this commit on main" once
+was the whole history, per integration ref, per worker. Measured on
+2026-09-15 on this machine without a commit-graph - the state of every one of
+the 195 corpus clones and of every fresh CI checkout - rust's 338,850 commits
+cost 10.6 s and 77 MB held per ref per worker, tensorflow's 198,538 cost 6.8 s
+and 56 MB, kubernetes' 140,768 cost 4.1 s and 38 MB. A linux-sized history
+would be about 300 MB per ref per worker under the old representation, times
+eight workers in a survey.
+
+**The remedy the review proposed does not exist.** It offered `rev-list
+--no-walk --stdin --not <ref>` as one spawn whose output is "proportional to
+the answer", and reported having verified it. On a fixture whose answer is
+known by construction - 200 commits on main, a topic branch merged by a second
+parent, a side branch never merged - the call printed all five side commits
+for three fed in: `--no-walk` has no effect once `--not` makes the arguments
+a range, and the output with and without it is byte-identical on git 2.53.
+What the call prints is the EXCLUSIVE HISTORY of the inputs, every commit
+reachable from an input and not from the ref. That still settles ancestry
+exactly - an input that is printed is not an ancestor, one that is not printed
+is, and for a document whose claims are all true the output is empty - but
+its cost is a walk, not a lookup. Git walks the ref in date order down to the
+deepest input, and on rust without a commit-graph fifty inputs cost 7.9 s when
+one of them sits near the root, 0.63 s when all fifty are within a thousand
+first-parent commits of the tip, against 10.6 s for the whole index. On
+ruff's 17,020 commits: 482 ms deep, 353 ms recent, 615 ms for the index. The
+review's other half held: one input git cannot resolve fails the whole call
+with exit 128 and empty stdout, a tree object on stdin does not, a shallow
+boundary does but `cat-file` reports that commit `missing` first.
+
+So replacing the index with the batch would have traded one walk per ref per
+worker for a walk per rule, per document, per ref - and on this repository's
+`--verify` it would have added two spawns to a budget of four, the merge and
+release rules each batching against `main`, to save nothing: the history is
+355 commits. Refused as pitched, on those numbers.
+
+**What shipped instead is three pieces in refs.py, one path each.** Full-SHA
+membership: `_batch_shas` keeps the full commit id `cat-file --batch-check`
+already prints, the `shas` memo holds it instead of a boolean, and
+`commit_id` maps any rev - an abbreviated token through that memo, a name
+through the ref table - to its full id before the question is asked. The
+prefix buckets and the `startswith` scan went with it, and one token has one
+resolver: a SHA-shaped rev that no batch has seen goes through `cat-file`,
+never through the tag table, where a tag named like a seven-character prefix
+would have answered for a commit. A bounded index: `rev-list -n 50001 <ref>`,
+a frozenset of full SHAs, and a flag saying whether that was the whole
+history. A hit is proof either way; a miss on a complete index is a no with no
+spawn. And the batch above, `_settle`, for misses on an incomplete index only,
+fed full SHAs this run already resolved as commits - which is what makes the
+abort unreachable by construction - issued once per rule and ref by a
+`settle_ancestry` call each of the three rules makes before its judging loop,
+with the answers memoised on the same scope object as the index. Should the
+batch abort anyway, the repository having changed under the run, the fallback
+is the one `reachable_from` has always had, a `merge-base --is-ancestor` per
+commit, so the answer is the same and only the spawn count is not. The batch
+is fed and read as bytes: `subprocess` in text mode writes `\r\n` on Windows,
+git tolerates it, and `_batch_shas` has been relying on that tolerance without
+knowing.
+
+**The bound is fifty thousand, and the number was measured before it was
+chosen.** `-n` bounds the walk linearly on rust: 20,001 commits in 0.68 s,
+50,001 in 1.6 s, 100,001 in 3.1 s. The corpus median is 8,076 commits; 179 of
+195 clones are under fifty thousand and pay exactly what they paid before,
+one spawn per ref per run with only the argv's spelling changed; the sixteen
+above pay at most 1.6 s and about 6 MB per ref per worker instead of up to
+10.6 s and 77 MB. A frozenset of the seam's own lines rather than the sorted
+20-byte blob that was also measured - 6.5 MB against 42 MB on rust's full
+history, 321 ms against 131 to build - because the bound is what caps the
+memory, and the blob's remaining 5 MB per ref per worker did not buy a custom
+binary search and a test for one.
+
+**The docstring that argued against a size switch was right, and the answer
+was to exercise the path rather than to leave the walk unbounded.** "A
+size-based switch would create a second path that only runs on large inputs,
+which is precisely the code that never gets exercised by a test." The bound
+is a module constant tests/test_ancestry_bound.py sets to one, so every rule
+that asks ancestry runs past the bound on every fixture; each of the three
+rules is asserted to answer identically under a bound of one, three and the
+default; the mutation campaign holds anchors on both sides of it. And the
+corpus gate: thirteen repositories - the nine full-blob autopsy rows, ruff,
+kubernetes, kubernetes/website and this one - swept three ways, the
+payload as it stood before this change, this payload at the default bound,
+and this payload with the bound forced to one so that every question goes
+through the batch, with byte-identical output required.
+
+**What it costs, stated.** Above the bound, a document citing only old
+commits pays the bounded build and then one deep walk per rule: on rust
+without a commit-graph about 1.6 s plus 7.9 s against the old 10.6 s, roughly
+even, while a document citing recent commits pays 1.6 s plus 0.63 s. The
+population that asks decides which shape matters, and it was counted: across
+twelve corpus repositories and 13,043 documents, four documents ask an
+ancestry question at all - one in babel and three in kubernetes/website, all
+release claims naming old tags - and this repository's status document asks
+forty times. The zero for live claims there is structural rather than
+evidence: `stale-live-claim` reads only the primary document, and no corpus
+repository has one. Status documents are the population, they cite recent
+commits, and they live in small histories; the bound is for the day one of
+them does not.
+
+**Two things measured here and not built.** The review's 4.2 asked for a note
+when a commit-graph is absent and ancestry dominates, earned by a gap above
+2x. The gap is 7.5x on the index (10.6 s to 1.4 s on rust), 27x on the batch
+(7.9 s to 0.29 s) and 77x on `merge-base` (2.8 s to 36 ms); no corpus clone
+has one, and git writes one only after a `gc`. Earned, and not in this
+change, because the only deterministic trigger - the index came back
+incomplete - is a fact of the run scope, and `report_repository_notes` prints
+after that scope has closed in `run_validate`; plumbing the flag out is its
+own change. And the name the batching call first had, `prefetch_ancestry`,
+failed `test_no_network_shape_appears_in_the_operational_source` in the
+suite: the scan that keeps `clone` out of the shallow note reads identifiers
+too, and a verb that means retrieval over a network is not one this tool may
+carry even as a prefix. It is `settle_ancestry`.
+
+Still owed from before: each survey worker builds its own index (review
+5.6), and `--verify` opens a scope per document so the index is rebuilt for
+each (5.7) - both now bounded, neither removed.
+
+## The suite's own denominator, and the number the review could not see
+
+The internals review said the suite had no denominator of its own: 87 per
+cent line coverage of the package under pytest, gate.py at 54, cli.py at 66,
+`run_check_text` untouched - and, honestly, that smoke, scenarios and fuzz
+drive those paths as subprocesses coverage cannot see, so "the real number
+is unknown, and unknown is the state this project exists to abolish". The
+instruction was to run the harnesses under coverage and find out.
+
+**The unknown was the suite's own subprocesses, not the harnesses'.** Most
+of the tests that drive a mode run the tool the way a hook does, as a
+subprocess, and `pytest --cov` measures none of those processes. Measured
+on 2026-09-15 on 4,065 statements with a `sitecustomize` hook starting
+coverage in every process that inherits `COVERAGE_PROCESS_START` - the
+tool, its survey workers, the hooks it installs - and the arena copies the
+harnesses install as `tools/extant` folded back onto the checkout:
+
+| module | suite, subprocesses unmeasured | suite | union with the three harnesses |
+|:---|---:|---:|---:|
+| gate.py | 56.6% | 95.2% | 95.6% |
+| cli.py | 68.1% | 90.4% | 91.2% |
+| sweep.py | 86.1% | 96.7% | 97.1% |
+| report.py | 83.7% | 97.6% | 98.6% |
+| package | 89.1% | 94.3% | 95.0% |
+
+The first column reproduces the review to within two points on every module
+it named - its figures were taken on 0.26.1's 3,505 statements - and the
+reproduction is honest about one thing: `concurrency = multiprocessing` let
+even that run measure the survey's worker processes, so "unmeasured" means
+the tool's own spawns, which is exactly what a plain `pytest --cov` misses.
+The three harnesses add one line to gate.py and two to cli.py. That number
+must not be read as the harnesses being redundant: coverage counts
+statements, not inputs, and fuzz's 35 hostile repositories run the same
+lines under crash, exit, denominator, format and concurrency properties
+that no line count expresses. Measured on Windows; a POSIX-only line counts
+as unreached here.
+
+**What 205 unreached statements were, read one by one.** Eleven of 38
+modules fully covered. The console-script entry `cli()` - the pip, pipx and
+pre-commit path, the one route that reads the checked-out repository's own
+`.extant.toml` - executed by nothing, seventeen lines. Both refusals of
+`--introduced-since` that exit 2: a diff git cannot produce, and a HEAD tree
+it cannot list. The line in each survey mode that carries a rule error out
+of a worker into `RULE_ERRORS` - never executed, and deleting it turns a
+rule that crashed inside a worker into a clean survey with exit 0, which is
+the failure this whole tool exists to refuse. `--check-text` with no usable
+stdin (exit 1) and with an unreadable baseline (exit 2). `--selftest` on a
+primary document that is not UTF-8 (exit 1). The unresolvable-ref fallback
+in `reachable_from`, unreachable from every rule by construction because
+`_merge_sites` and `integration_refs` drop such refs first. Those thirteen
+are tested in tests/test_unreached_exits.py, each naming the line it
+reaches, and the six that decide an exit code are mutation anchors. The
+remaining ~130 are degraded paths - a missing git, a config that will not
+decode, an LFS blob that cannot be read, a `?` in an exclusion glob - and
+are recorded here rather than tested: each is a named branch in the JSON the
+measurement writes, and none decides an exit code.
+
+**Honest triggers, and one that could not be.** The diff refusal is reached
+for real: a `blob:none` clone whose base version of the changed document
+was never transported, under the environment that refuses the lazy fetch.
+A rule raising inside a worker cannot be injected, because workers are
+spawned and re-import the real rules; what the test pins is the parent's
+handling of what a worker reports, which is the line that was never run.
+The `ls-tree` refusal has no real state that fails after a diff succeeded,
+so `tracked_markdown` is made to raise - and the test says so.
+
+**Two artefacts of measuring.** Two suite tests remove `tomllib` from
+`sys.modules` to simulate a Python with no TOML parser; `coverage` has
+imported it to read its own configuration before they run, so under the
+hook they fail for that reason alone and the documented command deselects
+them. And the measurement changes timing - the chain took twenty minutes,
+most of it fuzz - so it is a thing run by hand and recorded, in
+tests/harnesses/README.md, not a CI job and not a threshold. `coverage` is
+in `requirements-dev.txt` on the same side of the line as pytest-xdist: the
+tool still has no dependencies.
+
+**After the thirteen tests, and in branches.** Suite alone: gate.py 96.8 per cent, cli.py 98.0, `introduced_since.py` 95.6, the package 95.4; in union with the harnesses 97.2, 98.8 and 95.9, with 165 statements reached by nothing where there were 205. Branch coverage, measured once with the suite alone because the review's figures were line-based and a line cannot see `if index.complete:` taken one way only: 1,381 of 1,496 branches, 92.3 per cent, 113 partial; gate.py 86.8 per cent of its 106, cli.py 92.6 of its 94. Recorded, not gated.
+
+## A path index, measured and refused
+
+The review's item 3.3: replace `resolve_reference`'s filesystem walk - one
+directory listing per path component, memoised on `dircache` - with one set
+built from `ls-tree -r HEAD` and a case-folded map, and answer every
+`dead-md-link` and `dead-path-pointer` from it. Three things were to fall
+out: the case verdict identical on every platform without touching a
+filesystem, a tool that works on a bare repository, and `--at <ref>`. The
+cost it named: a link to a file that is present but untracked - a build
+output - resolves today and would become a finding. Its deciding count:
+under about 0.1% of resolved references, switch outright; higher, index as
+the fast path and walk on a miss.
+
+**The premise is wrong by two orders of magnitude.** Measured on
+2026-09-15, in-process and sequential, with every binding of
+`resolve_reference` wrapped in a clock: on ruff the walk costs **0.02 s of a
+5.9 s sweep** - 455 calls, 164 directory listings, all memoised on the run
+scope; on next.js 0.09 s of 9.0 s (1.0%, 17,242 calls, 2,520 listings); on
+kubernetes/website 0.46 s of 129 s (0.4%, 134,147 calls, 10,277 listings).
+The 27% the previous section attributes to `dead-md-link` is the whole
+rule, and the profile puts it in `link_sites` - 0.49 s wall, called 1,301
+times for 650 documents, once by `check` and once by `examined` - and in
+`anchors()`'s slugging; the walk is 1% of the rule. Two prototypes stood in
+for the walk on ruff, three sweeps each, medians: index-first with the real
+walk on a miss, 5.91 s; index-only with a case-folded map for the spelling
+verdict, 5.83 s; today, 5.90 s. Both byte-identical to today's output. A
+memo of the link scan keyed on text identity saved nothing either: the
+second call arrives on a different string object, and the scan is 8% of
+the sweep at most.
+
+**The count the review asked for, and why the corpus can only half answer
+it.** Every reference the rules resolved during a sweep of the 152 visible
+clones (the 43 held-out rows untouched), classified against `ls-tree -r
+HEAD`, `ls-files` and the disk: 115,364 distinct references, 49,840
+resolved, 27,710 dead, 37,814 absolute or leaving the repository. Resolved
+and absent from HEAD's tree: **0 of 49,840**. Not because links to build
+outputs do not exist, but because every clone is pristine - nothing built,
+nothing staged - so the cost the review named cannot be seen here by
+construction. What the corpus does settle: 1,175 resolved targets are
+directories, every one implied by a tracked file, so an index needs the
+implied directories and nothing more; 33 dead references are case
+mismatches against a tracked file, the spelling verdict a folded map
+reproduces; 0 resolve through a symlink or into a submodule; the index and
+HEAD never disagree.
+
+**The one real argument for an authoritative index is a verdict, not a
+speed.** 1,022 of the 27,677 dead references - 3.7%, in 28 repositories -
+name gitignored paths: ruff's generated `docs/settings.md` and
+`docs/default-rules.md`, babel's `build/`, autogen's generated API pages.
+Dead in every fresh clone and in CI, resolving on any machine that has run
+the docs build: "true where you are standing is not true", inside the tool
+built to catch it. An index that answers from HEAD would make those
+verdicts deterministic. It would also make three other changes at once: a
+tracked file the checkout could not materialise - MAX_PATH on Windows, a
+sparse checkout - would become "exists" where it is "dead" today, which is
+the choice `tracked_markdown` already made for documents; a target created
+and staged but not yet committed would become dead at pre-commit time,
+which is wrong unless the index is HEAD plus `ls-files`, a second spawn;
+and none of the three can be counted on pristine clones. A changed verdict
+here is admitted on a count, and this one would be argued from principle.
+So it is recorded as the case for a separate proposal, with the population
+that would decide it named: repositories with a docs build, measured on a
+checkout that has run it.
+
+Refused as a performance change; not built as a verdict change; the
+apparatus - `m6_probe.py`, `m6_driver.py`, `m6_report.py` and `m6_timing.py` in
+the extant-hardening checkout beside this one, outputs under
+`D:/repo/out-pathindex/` - is what a later proposal would start from. What the profile says the link
+rules actually cost - the scan and the slugging - belongs to the review's
+3.1, and its premise is the same inner loop.
+
+## One document scan, measured and refused; its bar all but met without it
+
+The review's item 3.1, the last of its architecture proposals and the one
+it called the big one: `prose()` and `strip_code()` are memoised per
+document, but each of thirteen rules then runs its own `finditer` over the
+result, so make ONE tokenizer pass per document produce a span table -
+fence regions, inline code, line breaks, headings, link sites, backticked
+tokens, bare hex runs, the newest entry's bounds - and have every rule's
+`_sites()` become a filter over it; then extract every claim in every
+document first and resolve once per repository. Its own bar: identical
+findings on every corpus repository, and a sequential ruff sweep under
+3.5 s against the 7.0 s it measured, 5.9 s by the time this was read.
+
+**The scan side, on the clock.** The review's figures - 2.5 million
+`re.Pattern.match` calls, 9.1 million Python calls - were cProfile counts
+on 0.26.1, and two tranches had moved both since. Measured again on
+2026-09-15 with `time.perf_counter` around every scanner, in-process and
+sequential, three sweeps of ruff's 650 documents, medians, and EXCLUSIVE
+of anything a scanner calls that is itself timed, so the sum counts nothing
+twice (`m7_scanners.py` in the measurement tree): 5.87 s in all. The
+rule-owned scans - the two SHA candidate scanners, the merge and release
+claim scans, `link_sites`, the fragment, path-pointer, line-pointer and
+floor scans, the pin walk, `split_entries`, `anchors()` - sum to 3.23 s,
+55%, with the shared blanking another 0.52 s. That is above the 2.4 s
+the bar needs, and it is not what a span table removes. A shared pass
+replaces the DUPLICATE walks and the per-pass line loops; the regex work
+inside each scanner still runs, once, over the same characters. The
+duplicate walks are the scanners called twice per document, once by
+`check` and once by `examined`, and their second call costs 0.45 s across
+all of them. The nine per-line passes a document pays - `splitlines()`
+plus an `enumerate` loop before any pattern runs - cost 275 ms together
+(`m7_overhead.py`), so one loop in place of nine saves about 0.25 s.
+**What a span table can remove is 0.7 s of the 2.4 s its bar demands.**
+The second half, resolving once per repository, is already there: a
+650-document sweep of ruff spawns `cat-file --batch-check` twice, for
+0.056 s. And the rewrite would retarget 39 of the 246 mutation anchors,
+the ones that sit inside scanner bodies. Refused on that number, the way
+3.3 was.
+
+**Where the time actually was.** The same clock, ruff, exclusive seconds:
+
+| | s | share |
+|:---|---:|---:|
+| `git log --diff-filter=R`, one spawn, the rename map behind 28 repair hints | 1.37 | 23% |
+| `anchors()` slugging every document's own headings, eagerly | 0.84 | 14% |
+| denominators computed and discarded: the entry-scoped rules' `split_entries` twice per document, the repository rule's configuration load once per document | 0.63 | 11% |
+| the path-pointer scan, a three-way alternation the pre-filter cannot derive words from, every line | 0.54 | 9% |
+| the blanking, already shared | 0.52 | 9% |
+| the two SHA scans, backticked 0.32 ungated and bare 0.41 gated | 0.72 | 12% |
+| everything else: the remaining scans (`link_sites` 0.21, release 0.18, line pointer 0.15, fragments 0.11, merge 0.08), the other four spawns, the survey's own listing and reads | 1.25 | 21% |
+
+None of the first four is the shape 3.1 describes. The first is git, and
+on next.js it is 3.46 s of 7.8 - a single `log --diff-filter=R -n 200`
+walk on a `blob:none` clone, paid only when a dead link or pointer wants
+a rename hint; recorded here beside item 6.3 and left alone. The other
+three are work nobody read, and one ungated scan.
+
+**Four changes, none of them 3.1, bound at runtime over the shipped
+payload first so the working tree stayed untouched, each swept byte for
+byte against today's output (`m7_variants.py`):**
+
+| | ruff | next.js |
+|:---|---:|---:|
+| today | 5.75 | 7.52 |
+| A `dead-md-anchor` slugs its own headings on demand | 4.96 | 7.37 |
+| B the sweep counts only the denominators it keeps | 5.15 | 6.86 |
+| C a mandatory-literal gate on the two ungated line scans | 5.10 | 7.27 |
+| D an identity memo on the two pure twice-run scanners | 5.56 | 7.44 |
+| all four | 3.59 | 6.00 |
+
+Seconds, medians of three (two for next.js), sequential and in-process.
+Identical output on every row. Shipped, uninstrumented, medians of three:
+**ruff 3.65 s** (spread 3.65-3.72) and **next.js 6.36 s** (6.13-6.64) -
+0.15 s short of the bar 3.1 set for itself, inside the run-to-run spread
+of the measurements that set it, and with 1.3 s of it being the one
+`log --diff-filter=R` spawn no scan change can reach: the Python side of
+the sweep went from 4.4 s to 2.3 s. next.js says the shares differ by
+repository: A is worth 0.8 s where 11 documents of 650 hold a
+same-document fragment, and 0.15 s where most do.
+
+**A.** `check` computed `own = anchors(text)` before the site loop, for a
+value one shape consults - a bare `#fragment` into the document - and 639
+of ruff's 650 documents never reach that shape. It is a closure now,
+built on first use, the shape `ambient_anchors` beside it has had since
+the project-wide anchor set was made lazy for the same reason. `x in own`
+is the same test wherever `own` is built.
+
+**B.** `count_examined` computed all thirteen denominators and the sweep
+kept the ones `rule_applies` allowed; on a repository with no primary
+document the two entry-scoped rules' `split_entries` walk ran on every
+document, twice, and `inconsistent-artifact`'s `load_config` once per
+document, all of it dropped. `registry.count_examined` takes the
+predicate now, as `applies`, and the sweep hands it the same
+`functools.partial` of `rule_applies` it filters the answer with, so the
+predicate is stated once. A skipped rule is still present at 0 - the
+shape every caller reads is unchanged - and `--verify` passes nothing and
+gets every count, because for an extra document it prints "examined 0"
+deliberately, as a different fact from "not applicable". One consequence
+named rather than discovered: a denominator that would have raised for a
+skipped rule is no longer recorded in `RULE_ERRORS`, and that is right,
+because the rule's `check` never ran and the record would have named the
+failure of a rule that did not look.
+
+**C.** Two per-line scans ran their patterns on every line. The
+backticked-SHA scan's two patterns each carry a literal backtick, so a
+line without one is skipped on the same argument the line-pointer rule
+makes for its colon - checkable by reading the patterns. The path-pointer
+pattern is the user's to configure, so its gate is DERIVED:
+`required_literals` in `text.py`, the companion of `leading_literals`,
+walks the pattern at the top level - outside every group and class,
+unescaped or escaped as itself - and keeps a character only when no
+quantifier follows that could make it optional and no top-level `|`
+offers a match without it. Letters are refused, because the pattern
+compiles `IGNORECASE`; whitespace is refused; `VERBOSE`, inline `(?x)`
+included, refuses the whole pattern, because under it a space in the
+source is not a literal. The default yields a backtick and nothing else; a
+configured pattern offering no such character scans every line as before.
+Every shape that must yield nothing is a test in
+`tests/test_prefilters.py`, beside the ones for the words, and the same
+file asserts on lines the default pattern matches that the gate never
+refuses one.
+
+**D.** `link_sites` and `_release_claims` were the last per-document
+scanners with two readers and no memo: 1,301 calls each on 650 documents,
+every second one a re-walk. Each keeps the one-entry identity memo
+`find_sha_candidates` and `merge_claims` keep, with the half of the key
+`_STRIPPED` is recorded as missing present - the document format beside
+the text for the link scan, the pattern object beside the prose for the
+release scan - and both are complete keys, so neither is in
+`registry.forget_memos`. `_fragment_sites` re-walks too and is left
+alone: it reads the disk, its memo would need a lifetime, and its second
+walk is 0.057 s.
+
+**The gate.** Beyond the suite, the 152 visible corpus clones swept
+before and after through the shipped payload, in-process and sequential
+so the header names no worker count, one output per clone, diffed byte
+for byte (`m7_identity.py`, `m7_sweep_one.py`, outputs under
+`D:/repo/out-identity44/`): 152 outputs compared, 0 differ. The mutation
+campaign gained ten anchors, one per way a change could become a verdict
+rather than a speed-up - the headings never slugged, the predicate
+inverted, the predicate dropped, each gate inverted, a letter or a
+quantified literal kept by the derivation, the top-level bar ignored, and
+each memo's key with its second half removed - and one existing anchor on
+the line A edited was retargeted; all eleven were applied to a copy and
+watched turning the suite red, 12 of 12 killed with the Phase 39 anchor a
+label prefix pulled in, none survived, none unapplied, in 64 minutes.
+
+## The post-rewrite journal: the record a rebase leaves, kept
+
+The review's item 4.7. Phase 26 established that a dead SHA is usually a
+rewrite casualty and that the repository already records the mapping - for
+`git filter-repo`, in `.git/filter-repo/commit-map`, which `rewrite_hint`
+reads and `--sha-map` applies. A rebase or an amend renames commits the
+same way and leaves no map. What it leaves is the `<old> <new>` pair per
+commit that git writes to the `post-rewrite` hook's stdin and to nothing
+else, byte-for-byte the commit-map's spelling - and the shipped hook drained
+those into `/dev/null`, with a note in its header saying that persisting
+them "would let a finding name the replacement after a rebase the way it
+already does after filter-repo. Measure how often a rebase is the cause
+before building either."
+
+**The population, stated rather than measured, because no clone can show
+it.** Across the 152 visible corpus clones the identity sweep prints 7,418
+dead-SHA findings and 0 of them carry a rewrite hint: a clone never holds
+the author's `.git/filter-repo/commit-map`, and a journal written by a hook
+would live in the same place. So the count the review asked for - hint
+coverage of amend and rebase casualties, "structurally zero" today - cannot
+come from the corpus, and the tranche-7 handoff said so before this was
+designed. Where the journal has value is the AUTHOR'S machine, and the
+shape of that value is the finding the hook's own header measured on git
+2.53.0: after a local rebase the old ids still resolve through the reflog,
+so `dead-sha` is silent there for the 90 days a reflog entry lives, while
+every clone and every CI run already sees them dead. That is the one
+moment the repair is cheap, and until now nothing offered it.
+
+**What was built, and the four things the audit settled.** The hook
+appends each pair it is handed to `extant/rewrites` under the shared git
+directory - beside the filter-repo map, because a rewrite belongs to the
+repository and a linked worktree shares it - as the two ids only, since
+git's line may carry a third field. `git.rewrite_journal_path` finds it
+with a stat, like the map; `commits._read_rewrite_map` reads both records
+into one mapping, so the `dead-sha` hint and `--sha-map` explain a rebase
+exactly the way they explained a filter-repo, through the one lookup they
+already shared. (1) *The append lives in the hook, not the installer's
+shim.* The shim drained stdin and ran the hook with stdin closed, because a
+long rebase left unread while a check ran would fill the pipe and block
+git; it hands stdin through now, and the hook reads it FIRST, before the
+guards, the interpreter search and the check, at the speed of the shell -
+draining itself only where there is no hook to run. Installs made before
+this keep the old shim until `tools/hooks/install` is run again, and the
+CHANGELOG says so. (2) *A chain is followed to its end.* A branch rebased
+twice journals `a b` then `b c`, and a hint naming `b` reads as correct
+and is as dead as `a` - the wrong-SHA-worse-than-dead-SHA failure the
+ambiguity rule refuses - so `_settled_value` follows the chain in the one
+lookup both readers share; a chain that returns to itself, which git
+cannot produce, settles nowhere and hints nothing. (3) *A disputed id
+offers nothing.* An old id the map and the journal send to different
+places is dropped rather than resolved by reading order, the ambiguity
+rule across records. (4) *The cited-documents probe is one process.* After
+the append the hook runs `git grep -l -I -F -f` over a probe file of
+7-character prefixes, across every suffix the sweep reads, and prints one
+note naming the documents that cite a renamed commit and the repair -
+`--verify --sha-map .git/extant/rewrites` - without making it. A probe file
+rather than one `-e` per pair, because a rebase of a few hundred commits
+would overrun Windows's 32 KB command line; silent when nothing cites a
+renamed commit, which is the ordinary rebase, because a note printed for
+every rewrite is how a hook teaches its reader to stop reading it. An
+amend is journaled and probed too, before the hook declines the check that
+post-commit already ran: the renamed id is a fact only this hook is told.
+
+**The gate is the fixture the design named.** A document cites a commit on
+a branch; git itself fires the installed hook on `git rebase`; the journal
+holds the pair; `reflog expire --expire=now --expire-unreachable=now` and
+`gc --prune=now` do what a fresh clone or a later gc does for free; the
+finding names the rebased id where before it said only that the commit
+does not resolve. Fourteen tests, nine on the reader and five on the hook,
+in `tests/test_rewrite_map.py` and `tests/test_hooks.py`; six mutation
+anchors, the first this project has had on the verify hook or on the
+rewrite-map reader at all - the journal never found, a chain hinted one
+hop short, a disputed id resolved by order, git's third field hiding a
+pair, the hook dropping what it is told, and the note printed for a
+rewrite nothing cites. The journal only ever grows, at 82 bytes per
+rewritten commit, and is not pruned: the id it explains may be cited for
+years.
+
+## A declared stratum, measured and refused
+
+The review's item 4.6: ask `git check-attr` for `linguist-vendored`,
+`linguist-generated` and `linguist-documentation` and let a project's own
+declaration place a document in a stratum, where `strata.classify` today
+infers one from the path. The review measured it thin - 51 of 2,519
+documents across 10 repositories, 2%, in 2 of them - and set its bar: under
+1% and concentrated in one repository is a footnote.
+
+Counted on 2026-09-15 over the 152 visible clones (`m8_attributes.py`, two
+spawns per clone through `environment()`, the tranche-7 identity sweep as
+the findings): 98 track a `.gitattributes`; 12,697 of 87,191 swept
+documents carry one of the attributes, in 9 repositories - and 12,326 of
+those carry only `linguist-documentation`, which declares that a document
+IS documentation and maps to no stratum. Declared vendored or generated:
+340 documents, 304 of them `ordinary` today, 194 of them docusaurus's
+`__tests__/__fixtures__` trees declared generated and 104 tabby's vendored
+docs. Findings that would move: **17 of 65,360 leave `ordinary`** - 0.026%,
+in three repositories, docusaurus 12, tabby 3, lean4 2 - and 5 would enter
+it, all bazel's, which declares `linguist-generated=false` on paths the
+regex calls generated or snapshotted. Refused on the review's own bar. The
+`extant-stratum` attribute it called the better half has zero writers by
+construction, and the README's rule about configuration nobody writes
+applies: it ships with a skill that writes it, or not at all. Output under
+`D:/repo/out-attributes/`.
+
+## Five correctness items, counted; four changes, and what the counts refused
+
+The review's section 6, taken together on 2026-09-16 because each ends in a
+number: 6.1 the blanking memo's key, 6.3 the rename map's window, 6.4
+`branch_exists` resolving tags, 6.5 the `EXTERNAL` list against a path index,
+6.6 where settings are read from. Every count is over the 152 visible corpus
+clones unless it says otherwise (`m9_probes.py`, `m9_stripped.py` and
+`m9_stripped_one.py` in the measurement tree; outputs under
+`D:/repo/out-correctness/`).
+
+**6.1, the key that omitted the format: 0 of 868,986, fixed anyway.**
+`_STRIPPED` in `text.py` was keyed on the identity of the text object while
+`_blank_uncached` also read `doc.doc_format`; text.py, scope.py, commits.py,
+line_pointer.py, path_pointer.py and two tests all recorded it as a latent
+bug, and two tests cleared the memo by hand to work around it. The review's
+probe - make a hit assert the format and run the corpus - was run as a count
+instead, so one mismatch could not end a sweep: an instrumented `_blank`
+over every visible clone saw 168,774 blankings, 868,986 memo hits and 0 hits
+answered under a format other than the one they were blanked under. A sweep
+reads each document once, under one format, into its own string object, so
+the condition the bug needed does not arise in any shipped mode. The key
+carries the format now regardless, on the review's own reasoning that the
+two lines cost less than the paragraph explaining their absence; the seven
+records of the bug say so, and the two workaround clears are gone, which is
+the proof.
+
+**6.3, the rename window: 2 of 501, refused; a spelling defect beside it,
+fixed.** The review read `-n 200` as "the last 200 rename commits"; it is the
+last 200 COMMITS of HEAD's history, of which the renames are shown - on this
+repository all 28 renames sit inside 355 commits. Measured on the nine
+autopsy clones, the one tier with the blobs rename detection needs, against
+the Phase 45 identity sweep's findings: 501 dead link and pointer findings,
+0 of them hinted; 497 name a target renamed nowhere in history; 2 were
+renamed beyond the window (0.4%); and 2 were renamed inside it and missed
+because the hint is looked up under the target AS WRITTEN while the map's
+keys are repository-relative - ruff's mdtest suite linking a sibling as
+`./invalid_assignment_details.md`. **The zero hinted had a third cause, and
+the gate found it.** The identity sweep after the fix showed 0 outputs
+changed where the count had predicted 2. The probe had passed `-M`; the
+tool's `git log --name-status` had not, and rename detection there follows
+the repository's `diff.renames` - which every one of the 152 visible clones
+sets to false, written by the clone script. On this corpus the hint had
+never once been able to fire, and a project that sets the same would get
+no hint and no note. `_rename_map` passes `-M` now: it costs nothing where
+detection was already on (ruff, full clone: 1.38 s against 1.42, 6,795
+renames against 0), a partial clone fails the same way with or without it
+because detection reads blob content and lazy fetching is refused, and the
+tool's answer no longer depends on a setting of the repository it checks -
+the stance `environment()` already takes for `core.quotePath`. One of the two beyond the window would
+get a WRONG hint if the window grew: a vendored typeshed README citing its
+own absent `CONTRIBUTING.md` would be matched to ruff's, which moved to
+`.github/` 349 commits back. Raising the bound and the per-finding
+denominator line the review offered are both refused on 2 of 501, the walk
+being already the largest spawn in a sweep. The spelling defect is fixed,
+through one resolver all three readers of the hint share - `dead-md-link`,
+`dead-path-pointer` and the `--suggest-fixes` patch: `sites.reference_path`
+gives the repository-relative path a reference names from its document,
+`renamed_to` is asked under that, and the patch spells the answer back
+relative to the page through `sites.relative_spelling`, because a
+repository-relative path spliced into `docs/a.md` - `[it](docs/new.md)` -
+named `docs/docs/new.md`, a second defect the audit found in the same line.
+The pointer rule asks in its own order, from the root as written and then
+from beside the document.
+
+**6.4, a tag named like a branch: 23 names in 7 repositories, changed.**
+`branch_exists` asked `rev-parse --verify <name>`, which follows git's
+tags-before-heads precedence and answered True for a tag; refs.py said so
+and asked for a corpus count before it changed. Counted: 23 names in 7 of
+152 clones are both a remote branch and a tag - `v1.10.2`, `package-2.1.0`,
+`release-2013.1`, release lines tagged at their own name - so the
+divergence is real, and the two rules that ask are asking about BRANCHES:
+`unknown-branch` wants a branch or a merge commit naming one, and a live
+claim about a tag is a claim about nothing. It answers from the ref table's
+heads now, with no process; a name that is only a tag is asked once more
+for a remote-tracking branch under `refs/remotes/`, where `rev-parse` would
+have looked had the tag not been in the way; a spelling neither table holds
+- `origin/feature`, `HEAD`, a SHA - is `rev-parse --verify` as before, so
+nothing a document names today stops existing. The verdict that moves: a
+name existing only as a tag now reads as no branch, which sends
+`unknown-branch` to the merge history and `stale-live-claim` to "that
+branch no longer exists" - both the honest answer about a branch. The
+corpus cannot gate it, because the entry-scoped rules read primary documents
+and the clones have none; the fixture in `tests/test_ref_resolution.py` is
+the gate.
+
+**6.5, index-first `EXTERNAL`: 0 of 652,705, refused.** The review proposed
+asking the path index before the host test, so a URL-shaped target that is
+a tracked file is a path whatever it looks like, and named the count that
+would decide it. Over 87,189 documents, 652,705 destinations are refused by
+`EXTERNAL` and 0 name a tracked file or directory, resolved from the
+document or from the root. The list is right on a corpus it was not built
+on, which re-validates the measured-exclusion rule it was built by, and the
+reordering would move a pure, unconditional refusal (`links._link_target`)
+into the three repository-aware callers for no verdict. Refused; the zero
+is the record, and a future collision is a suppression a corpus count will
+show, which is how the list was built in the first place.
+
+**6.6, where settings are read: 0 of 152 either way, decided by
+semantics.** The review asked how many corpus repositories would find a
+configuration under each rule; none tracks a `.extant.toml` and none a
+`pyproject.toml` with `[tool.extant]`, so the corpus cannot separate them.
+What could be settled is the defect the README listed under "what it cannot
+do": settings were read once at import, relative to the tool's own file, so
+a run pointed at another repository used the tool's settings and printed a
+NOTE saying the target's file was NOT read. The console script `cli()` had
+learned to re-read from `--repo`; `main()`, which the installed shim and
+every hook run, had not. It re-reads now, once, in the one place both pass
+through, so an ordinary install finds the file the import found, a run
+pointed elsewhere finds that repository's settings or the defaults, and the
+NOTE has no condition left to report. `--config PATH`, `--config-from-script`
+and `[tool.extant]` are refused: no population, and a second place for one
+setting is how a setting nobody reads gets written.
+
+**The gate.** Suite, six anchors written and three retargeted (9 of 9
+killed), and the corpus identity sweep run twice: once before `-M`, where
+its 0 changed outputs against a predicted 2 was the finding above, and once
+after, where 152 outputs compared and exactly 2 differed - the two autopsy
+findings 6.3's count said would gain a hint, each gaining precisely it;
+then the pre-push chain, green, with one of the fuzzer's own breakage
+anchors retargeted at the blanking memo's new hit condition.
 
 ## Authoring constraints these rules impose
 

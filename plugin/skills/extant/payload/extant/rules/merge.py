@@ -13,7 +13,8 @@ from extant.contract import Rule
 from extant.finding import Finding
 from extant.probes import sub_group
 from extant.refs import (
-    integrated_by, integration_refs, reachable_from, resolve_ref,
+    integrated_by, integration_refs, settle_ancestry, reachable_from,
+    resolve_ref,
 )
 from extant.scope import Context
 from extant.text import prose
@@ -134,7 +135,16 @@ def check(ctx: Context, text: str) -> list[Finding]:
     # answer from a repository that no longer exists in that shape.
     merged: dict[tuple[str, str], bool] = {}
     findings: list[Finding] = []
-    for number, ref, sha, ref_exists in _merge_sites(ctx, text):
+    sites = _merge_sites(ctx, text)
+    # Everything the loop below will ask, asked first, so that a history
+    # longer than the ancestry index's bound settles its misses in one batch
+    # per ref rather than one spawn per claim. A claim whose ref is gone asks
+    # every integration ref, which is what `integrated_by` will ask for it.
+    settle_ancestry(ctx, [
+        (sha, target)
+        for _number, ref, sha, ref_exists in sites
+        for target in ([ref] if ref_exists else integration_refs(ctx))])
+    for number, ref, sha, ref_exists in sites:
         if not ref_exists:
             # The substantive question `_merge_sites` defers to this loop: the
             # branch is gone, so did the work land anywhere at all?

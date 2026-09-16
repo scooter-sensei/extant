@@ -18,3 +18,10 @@ pytest-xdist>=3
 # original name. The TOOL still needs neither: it falls back, and works on
 # defaults when no parser is present at all.
 tomli>=2; python_version < "3.11"
+# The suite's denominator. Coverage of `payload/extant/` is measured with every
+# process the suite and the harnesses spawn instrumented - the tool runs as a
+# subprocess in most of the tests that drive a mode - and the number is
+# recorded in tests/harnesses/README.md rather than gated on: 95.9 per cent
+# on 2026-09-15. Dev-side only, like pytest-xdist above; the TOOL still has no
+# dependencies and nothing under `plugin/skills/extant/payload/` imports this.
+coverage>=7

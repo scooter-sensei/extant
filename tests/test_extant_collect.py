@@ -1128,10 +1128,15 @@ def test_resolve_shas_agrees_with_per_token_checking(git_repo):
     live_short = live_full[:7]
     tokens = [live_full, live_short, "deadbee1", "0000000", live_short]
     batched = refs.resolve_shas(session.context(repo), tokens)
-    per_token = {t for t in set(tokens) if refs._sha_exists(session.context(repo), t)}
-    assert batched == per_token
+    # `_sha_of` is the per-token path now, and it answers with the full id the
+    # batch also records - so the equivalence pinned here is two-fold: the same
+    # tokens resolve, and to the same commit.
+    per_token = {t: refs._sha_of(session.context(repo), t) for t in set(tokens)}
+    assert batched == {t for t, sha in per_token.items() if sha is not None}
     assert live_short in batched
     assert "deadbee1" not in batched
+    memo = session.context(repo).run.shas
+    assert memo[(str(repo), live_short)] == per_token[live_short] == live_full
 
 
 def test_resolve_shas_handles_no_tokens(git_repo):

@@ -20,6 +20,7 @@ this module importing the shim.
 """
 from __future__ import annotations
 
+import posixpath
 import re
 import subprocess
 from pathlib import Path, PurePosixPath
@@ -38,7 +39,8 @@ __all__ = [
     "_DOC_INCLUDE", "_MARKDOWN_LITERAL", "_rustdoc_includes_of",
     "has_global_anchors", "has_partial_anchors", "in_site_tree",
     "is_generated_site", "looks_like_a_path", "partial_anchors",
-    "project_anchors", "resolve_reference", "rustdoc_included",
+    "project_anchors", "reference_path", "relative_spelling",
+    "resolve_reference", "rustdoc_included",
 ]
 
 # An absolute path, which resolves against the filesystem root rather than
@@ -115,6 +117,57 @@ def _components(relative: str) -> list[str]:
         if chunk and chunk != ".":
             parts.append(chunk)
     return parts
+
+
+def reference_path(repo: Path, base: Path, raw: str) -> str | None:
+    """The repository-relative path a reference names from `base`, or None.
+
+    A link is relative to the DOCUMENT that holds it, and `resolve_reference`
+    below resolves it that way; the rename map in extant/refs.py is keyed on
+    repository-relative paths, as git writes them. The three readers of the
+    rename hint - both link rules and the `--suggest-fixes` patch - used to
+    look the hint up under the target as WRITTEN, so `[it](old.md)` inside
+    `docs/` asked the map about `old.md` and got nothing while the same link
+    from the root got its hint. Measured on the nine autopsy clones, the one
+    tier with the blobs rename detection needs: 501 dead link and pointer
+    findings, none hinted, 2 renamed inside the window and missed for this.
+
+    Lexical, like `_depth_below`, for the reason it gives: nothing here may
+    touch the filesystem or resolve a case. None for an absolute reference, a
+    base outside the repository, or a `..` that climbs out of it - each of
+    those is a question the map cannot answer, and the caller falls back to
+    the spelling it had.
+    """
+    if _ABSOLUTE.match(raw):
+        return None
+    try:
+        parts = list(base.relative_to(repo).parts)
+    except ValueError:
+        return None
+    for part in _components(raw):
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def relative_spelling(repo: Path, base: Path, repo_path: str) -> str:
+    """`repo_path` written as a link from a document in `base`.
+
+    The other direction, for the patch `--suggest-fixes` emits: the rename
+    map answers in repository-relative paths, and splicing one into a link
+    inside `docs/` - `[it](docs/new.md)` - points at `docs/docs/new.md`. A
+    document at the root gets the path unchanged, which is what every patch
+    used to assume of every document.
+    """
+    try:
+        here = base.relative_to(repo).as_posix()
+    except ValueError:
+        return repo_path
+    return posixpath.relpath(repo_path, here or ".")
 
 
 def _depth_below(repo: Path, base: Path) -> int | None:

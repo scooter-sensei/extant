@@ -40,20 +40,23 @@ false claim this project keeps paying for.
 
 `_STRIPPED` stays a module-level memo here for the reason extant/scope.py gives
 for leaving it out of RunScope: it is keyed on the IDENTITY of the text passed
-in. That key is INCOMPLETE, not absent, and extant/scope.py now says so
-directly rather than claiming otherwise. `_blank_uncached` below also reads
-`doc.doc_format` - markdown and reStructuredText strip code differently - so
-the cached VALUE depends on the format as well as the text, while the cache
-key does not. A known latent bug, recorded but not fixed here: a caller that
-validates the same text object twice under two different formats - once with
-`doc_format="markdown"`, once with `"rst"` - gets back whichever result was
-computed first, both times. `--sweep` is the mode that changes `doc_format`
-per document within one run, which is what makes the condition real rather
-than theoretical.
+in, and on the document FORMAT beside it. The format was missing from the key
+until 2026-09-16 - `_blank_uncached` below reads `doc.doc_format`, markdown
+and reStructuredText strip code differently, so the cached VALUE depended on
+a thing the key did not carry, and a caller validating one text object under
+two formats got the first blanking back both times. Recorded as a latent bug
+for months, then counted the way the review proposed before it was fixed:
+over a sweep of the 152 visible corpus clones, 168,774 blankings, 868,986
+memo hits, 0 of them answered under a different format than they were
+blanked under, because a sweep reads each document once, under one format,
+into its own string object. Fixed anyway, because the key is complete now
+and the two tests that used to clear this memo to work around it no longer
+have to.
 """
 from __future__ import annotations
 
 import bisect
+import functools
 import re
 import subprocess
 from pathlib import Path
@@ -105,7 +108,8 @@ __all__ = [
     "_route_name", "_translation_tree",
     "HEADING", "MARKDOWN_ONLY",
     "format_for",
-    "current_document", "line_breaks", "line_number_at", "lone_cr_to_lf",
+    "could_match", "current_document", "leading_literals", "line_breaks",
+    "line_number_at", "lone_cr_to_lf",
     "numbered_document",
     "prose", "strip_code", "unique_basename",
 ]
@@ -179,8 +183,9 @@ def strip_code(doc: DocScope, text: str) -> str:
 # IDENTITY rather than equality, which is what makes this safe without a
 # lifecycle: every rule in one validate() receives the same str object, and a
 # different object simply misses. No hashing of a 5 MB string, and at most two
-# entries retained.
-_STRIPPED: dict[bool, tuple[str, str]] = {}
+# entries retained. The format sits in the entry beside the text, so the one
+# other input the blanking reads is part of the key.
+_STRIPPED: dict[bool, tuple[str, str, str]] = {}
 
 
 # A bare carriage return, rewritten to a newline WITHOUT changing the length.
@@ -219,10 +224,10 @@ def _blank(doc: DocScope, text: str, *, inline: bool) -> str:
     # from a silent zero to `ValueError: substring not found`.
     text = lone_cr_to_lf(text)
     cached = _STRIPPED.get(inline)
-    if cached is not None and cached[0] is text:
-        return cached[1]
+    if cached is not None and cached[0] is text and cached[1] == doc.doc_format:
+        return cached[2]
     result = _blank_uncached(doc, text, inline=inline)
-    _STRIPPED[inline] = (text, result)
+    _STRIPPED[inline] = (text, doc.doc_format, result)
     return result
 
 
@@ -230,6 +235,161 @@ def _blank(doc: DocScope, text: str, *, inline: bool) -> str:
 # not two. Counting `"\n"` instead is right for LF and for CRLF - which
 # contains one - and silently wrong for a bare `\r`, which contains none.
 LINE_BREAK = re.compile(r"\r\n|[\n\r]")
+
+
+# A leading `(?:word|word|...)` of plain literals, not followed by a
+# quantifier or a top-level alternation - see `leading_literals`.
+_LEADING_ALTERNATION = re.compile(r"^\(\?:([A-Za-z0-9_-]+(?:\|[A-Za-z0-9_-]+)*)\)(?![?*{|])")
+
+# The characters `re.IGNORECASE` folds onto an ASCII letter that
+# `str.lower()` does not: dotted and dotless capital I, long s, Kelvin sign.
+# Verified: `SH<U+0130>PPED in 1.0` matches the default release pattern,
+# and `"shipped" in that text.lower()` is False.
+_FOLDS_BEYOND_LOWER = ("\u0130", "\u0131", "\u017f", "\u212a")
+
+
+@functools.lru_cache(maxsize=None)
+def leading_literals(source: str) -> tuple[str, ...]:
+    """The literal words every match of `source` must begin with, or ().
+
+    Only the shape where that is certain is read: the pattern opens with a
+    non-capturing group of plain literals, the group is not made optional by
+    a quantifier after it, and no `|` at the top level later in the pattern
+    offers a way to match that skips the group. Anything else - a `\\b`
+    first, an inline flag, a class, a `\\w+` inside the alternation - yields
+    nothing, and the caller scans in full. Every one of those shapes is in
+    tests/test_prefilters.py, because a derivation that returned words a
+    match does not need would skip scans the regex would have made.
+
+    Memoised on the source, which is the whole key: the same pattern text
+    yields the same words, so this is the module-level memo the memo rule
+    allows.
+    """
+    found = _LEADING_ALTERNATION.match(source)
+    if not found:
+        return ()
+    depth = 0
+    escaped = in_class = False
+    for char in source[found.end():]:
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "|" and depth == 0:
+            return ()
+    return tuple(found.group(1).split("|"))
+
+
+# Metacharacters at the top level of a pattern. A character that is one of
+# these unescaped is syntax, not a literal; escaped, every one of them IS
+# the literal it names.
+_META = set(".^$*+?{}[]()|\\")
+_QUANTIFIER_OPENERS = "?*{"
+
+
+@functools.lru_cache(maxsize=None)
+def required_literals(source: str, flags: int = 0) -> tuple[str, ...]:
+    """The characters every match of `source` must contain, or ().
+
+    The companion of `leading_literals` for a pattern that opens with no
+    alternation of words at all. The path-pointer pattern opens with a
+    `\\*\\*(?:Plan|...)` or a `\\bsee\\b` that no word can be derived from,
+    and runs per LINE over every line of every document: what every match
+    of it must contain is a backtick, and that is readable off the pattern
+    too. Read here, one character at a time at the TOP LEVEL - outside every
+    group and class, unescaped or escaped as itself - and kept only when no
+    quantifier follows that could make it optional. A top-level `|` refuses
+    the whole pattern, because a literal on one side of it is absent from
+    the other. Letters are refused because the pattern may be compiled
+    IGNORECASE, under which `S` matches `s`; VERBOSE is refused outright,
+    because under it a space in the source is not a literal at all - and an
+    inline `(?x)` sets that flag on the compiled pattern, which is why the
+    caller passes `pattern.flags` and not only its source. Every shape in
+    tests/test_prefilters.py that must yield nothing does, because a
+    derivation returning a character a match does not need would skip lines
+    the regex would have matched.
+
+    Memoised on source and flags, which is the whole key.
+    """
+    if flags & re.VERBOSE:
+        return ()
+    found: list[str] = []
+    depth = 0
+    in_class = False
+    index = 0
+    while index < len(source):
+        char = source[index]
+        literal: str | None = None
+        if char == "\\":
+            index += 1
+            if index >= len(source):
+                break
+            escaped = source[index]
+            # `\\d`, `\\b`, `\\1`: a class, an anchor or a backreference, none
+            # of them a character the text must hold. `\\*`, `\\.`, `\\``: the
+            # character itself.
+            if not escaped.isalnum() and not in_class and depth == 0:
+                literal = escaped
+        elif in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and char == "|":
+            return ()
+        elif char == "{":
+            # A brace quantifier's digits are syntax, not characters the
+            # text must hold: `{0,40}` requires no `0`, `,` or `4`.
+            closing = source.find("}", index)
+            if closing > index:
+                index = closing
+        elif depth == 0 and char not in _META:
+            literal = char
+        index += 1
+        if literal is None or literal.isalpha() or literal.isspace():
+            continue
+        if index < len(source) and source[index] in _QUANTIFIER_OPENERS:
+            continue
+        if literal not in found:
+            found.append(literal)
+    return tuple(found)
+
+
+def could_match(pattern: re.Pattern[str], text: str) -> bool:
+    """False only when `pattern.search(text)` could not find anything.
+
+    A pre-filter for the two claim scanners whose pattern is configurable:
+    measured on a 650-document sweep, the release scan cost 0.71 s and the
+    merge scan 0.29 s to find claims in 19 and 12 documents. The words come
+    from the pattern itself through `leading_literals`, so a customised
+    pattern of another shape is scanned in full rather than guessed at.
+
+    Case-insensitive patterns are compared lowercased - and a text holding
+    any of the four characters IGNORECASE folds further than `lower()` does
+    is let through unread, because the fold is the regex's and not this
+    function's to reimplement. Conservative in every direction: a True here
+    costs a scan that finds nothing, a wrong False would cost a claim.
+    """
+    words = leading_literals(pattern.pattern)
+    if not words:
+        return True
+    if pattern.flags & re.IGNORECASE:
+        if any(char in text for char in _FOLDS_BEYOND_LOWER):
+            return True
+        lowered = text.lower()
+        return any(word.lower() in lowered for word in words)
+    return any(word in text for word in words)
 
 
 def line_breaks(text: str) -> int:
@@ -546,11 +706,12 @@ def _translation_tree(ctx: Context, path: str) -> str:
 # Public for the reason `current_document` above is: sites.py reads it when it
 # decides whether a numbered documentation tree declares a site.
 ORDER_PREFIX = re.compile(r"^\d+(?:\.\d+)*[-_.]")
+_MARKDOWN_SUFFIX = re.compile(r"\.(?:md|markdown|mdx)$", re.I)
 
 
 def _route_name(segment: str) -> str:
     """A path segment with its ordering prefix and `.md` suffix removed."""
-    stem = re.sub(r"\.(?:md|markdown|mdx)$", "", segment, flags=re.I)
+    stem = _MARKDOWN_SUFFIX.sub("", segment)
     return ORDER_PREFIX.sub("", stem).lower()
 
 

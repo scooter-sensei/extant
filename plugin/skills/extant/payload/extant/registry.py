@@ -11,6 +11,8 @@ file for the circular import it removes.
 """
 from __future__ import annotations
 
+from typing import Callable
+
 from extant.contract import Rule
 from extant.rules import line_pointer as _rule_line
 
@@ -75,7 +77,9 @@ def forget_memos() -> None:
 RULE_ERRORS: list[tuple[str, str]] = []
 
 
-def count_examined(ctx: object, text: str) -> dict[str, int]:
+def count_examined(ctx: object, text: str,
+                   applies: Callable[[Rule], bool] | None = None,
+                   ) -> dict[str, int]:
     """How many candidates each rule actually LOOKED AT, findings aside.
 
     The denominator, and the reason it exists: five separate times in one day a
@@ -102,9 +106,27 @@ def count_examined(ctx: object, text: str) -> dict[str, int]:
     with it; the 0 is safe here only because an ERRORED line naming the rule is
     printed beside it, which is the one thing that stops a zero being read as a
     clean count.
+
+    `applies` says which rules READ this document, and the others are not
+    asked. `--sweep` skips the entry-scoped rules outside its primary
+    document and runs the repository-scoped ones once outside its loop, and
+    it used to ask for all thirteen denominators anyway and drop the ones it
+    would not print: the two entry-scoped rules' `split_entries` walk, twice
+    per document, and the repository rule's configuration load, once per
+    document - 0.63 s of a 5.9 s sequential sweep of ruff, 11%, measured
+    with a clock around every scanner. A skipped rule is still PRESENT, at
+    0, so the shape every caller reads is unchanged; the caller that passed
+    the predicate knows which zeros it asked for. A denominator that would
+    have raised for a skipped rule is no longer recorded either, and that is
+    right rather than a loss: its `check` never ran, so the record would
+    have named the failure of a rule that did not look at the document.
+    `--verify` passes nothing and gets every count, as it always has.
     """
     counts: dict[str, int] = {}
     for rule in RULES:
+        if applies is not None and not applies(rule):
+            counts[rule.kind] = 0
+            continue
         try:
             counts[rule.kind] = rule.examined(ctx, text)  # type: ignore[operator]
         except Exception as exc:                       # noqa: BLE001

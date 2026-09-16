@@ -232,14 +232,30 @@ raise is then a decision made per call site rather than a default:
 `plugin/skills/extant/payload/extant/git.py` returns git's own metadata and
 replaces, because a garbled character in a ref name costs nothing this project
 checks; `_document_at` in
-`plugin/skills/extant/payload/extant/sweep.py` returns the document itself and
+`plugin/skills/extant/payload/extant/deleted_since.py` returns the document itself and
 decodes strictly, because the same substitution would have every rule checking
-text the file does not contain.
+text the file does not contain; `introduced_lines` in
+`plugin/skills/extant/payload/extant/introduced_since.py` reads a patch as bytes,
+splits it on git's own line feeds and decodes only its headers, with
+replacement, because a path in a header is metadata and the document lines
+in it are never decoded at all.
 
 Two sites keep the plain form on purpose - `_batch_shas` and the child in
 `plugin/skills/extant/payload/extant/rules/consistency.py` - because a string
 payload and a JSON envelope put invalid UTF-8 out of reach there. A fix nobody
 can watch fail does not belong here either.
+
+**Every git process is started with `environment()` from
+`plugin/skills/extant/payload/extant/git.py`, at the seam and at each site
+that calls `subprocess` directly.** `cwd=repo` decides which working tree git
+looks at; `GIT_DIR` decides whose history it answers about, and git exports
+it to every hook it runs - so the operator's environment answered about
+another repository once, in a run that printed what a clean run prints. The
+helper drops the seven variables that name a repository, refuses network
+retrieval in a partial repository, and turns `core.quotePath` off. A new
+`subprocess.run(["git", ...])` anywhere in the package must pass
+`env=environment()`; `tests/test_git_environment.py` reads the source and
+fails on one that does not.
 
 ## The admission test for a new rule
 
@@ -295,7 +311,7 @@ only the author knows which two strings name one fact.
 
 | Path | What |
 |:---|:---|
-| `plugin/skills/extant/payload/extant/` | the validator: settings, scopes, the git seam, the three output formats, the modes |
+| `plugin/skills/extant/payload/extant/` | the validator: settings, scopes, the git seam, the three output formats, the modes. `gate.py` holds the modes that check one document and decide an exit code, `sweep.py` and `deleted_since.py` the surveys that never gate, `introduced_since.py` the survey that gates - on the lines a change wrote |
 | `plugin/skills/extant/payload/extant/rules/` | one module per rule |
 | `plugin/skills/extant/payload/extant_collect.py` | the entry point the hook invokes by path; a version handshake and one import |
 | `plugin/skills/extant/install.py` | the installer, detection and presets |

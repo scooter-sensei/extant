@@ -10,7 +10,8 @@ from extant.probes import MISSING_PATH
 from extant.refs import renamed_to
 from extant.scope import Context
 from extant.sites import (
-    in_site_tree, is_generated_site, resolve_reference, rustdoc_included,
+    in_site_tree, is_generated_site, reference_path, resolve_reference,
+    rustdoc_included,
 )
 from extant.links import EXTERNAL, MD_LINK, link_destination, link_sites
 from extant.text import numbered_document, strip_code, unique_basename
@@ -220,7 +221,12 @@ def check(ctx: Context, text: str) -> list[Finding]:
                       f"case-sensitive filesystem")
         else:
             detail = f"links to `{target}`, which does not exist"
-            moved = renamed_to(ctx, target)
+            # Asked under the path the link RESOLVES to, not the target as
+            # written: the map's keys are repository-relative and a link is
+            # relative to its document. See `reference_path` for the count.
+            named = (target.lstrip("/") if target.startswith("/")
+                     else reference_path(repo, base, target) or target)
+            moved = renamed_to(ctx, named)
             if moved:
                 detail += f"; git shows it renamed to `{moved}`"
         findings.append(Finding(number, "dead-md-link", detail,

@@ -8,9 +8,9 @@ from extant.finding import Finding
 from extant.probes import MISSING_PATH, sub_group
 from extant.refs import renamed_to
 from extant.scope import Context
-from extant.sites import resolve_reference
+from extant.sites import reference_path, resolve_reference
 from extant.links import EXTERNAL, percent_decoded
-from extant.text import prose
+from extant.text import prose, required_literals
 
 __all__ = ["RULE", "_PATH_SITES", "_path_pointer_sites",
            "_path_pointer_sites_uncached", "check", "examined", "probe"]
@@ -46,10 +46,11 @@ _LINKED_PATH = re.compile(r"\[\s*`([^`]+)`\s*\]\(\s*([^)\s]+)")
 # The key carries the PATTERN and the DOC FORMAT as well as the text. The
 # format is there because `prose()` strips markdown and reStructuredText
 # differently, which is exactly the incompleteness `_STRIPPED` (extant/text.py)
-# is recorded as having; keyed on text alone this memo would be a second copy
-# of that latent bug rather than a use of the precedent. The pattern is there
-# because `reload_config` and the `reconfigure` fixture both build a fresh
-# Config, so a changed `path_pointer` arrives as a different object and misses.
+# was recorded as having until 2026-09-16; keyed on text alone this memo would
+# have been a second copy of that latent bug rather than a use of the
+# precedent. The pattern is there because `reload_config` and the
+# `reconfigure` fixture both build a fresh Config, so a changed `path_pointer`
+# arrives as a different object and misses.
 #
 # Pure given those three, so it needs no invalidation and is NOT registered in
 # `registry.forget_memos` - unlike `_POINTER_SITES` next door in
@@ -88,9 +89,27 @@ def _path_pointer_sites_uncached(
         ctx: Context, text: str) -> list[tuple[int, str, list[str]]]:
     """The scan itself. Separate only so the cache above stays readable."""
     # Claims inside code are examples, not promises. See prose.
+    #
+    # A line missing a character every match must contain is not handed to
+    # the pattern. The default opens with a group no word can be derived
+    # from - `\*\*(?:Plan|...)` or a `\bsee\b` - so the per-document
+    # pre-filter the release and merge scans use does not apply, and the
+    # pattern ran in full on every line: 0.54 s of a 5.9 s sequential sweep
+    # of ruff, 9%, to find 5 pointers. What it cannot do without is the
+    # backtick around the path, and `required_literals` reads that off the
+    # pattern itself - a configured pattern offering no such character gets
+    # an empty tuple and every line, exactly as before. Reading the
+    # requirement off the pattern rather than writing "`" here is what keeps
+    # this from being a second copy of the pattern that has to be edited
+    # with it, which is the drift the line-pointer rule refused for its own
+    # gate.
+    pattern = ctx.config.path_pointer
+    required = required_literals(pattern.pattern, pattern.flags)
     sites: list[tuple[int, str, list[str]]] = []
     for number, line in enumerate(prose(ctx.doc, text).splitlines(), start=1):
-        raws = ctx.config.path_pointer.findall(line)
+        if not all(literal in line for literal in required):
+            continue
+        raws = pattern.findall(line)
         if raws:
             sites.append((number, line, raws))
     return sites
@@ -147,7 +166,15 @@ def check(ctx: Context, text: str) -> list[Finding]:
                               f"on a case-sensitive filesystem")
                 else:
                     detail = f"points at `{raw}`, which does not exist"
+                    # In the order the rule resolves: from the root as
+                    # written, then from beside the document. The map's keys
+                    # are repository-relative, so the second spelling has to
+                    # be resolved before it is asked about.
                     moved = renamed_to(ctx, raw)
+                    if moved is None and base != ctx.repo:
+                        beside_path = reference_path(ctx.repo, base, raw)
+                        if beside_path is not None:
+                            moved = renamed_to(ctx, beside_path)
                     if moved:
                         detail += f"; git shows it renamed to `{moved}`"
                 findings.append(Finding(number, "dead-path-pointer", detail,

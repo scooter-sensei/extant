@@ -403,6 +403,105 @@ def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
     assert "renamed to `docs/new.md`" in findings[0].detail
 
 
+def test_the_rename_hint_does_not_depend_on_the_repositorys_diff_renames_setting(
+        git_repo) -> None:
+    """`git log --name-status` detects renames only when `diff.renames` says
+    so, and the map asked without `-M`, so a repository that disables the
+    setting got no hint and no note. Found when the corpus identity gate
+    showed 0 outputs changing where a measurement had predicted 2: every one
+    of the 152 visible clones carries `diff.renames=false`, written by the
+    clone script, so on that corpus the hint had never once been able to
+    fire. The tool's environment already frees it from `core.quotePath`;
+    this frees it from `diff.renames`."""
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
+    repo, commit = git_repo
+    git(repo, "config", "diff.renames", "false")
+    commit("docs/old.md", "# old\n", "docs: add")
+    git(repo, "mv", "docs/old.md", "docs/new.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._SCOPE = hc.RunScope()
+
+    findings = rule_md_link.check(hc.context(repo), "See [it](docs/old.md).\n")
+
+    assert len(findings) == 1
+    assert "renamed to `docs/new.md`" in findings[0].detail, findings[0].detail
+
+
+def test_a_link_relative_to_its_document_still_gets_the_rename_hint(git_repo) -> None:
+    """The hint is looked up under the path the link RESOLVES to.
+
+    A link is relative to the document that holds it, and the rule resolves
+    it that way; the rename map's keys are repository-relative. The hint used
+    to be looked up under the target as WRITTEN, so `[it](old.md)` inside
+    `docs/` asked the map about `old.md` and got nothing, while the same link
+    written from the root got its hint. Measured on the nine autopsy clones,
+    the only tier with the blobs rename detection needs: 501 dead link and
+    pointer findings, none hinted, 2 of them renamed inside the 200-commit
+    window and missed for exactly this - ruff's mdtest suite linking a sibling
+    as `./invalid_assignment_details.md`.
+    """
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("docs/old.md", "# old\n", "docs: add")
+    commit("docs/a.md", "# a\n", "docs: a")
+    git(repo, "mv", "docs/old.md", "docs/new.md")
+    git(repo, "commit", "-qm", "docs: rename")
+
+    with hc.run_scope():
+        findings = hc.validate(repo, "See [it](old.md) and [it again](./old.md).\n",
+                               base=repo / "docs", doc="docs/a.md", has_entries=False)
+    assert [f.kind for f in findings] == ["dead-md-link", "dead-md-link"], findings
+    for finding in findings:
+        assert "renamed to `docs/new.md`" in finding.detail, finding.detail
+
+
+def test_a_pointer_beside_its_document_still_gets_the_rename_hint(git_repo) -> None:
+    """`dead-path-pointer` resolves from the root and then from beside the
+    document; the hint has to be looked up both ways too, or a nested
+    SKILL.md saying "see `references/cli.md`" is told the file does not exist
+    when git knows exactly where it went."""
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("skills/x/references/cli.md", "# cli\n", "docs: add")
+    commit("skills/x/SKILL.md", "# skill\n", "docs: skill")
+    git(repo, "mv", "skills/x/references/cli.md", "skills/x/references/tool.md")
+    git(repo, "commit", "-qm", "docs: rename")
+
+    with hc.run_scope():
+        findings = hc.validate(repo, "see `references/cli.md` for the flags\n",
+                               base=repo / "skills" / "x", doc="skills/x/SKILL.md",
+                               has_entries=False)
+    assert [f.kind for f in findings] == ["dead-path-pointer"], findings
+    assert "renamed to `skills/x/references/tool.md`" in findings[0].detail, (
+        findings[0].detail)
+
+
+def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
+    """The patch replaces a link on the page, so it has to be a link that works
+    FROM that page. The map answers in repository-relative paths, and splicing
+    one into `docs/a.md` - `[it](docs/new.md)` - points at `docs/docs/new.md`.
+    Spelled relative to the document instead: `new.md`, or `../guides/new.md`
+    for a move across directories."""
+    from extant import gate
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("docs/old.md", "# old\n", "docs: add")
+    commit("docs/moved.md", "# moved\n", "docs: moved")
+    commit("docs/a.md", "# a\n", "docs: a")
+    git(repo, "mv", "docs/old.md", "docs/new.md")
+    (repo / "guides").mkdir()
+    git(repo, "mv", "docs/moved.md", "guides/far.md")
+    git(repo, "commit", "-qm", "docs: renames")
+
+    text = "See [it](old.md#install) and [far](moved.md).\n"
+    with hc.run_scope():
+        found = hc.validate(repo, text, base=repo / "docs", doc="docs/a.md",
+                            has_entries=False)
+        patch = gate.suggest_renames(repo, repo / "docs", text, "docs/a.md", found)
+    assert "+See [it](new.md#install) and [far](../guides/far.md)." in patch, patch
+
+
 # --- the registry and the selftest -------------------------------------------
 
 def test_every_rule_declares_a_probe() -> None:
@@ -773,11 +872,23 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
                  for n in range(3)]
     git(repo, "checkout", "-q", "main")
 
-    index = refs._ancestor_index(hc.context(repo), "main")
-    assert index, "no ancestor index built; the rest would prove nothing"
+    # Through `reachable_from` rather than by reading the index's shape, since
+    # the index stopped bucketing by prefix on 2026-09-15: membership is by
+    # full SHA now, and the abbreviated token below is widened to one through
+    # the same `cat-file` memo `dead-sha` fills. One run scope, so the index is
+    # built once and every answer below reads it.
+    with hc.run_scope():
+        ctx = hc.context(repo)
+        assert refs._ancestor_index(ctx, "main"), (
+            "no ancestor index built; the rest would prove nothing")
+
+        def batched(sha: str) -> bool:
+            return refs.reachable_from(ctx, sha, "main")
+
+        answers = {sha: batched(sha) for sha in on_trunk + off_trunk}
 
     def batched(sha: str) -> bool:
-        return any(full.startswith(sha) for full in index.get(sha[:7], ()))
+        return answers[sha]
 
     for sha in on_trunk:
         assert batched(sha) is True, f"{sha} is on trunk but the batch said no"
@@ -852,7 +963,7 @@ def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
 
     first = text.prose(hc.document(), original)
     text.prose(hc.document(), duplicate)
-    cached_for, _cached_value = text._STRIPPED[False]
+    cached_for, _cached_format, _cached_value = text._STRIPPED[False]
 
     assert cached_for is duplicate, "the later call should own the cache entry"
     assert text.prose(hc.document(), original) == first, "content must round-trip either way"

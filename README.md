@@ -101,11 +101,25 @@ are surveyed and reported, never gated on, because some of them will be
 examples rather than claims. It always prints how many files it looked at, so
 "nothing found" is distinguishable from "nothing checked".
 
+**To fail a build without configuring anything, gate on what the change
+wrote.** `--introduced-since main` reads the documents your branch changed
+since it forked from `main`, and fails only on the findings that sit on lines
+the branch added or edited. No document to name, no baseline to record, no
+path to keep in step when a file moves: an old claim elsewhere in the same
+file is counted and set aside, and the run says how many. What it will not
+catch is a claim a change broke without touching - a heading deleted under
+another document's anchor, a file moved out from under a pointer - which is
+what `--verify` and `--sweep` are for. Measured on nine public repositories:
+every finding sitting on a line their last thirty commits touched was in the
+one agent-tooling project among them, and none of the other eight's 2,786
+findings was on such a line - the rot there was in text nobody had edited.
+
 The full set of modes:
 
 | Command | For |
 |:---|:---|
 | `--sweep` | the survey. No config, exits 0, shows everything |
+| `--introduced-since <ref>` | the gate that needs no config: fails only on claims written on lines this checkout added or changed since it forked from `<ref>`. Pass the base branch in CI |
 | `--deleted-since <ref>` | claims removed while still false. Always exits 0; pass the merge base in CI |
 | `--validate <file>` | one document, exits 1 on findings |
 | `--verify` | every document `.extant.toml` names. What the git hooks run |
@@ -294,7 +308,10 @@ $ extant --repo . --validate README.md
 Once a `.extant.toml` names your documents, `--verify` checks all of them at
 once and is what you want thereafter. Before that file exists it will report
 `no such document: NEXT_SESSION.md`, because that is the default `primary_doc`
-and your project has no reason to have one.
+and your project has no reason to have one. The file is read from the
+repository `--repo` names - the one being checked - by every entry point, so a
+run pointed at another checkout uses that checkout's settings or the defaults,
+never the settings of wherever the tool happens to live.
 
 `pip install extant` works too, though a tool you run against many projects is
 usually happier in its own environment.
@@ -607,7 +624,10 @@ This is the single most important line in the output. "Found no problems" and
 Anything that narrows what a count MEANS prints beside it. In a shallow clone,
 `dead-sha` describes the slice that was cloned rather than the repository, so a
 live SHA can read as dead; the run says so rather than leaving the number to
-speak for itself. A sweep also names any document it dispatched that came back
+speak for itself. In a partial clone - `--filter=blob:none` - the objects the
+transport left out are left out: nothing here goes back to the network for
+them, so a rename hint or a blob-reading rule can answer from less than the
+repository holds, and the run says that too. A sweep also names any document it dispatched that came back
 with no result, and fails the run: a file the survey lost is not a file with no
 findings, and exiting 0 there would report a clean run for work that never
 happened. That is the one thing a sweep gates on besides a configured finding.
@@ -740,6 +760,21 @@ its own line in the pull request diff rather than buried in a log nobody opens.
 Add the flag to your existing step. Nothing else is needed, and it requires no
 extra permissions.
 
+**The pull-request shape without a configured document** is one step and one
+flag. On a `pull_request` checkout, after the `fetch-depth: 0` step above and
+the trunk ref made resolvable, `--introduced-since main` computes the merge
+base itself, so a branch behind `main` is not blamed for what `main` deleted:
+
+```yaml
+      - name: Check the claims this pull request wrote
+        run: python tools/extant_collect.py --introduced-since main --format=github
+```
+
+A depth-limited checkout whose base lies beyond the depth is a refusal with
+exit 2 and a message, never a gate that examined nothing and passed. The
+action does not carry this mode yet - its `mode` input takes `verify` or
+`sweep` - so it is wired as a plain step for now.
+
 **`sarif`** emits the standard format code-scanning tools exchange, as pure JSON
 on stdout, so it pipes straight to a file. To get results into GitHub's Security
 tab:
@@ -871,6 +906,27 @@ says so and stops, rather than rewriting anything:
 $ python tools/extant_collect.py --verify --sha-map .git/filter-repo/commit-map
 cannot read the rewrite map at .git/filter-repo/commit-map (FileNotFoundError).
 ```
+
+A rebase or an amend renames commits the same way and leaves no map. What it
+does leave is the `<old> <new>` pair per commit that git hands the
+`post-rewrite` hook, and the installed hook keeps those in
+`.git/extant/rewrites`, in the map's own spelling. Findings read that journal
+beside the map, `--sha-map .git/extant/rewrites` applies it, and a chain of
+rewrites - a branch rebased twice - is followed to its end. Two things the
+journal cannot do: after a local rebase the old ids still resolve through the
+reflog, so no finding appears here until it expires, even though every clone
+already sees them dead; and it exists only on the machine that rewrote. So the
+hook also says, at the moment the repair is cheap, which tracked documents cite
+a commit the rewrite renamed:
+
+```console
+$ git rebase main
+[extant] 3 commit(s) rewritten; documents citing them: NEXT_SESSION.md docs/plan.md
+[extant]   the old ids still resolve here, through the reflog, and nowhere else
+[extant]   repair: "python" tools/extant_collect.py --verify --sha-map ".git/extant/rewrites"
+```
+
+It says so and does nothing else; the repair stays yours to run.
 
 ### Search across the archive
 
@@ -1086,13 +1142,28 @@ Anything it could not work out is left **switched off** rather than guessed.
 - **Checks links to your own files, not to the web.** Nothing here touches the
   network. Checking external links would make a passing run depend on someone
   else's uptime and rate limits, turning a definite answer into a coin flip.
-  Issue and pull request links go unchecked for the same reason.
+  Issue and pull request links go unchecked for the same reason. The same
+  promise holds in a partial clone: an object the transport left out stays
+  missing rather than being fetched mid-run, which costs the rename hint for
+  a file whose old contents are not local. Git honours that refusal from
+  2.42; below it the note beside the counts is what you get.
 - **Does not complain about a branch merged and then deleted.** That is normal
   tidying, and the branch is still named in the merge commit. Only a name git
   has never seen is reported.
-- **Settings load next to the tool, not next to the folder you point at.**
-  Correct once installed in your project, wrong if you run it from elsewhere. It
-  says so on stderr rather than quietly using the wrong ones.
+- **`--repo` should name the repository root.** From a subdirectory git walks
+  up and answers about the checkout above, while every document and path
+  resolves against the directory you named. The run says which repository git
+  is answering about, on stderr, rather than quietly doing both. What the
+  environment says is not consulted at all: a `GIT_DIR` exported by the hook
+  that started the run, or by a pre-commit framework, is dropped before git
+  is asked anything, because it named a different repository once and every
+  rule answered about that one.
+- **`--introduced-since` gates on what a change wrote, not on what it broke.**
+  A pure rename has no added line, so the relative links the move broke are
+  not on the diff; nor is another document's anchor into a heading the change
+  removed. Both are reported by `--verify` and `--sweep`, which read the
+  document rather than the diff. It also skips the two repository-wide rules,
+  whose findings sit at a line nothing wrote, and says so in its output.
 - **It cannot tell a corrected claim from a deleted one.** Removing the sentence
   it complained about makes a document pass. The `/extant` workflow works around
   this by reporting first-run findings even after fixing them, so a deletion is

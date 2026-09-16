@@ -304,3 +304,136 @@ def test_discovery_never_rewrites_the_document(git_repo, tmp_path) -> None:
                     "--validate", str(doc), "--repo", str(repo)],
                    capture_output=True, text=True)
     assert doc.read_text(encoding="utf-8") == body
+
+
+# --- the journal the post-rewrite hook keeps ----------------------------------
+#
+# A `filter-repo` run leaves its commit-map behind; a rebase or an amend
+# leaves nothing, except the `<old> <new>` pairs git writes to the
+# post-rewrite hook's stdin and to nothing else. Since 2026-09-15 the shipped
+# hook appends them to `.git/extant/rewrites`, in the commit-map's own
+# spelling, and the two records are read together: the hint a `dead-sha`
+# finding carries and the repair `--sha-map` applies both come from the one
+# reader, so a rebase is explained the way a filter-repo already was. What
+# the journal cannot do is make a finding appear: after a local rebase the
+# old ids still resolve through the reflog until it expires, and the record
+# is only ever on the machine that rewrote. That is the population, stated.
+
+def write_journal(gitdir: Path, lines: list[str]) -> Path:
+    """The journal as the hook writes it: one `old new` pair per line."""
+    target = gitdir / "extant" / "rewrites"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("".join(line + "\n" for line in lines))
+    return target
+
+
+def test_finding_the_journal_costs_no_git_subprocess(git_repo, monkeypatch) -> None:
+    from extant import git as gitmod
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    write_journal(repo / ".git", [f"{'a' * 40} {'b' * 40}"])
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(f"spawned a subprocess: {args}")
+
+    monkeypatch.setattr(subprocess, "run", refuse)
+    assert gitmod.rewrite_journal_path(repo) is not None
+    assert gitmod.rewrite_journal_path(repo).name == "rewrites"
+
+
+def test_a_dead_sha_the_journal_knows_names_its_replacement(git_repo) -> None:
+    repo, commit = git_repo
+    live = commit("a.py", "a = 1\n", "feat: a").strip()
+    dead = "abc1234"
+    write_journal(repo / ".git", [f"{dead + '0' * 33} {live}"])
+    found = findings(repo, f"Merged the fix in `{dead}`.\n")
+    assert [f.kind for f in found] == ["dead-sha"]
+    assert live[:7] in found[0].render(), found[0].render()
+
+
+def test_a_journal_line_carrying_extra_info_is_read(git_repo) -> None:
+    """git's post-rewrite line is `<old> SP <new> [SP <extra-info>]`; a third
+    field must not make the pair invisible, and the commit-map's two-field
+    lines read exactly as before."""
+    repo, commit = git_repo
+    live = commit("a.py", "a = 1\n", "feat: a").strip()
+    dead = "abc1234"
+    write_journal(repo / ".git", [f"{dead + '0' * 33} {live} extra-info"])
+    found = findings(repo, f"Merged the fix in `{dead}`.\n")
+    assert live[:7] in found[0].render(), found[0].render()
+
+
+def test_a_rewrite_chain_is_followed_to_its_end(git_repo) -> None:
+    """A branch rebased twice journals `a b` and then `b c`. A hint naming
+    `b` reads as correct and is as dead as `a`, which is the failure the
+    ambiguity rule exists to refuse - so the chain is followed to `c`, by
+    the one reader the hint and `--sha-map` share."""
+    from extant.commits import load_sha_map, translate_shas
+    repo, commit = git_repo
+    live = commit("a.py", "a = 1\n", "feat: a").strip()
+    dead, middle = "abc1234", "b" * 40
+    journal = write_journal(repo / ".git", [f"{dead + '0' * 33} {middle}",
+                                            f"{middle} {live}"])
+    found = findings(repo, f"Merged the fix in `{dead}`.\n")
+    assert live[:7] in found[0].render(), found[0].render()
+    assert middle[:7] not in found[0].render(), "the hint stopped one hop short"
+
+    rewritten, count = translate_shas(f"Merged the fix in `{dead}`.\n",
+                                      load_sha_map(str(journal)))
+    assert count == 1 and live[:7] in rewritten and middle[:7] not in rewritten, (
+        "the repair and the hint disagree about where the chain ends")
+
+
+def test_a_chain_ending_in_a_removed_commit_is_named_as_removed(git_repo) -> None:
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    dead, middle = "abc1234", "b" * 40
+    write_journal(repo / ".git", [f"{dead + '0' * 33} {middle}", f"{middle} {ZERO}"])
+    found = findings(repo, f"Merged the fix in `{dead}`.\n")
+    assert "removed" in found[0].render(), found[0].render()
+
+
+def test_a_chain_that_never_settles_offers_no_replacement(git_repo) -> None:
+    """Two ids rewritten to each other cannot happen to a real rebase, and a
+    record that says so must not spin or pick one: no hint is the answer."""
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    dead, other = "abc1234" + "0" * 33, "b" * 40
+    write_journal(repo / ".git", [f"{dead} {other}", f"{other} {dead}"])
+    found = findings(repo, "Merged the fix in `abc1234`.\n")
+    assert found[0].repair is None, found[0].render()
+
+
+def test_the_map_and_the_journal_are_read_together(git_repo) -> None:
+    repo, commit = git_repo
+    first = commit("a.py", "a = 1\n", "feat: a").strip()
+    second = commit("b.py", "b = 1\n", "feat: b").strip()
+    write_map(repo / ".git", [("abc1234" + "0" * 33, first)])
+    write_journal(repo / ".git", [f"{'def5678' + '0' * 33} {second}"])
+    found = findings(repo, "Fixed in `abc1234` and again in `def5678`.\n")
+    rendered = " | ".join(f.render() for f in found)
+    assert first[:7] in rendered and second[:7] in rendered, rendered
+
+
+def test_a_key_the_two_records_disagree_on_offers_no_replacement(git_repo) -> None:
+    """The ambiguity rule, across records: one old id sent two places is a
+    wrong answer waiting to be pasted, and a wrong SHA reads as correct."""
+    repo, commit = git_repo
+    first = commit("a.py", "a = 1\n", "feat: a").strip()
+    second = commit("b.py", "b = 1\n", "feat: b").strip()
+    dead = "abc1234" + "0" * 33
+    write_map(repo / ".git", [(dead, first)])
+    write_journal(repo / ".git", [f"{dead} {second}"])
+    found = findings(repo, "Merged the fix in `abc1234`.\n")
+    assert found[0].repair is None, found[0].render()
+
+
+def test_an_unreadable_journal_says_so_in_the_finding(git_repo) -> None:
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "feat: a")
+    target = write_journal(repo / ".git", [f"{'abc1234' + '0' * 33} {'b' * 40}"])
+    target.write_bytes(b"\xff\xfe not utf-8 \x00\x01")
+    found = findings(repo, "Merged the fix in `abc1234`.\n")
+    assert found[0].repair is not None, "an unreadable journal was passed over in silence"
+    assert "could not" in found[0].repair.lower() and "rewrites" in found[0].repair

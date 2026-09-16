@@ -249,8 +249,10 @@ BREAKAGES = (
         prop="PROCESS",
         why="a memo whose key is incomplete, so the second document in one "
             "process is answered from the first document's stripped text",
+        # The hit condition grew a format comparison on 2026-09-16 and the
+        # anchor followed it; the breakage is still an incomplete key.
         edits=(("extant/text.py",
-                "    if cached is not None and cached[0] is text:",
+                "    if cached is not None and cached[0] is text and cached[1] == doc.doc_format:",
                 "    if cached is not None:"),),
     ),
 
@@ -358,9 +360,15 @@ BREAKAGES = (
     Breakage(
         prop="CRASH",
         why="an unhandled traceback reaches the user instead of a diagnostic",
+        # The signature grew an `applies` parameter on 2026-09-15 and the
+        # anchor followed it, so it names the function as written today.
         edits=(("extant/session.py",
-                "def count_examined(repo: Path, text: str) -> dict[str, int]:",
-                "def count_examined(repo: Path, text: str) -> dict[str, int]:\n"
+                "def count_examined(repo: Path, text: str,\n"
+                "                   applies: Callable[[Rule], bool] | None = None,\n"
+                "                   ) -> dict[str, int]:",
+                "def count_examined(repo: Path, text: str,\n"
+                "                   applies: Callable[[Rule], bool] | None = None,\n"
+                "                   ) -> dict[str, int]:\n"
                 "    raise RuntimeError('deliberate')"),),
     ),
     Breakage(
@@ -368,8 +376,8 @@ BREAKAGES = (
         why="the sweep skips a rule the gating modes run, so the survey and "
             "the gate disagree about one document",
         edits=(("extant/sweep.py",
-                "    counted = session.count_examined(repo, text)",
-                "    counted = session.count_examined(repo, text)\n"
+                "    counted = session.count_examined(repo, text, applies)",
+                "    counted = session.count_examined(repo, text, applies)\n"
                 "    findings = [f for f in findings if f.kind != 'dead-sha']"),),
         mode=("--sweep",),
     ),
@@ -382,8 +390,12 @@ BREAKAGES = (
         # property fire: there is no way to see a deadline missed without
         # missing it.
         edits=(("extant/session.py",
-                "def count_examined(repo: Path, text: str) -> dict[str, int]:",
-                "def count_examined(repo: Path, text: str) -> dict[str, int]:\n"
+                "def count_examined(repo: Path, text: str,\n"
+                "                   applies: Callable[[Rule], bool] | None = None,\n"
+                "                   ) -> dict[str, int]:",
+                "def count_examined(repo: Path, text: str,\n"
+                "                   applies: Callable[[Rule], bool] | None = None,\n"
+                "                   ) -> dict[str, int]:\n"
                 "    import time; time.sleep(600)"),),
         contrived=True,
     ),

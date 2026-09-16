@@ -40,6 +40,7 @@ from extant.text import strip_code
 __all__ = [
     "_HTML_ATTRIBUTE", "_HTML_TAG_OPEN", "_MD_LINK_SPAN",
     "_REFERENCE_DEFINITION", "_TLD", "_html_references", "_link_target",
+    "_LINK_SITES", "_link_sites_uncached",
     "EXTERNAL", "MD_LINK",
     "link_destination", "link_sites", "percent_decoded",
 ]
@@ -181,8 +182,38 @@ EXTERNAL = re.compile(
     r")", re.I)
 
 
+# The one-entry identity memo `find_sha_candidates` and `merge_claims` keep
+# in extant/commits.py, for the same two callers: a rule's `check` and its
+# `examined` each ask for one document's links, over the same text object.
+# Measured on a 650-document sweep of ruff with a clock around the scan,
+# 1,301 calls and 0.21 s of scanning, half of it the second walk - the last
+# per-document scanner with two readers and no memo. The key carries the
+# document FORMAT beside the text, because `strip_code` blanks markdown and
+# reStructuredText differently and the sites depend on which; keyed on the
+# text alone this would be `_STRIPPED` in extant/text.py again, whose key
+# omits the format while its value reads it. Complete, so it lives here and
+# not in `registry.forget_memos`: a changed input misses.
+_LINK_SITES: "tuple[str, str, list[tuple[int, str, str, bool]]] | None" = None
+
+
 def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str, bool]]:
     """Every link a caller will TRY to decide: (line, raw, target, html).
+
+    Memoised on the text object and the document format; the scan itself is
+    `_link_sites_uncached` below, and its docstring is the record.
+    """
+    global _LINK_SITES
+    if (_LINK_SITES is not None and _LINK_SITES[0] is text
+            and _LINK_SITES[1] == doc.doc_format):
+        return _LINK_SITES[2]
+    sites = _link_sites_uncached(doc, text)
+    _LINK_SITES = (text, doc.doc_format, sites)
+    return sites
+
+
+def _link_sites_uncached(doc: DocScope, text: str
+                         ) -> list[tuple[int, str, str, bool]]:
+    """The scan itself. Separate only so the memo above stays readable.
 
     THREE SHAPES read as one population. The inline `[text](target)` link,
     the reference-style definition `[label]: target`, and the `href` of an

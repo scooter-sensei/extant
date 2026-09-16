@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from extant.contract import Rule
 from extant.finding import Finding
 from extant.probes import sub_group
-from extant.refs import integrated_by, integration_refs, ref_table
+from extant.refs import (
+    integrated_by, integration_refs, settle_ancestry, ref_table,
+)
 from extant.scope import Context
-from extant.text import line_breaks, line_number_at, prose
+from extant.text import could_match, line_breaks, line_number_at, prose
 
-__all__ = ["RULE", "_release_claims", "check", "examined", "probe"]
+__all__ = ["RULE", "_RELEASE_CLAIMS", "_release_claims",
+           "_release_claims_uncached", "check", "examined", "probe"]
 
 
 def check(ctx: Context, text: str) -> list[Finding]:
@@ -31,7 +35,15 @@ def check(ctx: Context, text: str) -> list[Finding]:
     a tag created for a release that was abandoned or rewritten away.
     """
     findings: list[Finding] = []
-    for number, tag, resolved in _release_sites(ctx, text):
+    sites = _release_sites(ctx, text)
+    # Every tag the loop will ask about, asked first, so a history longer than
+    # the ancestry index's bound settles its misses in one batch per
+    # integration ref - a changelog names its oldest releases too.
+    settle_ancestry(ctx, [
+        (f"refs/tags/{resolved}", ref)
+        for _number, _tag, resolved in sites if resolved is not None
+        for ref in integration_refs(ctx)])
+    for number, tag, resolved in sites:
         if resolved is None:
             findings.append(Finding(
                 number, "dead-release-tag",
@@ -111,6 +123,18 @@ def _release_sites(ctx: Context, text: str
     return sites
 
 
+# The one-entry identity memo `_MERGE_CLAIMS` keeps in extant/commits.py,
+# for the same reason: `check` and `examined` both read this scan through
+# `_release_sites`, over the same prose object, and the second read walked
+# the prose again - 1,301 calls on a 650-document sweep of ruff, measured
+# with a clock around the scan. The key carries the PATTERN beside the
+# text, as that memo's does: `reload_config` and the `reconfigure` fixture
+# both build a fresh Config, so a changed `release_tag` arrives as a
+# different object and misses. Complete, so it is not in
+# `registry.forget_memos`.
+_RELEASE_CLAIMS: "tuple[str, Any, list[tuple[int, str]]] | None" = None
+
+
 def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
     """(line, tag) for every release claim, read ONCE for check and examined.
 
@@ -120,7 +144,26 @@ def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
     by the rule. That prints as examined-and-clean, which is the one thing the
     denominator exists to stop being ambiguous.
     """
+    global _RELEASE_CLAIMS
+    if (_RELEASE_CLAIMS is not None and _RELEASE_CLAIMS[0] is prose_text
+            and _RELEASE_CLAIMS[1] is config.release_tag):
+        return _RELEASE_CLAIMS[2]
+    claims = _release_claims_uncached(config, prose_text)
+    _RELEASE_CLAIMS = (prose_text, config.release_tag, claims)
+    return claims
+
+
+def _release_claims_uncached(config, prose_text: str) -> list[tuple[int, str]]:
+    """The scan itself. Separate only so the memo above stays readable."""
     claims: list[tuple[int, str]] = []
+    # Skipped outright when no match is possible - the pattern opens with
+    # `released|shipped|tagged` and the text holds none of them - which is
+    # most documents: 19 of ruff's 650 hold one, and the scan they did not
+    # need was 0.71 s of a 7.1 s sweep. `could_match` derives the words from
+    # the pattern and refuses to guess for any other shape, so a configured
+    # pattern keeps its full scan; see tests/test_prefilters.py.
+    if not could_match(config.release_tag, prose_text):
+        return claims
     for match in config.release_tag.finditer(prose_text):
         # ONE line break, no more, for the reason `merge_claims` bounds itself
         # the same way. `release_tag` separates its parts with `\s+`, so
