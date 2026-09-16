@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -154,6 +155,30 @@ def run_verify_hook(cwd: Path, *args: str, stdin: str = "",
 
 def journal(repo: Path) -> Path:
     return repo / ".git" / "extant" / "rewrites"
+
+
+def prune_until_gone(repo: Path, sha: str) -> None:
+    """Prune `sha` again until it no longer resolves, and say so if it never does.
+
+    `git prune` WARNS and exits 0 when it cannot unlink a loose object, and
+    on Windows an unlink loses to any process holding the file - git retries
+    for about 70 ms and then gives up. On the hosted runners a scanner's
+    handle outlives that window often enough: one windows job in five came
+    back with `[]` where `dead-sha` was due (2026-09-16), the object still
+    resolving after a `gc --prune=now` whose warning `check=True` had thrown
+    away. Held open through gc here, the same sequence reproduces that `[]`
+    every time. So the fixture asks until the object is gone, and a run that
+    never gets there fails on the fixture's own sentence, not on the rule's.
+    """
+    for _ in range(20):
+        if subprocess.run(["git", "cat-file", "-e", sha], cwd=repo,
+                          capture_output=True).returncode != 0:
+            return
+        time.sleep(0.1)
+        pruned = subprocess.run(["git", "prune", "--expire=now"], cwd=repo,
+                                capture_output=True, text=True, encoding="utf-8")
+    raise AssertionError(
+        f"{sha[:7]} still resolves after pruning: {pruned.stderr.strip()!r}")
 
 
 def _using_the_tool(repo: Path, doc: str = "STATUS.md") -> None:
@@ -406,6 +431,7 @@ def test_a_real_rebase_journals_its_pairs_and_the_finding_names_the_new_id(
 
     git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
     git(repo, "gc", "--prune=now", "-q")
+    prune_until_gone(repo, cited)
     with hc.run_scope():
         found = hc.validate(repo, doc, has_entries=False)
     assert [f.kind for f in found] == ["dead-sha"], found

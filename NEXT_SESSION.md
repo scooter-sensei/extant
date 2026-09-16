@@ -29,7 +29,13 @@ scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories,
 13 of 13 rules reached, no fault; `--self-check` with 21 of 21 properties
 going red, after one of the fuzzer's own breakage anchors - PROCESS, on
 the blanking memo's hit condition - was retargeted; `--verify` clean and
-`--selftest` with 7 fired and 0 silent.
+`--selftest` with 7 fired and 0 silent. On the pull request, one windows
+job in five then failed the real-rebase fixture in `tests/test_hooks.py`
+with `[]` where `dead-sha` was due: `git prune` warns and exits 0 when
+Windows will not release a loose object, and the fixture had read only the
+exit code. Held open through gc, the sequence reproduces that `[]` every
+time; the fixture now prunes until the object no longer resolves, and
+names the object if it never does.
 
 **What it is.** The review's section 6, measured together because each item
 ends in a number, then implemented where the number admitted it. 6.1: the
