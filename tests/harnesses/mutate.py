@@ -77,6 +77,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     report = collect.parent / "extant/report.py"
     session = collect.parent / "extant/session.py"
     sweep = collect.parent / "extant/sweep.py"
+    # `--deleted-since` left sweep.py for a module of its own on 2026-09-14,
+    # when the missing-object distinction took sweep.py past its ceiling.
+    # Seven anchors below followed it by path, the text they match unchanged,
+    # and an eighth was written against it.
+    deleted_since = collect.parent / "extant/deleted_since.py"
+    # The survey that gates, written 2026-09-14: the findings on the lines a
+    # range wrote. Eight anchors below, each watched turning the suite red
+    # on a copy before it was recorded here.
+    introduced_since = collect.parent / "extant/introduced_since.py"
     # The only irreversible write in the system, and it had no anchor here at
     # all until 2026-09-09 - so neither the conservation guard that stands
     # between a splitter bug and a truncated status document, nor the
@@ -86,6 +95,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # one this project cares about most and the one it already shipped once:
     # a hook reported as installed that can never run.
     hooks_install = collect.parent / "hooks/install"
+    # The verify hook, anchored for the first time when it started keeping the
+    # post-rewrite journal: a hook that drops what git tells it is silent in
+    # exactly the way the installer's failure was.
+    hooks_verify = collect.parent / "hooks/extant-verify"
+    git_mod = collect.parent / "extant/git.py"
     cli = collect.parent / "extant/cli.py"
     # The gating modes left extant/cli.py when `run_validate` reached 295 lines
     # against a 303-line ceiling and `--check-text` still had to be written.
@@ -132,9 +146,34 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        if False:\n            continue"),
         # Retargeted when ancestry became per-ref: the index is keyed by
         # (repo, ref) now and the prefix lookup moved into reachable_from.
+        # Retargeted again on 2026-09-15, when the index became bounded and
+        # full-SHA: the prefix scan this named is gone, and the line that can
+        # go blind the same way is the one that answers a miss on a COMPLETE
+        # index. Five anchors beside it cover the other side of the bound,
+        # which tests/test_ancestry_bound.py reaches by setting the bound to
+        # one - a mutation there survives only if that file stops doing so.
         ("batched ancestry always answers yes", refs,
-         "        return any(full.startswith(rev) for full in index.get(rev[:7], ()))",
-         "        return True"),
+         "    if index.complete:\n        return False",
+         "    if index.complete:\n        return True"),
+        ("an incomplete index answers no without asking", refs,
+         "    if commit not in index.settled:\n"
+         "        _settle(ctx, index, [commit], ref)\n"
+         "    return index.settled[commit]",
+         "    return False"),
+        ("the ancestry batch answers yes for every miss", refs,
+         "            index.settled[commit] = commit not in printed",
+         "            index.settled[commit] = True"),
+        ("an aborted ancestry batch is answered yes", refs,
+         "        except (subprocess.CalledProcessError, OSError):\n"
+         "            index.settled[commit] = False",
+         "        except (subprocess.CalledProcessError, OSError):\n"
+         "            index.settled[commit] = True"),
+        ("the ancestry index is unbounded again", refs,
+         '        out = ctx.git.run(ctx.repo, "rev-list", "-n", str(INDEX_BOUND + 1), ref)',
+         '        out = ctx.git.run(ctx.repo, "rev-list", ref)'),
+        ("a resolved token forgets the full id git returned", refs,
+         "            known[(repo_key, token)] = alive.get(token)",
+         "            known[(repo_key, token)] = token if token in alive else None"),
         # The three rules that used to ask about trunk now ask about the
         # measured integration set, so its two failure directions each get a
         # mutation: naming nothing makes them blind, naming everything makes
@@ -487,11 +526,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # it strips punctuation the same way, so the old one-line anchor
         # matched twice and probed neither reliably. The return line
         # disambiguates - only `_slug` trims the edges.
+        # Retargeted again when the patterns were compiled once at module
+        # level: same two lines, spelled through the compiled names.
         ("slug keeps punctuation", anchors,
-         '    text = re.sub(r"[^\\w\\s-]", "", _heading_text(title))\n'
-         '    return re.sub(r"\\s", "-", text).strip("-")',
+         '    text = _NOT_WORD_SPACE_DASH.sub("", _heading_text(title))\n'
+         '    return _SPACE.sub("-", text).strip("-")',
          "    text = _heading_text(title)\n"
-         '    return re.sub(r"\\s", "-", text).strip("-")'),
+         '    return _SPACE.sub("-", text).strip("-")'),
         # A heading opening with an emoji anchors with a leading dash on
         # GitHub, because the emoji is dropped and the space after it still
         # becomes one. Trimming both spellings reported 58 working links as
@@ -516,9 +557,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # command is the same command; the name it is reached through is not.
         ("rename map narrowed by a pathspec again (a shipped bug)", refs,
          '        out = ctx.git.run(ctx.repo, "log", "--diff-filter=R", "--name-status",\n'
-         '                          "--format=", "-n", "200")',
+         '                          "--format=", "-n", "200", "-M")',
          '        out = ctx.git.run(ctx.repo, "log", "--diff-filter=R", "--name-status",\n'
-         '                          "--format=", "-n", "200", "--", "nonexistent-path")'),
+         '                          "--format=", "-n", "200", "-M", "--", "nonexistent-path")'),
+        # And the same command line trusting the repository's `diff.renames`
+        # again: every one of the 152 visible corpus clones sets it to false,
+        # and on them the hint had never fired.
+        ("the rename map trusts the repository's diff.renames", refs,
+         '                          "--format=", "-n", "200", "-M")',
+         '                          "--format=", "-n", "200")'),
         ("claim rules stop ignoring fenced code", text,
          "def prose(doc: DocScope, text: str) -> str:",
          "def prose(doc: DocScope, text: str) -> str:\n    return text"),
@@ -727,13 +774,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The haystack is PROSE, not raw text. Built from raw text, a claim
         # moved into a code fence stays findable and this mode goes as blind to
         # it as every claim rule already is.
-        ("the deletion haystack stops blanking fenced code", sweep,
+        ("the deletion haystack stops blanking fenced code", deleted_since,
          "                parts.append(markup.prose(session.document(), handle.read()))",
          "                parts.append(handle.read())"),
         # And the other direction. `_strip_code` also blanks INLINE backticks,
         # which is where a claim is normally written - so this would empty the
         # haystack and report every claim in the document as deleted.
-        ("the deletion haystack also blanks inline code", sweep,
+        ("the deletion haystack also blanks inline code", deleted_since,
          "                parts.append(markup.prose(session.document(), handle.read()))",
          "                parts.append(markup.strip_code(session.document(), handle.read()))"),
         # Retargeted on 2026-09-09, when the four disagreeing spellings of a
@@ -742,7 +789,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # and matched nothing afterwards - reported STALE rather than passing,
         # which is the only reason the retarget happened in the commit that
         # caused it. Mutations rot alongside the code they point at.
-        ("deletion checks only the primary document, not the archive", sweep,
+        ("deletion checks only the primary document, not the archive", deleted_since,
          "    return [_normalise(d) for d in (session.CONFIG.primary_doc,\n"
          "                                    session.CONFIG.archive_doc,\n"
          "                                    *session.CONFIG.extra_docs) if d]",
@@ -763,7 +810,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          collect.parent / "extant/config.py",
          '    while name.startswith("./"):\n        name = name[2:]',
          '    name = name.lstrip("./")'),
-        ("deletion re-reads documents that did not change", sweep,
+        ("deletion re-reads documents that did not change", deleted_since,
          "    for relative in _changed_between(repo, ref, documents):",
          "    for relative in documents:"),
         # The subject a claim is about. A rule that stops recording one is
@@ -781,15 +828,60 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # SARIF's contract is that stdout is one valid document, always. Zero
         # bytes fails a CI upload rather than reading as "no results", so a
         # clean run looks exactly like a broken one.
-        ("the deletion mode emits nothing when it has nothing to report", sweep,
+        ("the deletion mode emits nothing when it has nothing to report", deleted_since,
          "    else:\n"
          "        # ALWAYS, even with nothing to report.",
          "    elif gone:\n"
          "        # ALWAYS, even with nothing to report."),
-        ("the deletion mode starts gating", sweep,
+        ("the deletion mode starts gating", deleted_since,
          '              "why it never fails a run.", file=out)\n    return 0',
          '              "why it never fails a run.", file=out)\n'
          "    return 1 if gone else 0"),
+
+        # --- the claims a change wrote --------------------------------------
+        # The range is the merge base to the working tree. Diffed against the
+        # ref itself, a branch that has diverged sees every line the ref has
+        # since deleted as a `+` line, and gates on claims it never wrote.
+        ("the diff gate diffs against the ref instead of the merge base", introduced_since,
+         '        out = ctx.git.run(ctx.repo, "merge-base", ref, "HEAD")',
+         '        out = ctx.git.run(ctx.repo, "rev-parse", "--verify", ref)'),
+        # A gate that examined nothing and passed is the failure this project
+        # exists to refuse, and a ref that does not resolve is the ordinary way
+        # to reach it - a depth-limited checkout, most days.
+        ("an unresolvable base passes instead of refusing", introduced_since,
+         '              f"may lie beyond the depth; see the CI section of the README.",\n'
+         '              file=sys.stderr)\n        return 2',
+         '              f"may lie beyond the depth; see the CI section of the README.",\n'
+         '              file=sys.stderr)\n        return 0'),
+        # The whole mode is this one membership test.
+        ("a finding on a line the range did not touch gates", introduced_since,
+         "                    elif finding.line in wrote:",
+         "                    elif True:"),
+        # `@@ -a,b +c,0 @@` is a pure deletion: `c` is a position, not a line,
+        # and reading it as one gates on whatever now sits there.
+        ("a pure deletion introduces the line after it", introduced_since,
+         "                count = int(match.group(2)) if match.group(2) is not None else 1",
+         "                count = max(1, int(match.group(2))) if match.group(2) is not None else 1"),
+        # A second hunk of one file arrives in hunk state. Ignoring it there
+        # gates on the first edit to a document and none after it - and was
+        # the first bug the parser had, found on reading it back before its
+        # tests ran; the test that would have caught it is what kills this.
+        ("only the first hunk of a document is read", introduced_since,
+         "        match = _HUNK.match(raw)\n        if match:",
+         "        match = _HUNK.match(raw)\n        if match and not in_hunk:"),
+        # Only changed documents can hold an introduced line, and the count of
+        # unread ones is what says the population was narrowed on purpose.
+        ("the diff gate reads every tracked document", introduced_since,
+         '    changed = [p for p in tracked if lines.get(p.replace("\\\\", "/"))]',
+         '    changed = list(tracked)'),
+        # A document this tool numbers differently from git cannot be placed
+        # on git's lines; its findings are surveyed and said so, never gated.
+        ("a bare carriage return document gates on git's numbering", introduced_since,
+         "                    if relative in unmapped:\n                        surveyed += 1",
+         "                    if False:\n                        surveyed += 1"),
+        ("the diff gate exits 0 on a gating finding", introduced_since,
+         "    return 1 if (gating or RULE_ERRORS or unreturned) else 0",
+         "    return 1 if (RULE_ERRORS or unreturned) else 0"),
 
         # --- search --------------------------------------------------------------
         # Retargeted when the read gained a `try:` for the undecodable case -
@@ -824,8 +916,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # longer exists; a mutation kept alive by pointing it at something else
         # would be testing a different thing under an old label.
         ("suggest-fixes offers a guess for a merely missing file", gate,
-         "        moved = renamed_to(ctx, target)\n        if moved:",
-         "        moved = renamed_to(ctx, target) or target + \".guess\"\n"
+         "        moved = renamed_to(ctx, named)\n        if moved:",
+         "        moved = renamed_to(ctx, named) or named + \".guess\"\n"
          "        if moved:"),
         # THE INVARIANT. Without it `--suggest-fixes` offered to rewrite a link
         # split across a newline that `--validate` had just reported clean - a
@@ -837,8 +929,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # one RESOLVES and one is REPLACED. Swapping them makes the patch look
         # for a string the document does not contain.
         ("the patch replaces on the resolved target, not the written spelling", gate,
-         "            replacements.append((raw, moved + raw[len(path_part):]))",
-         "            replacements.append((target, moved))"),
+         "            replacements.append((raw, spelled + raw[len(path_part):]))",
+         "            replacements.append((target, spelled))"),
         ("the shared scanner drops the spelling the document uses", links,
          "                sites.append((number, raw, target, html))",
          "                sites.append((number, target, target, html))"),
@@ -1141,9 +1233,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the sweep reads the index instead of the committed tree", refs,
          '    out = ctx.git.run(ctx.repo, "ls-tree", "-r", "-z", "--name-only", "HEAD")',
          '    out = ctx.git.run(ctx.repo, "ls-files", "-z")'),
+        # Retargeted on 2026-09-14, when the four suffixes became the named
+        # tuple `DOCUMENT_SUFFIXES` so `--introduced-since` could hand the
+        # same set to `git diff` as pathspecs. The mutation now narrows the
+        # tuple itself, which both readers see.
         ("the sweep forgets every format except .md", refs,
-         '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md", "markdown", "mdx", "rst"))',
-         '                  if p.strip() and p.rsplit(".", 1)[-1] in ("md",))'),
+         'DOCUMENT_SUFFIXES = ("md", "markdown", "mdx", "rst")',
+         'DOCUMENT_SUFFIXES = ("md",)'),
         # Both directions of the vetted/unvetted split, because it is the whole
         # design of the mode and each way of breaking it is silent in its own
         # way. Gating on everything turns 18 measured false positives on this
@@ -1314,12 +1410,63 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a pattern that matched nothing is no longer named", sweep,
          "        idle = sorted(p for p, n in excluded_counts.items() if not n)",
          "        idle = []"),
+        # Retargeted on 2026-09-14, when the exclusion-and-conflict block
+        # left `run_sweep` for `apply_exclusions` so `--introduced-since`
+        # could read the same implementation: the line dedented one level
+        # and `kept` became `remaining`, because `kept` is now the list the
+        # function returns.
         ("excluding a configured document stops being refused", sweep,
-         "        conflicting = sorted((configured & present) - kept - {\"\"})",
-         "        conflicting = []"),
+         "    conflicting = sorted((configured & present) - remaining - {\"\"})",
+         "    conflicting = []"),
         ("the conflict check keys on configured-but-missing again", sweep,
-         "        conflicting = sorted((configured & present) - kept - {\"\"})",
-         "        conflicting = sorted(configured - kept - {\"\"})"),
+         "    conflicting = sorted((configured & present) - remaining - {\"\"})",
+         "    conflicting = sorted(configured - remaining - {\"\"})"),
+
+        # --- exit paths a coverage measurement found reached by nothing -----
+        # Measured on 2026-09-15 with every spawned process instrumented: the
+        # line that carries a worker's rule error into RULE_ERRORS had never
+        # executed in either survey, and neither had the two refusals of
+        # `--introduced-since` or `--check-text`'s no-stdin and unreadable-
+        # baseline exits. tests/test_unreached_exits.py reaches each; these
+        # are what would turn an errored run into a clean one if it stopped.
+        ("a worker's rule error is dropped by the sweep", sweep,
+         "                    if workers and errors:\n"
+         "                        RULE_ERRORS.extend(errors)",
+         "                    if workers and errors:\n"
+         "                        pass"),
+        ("a worker's rule error is dropped by --introduced-since", introduced_since,
+         "                if workers and errors:\n"
+         "                    RULE_ERRORS.extend(errors)",
+         "                if workers and errors:\n"
+         "                    pass"),
+        ("a failed diff passes the gate", introduced_since,
+         "              f\"({exc.__class__.__name__}), so there is no range to gate on.\",\n"
+         "              file=sys.stderr)\n"
+         "        return 2",
+         "              f\"({exc.__class__.__name__}), so there is no range to gate on.\",\n"
+         "              file=sys.stderr)\n"
+         "        return 0"),
+        ("an unlistable tree passes the gate", introduced_since,
+         "              f\"be named.\", file=sys.stderr)\n"
+         "        return 2",
+         "              f\"be named.\", file=sys.stderr)\n"
+         "        return 0"),
+        ("--check-text with no stdin exits clean", gate,
+         "    text = _read_stdin(diag)\n"
+         "    if text is None:\n"
+         "        return 1",
+         "    text = _read_stdin(diag)\n"
+         "    if text is None:\n"
+         "        return 0"),
+        ("--check-text with an unreadable baseline exits clean", gate,
+         "                 f\"(in memory; --check-text writes no file)\")\n\n"
+         "    baselined, baseline_path = _open_baseline(repo, args)\n"
+         "    if baselined is None:\n"
+         "        return 2",
+         "                 f\"(in memory; --check-text writes no file)\")\n\n"
+         "    baselined, baseline_path = _open_baseline(repo, args)\n"
+         "    if baselined is None:\n"
+         "        return 0"),
 
         # --- generated sites and anchor namespaces ---------------------------
         # Detection decides whether a route-shaped link is a dead file or a page
@@ -1538,8 +1685,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # 1600 files, on every repository carrying a conf.py.
         ("the project anchor union goes back to being built eagerly",
          rules / "md_anchor.py",
-         "            if fragment in own or fragment in ambient_anchors():",
-         "            if fragment in (own | ambient_anchors()):"),
+         "            if fragment in own_anchors() or fragment in ambient_anchors():",
+         "            if fragment in (own_anchors() | ambient_anchors()):"),
         # Hugo's fragment convention, and the guard that keeps it Hugo's. Without
         # the `_` test every page in the project becomes an ambient anchor
         # source, which is the project-wide union arriving through the back door.
@@ -1655,6 +1802,237 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("markdown-only rules stop being markdown-only", text,
          'MARKDOWN_ONLY = {"dead-md-link", "dead-md-anchor"}',
          "MARKDOWN_ONLY = set()"),
+
+        # --- the environment every git process inherits ---------------------
+        # `GIT_DIR` back in the child's environment: every git-backed rule
+        # answers about whatever repository the hook that started the run was
+        # fired in, and prints what a clean run prints. The four location
+        # variables tests/test_git_environment.py leaks each move the answer
+        # to "does this commit exist"; dropping one from the scrub is the
+        # smallest version of the defect.
+        ("a leaked GIT_DIR reaches the child again",
+         collect.parent / "extant/git.py",
+         '    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",',
+         '    "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",'),
+        # The scrub applied at the seam and nowhere else. The `cat-file`
+        # batches, the attribute query and `git show` call subprocess
+        # directly, and one of them left on the operator's environment is
+        # the SHA rule, the LFS rule or `--deleted-since` answering about the
+        # wrong repository while the rest answer about the right one.
+        ("git show reads the document from the leaked repository", deleted_since,
+         '                              capture_output=True, env=environment())',
+         '                              capture_output=True)'),
+        ("the LFS attribute query inherits the operator's environment",
+         rules / "lfs.py",
+         '            input=payload, capture_output=True, check=True,\n'
+         '            env=environment()).stdout',
+         '            input=payload, capture_output=True, check=True).stdout'),
+        # A partial repository goes back to the transport for every object it
+        # is missing, mid-command, which is the half-hour stall Phase 25
+        # measured and a network call in a tool that promises none.
+        ("a partial repository retrieves missing objects over the network",
+         collect.parent / "extant/git.py",
+         '    "GIT_NO_LAZY_FETCH": "1",',
+         '    "GIT_NO_LAZY_FETCH": "0",'),
+        # And is told about it, or is not. The note is what stands in for the
+        # rename hint the guard costs, and for the object that stays missing
+        # on a git too old to honour the guard.
+        ("a partial repository is not recognised", collect.parent / "extant/git.py",
+         '        if key == "promisor" and value.strip().lower() == "true":\n'
+         '            return True',
+         '        if key == "promisor" and value.strip().lower() == "true":\n'
+         '            return False'),
+        # `core.quotePath` back on: a renamed non-ASCII path loses its hint
+        # and `--deleted-since` never sees such a document change. The value
+        # is what the operator's own git would print, so this reverts to the
+        # default rather than removing the setting.
+        ("non-ASCII paths come back octal-quoted", collect.parent / "extant/git.py",
+         '    env[f"GIT_CONFIG_VALUE_{count}"] = "false"',
+         '    env[f"GIT_CONFIG_VALUE_{count}"] = "true"'),
+        # Replacing the operator's injected configuration instead of appending
+        # to it: `safe.directory` set for CI vanishes from the child, which
+        # then fails where the parent works.
+        ("the operator's GIT_CONFIG_COUNT set is replaced, not appended to",
+         collect.parent / "extant/git.py",
+         '        count = int(env.get("GIT_CONFIG_COUNT") or "0")\n'
+         '    except ValueError:\n        return env',
+         '        count = 0\n'
+         '    except ValueError:\n        return env'),
+        # The remote guard reading only the file in front of it again. A
+        # rewrite in the global config, the system config or the environment
+        # is equally effective, and this is the defect a sandbox that injects
+        # one found: the fast path answered github where git said the mirror.
+        ("a rewrite outside the repository's config is not seen",
+         collect.parent / "extant/git.py",
+         '    if _unsettled_elsewhere():\n        return None',
+         '    pass'),
+        # `--repo` at a subdirectory, said nothing about: git answers about the
+        # checkout above while every path resolves against the subdirectory.
+        ("a --repo below the repository root is not named", cli,
+         '    elif root != Path(os.path.abspath(repo)):',
+         '    elif False:'),
+        # The guard's one new way to be wrong, found by auditing it: with
+        # retrieval refused, a previous version whose blob the partial
+        # repository does not hold fails `git show`, and None from that read
+        # meant "absent then" - so `--deleted-since` examined nothing, counted
+        # nothing unreadable, and the deleted false claim went unreported.
+        ("a missing object reads as an absent previous version", deleted_since,
+         '        if is_partial(repo) and _listed_at(repo, ref, relative) is not False:\n'
+         '            raise MissingObject(f"{ref}:{relative}")',
+         '        pass'),
+
+        # --- the pre-filters in front of the configurable scans -------------
+        # Each is a way for "cannot match" to become "did not look", which is
+        # the wrong answer arriving as a speed-up. The words are derived from
+        # the pattern, and the four shapes below are the ways the derivation
+        # or the comparison could stop being conservative.
+        ("the pre-filter forgets the folds IGNORECASE makes beyond lower()",
+         text,
+         "        if any(char in text for char in _FOLDS_BEYOND_LOWER):\n"
+         "            return True\n",
+         ""),
+        ("the pre-filter compares case-sensitively under IGNORECASE", text,
+         "        lowered = text.lower()",
+         "        lowered = text"),
+        ("the derivation keeps the words of an optional group", text,
+         '_LEADING_ALTERNATION = re.compile(r"^\\(\\?:([A-Za-z0-9_-]+(?:\\|[A-Za-z0-9_-]+)*)\\)(?![?*{|])")',
+         '_LEADING_ALTERNATION = re.compile(r"^\\(\\?:([A-Za-z0-9_-]+(?:\\|[A-Za-z0-9_-]+)*)\\)")'),
+        ("the derivation ignores a top-level alternation after the group", text,
+         '        elif char == "|" and depth == 0:\n            return ()',
+         '        elif char == "|" and depth == 0:\n            pass'),
+        # And the two scans and the pin walk that read the pre-filter: each
+        # inverted, so the document that could match is the one skipped.
+        ("the release scan is skipped for the documents that could match",
+         rules / "release_tag.py",
+         "    if not could_match(config.release_tag, prose_text):",
+         "    if could_match(config.release_tag, prose_text):"),
+        ("the merge scan is skipped for the documents that could match",
+         commits,
+         "    if not could_match(pattern, prose):",
+         "    if could_match(pattern, prose):"),
+        ("a document without a rev: line still asks for the remote",
+         rules / "pinned_ref.py",
+         '    if "rev:" not in text:\n        return []',
+         "    pass"),
+
+        # --- work nothing reads, and the gates in front of the line scans ---
+        # Four changes from one measurement (design.md, "One document scan,
+        # measured and refused"), each of which has one way to become a
+        # verdict change rather than a speed-up. The own-heading slugging is
+        # lazy now, so the way to break it is to never slug at all: every
+        # fragment into the document is then reported dead.
+        ("the own headings are never slugged", rules / "md_anchor.py",
+         "            own = anchors(text)",
+         "            own = set()"),
+        # The sweep hands `count_examined` the rules that read a document.
+        # Inverted, it counts exactly the rules that did not, and prints
+        # candidates no rule looked at - the overstated denominator.
+        ("count_examined skips the rules that apply", collect.parent / "extant/registry.py",
+         "        if applies is not None and not applies(rule):",
+         "        if applies is not None and applies(rule):"),
+        # Dropped, every denominator is computed again and the discarded ones
+        # cost what they cost; only the spy in tests/test_unread_work.py sees
+        # it, which is why it is anchored.
+        ("the sweep counts every denominator again", sweep,
+         "    counted = session.count_examined(repo, text, applies)",
+         "    counted = session.count_examined(repo, text)"),
+        # The derivation behind the path-pointer gate, two ways to stop being
+        # conservative: a letter as a required literal refuses the lines
+        # IGNORECASE would have matched, and a quantified literal is not
+        # required at all.
+        ("the derivation requires a letter under IGNORECASE", text,
+         "        if literal is None or literal.isalpha() or literal.isspace():",
+         "        if literal is None or literal.isspace():"),
+        ("the derivation keeps a literal a quantifier makes optional", text,
+         "        if index < len(source) and source[index] in _QUANTIFIER_OPENERS:\n"
+         "            continue\n",
+         ""),
+        ("the derivation ignores a top-level alternation", text,
+         '        elif depth == 0 and char == "|":\n            return ()',
+         '        elif depth == 0 and char == "|":\n            pass'),
+        # And the two gates themselves, each inverted so the line that could
+        # match is the one skipped.
+        ("the path-pointer scan skips the lines that could match",
+         rules / "path_pointer.py",
+         "        if not all(literal in line for literal in required):",
+         "        if all(literal in line for literal in required):"),
+        ("the backticked-SHA scan skips the lines that could match", commits,
+         '        if "`" not in line:\n            continue\n        qualified',
+         '        if "`" in line:\n            continue\n        qualified'),
+        # The two new memos, each with the half of its key that `_STRIPPED`
+        # is recorded as missing removed: the link memo answers an rst
+        # reading from a markdown one, the release memo answers a changed
+        # pattern from the old one.
+        ("the link memo ignores the document format", links,
+         "    if (_LINK_SITES is not None and _LINK_SITES[0] is text\n"
+         "            and _LINK_SITES[1] == doc.doc_format):",
+         "    if (_LINK_SITES is not None and _LINK_SITES[0] is text):"),
+        ("the release memo ignores the pattern", rules / "release_tag.py",
+         "    if (_RELEASE_CLAIMS is not None and _RELEASE_CLAIMS[0] is prose_text\n"
+         "            and _RELEASE_CLAIMS[1] is config.release_tag):",
+         "    if (_RELEASE_CLAIMS is not None and _RELEASE_CLAIMS[0] is prose_text):"),
+
+        # --- the post-rewrite journal --------------------------------------
+        # The record a rebase leaves, kept by the hook and read beside the
+        # filter-repo map. Each anchor is a way for the record to stop being
+        # one without any test of the map noticing: a journal never found, a
+        # chain hinted one hop short, a disputed id resolved by reading order,
+        # git's third field hiding a pair, the hook dropping what it is told,
+        # and the note printed for a rewrite nothing cites - the noise that
+        # teaches a reader to stop reading a hook.
+        ("the journal is never found", git_mod,
+         '    candidate = shared / "extant" / "rewrites"\n'
+         '    return candidate if candidate.is_file() else None',
+         '    candidate = shared / "extant" / "rewrites"\n'
+         '    return None'),
+        ("a rewrite chain is hinted one hop short", commits,
+         "    settled = (_settled_value(new, mapping) for new in hits)",
+         "    settled = iter(hits)"),
+        ("a disputed id is resolved by reading order", commits,
+         "    for old in disputed:\n        del mapping[old]",
+         "    for old in ():\n        del mapping[old]"),
+        ("a journal line with git's third field maps nothing", commits,
+         "            if len(parts) >= 2:\n                mapping[parts[0]] = parts[1]",
+         "            if len(parts) == 2:\n                mapping[parts[0]] = parts[1]"),
+        ("the hook drops the pairs git tells it", hooks_verify,
+         "        printf '%s %s\\n' \"$_old\" \"$_new\" >> \"$JOURNAL\"",
+         "        :"),
+        ("a rewrite nothing cites is reported anyway", hooks_verify,
+         '    if [ -n "$CITED" ]; then',
+         '    if true; then'),
+
+        # --- the correctness items of 2026-09-16 -----------------------------
+        # The blanking memo's key carries the format; without the comparison
+        # it is the latent bug again, and one text object read under two
+        # formats gets the first blanking twice.
+        ("the blanking memo ignores the document format", text,
+         "    if cached is not None and cached[0] is text and cached[1] == doc.doc_format:",
+         "    if cached is not None and cached[0] is text:"),
+        # The rename hint is looked up under the path a link resolves to;
+        # asked as written, a link inside a subdirectory finds nothing.
+        ("the link's rename hint is asked as written", rules / "md_link.py",
+         "                     else reference_path(repo, base, target) or target)",
+         "                     else target)"),
+        # And the patch spells the answer relative to the page; a
+        # repository-relative path spliced into `docs/a.md` points at
+        # `docs/docs/...`.
+        ("the rename patch is spelled from the root", gate,
+         "            spelled = \"/\" + moved if rooted else relative_spelling(repo, base, moved)",
+         "            spelled = \"/\" + moved if rooted else moved"),
+        # A branch that exists only as a tag: the ref table says it is not a
+        # head, and the fallback below must not take git's tag precedence
+        # for an answer.
+        ("a tag named like a branch is a branch again", refs,
+         "    candidates = ([f\"refs/remotes/{branch}\", f\"refs/remotes/{branch}/HEAD\"]\n"
+         "                  if branch in tags else [branch])",
+         "    candidates = [branch]"),
+        # Settings come from the repository being checked, through the one
+        # reload both entry points share; without it the shim's path checks
+        # the tool's own configuration against somebody else's repository.
+        ("the shim reads the tool's own settings", cli,
+         "    session.reload_config(repo)\n"
+         "    # Read once, here, AFTER the reload, so every reader below wants the SAME",
+         "    # Read once, here, AFTER the reload, so every reader below wants the SAME"),
     ]
 
 

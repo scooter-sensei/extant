@@ -1,29 +1,39 @@
-"""The two survey modes: `--sweep` and `--deleted-since`.
+"""The first-run survey, `--sweep`, and the machinery every survey-shaped mode
+shares.
 
-Both answer a question about MANY documents rather than one, and both report
-without gating. `--sweep` is the first-run command: it needs no configuration,
-writes nothing, and says what is rotting in a repository nobody here has seen
-before. `--deleted-since` asks the opposite question - which claims were true
-enough to be written down, are false today, and are no longer written anywhere.
+Three modes answer a question about MANY documents rather than one. `--sweep`
+is the first-run command: it needs no configuration, writes nothing, says what
+is rotting in a repository nobody here has seen before, and reports without
+gating. `--deleted-since` asks the opposite question - which claims were true
+enough to be written down, are false today, and are no longer written anywhere
+- and lives in extant/deleted_since.py since 2026-09-14, when this module
+reached its line ceiling; it never gates either. `--introduced-since`, in
+extant/introduced_since.py since the same day, is the survey that GATES: it
+reads the documents a range changed through `survey` below and fails on the
+findings that sit on lines the range wrote.
 
-They share this module because they share the machinery that makes a survey
-honest rather than reassuring: the exclusion patterns and their per-pattern
-counts, the vetted/unvetted split, and the per-document denominators. Every one
-of those exists because a survey that examined nothing prints exactly what a
-clean survey prints.
+What stays here is what makes a survey honest rather than reassuring: the
+exclusion patterns and their per-pattern counts, the vetted/unvetted split, and
+the per-document denominators. Every one of those exists because a survey that
+examined nothing prints exactly what a clean survey prints.
 
 The ambient state both modes set around each document - which file is being
 read, and in which markup language - lives in extant/session.py. This module
 saves it and puts it back, on the failing path too; see `run_sweep` for the bug
 that taught it to.
 
-NEITHER MODE MAY RE-CHECK ONLY THE DOCUMENTS THAT CHANGED, however tempting
+NEITHER SURVEY MAY RE-CHECK ONLY THE DOCUMENTS THAT CHANGED, however tempting
 that gets each time this module is profiled: a claim dies because the
 REPOSITORY changed, not the document, so an incremental survey reports clean on
 exactly the deleted branch or moved file this tool exists to catch.
+`--introduced-since` reads only the changed documents and is not an exception
+to this: its question - which claims did this change WRITE - lives in changed
+documents by construction, it prints how many tracked documents it left
+unread, and its own docstring says why a survey may not borrow the shortcut.
 """
 from __future__ import annotations
 
+import functools
 import os
 import re
 import subprocess
@@ -46,8 +56,8 @@ from extant.report import (
 )
 
 __all__ = [
-    "deleted_claims", "excluded_documents", "partition_documents",
-    "run_deleted_since", "run_sweep",
+    "apply_exclusions", "excluded_documents", "partition_documents",
+    "run_sweep", "survey",
 ]
 
 # Below this many documents a survey is faster in one process than in eight.
@@ -150,10 +160,19 @@ def _validate_one(repo: Path, relative: str, is_primary: bool):
     #
     # The SAME predicate the findings above were selected by, arguments and
     # all. Restating one of its clauses here is how the two came to disagree.
-    counted = session.count_examined(repo, text)
+    #
+    # Handed to `count_examined` as well as applied to its answer, since
+    # 2026-09-15. Every rule was being asked for its denominator and the
+    # ones this predicate refuses were then dropped on the floor: on ruff,
+    # which has no primary document, that was the two entry-scoped rules'
+    # `split_entries` walk on all 650 documents, twice each, and the
+    # repository rule's configuration load once per document - 0.63 s of a
+    # 5.9 s sequential sweep, 11%, buying nothing that was printed.
+    applies = functools.partial(session.rule_applies, in_archive=False,
+                                has_entries=is_primary, repository_rules=False)
+    counted = session.count_examined(repo, text, applies)
     examined = {rule.kind: counted[rule.kind] for rule in session.RULES
-                if session.rule_applies(rule, False, is_primary,
-                                        repository_rules=False)}
+                if applies(rule)}
     return (relative, findings, None, examined, list(RULE_ERRORS[mark:]))
 
 
@@ -174,14 +193,18 @@ def _sequential(repo: Path, tasks: list[tuple[str, bool]]) -> dict:
     return gathered
 
 
-def _survey(repo: Path,
-            tasks: list[tuple[str, bool]]) -> tuple[dict, int, str | None]:
+def survey(repo: Path,
+           tasks: list[tuple[str, bool]]) -> tuple[dict, int, str | None]:
     """Validate every task. Returns (by_path, workers_used, fallback_reason).
 
     `workers_used` is 0 for a single-process survey, and the caller PRINTS it.
     Which path ran is not an implementation detail: these are two pieces of
     machinery that have to produce one answer, and a reader who cannot tell
     which one produced theirs has no way to report a difference between them.
+
+    Public since `--introduced-since` became its second caller: that mode
+    surveys the documents a range changed through exactly this machinery,
+    and a sibling may not import an underscore name.
     """
     cpus = os.cpu_count() or 1
     if len(tasks) < _PARALLEL_FLOOR or cpus < 2:
@@ -337,32 +360,9 @@ def run_sweep(repo: Path, fmt: str) -> int:
         return _report_empty_survey(repo, fmt)
 
     tracked_total = len(paths)
-    excluded_counts: dict[str, int] = {}
-    if session.CONFIG.exclude_paths:
-        present = {p.replace("\\", "/") for p in paths}
-        paths, excluded_counts = excluded_documents(
-            paths, session.CONFIG.exclude_paths)
-        # A CONFIGURED document that an exclusion REMOVED is a contradiction,
-        # not a preference: one setting says gate on this file and another
-        # says never read it. Reported rather than resolved, because either
-        # answer silently overrides something the author wrote.
-        #
-        # Keyed on what was actually removed, never on "configured but
-        # missing". `primary_doc` defaults to a filename most repositories do
-        # not have, so comparing against the configured set alone reported a
-        # conflict for a document no exclusion had touched - a different
-        # condition, which `--verify` already names as "no such document".
-        configured = {_normalise(session.CONFIG.primary_doc),
-                      *(_normalise(d) for d in session.CONFIG.extra_docs)}
-        kept = {p.replace("\\", "/") for p in paths}
-        conflicting = sorted((configured & present) - kept - {""})
-        for document in conflicting:
-            print(f"CONFLICT: `{document}` is configured to be checked and "
-                  f"also matches exclude_paths; excluding it would silently "
-                  f"stop gating on a document you asked to gate on",
-                  file=sys.stderr)
-        if conflicting:
-            return 1
+    paths, excluded_counts, conflicting = apply_exclusions(paths)
+    if conflicting:
+        return 1
     if not paths:
         print(f"swept 0 markdown files: exclude_paths removed all "
               f"{tracked_total} that git tracks", file=sys.stderr)
@@ -401,7 +401,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
             examined: dict[str, int] = {kind: 0 for kind in repository_examined}
             tasks = [(relative, relative == primary)
                      for _label, group, _gates in sections for relative in group]
-            gathered, workers, fallback = _survey(repo, tasks)
+            gathered, workers, fallback = survey(repo, tasks)
 
             for label, group, _gates in sections:
                 for relative in group:
@@ -600,208 +600,6 @@ def run_sweep(repo: Path, fmt: str) -> int:
     return 1 if (results["vetted"] or RULE_ERRORS or unreturned) else 0
 
 
-def _document_at(repo: Path, ref: str, relative: str) -> str | None:
-    """A document as it stood at `ref`, or None if it was not there.
-
-    A previous version that is not valid UTF-8 raises rather than returning
-    None, because "absent" and "unreadable" are different facts and the caller
-    counts them separately. Decoding it with errors="replace" would be worse
-    than either: every rule would then run against silently corrupted text and
-    report findings about bytes that are not there.
-    """
-    # BYTES, then decoded here. `_git` in extant/git.py passes text=True,
-    # which makes subprocess decode inside a reader THREAD - so invalid UTF-8
-    # raises where no caller can catch it. The observed result was the worst
-    # of both: a UnicodeDecodeError traceback printed from the thread, the process
-    # continuing, and the document silently counted as examining nothing.
-    #
-    # Decoding strictly, and letting the error reach the caller, is what makes
-    # "unreadable" a fact this mode can report instead of a mess it prints.
-    try:
-        done = subprocess.run(["git", "show", f"{ref}:{relative}"], cwd=repo,
-                              capture_output=True)
-    except OSError:
-        return None
-    if done.returncode != 0:
-        return None
-    return done.stdout.decode("utf-8")
-
-
-def _changed_between(repo: Path, ref: str, candidates: list[str]) -> list[str]:
-    """Only the candidates that actually changed between `ref` and HEAD.
-
-    A document that did not change cannot have lost a claim, so this is a
-    correctness simplification as much as it is the difference between doubling
-    a verify and not.
-
-    A ref git cannot resolve yields an empty list rather than an exception: the
-    mode reports what it examined, and examining nothing because the ref was
-    wrong is a legitimate answer as long as the denominator says so.
-    """
-    try:
-        ctx = session.context(repo)
-        out = ctx.git.run(ctx.repo, "diff", "--name-only", ref, "HEAD")
-    except (subprocess.CalledProcessError, OSError):
-        return []
-    changed = {line.strip().replace("\\", "/") for line in out.splitlines()
-               if line.strip()}
-    return [c for c in candidates if c.replace("\\", "/") in changed]
-
-
-def _configured_documents() -> list[str]:
-    """Primary, archive and extras, in that order, skipping any left unset."""
-    return [_normalise(d) for d in (session.CONFIG.primary_doc,
-                                    session.CONFIG.archive_doc,
-                                    *session.CONFIG.extra_docs) if d]
-
-
-def _live_prose(repo: Path, documents: list[str]) -> str:
-    """Every configured document's PROSE, concatenated, fenced code blanked.
-
-    Prose, not raw text, and the distinction is the whole of condition 2 below.
-    A claim moved into a code fence is exempt from every claim rule, so a
-    haystack built from raw text would let a fence hide a claim from this mode
-    as well as from the others.
-
-    Inline backticks are kept, because a claim is normally written inside them
-    and `_prose` blanks fences only. Using `_strip_code` here would blank the
-    token in every claim and report the entire document as deleted.
-    """
-    parts = []
-    for relative in documents:
-        try:
-            with open(repo / relative, encoding="utf-8", newline="") as handle:
-                parts.append(markup.prose(session.document(), handle.read()))
-        except (OSError, UnicodeDecodeError):
-            continue
-    return "\n".join(parts)
-
-
-def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
-    """Claims present at `ref`, false today, and no longer written anywhere.
-
-    Returns (found, examined, skipped_for_no_subject, undecodable). All four
-    come from ONE pass: computing any of them in a second loop would
-    re-validate every document and double exactly the cost `_changed_between`
-    exists to avoid.
-
-    A claim is reported when both hold:
-
-      1. it appears when the OLD text is validated against TODAY's git, which
-         means it is false right now, and
-      2. its subject appears in no configured document today, as prose
-
-    Condition 1 is why there is no separate still-false check. Condition 2 is
-    what keeps `--archive` legitimate and what catches a claim moved into a
-    fence.
-    """
-    documents = _configured_documents()
-    haystack = _live_prose(repo, documents)
-    found: list[Located] = []
-    examined = skipped = undecodable = 0
-    for relative in _changed_between(repo, ref, documents):
-        try:
-            previous = _document_at(repo, ref, relative)
-        except UnicodeDecodeError:
-            # A previous version that cannot be decoded is not a version with
-            # no claims. Counted and reported, never passed over in silence.
-            undecodable += 1
-            continue
-        if previous is None:
-            continue
-        examined += 1
-        # `base` is a parameter; the FORMAT is not, so it is the one piece of
-        # document state this has to set - and it is restored in `finally`,
-        # because a rule raising part-way would otherwise leave the process
-        # reading every later document in the wrong markup language.
-        previous_format = session.document().doc_format
-        session.set_document(doc_format=markup.format_for(relative))
-        try:
-            was = session.validate(
-                repo, previous, base=(repo / relative).parent,
-                has_entries=(relative == _normalise(session.CONFIG.primary_doc)))
-        finally:
-            session.set_document(doc_format=previous_format)
-        for finding in was:
-            if finding.subject is None:
-                skipped += 1
-                continue
-            if finding.subject in haystack:
-                continue                    # still written down somewhere
-            # `gating=False`: the docstring below says this mode never gates
-            # and returns 0. Every other format honoured that and the machine
-            # ones did not, publishing a report as an error.
-            found.append(Located(relative, finding, primary=False,
-                                 gating=False,
-                                 stratum=strata.classify(relative)))
-    return found, examined, skipped, undecodable
-
-
-def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
-    """Report claims removed while still false. Never gates: returns 0.
-
-    Whether a removal was evasion or repair is a question about intent, which
-    git cannot settle - and a document that deletes a false claim now tells the
-    truth, which is this tool's entire purpose. Gating here would fail a build
-    on the correct remedy. So this states a fact and lets a reader judge.
-    """
-    gone, examined, skipped, undecodable = deleted_claims(repo, ref)
-    out = sys.stderr if fmt == "sarif" else sys.stdout
-
-    if fmt == "text":
-        if gone:
-            print(f"\nCLAIMS REMOVED WHILE STILL FALSE (since {ref})", file=out)
-            for line in render_findings(gone, fmt)[0]:
-                print(line)
-    else:
-        # ALWAYS, even with nothing to report. SARIF's contract is that stdout
-        # is one valid document, and a machine consumer that gets zero bytes
-        # fails its upload rather than reading "no results" - which is how a
-        # clean run would look like a broken one. `--sweep` and `--validate`
-        # both emit an empty document here; this used to emit nothing at all.
-        #
-        # `repo` is deliberately NOT passed, which is the one place a snippet
-        # would be actively wrong rather than merely missing. These findings
-        # come from `_document_at(repo, ref, ...)`, so every line number
-        # indexes the document AS IT WAS. Reading the current file at that
-        # line shows whatever now occupies it - a quotation attributed to a
-        # claim that is no longer there.
-        for line in render_findings(
-                gone, fmt, examined={"documents": examined},
-                run_kind="deleted-since")[0]:
-            print(line)
-
-    # The denominator. This mode always exits 0, so the count is the only thing
-    # separating a clean result from a broken one: "no deletions" and "no
-    # documents examined" are otherwise the same output.
-    print(f"\nexamined {examined} changed document(s) since {ref}: "
-          f"{len(gone)} claim(s) removed while still false, "
-          f"{skipped} skipped for carrying no subject", file=out)
-    # Beside the denominator, for the reason `report_rule_errors` (session.py)
-    # gives: a rule that crashed reports no findings, which is what a clean
-    # run looks like here too, since this mode has no findings at all when it
-    # is healthy. `deleted_claims` calls `session.validate()` once per changed
-    # document and every raise it catches lands in RULE_ERRORS - Task 9's
-    # isolation runs here exactly as it does for `--validate` and `--sweep` -
-    # but nothing downstream of it ever named the rule until now. Reporting
-    # does NOT gate this mode; see the docstring above for why intent is not
-    # this tool's to judge. A rule that failed to look is still worth saying
-    # out loud even when nothing here would have failed the build anyway.
-    session.report_rule_errors(lambda line: print(line, file=out))
-    if skipped:
-        print("  a skipped finding belongs to a rule that does not yet record "
-              "which token it is about, so this mode cannot look for it",
-              file=out)
-    if undecodable:
-        print(f"  {undecodable} previous version(s) could not be decoded and "
-              f"were not examined", file=out)
-    if gone:
-        print("  a swapped or corrected reference looks the same as a hidden "
-              "one from git's side. This reports; it does not judge, which is "
-              "why it never fails a run.", file=out)
-    return 0
-
-
 def _exclusion_regex(pattern: str) -> re.Pattern[str] | None:
     """Compile one gitignore-shaped path pattern, or None if it is unusable.
 
@@ -852,6 +650,44 @@ def _exclusion_regex(pattern: str) -> re.Pattern[str] | None:
         return re.compile(source)
     except re.error:
         return None
+
+
+def apply_exclusions(paths: list[str]) -> tuple[list[str], dict[str, int], list[str]]:
+    """The configured skip-list, applied to `paths`, and the contradictions it
+    produced: (kept, {pattern: how many it matched}, configured documents the
+    patterns removed).
+
+    One implementation for the two modes that survey many documents - the
+    sweep and `--introduced-since` - so the per-pattern counts and the
+    refusal below cannot come to disagree between them, which is the
+    two-scanners shape this project keeps finding.
+
+    A CONFIGURED document that an exclusion REMOVED is a contradiction, not a
+    preference: one setting says gate on this file and another says never
+    read it. Reported rather than resolved, because either answer silently
+    overrides something the author wrote. Printed here, once, and returned
+    so the caller decides the exit code.
+
+    Keyed on what was actually removed, never on "configured but missing".
+    `primary_doc` defaults to a filename most repositories do not have, so
+    comparing against the configured set alone reported a conflict for a
+    document no exclusion had touched - a different condition, which
+    `--verify` already names as "no such document".
+    """
+    if not session.CONFIG.exclude_paths:
+        return paths, {}, []
+    present = {p.replace("\\", "/") for p in paths}
+    kept, counts = excluded_documents(paths, session.CONFIG.exclude_paths)
+    configured = {_normalise(session.CONFIG.primary_doc),
+                  *(_normalise(d) for d in session.CONFIG.extra_docs)}
+    remaining = {p.replace("\\", "/") for p in kept}
+    conflicting = sorted((configured & present) - remaining - {""})
+    for document in conflicting:
+        print(f"CONFLICT: `{document}` is configured to be checked and "
+              f"also matches exclude_paths; excluding it would silently "
+              f"stop gating on a document you asked to gate on",
+              file=sys.stderr)
+    return kept, counts, conflicting
 
 
 def excluded_documents(paths: list[str],

@@ -22,17 +22,15 @@ what is module-level now rather than of what was module-level then:
   three times. Neither is in the inventory below because neither existed at
   the split; both are listed here so this file stays the census of what is
   module-level rather than a census of what once was.
-* `_STRIPPED` is keyed the same way, on identity alone, and used to be
-  described here as equally pure. It is not: the value it caches also depends
-  on `doc.doc_format`, because `_blank_uncached` (extant/text.py) strips
-  markdown and reStructuredText differently, and the key carries only the
-  text. A known latent bug, recorded but not fixed: a caller that validates
-  the same text OBJECT twice under two different formats - once as markdown,
-  once as reStructuredText - gets back whichever result was computed first,
-  both times. `--sweep` is the one mode that changes `doc_format` between
-  calls sharing a run, which is what makes the condition real rather than
-  theoretical. Still module-level, same as `_BARE_SHAS`, but for a narrower
-  reason than "pure": see extant/text.py for the rest of this.
+* `_STRIPPED` is keyed on identity AND on `doc.doc_format`, since
+  2026-09-16. The format was missing for months and this paragraph recorded
+  it as a latent bug: `_blank_uncached` (extant/text.py) strips markdown and
+  reStructuredText differently, so a caller validating one text OBJECT under
+  two formats got the first blanking back both times. Counted before it was
+  fixed, over a sweep of the 152 visible corpus clones: 868,986 memo hits, 0
+  answered under the wrong format, because a sweep reads each document once
+  into its own string. Fixed anyway; the key is complete now, so this memo
+  is exactly as pure as `_BARE_SHAS` and module-level for the same reason.
 * `_PATH_SITES` (added since the split; extant/rules/path_pointer.py) came from
   the same measurement as those two: `dead-path-pointer`'s `check` and its
   `examined` each scanned the document for pointers, so one scan per document
@@ -100,6 +98,11 @@ class RunScope:
     # validations, so an index that outlived the call would answer from a
     # repository that no longer exists in that shape.
     #
+    # An index is a `refs._Ancestry`: the newest `INDEX_BOUND + 1` commits of
+    # the ref as full SHAs, whether that was the whole history, and what the
+    # batches have since settled about commits past the bound. All three on
+    # one object because they share this one lifetime and this one key.
+    #
     # Keyed by (repo, ref), never by ref alone. Keying by name looked sufficient
     # and was not: rules are also called directly, without going through
     # validate(), so nothing reset the cache between two repositories that both
@@ -115,7 +118,7 @@ class RunScope:
     # Another document's headings, read at most once per call and held no longer
     # than the repository state they were read from.
     target_anchors: dict[Any, Any] = field(default_factory=dict)
-    # Whether a SHA-shaped token resolves to a commit here, keyed
+    # The full commit id a SHA-shaped token resolves to here, or None, keyed
     # (repo, token). Two rules ask - `dead-sha` about the tokens it found and
     # `false-merge-claim` about the commit each claim names - and before this
     # they asked in two separate `cat-file --batch-check` subprocesses, one per
@@ -127,7 +130,9 @@ class RunScope:
     # commit once per document that cites it. The lifetime is the run's, like
     # every field here: a commit created between two validate() calls has to be
     # visible to the second, which is the failure `own_remote` below already
-    # had once in the opposite direction.
+    # had once in the opposite direction. The VALUE is the full id rather than
+    # a boolean since 2026-09-15, because the ancestry index answers by
+    # full-SHA membership and the batch line already carried it.
     shas: dict[Any, Any] = field(default_factory=dict)
     # The origin. Left uncached at first, then cached with no lifetime at all on
     # the reasoning that a remote cannot change while a process runs - true of

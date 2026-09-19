@@ -175,12 +175,14 @@ done
 #
 #   * it passes git's `amend`/`rebase` argument through, because the hook
 #     declines the amend case that post-commit already reported;
-#   * it DRAINS STDIN. Git writes one `<old> <new>` pair per rewritten commit
-#     to this hook and to no other. Left unread while the hook spends a second
-#     or two validating, a long rebase fills the pipe buffer and git blocks
-#     forever - a hang, which is a far worse failure than a missed check;
-#   * it then runs the check with stdin closed, so nothing downstream can
-#     mistake a drained pipe for input.
+#   * it HANDS STDIN TO THE HOOK. Git writes one `<old> <new>` pair per
+#     rewritten commit to this hook and to no other, and the hook keeps them
+#     - the journal `--sha-map` and the `dead-sha` hint read - before it does
+#     anything slow. Left unread while a check ran, a long rebase would fill
+#     the pipe buffer and git would block forever - a hang, which is a far
+#     worse failure than a missed check - which is why the shim used to drain
+#     the pairs into /dev/null itself, and why it still does exactly that
+#     where there is no hook to read them: a checkout predating the tool.
 target="$HOOK_DIR/post-rewrite"
 if [ -f "$target" ] && grep -q "$MARKER" "$target"; then
     echo "already installed: post-rewrite"
@@ -191,9 +193,8 @@ else
     cat >> "$target" <<'EOF'
 
 # extant-verify-hook
-cat > /dev/null
 _hv="$(git rev-parse --show-toplevel 2>/dev/null)/tools/hooks/extant-verify"
-[ -f "$_hv" ] && sh "$_hv" --after-rewrite "${1:-}" < /dev/null
+if [ -f "$_hv" ]; then sh "$_hv" --after-rewrite "${1:-}"; else cat > /dev/null; fi
 EOF
     chmod +x "$target"
     echo "installed: post-rewrite"

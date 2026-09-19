@@ -33,10 +33,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from extant.git import rewrite_map_path
+from extant.git import rewrite_journal_path, rewrite_map_path
 from extant.refs import SHA_SHAPE, resolve_shas
 from extant.scope import Context
-from extant.text import line_breaks, line_number_at
+from extant.text import could_match, line_breaks, line_number_at
 
 __all__ = [
     "BACKTICKED", "BARE_SHA_TOKEN", "_ASSET_PATH", "_BARE_SHAS", "_LINKED_SHA",
@@ -263,6 +263,15 @@ def _find_sha_candidates(text: str) -> list[tuple[int, str]]:
     """The scan itself. Separate only so the cache above stays readable."""
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
+        # Both patterns below carry a literal backtick - `BACKTICKED` opens
+        # with one and `_LINKED_SHA` needs `` [` `` - so a line without one
+        # cannot match either, and neither is run on it. Checkable by reading
+        # the two patterns, which is the argument the line-pointer rule makes
+        # for its colon gate; the bare scanner next door already gates the
+        # same way on its own token shape. Ungated, the two ran on every line
+        # of every document: 0.32 s of a 5.9 s sequential sweep of ruff.
+        if "`" not in line:
+            continue
         qualified = [m.span(1) for m in _LINKED_SHA.finditer(line)]
         for match in BACKTICKED.finditer(line):
             if spans_overlap(match.span(1), qualified):
@@ -286,9 +295,9 @@ def _range_ends(token: str) -> tuple[str, ...]:
 
 # Same idiom as `_STRIPPED` in text.py: keyed on object IDENTITY, so a
 # different string simply misses and no lifecycle is needed. Unqualified here
-# - `find_bare_sha_candidates` takes only `text`, so unlike `_STRIPPED`, which
-# also reads `doc.doc_format` without keying on it (a known latent bug
-# recorded in extant/text.py), this cache has nothing else it could miss.
+# - `find_bare_sha_candidates` takes only `text`, so this cache has nothing
+# else it could miss; `_STRIPPED` reads `doc.doc_format` too and carries it
+# in its key since 2026-09-16.
 # Added when the sweep began reporting a per-rule denominator, which made
 # `count_examined` (session.py's wrapper over extant.registry.count_examined)
 # a second caller for the same document - this function and `_line_pointer_sites`
@@ -367,10 +376,10 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
 # `_document_sha_tokens`. Measured beside them on the same 29-document sweep:
 # 89 calls, 0.21s of self time.
 #
-# The key carries the PATTERN and the TRUNK as well as the text, and that is
-# the difference between this and `_STRIPPED` in extant/text.py, which keys on
-# text identity alone while its value also depends on `doc.doc_format` - the
-# known latent bug recorded there and in extant/scope.py. This function reads
+# The key carries the PATTERN and the TRUNK as well as the text: everything
+# the scan reads is in it, the way `_STRIPPED` in extant/text.py now carries
+# the document format beside the text - a key without one of its inputs was
+# that memo's recorded latent bug until 2026-09-16. This function reads
 # exactly two configured values and both are in the key, so there is no second
 # input a hit could be wrong about. `reload_config` and the `reconfigure`
 # fixture both build a fresh Config, so a changed `merge_claim` arrives as a
@@ -409,6 +418,12 @@ def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     pattern = config.merge_claim
     named = pattern.groups >= 2
     claims: list[tuple[int, str, str]] = []
+    # Skipped outright when no match is possible, for the reason
+    # `_release_claims` in extant/rules/release_tag.py gives: 12 of ruff's
+    # 650 documents hold `merged` or `shipped`, and this scan cost 0.29 s of
+    # a 7.1 s sweep on the 638 that do not.
+    if not could_match(pattern, prose):
+        return claims
     for match in pattern.finditer(prose):
         # ONE line break, no more. `merge_claim` separates its parts with
         # `\s+`, so scanning the whole document - which is what lets a claim
@@ -495,12 +510,20 @@ def document_shas(ctx: Context, prose: str) -> set[str]:
 
 
 def load_sha_map(path: str) -> dict[str, str]:
-    """Parse a git-filter-repo commit-map (old SHA, whitespace, new SHA)."""
+    """Parse a rewrite record: old SHA, whitespace, new SHA, per line.
+
+    git-filter-repo's commit-map is exactly that. The post-rewrite journal
+    is the same two fields as git writes them to the hook, and git's line
+    is `<old> SP <new> [SP <extra-info>]` - so a third field is tolerated
+    and ignored rather than making the pair invisible. A line with fewer
+    than two fields, or the commit-map's `old new` header, maps nothing a
+    SHA-shaped token can match.
+    """
     mapping: dict[str, str] = {}
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             parts = line.split()
-            if len(parts) == 2:
+            if len(parts) >= 2:
                 mapping[parts[0]] = parts[1]
     return mapping
 
@@ -551,9 +574,32 @@ def _mapped_values(token: str, mapping: dict[str, str],
     bucketed path is a filter over the same predicate, not a different test.
     """
     if index is not None and len(token) >= _BUCKET:
-        return [new for old, new in index.get(token[:_BUCKET], ())
+        hits = [new for old, new in index.get(token[:_BUCKET], ())
                 if old.startswith(token)]
-    return [new for old, new in mapping.items() if old.startswith(token)]
+    else:
+        hits = [new for old, new in mapping.items() if old.startswith(token)]
+    settled = (_settled_value(new, mapping) for new in hits)
+    return [new for new in settled if new is not None]
+
+
+def _settled_value(new: str, mapping: dict[str, str]) -> str | None:
+    """Where a chain of rewrites ends, or None if it never does.
+
+    A branch rebased twice journals `a b` and then `b c`, and a filter-repo
+    run after a rebase does the same across the two records. A hint - or a
+    `--sha-map` repair - naming `b` reads as correct and is as dead as `a`,
+    which is exactly the wrong-SHA-worse-than-dead-SHA failure the
+    ambiguity rule refuses; so the chain is followed here, in the one
+    lookup both readers share, to the id that is not itself rewritten. A
+    value that is never rewritten again settles in zero steps, which is
+    every entry of a plain commit-map. A chain that returns to itself
+    cannot come from git and is not settled: None, and no hint.
+    """
+    steps = 0
+    while new in mapping and steps <= len(mapping):
+        new = mapping[new]
+        steps += 1
+    return None if new in mapping else new
 
 
 def _translated_value(token: str, mapping: dict[str, str],
@@ -581,21 +627,38 @@ def _read_rewrite_map(repo: Path) -> tuple[dict[str, str], Any, str | None]:
     first; an empty mapping and a reason is the second, and the reason travels
     all the way out to the finding a reader sees.
     """
-    path = rewrite_map_path(repo)
-    if path is None:
-        return {}, {}, None
-    try:
-        mapping = load_sha_map(str(path))
-        # Indexed here, once, beside the read that produced it. Building it
-        # per lookup would reintroduce the walk it exists to remove.
-        return mapping, _bucket_index(mapping), None
-    except (OSError, UnicodeDecodeError) as exc:
-        # Reported, not swallowed. A map present and unreadable that answered
-        # like a map absent would take the one signal that explains this
-        # project's largest finding class and hide it behind the finding
-        # itself.
-        return {}, {}, (f"a rewrite map at {path.as_posix()} could not be "
-                        f"read ({exc.__class__.__name__})")
+    # TWO records, one reader. The commit-map a `filter-repo` run leaves and
+    # the journal the post-rewrite hook keeps of every rebase and amend are
+    # read into one mapping, so the hint and `--sha-map` explain a rebase
+    # exactly the way they already explained a filter-repo. An old id the two
+    # send to DIFFERENT places is dropped rather than resolved by reading
+    # order - the ambiguity rule across records, for the reason
+    # `_translated_value` gives within one.
+    records = [("a rewrite map", rewrite_map_path(repo)),
+               ("the rewrite journal", rewrite_journal_path(repo))]
+    mapping: dict[str, str] = {}
+    disputed: set[str] = set()
+    for noun, path in records:
+        if path is None:
+            continue
+        try:
+            found = load_sha_map(str(path))
+        except (OSError, UnicodeDecodeError) as exc:
+            # Reported, not swallowed. A record present and unreadable that
+            # answered like a record absent would take the one signal that
+            # explains this project's largest finding class and hide it
+            # behind the finding itself.
+            return {}, {}, (f"{noun} at {path.as_posix()} could not be "
+                            f"read ({exc.__class__.__name__})")
+        for old, new in found.items():
+            if old in mapping and mapping[old] != new:
+                disputed.add(old)
+            mapping[old] = new
+    for old in disputed:
+        del mapping[old]
+    # Indexed here, once, beside the read that produced it. Building it
+    # per lookup would reintroduce the walk it exists to remove.
+    return mapping, _bucket_index(mapping), None
 
 
 def _rewrite_map(ctx: Context) -> tuple[dict[str, str], Any, str | None]:

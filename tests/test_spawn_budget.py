@@ -414,8 +414,13 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # spawned unconditionally, so the count was a constant. Two of them are now
     # conditional on the CHECKOUT rather than on the code:
     #
-    #   `remote get-url origin`   0 where `remote_url` can read the config, 5
-    #                             where it declines. A GitHub Actions runner
+    #   `remote get-url origin`   0 where `remote_url` can read the config,
+    #                             and where it declines one per document that
+    #                             HOLDS A PIN - three of the five here, the
+    #                             ones with a `rev:` line - since `_pinned_refs`
+    #                             stopped asking for the remote on a document
+    #                             with nothing to govern. It was one per
+    #                             document before that. A GitHub Actions runner
     #                             declines: measured, its `.git/config` carries
     #                             four `[includeIf "gitdir:..."]` sections and a
     #                             `config.worktree` beside it, and either alone
@@ -438,12 +443,24 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # exactly, and then that everything else is one of the two questions above
     # and nothing new. A genuine new question still fails here in every
     # environment; a checkout that answers one of these for free does not.
+    from extant import refs
     from extant.config import load_config
 
     trunk = hc._ACTIVE.trunk
     # REPO_ROOT rather than ".", so the count does not depend on where pytest
     # was invoked from - the same reason `reload_config` above takes it.
-    documents = 1 + len(load_config(hc.REPO_ROOT).extra_docs)
+    # Counted from the real files, because the remote is asked for only by a
+    # document holding a `rev:` line, and which of this repository's documents
+    # do is a fact of the documents rather than of the code.
+    # Read beside the config file that names them - `REPO_ROOT` is the skill
+    # directory the upward search starts from, not the checkout.
+    configured = load_config(hc.REPO_ROOT)
+    root = Path(configured.source).parent
+    pinned = sum(
+        "rev:" in (root / name).read_text(encoding="utf-8")
+        for name in (configured.primary_doc, *configured.extra_docs)
+        if (root / name).is_file())
+    assert pinned, "no configured document holds a rev: line; the remote arm is untested"
 
     # EXACT COMMANDS, not prefixes, and each kind counted. A first version of
     # this allowed anything starting `rev-parse --verify --quiet `, which reads
@@ -458,9 +475,13 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
         "remote": [c for c in spawns if c == "remote get-url origin"],
         # Two spellings of ONE question - which commits the trunk contains.
         # `rev-list` where a local trunk branch exists, `rev-parse` where it
-        # does not and the name has to be resolved first.
+        # does not and the name has to be resolved first. The `rev-list`
+        # carries the ancestry index's bound since 2026-09-15 - one more line
+        # than the bound, so a cut history is told apart from a complete one -
+        # and is matched exactly, spelling and number, for the reason the
+        # comment above gives against prefixes.
         "trunk": [c for c in spawns
-                  if c in (f"rev-list {trunk}",
+                  if c in (f"rev-list -n {refs.INDEX_BOUND + 1} {trunk}",
                            f"rev-parse --verify --quiet {trunk}^{{commit}}")],
     }
     accounted = [c for group in kinds.values() for c in group]
@@ -483,10 +504,11 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # The two the CHECKOUT decides, bounded rather than allowed. Zero on a
     # checkout that answers them for free, and never more than one per document
     # or one per validate/count_examined pair.
-    assert len(kinds["remote"]) in (0, documents), (
-        f"{len(kinds['remote'])} `remote get-url origin` for {documents} "
-        f"documents: it is one per document where the config cannot be read "
-        f"and none where it can, so any other number is a new shape.")
+    assert len(kinds["remote"]) in (0, pinned), (
+        f"{len(kinds['remote'])} `remote get-url origin` for {pinned} "
+        f"documents holding a pin: it is one per such document where the "
+        f"config cannot be read and none where it can, so any other number "
+        f"is a new shape.")
     assert len(kinds["trunk"]) <= 2, (
         f"{len(kinds['trunk'])} trunk lookups; it is memoised per run scope, "
         f"so more than one per validate() + count_examined() pair means the "

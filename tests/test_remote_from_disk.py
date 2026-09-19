@@ -126,10 +126,16 @@ def with_config(repo: Path, extra: str) -> None:
 
 
 @pytest.mark.parametrize("extra", VARIANTS)
-def test_the_fast_path_matches_git_or_declines_to_answer(git_repo, extra) -> None:
+def test_the_fast_path_matches_git_or_declines_to_answer(
+        clean_config_scopes, git_repo, extra) -> None:
     """The whole contract, in one assertion, over every spelling measured.
 
     A WRONG answer is the only failure. Declining is a pass, and costs a spawn.
+
+    Under `clean_config_scopes` so the table exercises the parser on every
+    machine: with a developer's real global config carrying an include, every
+    row would decline before reading a byte, and the table would pass while
+    testing nothing about the spellings it lists.
     """
     from extant.git import remote_url
 
@@ -144,11 +150,16 @@ def test_the_fast_path_matches_git_or_declines_to_answer(git_repo, extra) -> Non
         f"the fast path answered {got!r} where git says {expected!r}")
 
 
-def test_the_common_spellings_are_actually_answered_from_disk(git_repo) -> None:
+def test_the_common_spellings_are_actually_answered_from_disk(
+        clean_config_scopes, git_repo) -> None:
     """The denominator. A guard that declines everything passes the table above.
 
     These must resolve on the fast path, or this change buys nothing at all and
     the tests above are asserting a permanent refusal.
+
+    Under `clean_config_scopes`, because the guard now reads the global and
+    system scopes too, and a developer whose real `~/.gitconfig` carries an
+    include would otherwise see this fail on their machine and pass on CI.
 
     THE LAST ONE IS HERE BECAUSE IT SHIPPED BROKEN. `git clone` writes its
     source path verbatim, so a clone taken from a checkout under a directory
@@ -246,8 +257,8 @@ def test_a_repository_with_no_git_directory_at_all_declines(tmp_path) -> None:
     assert remote_url(bare, "origin") is None
 
 
-def test_the_rule_answers_the_same_thing_without_spawning(monkeypatch,
-                                                          git_repo) -> None:
+def test_the_rule_answers_the_same_thing_without_spawning(
+        clean_config_scopes, monkeypatch, git_repo) -> None:
     """`dead-pinned-ref`'s own question, and the five spawns it stops costing."""
     from extant import session as hc
     from extant.rules import pinned_ref
@@ -361,3 +372,190 @@ def test_an_included_file_that_wins_the_lookup_is_declined(git_repo) -> None:
     assert got is None, (
         f"the fast path answered {got!r} for a config whose include wins the "
         f"lookup; git says {git_says(repo)!r}")
+
+
+# --- the scopes the file is not -----------------------------------------------
+#
+# `url.<base>.insteadOf` is equally effective from the global config, the
+# system config, a conditional include of either, the `GIT_CONFIG_COUNT`
+# triplet, or the `GIT_CONFIG_PARAMETERS` that `git -c` hands every process it
+# starts - and the guard above read none of them. Found by a sandbox that
+# injects exactly that: the `scp-style-ssh` row of the table went red with
+# `git=https://github.com/acme/widget.git file=git@github.com:acme/widget.git`.
+#
+# A rewrite that changes only the HOST lands on the same `owner/name` and
+# costs nothing - and so does one that keeps `owner/name` under a longer
+# prefix, because `_normalise_remote` compares the LAST TWO path segments.
+# The audit found the obvious mirror, `https://internal/mirror/acme/widget`,
+# was exactly that: git said the mirror, the rule still said `acme/widget`.
+# This one moves the repository under a different owner, which is the shape
+# that reaches `dead-pinned-ref` as a repository git would not name.
+
+MIRROR = "git@internal:widgets/widget.git"
+REWRITE = '[url "git@internal:widgets/"]\n\tinsteadOf = https://github.com/acme/\n'
+
+
+@pytest.fixture
+def clean_config_scopes(monkeypatch, tmp_path):
+    """Every scope other than the repository's own file, made empty.
+
+    The developer-machine shape the fast path exists for, pinned so the tests
+    that assert an answer FROM DISK do not depend on whatever the developer's
+    real `~/.gitconfig` holds. A conditional include there - the ordinary way
+    to keep a work and a personal identity apart - would otherwise make those
+    tests fail on that machine and pass on this one, which is the shape of
+    failure this whole file is about.
+    """
+    for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
+        empty = tmp_path / name.lower()
+        empty.write_text("", encoding="utf-8")
+        monkeypatch.setenv(name, str(empty))
+    for name in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS",
+                 "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _global_file(monkeypatch, tmp_path, repo):
+    (tmp_path / "global").write_text(REWRITE, encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global"))
+
+
+def _system_file(monkeypatch, tmp_path, repo):
+    (tmp_path / "system").write_text(REWRITE, encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "system"))
+
+
+def _home_file(monkeypatch, tmp_path, repo):
+    """`~/.gitconfig`, with `~` the way git finds it: `HOME` first."""
+    monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text(REWRITE, encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+
+
+def _xdg_file(monkeypatch, tmp_path, repo):
+    monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    xdg = tmp_path / "xdg"
+    (xdg / "git").mkdir(parents=True)
+    (xdg / "git" / "config").write_text(REWRITE, encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+
+
+def _global_conditional_include(monkeypatch, tmp_path, repo):
+    """The work-and-personal split, which is the common reason a global
+    config carries an include at all - and the include carries the rewrite."""
+    (tmp_path / "work.inc").write_text(REWRITE, encoding="utf-8")
+    (tmp_path / "global").write_text(
+        f'[includeIf "gitdir:{tmp_path.as_posix()}/"]\n'
+        f'\tpath = {(tmp_path / "work.inc").as_posix()}\n', encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global"))
+
+
+def _environment_triplet(monkeypatch, tmp_path, repo):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "url.git@internal:widgets/.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://github.com/acme/")
+
+
+def _dash_c_passthrough(monkeypatch, tmp_path, repo):
+    """What `git -c url...insteadOf=... <anything>` exports to every process
+    it starts, hooks included - verified by reading a hook's environment."""
+    monkeypatch.setenv("GIT_CONFIG_PARAMETERS",
+                       "'url.git@internal:widgets/.insteadOf'="
+                       "'https://github.com/acme/'")
+
+
+SCOPES = [
+    pytest.param(_global_file, id="global-file"),
+    pytest.param(_system_file, id="system-file"),
+    pytest.param(_home_file, id="home-gitconfig"),
+    pytest.param(_xdg_file, id="xdg-config"),
+    pytest.param(_global_conditional_include, id="global-includeIf"),
+    pytest.param(_environment_triplet, id="GIT_CONFIG_COUNT"),
+    pytest.param(_dash_c_passthrough, id="GIT_CONFIG_PARAMETERS"),
+]
+
+
+@pytest.mark.parametrize("inject", SCOPES)
+def test_a_path_changing_rewrite_in_any_other_scope_is_declined(
+        clean_config_scopes, monkeypatch, tmp_path, git_repo, inject) -> None:
+    """The repository's file says github; git, reading the scope, says the
+    mirror. The fast path may not answer github."""
+    from extant.git import remote_url
+
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    with_config(repo, f'[remote "origin"]\n\turl = {URL}\n')
+    inject(monkeypatch, tmp_path, repo)
+
+    assert git_says(repo) == MIRROR, (
+        f"the fixture did not reproduce the rewrite: git says {git_says(repo)!r}")
+    got = remote_url(repo, "origin")
+    print(f"git={MIRROR!r} file={got!r}")
+    assert got is None, (
+        f"the fast path answered {got!r} where git, reading this scope, "
+        f"says {MIRROR!r}")
+
+
+def test_clean_other_scopes_still_answer_from_disk(clean_config_scopes,
+                                                   git_repo) -> None:
+    """The denominator for the table above. Reading more scopes must not
+    become declining on every machine, or the spawn saving is gone and every
+    row above passes by refusal."""
+    from extant.git import remote_url
+
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    with_config(repo, f'[remote "origin"]\n\turl = {URL}\n')
+    assert remote_url(repo, "origin") == URL
+
+
+def test_a_config_count_git_refuses_makes_the_fast_path_decline(
+        clean_config_scopes, monkeypatch, git_repo) -> None:
+    """`GIT_CONFIG_COUNT=bogus` fails every git command with "bogus count".
+    The fast path could answer where git cannot, and must not: an answer
+    from a repository whose git is broken is exactly the kind of quiet
+    disagreement the divergence table exists to refuse."""
+    from extant.git import remote_url
+
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    with_config(repo, f'[remote "origin"]\n\turl = {URL}\n')
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "bogus")
+    assert git_says(repo) is None, "git accepted the bogus count"
+    assert remote_url(repo, "origin") is None
+
+
+def test_the_rule_answers_the_mirror_through_git_when_a_scope_rewrites_it(
+        clean_config_scopes, monkeypatch, git_repo) -> None:
+    """End to end, past the guard: `dead-pinned-ref` asks for its own remote,
+    the fast path declines, the spawn answers with the mirror, and the rule
+    does not proceed as if the repository were `acme/widget`."""
+    from extant import session as hc
+    from extant.rules import pinned_ref
+
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    with_config(repo, f'[remote "origin"]\n\turl = {URL}\n')
+    _environment_triplet(monkeypatch, None, repo)
+    assert git_says(repo) == MIRROR
+
+    spawns: list[str] = []
+    real = subprocess.run
+
+    def record(cmd, *a, **kw):
+        if cmd and str(cmd[0]) == "git":
+            spawns.append(" ".join(str(c) for c in cmd[1:]))
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", record)
+    with hc.run_scope():
+        answered = pinned_ref._own_remote(hc.context(repo))
+    print(f"own remote under the mirror rewrite: {answered!r}; spawns {spawns}")
+    assert any("remote get-url origin" in c for c in spawns), (
+        "the fast path answered instead of falling back to git")
+    assert answered == "widgets/widget", answered

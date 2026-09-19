@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-Four rules read shapes they did not read before, over two measured passes.
-No rule was added and none removed, so the rule table is unchanged at
-thirteen; no flag, default or exit code moved. Every widening was counted on
+Four rules read shapes they did not read before, over two measured passes,
+and one mode was added: `--introduced-since REF`, the gate that needs no
+configuration. No rule was added and none removed, so the rule table is
+unchanged at thirteen; no default or existing exit code moved. Every
+widening was counted on
 132 repositories before it was written, swept after, and every added finding
 was read - the record, with the eleven proposals that were measured and
 refused, is in `plugin/skills/extant/references/design.md` under "The second
@@ -152,6 +154,291 @@ documents the bound misses hold no link of this shape. The including
 literal is resolved against the source file's directory, never matched by
 basename, and a bare `include_str!` that embeds a template is not the
 signal. Swept: the 15 findings removed, none added.
+
+**Every git process starts with one environment, and the operator's `GIT_DIR`
+is not in it.** Git exports `GIT_DIR` and `GIT_WORK_TREE` to every hook it
+runs, and `_git` passed them straight through with `cwd=repo` - so a hook
+checking any checkout other than the one it fired in had every git-backed
+rule answering about the other repository's history while reading this one's
+files, in a run that printed what a clean run prints. Verified before the
+fix: `GIT_DIR=../r1/.git git log -1` from a second repository printed the
+first's subject while `rev-parse --show-toplevel` still named the second.
+The seven variables that name a repository are dropped from every git
+process the tool starts, at the seam and at the six `subprocess` sites that
+bypass it; the child also gets `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=`,
+`GIT_OPTIONAL_LOCKS=0`, `LC_ALL=C` and `core.quotePath=false`. The last one is
+a fix of its own: a renamed path holding a non-ASCII character came back
+octal-quoted from `log --name-status`, so the pointer was reported dead
+without its "renamed to" hint, and `--deleted-since` never saw such a
+document change. `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS` are kept -
+CI carries `safe.directory` in them - and the setting is appended to the
+operator's own set rather than put in its place. `--repo` naming a
+subdirectory, where git walks up and answers about the checkout above while
+every path resolves against the subdirectory, is now said on stderr, as is a
+`--repo` with no repository above it; neither is refused.
+
+**A partial clone no longer touches the network.** In a `--filter=blob:none`
+clone git retrieves any missing blob from the promisor remote the moment a
+command wants it, which is how one sweep stalled for half an hour and how
+the README's promise that nothing here touches the network was false.
+`GIT_NO_LAZY_FETCH=1` in the child's environment leaves a missing object
+missing, at the cost of the rename hint for a file whose old contents are not
+local; the run prints beside the denominators that this is a partial
+repository, where the shallow note already prints. Verified: the set of
+objects missing before a `--verify` is the set after, and with the guard
+removed one object was retrieved. Git honours the variable from 2.42; below
+it the note is what remains. The guard's one new way to be wrong was found
+by auditing it: `--deleted-since` read a previous version whose blob the
+partial repository does not hold as ABSENT, and silently dropped the deleted
+false claim it exists to report - where git, unguarded, would have retrieved
+the blob. A failed read in a partial repository now asks whether the tree at
+the ref listed the path, and a version that was there lands in the mode's
+"could not be read" count, which says so. The mode itself moved from
+`sweep.py` to its own `deleted_since.py`, byte for byte, when that
+distinction took `sweep.py` past its line ceiling.
+
+**The remote fast path declines for a rewrite written anywhere git reads.**
+`remote_url` read the repository's own config in place of `git remote
+get-url` and declined when THAT file carried `insteadOf` or an include - and
+`url.<base>.insteadOf` is equally effective from `~/.gitconfig`, the XDG
+file, `/etc/gitconfig`, a conditional include of any of them, the
+`GIT_CONFIG_COUNT` triplet or the `GIT_CONFIG_PARAMETERS` that `git -c`
+exports. A host-only rewrite lands on the same `owner/name`, and so does a
+mirror that keeps `owner/name` under a longer prefix - the rule compares the
+last two path segments; one that moves the repository under another owner
+had `dead-pinned-ref` comparing pins against a repository git would not
+name. The guard now stats and reads every global and system file it can
+name, including the one beside a Git for Windows install, and scans both
+environment injections, declining on any rewrite, include or remote of its
+own; seven scopes are tested with an owner-changing rewrite, each first
+confirming git itself reports it, and the rule is tested end to end
+answering the rewritten owner through the spawn. The read costs
+1.41 ms where it cost 0.19, against the 28.92 ms spawn it replaces, and a
+global config carrying the ordinary work-and-personal `includeIf` pays that
+spawn again.
+
+**The two configurable scans are skipped for a document that cannot
+match.** `dead-release-tag` and `false-merge-claim` run a pattern over
+every document's prose, and both default patterns open with a literal
+alternation - `released|shipped|tagged`, `merged|shipped` - that a document
+must hold for any match: on a 650-document sweep of ruff the release scan
+cost 0.71 s and the merge scan 0.29 s, wall-clock, to find claims in 19 and
+12 documents. The words are derived from the pattern itself, and only from
+a shape where they are necessary - a leading group of plain literals, not
+optional, with no top-level alternation after it - so a configured pattern
+of any other shape scans in full. `IGNORECASE` folds four characters onto
+ASCII letters that `lower()` does not, dotted and dotless capital I, long s
+and the Kelvin sign, and a text holding any of them is let through unread.
+`dead-pinned-ref` asks for `rev:` before it asks for the repository's
+remote, so on CI only a document holding a pin pays that spawn. The slug
+patterns in `anchors.py` are compiled once. The blanking loop was left as
+it is: three exact rewrites were measured, the fastest saving 110 ms in a
+7.3 s sweep for a second copy of the terminator peel, and the region-based
+one the review proposed running 3x slower. Sequential ruff sweep 7.34 s ->
+6.43 s (medians of four); 87,189 documents across 152 repositories digested
+before and after - both blanking flavours, anchors, release, merge and pin
+lists - with no field differing.
+
+**`--introduced-since REF` gates on the claims a change wrote.** The
+measured problem it answers is document selection: on the benchmark a
+default install gates 7 of 5,691 ordinary findings, and every wider policy
+buys reach by pinning paths that later move. This mode pins nothing. It
+sweeps the documents the working tree changed since its merge base with
+REF, keeps the findings that sit on lines the range added or edited, and
+fails on those; findings on older lines of the same documents are counted
+and set aside, tracked documents outside the range are counted as unread,
+and the two repository-wide rules do not run, because their findings sit at
+a line nothing wrote. The merge base rather than REF, so a branch behind
+`main` is not gated on what `main` deleted; the working tree rather than
+HEAD, because that is what the sweep reads. A ref with no merge base is a
+refusal with exit 2, never a pass that examined nothing. `--baseline`,
+`--write-baseline`, `--baseline-check`, `--suggest-fixes` and `--sha-map`
+are refused with it. The diff is read as bytes outside the git seam - the
+seam translates a bare carriage return, and a patch is written in git's
+line discipline - and a changed document holding one is named, its findings
+surveyed and not gated: measured at 1 of 78,878 corpus documents, a raster
+fixture. A document git reads as binary is named and not examined. What it
+does not gate on is stated in its own output and in the README: a claim a
+change broke without writing it - a pure rename, a heading removed under
+another document's anchor - which `--verify` and `--sweep` report. Measured
+before it was written, over the nine benchmark repositories with full
+history on disk: the findings sitting on lines the last thirty first-parent
+commits touched were 24 of 2,810, every one in the agent-tooling project
+among the nine; at the last commit, 2. The action does not carry the mode
+yet, so the README wires it as a plain step.
+
+**The ancestry index is bounded at fifty thousand commits.** It held every
+commit reachable from an integration ref, which on rust's 338,850 cost 10.6 s
+and 77 MB per ref per worker without a commit-graph - the state of every
+corpus clone and of every fresh CI checkout. It is `rev-list -n 50001` now,
+full-SHA membership in a frozenset with a flag saying whether the history
+was cut: a hit is proof, a miss on a complete index is a no with no spawn,
+and a miss on a cut one is settled by one `rev-list --stdin --not REF` per
+rule and ref, fed the full SHAs this run already resolved, its output the
+exclusive history of the inputs. 179 of 195 corpus clones are under the
+bound and pay exactly what they paid before, one spawn per ref per run; the
+sixteen above pay at most 1.6 s and about 6 MB per ref per worker. The
+review that proposed the batch offered it with `--no-walk` and output
+"proportional to the answer"; `--no-walk` has no effect beside `--not`, the
+call is a walk to the deepest input, and on rust it costs 0.63 s when every
+input is recent and 7.9 s when one is near the root - so it replaces the
+index only past the bound, and the record in
+`plugin/skills/extant/references/design.md` carries the table. Verdicts are
+unchanged: the three rules that ask ancestry answer identically under a
+bound of one, three and the default in the suite, and thirteen repositories
+swept with the bound forced to one produced the same output as at the
+default and as the payload before the change. Tokens are memoised as the
+full commit id `cat-file` returns rather than as a boolean, and an
+abbreviated claim is widened to it before the index is asked.
+
+**The suite has a denominator, and thirteen exit paths it found are
+tested.** Coverage of `payload/extant/` was measured with every process the
+suite and the harnesses spawn instrumented - the tool runs as a subprocess
+in most of the tests that drive a mode, and a plain `pytest --cov` sees none
+of those, which is how an outside review arrived at gate.py at 54 per cent
+and cli.py at 66 and read them as untested exit-code logic. Instrumented,
+the suite alone reaches 95.2 and 90.4; the three harnesses add one line to
+gate.py and two to cli.py, because coverage counts statements and they run
+the same statements over hostile inputs. What the 205 unreached statements
+held: the console-script entry `cli()`, executed by nothing; both `exit 2`
+refusals of `--introduced-since`; the line in each survey mode that carries
+a rule error out of a worker into `RULE_ERRORS`, never executed, and without
+which a rule that crashed inside a worker prints a clean survey and exits 0;
+`--check-text` with no stdin and with an unreadable baseline; `--selftest` on
+a document that is not UTF-8; the unresolvable-ref fallback in
+`reachable_from`. All thirteen have tests now, six of them mutation anchors,
+and the package stands at 95.9 per cent with 165 statements unreached, every
+one a degraded path recorded in
+`plugin/skills/extant/references/design.md`. `coverage` joins
+`requirements-dev.txt`, configured under `[tool.coverage]` in
+`pyproject.toml` with the hook that reaches subprocesses under
+`tests/harnesses/coverage_hook/`; the tool itself still has no dependencies,
+and the number is recorded, never gated on.
+
+**A path index was measured and refused.** The review proposed answering
+every link and path pointer from one `ls-tree -r HEAD` set instead of the
+filesystem walk, on the premise that the walk sits in the sweep's inner
+loop. It does not: on ruff the walk is 0.02 s of a 5.9 s sweep, on
+kubernetes/website 0.46 s of 129 s, and two prototypes that replaced it
+swept ruff byte-identically within noise. The verdict half was counted on
+the 152 visible corpus clones: 0 of 49,840 resolved targets are absent from
+HEAD's tree, because every clone is pristine and cannot show a link to a
+build output; 1,175 resolved targets are directories, all implied by
+tracked files; 33 dead references are case mismatches. What the count did
+find is 1,022 dead references naming gitignored paths - generated
+documentation, dead in every fresh clone and resolving wherever the docs
+were built - which is the case for an authoritative index as a VERDICT
+change, recorded with its numbers in
+`plugin/skills/extant/references/design.md` and not made, because it cannot
+be counted on pristine clones and a staged, uncommitted target would go
+dead at pre-commit time without a second spawn.
+
+**A single document scan was measured and refused, and its bar was all but
+met without it.** The review proposed one tokenizer pass per document feeding
+every rule from a span table, with identical findings and a sequential ruff
+sweep under 3.5 s as its own test. With a clock around every scanner the
+rule-owned scans are 3.23 s of a 5.87 s sweep, but a shared pass removes
+only the second walk `examined` makes over what `check` already read and
+the per-pass line loops - 0.45 s and 0.25 s - against the 2.4 s the bar
+needs; the resolve-once half is already there at two `cat-file` spawns per
+sweep. Refused on that number. The same clock found the time elsewhere,
+and four changes that are not a span table reach the bar with byte-identical
+output on ruff and next.js: `dead-md-anchor` slugs a document's own
+headings only once a same-document `#fragment` needs them (0.84 s, 14%,
+read by 11 documents of 650); `--sweep` no longer computes the denominators
+it discards - `count_examined` takes the predicate the sweep already
+filters with, and a skipped rule is present at 0; the backticked-SHA scan
+and the path-pointer scan skip a line missing a character every match must
+contain, the first by reading its two fixed patterns and the second through
+`required_literals`, which derives the character from the configured
+pattern and yields nothing for a pattern of any other shape, `VERBOSE` or
+`IGNORECASE` letters included; and `link_sites` and the release-claim scan
+keep the identity memo the SHA and merge scans keep, format and pattern in
+the key. Sequential ruff sweep 5.75 s -> 3.65 s and next.js 7.52 s -> 6.36 s,
+medians of three on the shipped code; the 152 visible corpus clones swept
+before and after with no output differing. Found on the way and recorded: the rename
+map's single `log --diff-filter=R` spawn is 1.37 s of ruff's sweep and
+3.46 s of next.js's 7.8 on a `blob:none` clone.
+
+**The `post-rewrite` hook keeps the pairs git hands it, and a rebase is
+explained the way a `filter-repo` already was.** git writes one
+`<old> <new>` line per rewritten commit to that hook's stdin and to nothing
+else, and the installed shim drained them into `/dev/null`. The hook now
+appends them to `.git/extant/rewrites` - the commit-map's own spelling,
+beside it under the shared git directory - before it does anything slow, so
+a long rebase never fills the pipe; the shim hands stdin through and drains
+it only where there is no hook to run. A `dead-sha` finding's hint and
+`--sha-map` read the journal beside the map through the one lookup they
+share: `--sha-map .git/extant/rewrites` applies it, a chain of rewrites (a
+branch rebased twice) is followed to its end rather than hinted one hop
+short, an old id the two records send to different places offers nothing,
+and git's optional third field no longer hides a pair. Because after a local
+rebase the old ids still resolve through the reflog - no finding appears on
+the rewriting machine until it expires, while every clone already sees them
+dead - the hook also prints, when a rewrite renamed a commit that a tracked
+document cites, one note naming those documents and the repair, and makes
+no repair itself. Silent for the ordinary rebase that nothing cites. The
+population is stated rather than measured, because no clone can show it: on
+the 152 visible corpus clones 0 of 7,418 dead-SHA findings carry a hint, and
+a journal cannot change that there; the gate is the fixture - a real rebase
+firing the installed hook, the reflog expired, the finding naming the
+rebased id. An install made before this keeps the draining shim until
+`tools/hooks/install` is run again.
+
+**A declared stratum was measured and refused.** The review proposed letting
+`linguist-vendored` and `linguist-generated` attributes place a document in
+a stratum where the path regex infers one. Over the 152 visible clones,
+12,697 of 87,191 swept documents carry a linguist attribute - 12,326 of them
+only `linguist-documentation`, which names no stratum - and the findings
+that would leave `ordinary` are 17 of 65,360, in three repositories, with 5
+moving the other way where bazel declares paths NOT generated. Under the
+review's own bar. Recorded with its numbers in
+`plugin/skills/extant/references/design.md`.
+
+**Settings are read from the repository being checked, by every entry
+point.** They were read once at import, relative to the tool's own file, so
+a run pointed at another repository used the tool's settings and printed a
+NOTE that the target's `.extant.toml` was NOT read; the console script
+re-read from `--repo` and the installed shim did not. Both do now, and the
+NOTE is gone with its condition. An ordinary install - the tool at `tools/`
+inside the repository it checks - reads the same file it always did. The
+review's `--config PATH` and `[tool.extant]` were refused: none of the 152
+visible corpus repositories carries either.
+
+**A tag named like a branch is no longer a branch.** `branch_exists` asked
+`rev-parse --verify`, which follows git's tags-before-heads precedence, so
+`unknown-branch` and `stale-live-claim` took a tag for the branch a
+document named. Counted: 23 names in 7 of 152 visible repositories are both
+- release lines tagged at their own name, `v1.10.2`, `release-2013.1`. It
+answers from the ref table's heads now, with no process per claim; a name
+that is only a tag is asked once for a remote-tracking branch; a spelling
+neither table holds asks git as before. A branch that exists only as a tag
+reads as no branch, which is what both rules were asking.
+
+**The rename hint is looked up under the path a link resolves to, and the
+patch is spelled relative to the page.** `[it](old.md)` inside `docs/` asked
+the rename map about `old.md` and got nothing, while the same link from the
+root got its hint; and `--suggest-fixes` spliced the map's repository-relative
+answer into a document-relative link, so a repointed link in `docs/` named
+`docs/docs/new.md`. One resolver serves both link rules and the patch.
+Measured on the nine autopsy clones, the only tier with the blobs rename
+detection needs: 501 dead link and pointer findings, none hinted, 2 renamed
+inside the 200-commit window and missed for the spelling, 2 renamed beyond
+it - the review's item, refused on that number, the walk being already the
+largest spawn in a sweep - and 497 renamed nowhere. And the map is asked
+with `-M` now: `git log --name-status` detects renames only when the
+repository's `diff.renames` allows, every one of the 152 corpus clones sets
+it to false, and a project that does the same got no hint and no note. It
+costs nothing where detection was already on.
+
+**The blanking memo's key carries the document format.** Recorded as a
+latent bug in six files: the same text object blanked as markdown and asked
+for as reStructuredText came back blanked as markdown. Counted before it was
+fixed, over a sweep of every visible clone: 868,986 memo hits, 0 answered
+under the wrong format. Fixed regardless, and the two tests that cleared the
+memo to work around it no longer have to. And `EXTERNAL` against a path
+index was measured and refused: 652,705 URL-shaped link destinations across
+87,189 documents, 0 of them a tracked file.
 
 ## 0.26.1 (2026-09-10)
 

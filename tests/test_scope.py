@@ -29,12 +29,11 @@ sys.path.insert(0, str(PAYLOAD))
 #       _BARE_SHAS and _POINTER_SITES. _BARE_SHAS is keyed on the IDENTITY of
 #       the text passed in and reads nothing else about the repository, so it
 #       is a pure memo that self-invalidates; giving it a scope would be a
-#       lifetime it does not have. _STRIPPED is keyed the same way but is NOT
-#       equally pure: _blank_uncached (extant/text.py) also reads
-#       doc.doc_format, so the cached value depends on the format while the
-#       key does not - a known latent bug, recorded but not fixed, that only
-#       bites a caller validating the same text object under two formats in
-#       one run, which is what --sweep does. _POINTER_SITES is not pure
+#       lifetime it does not have. _STRIPPED is keyed the same way AND on
+#       doc.doc_format, since 2026-09-16: _blank_uncached (extant/text.py)
+#       reads the format, and for months the key did not carry it - a
+#       recorded latent bug, counted at 0 of 868,986 memo hits over the
+#       corpus before it was fixed anyway. _POINTER_SITES is not pure
 #       either - it reads the filesystem through _line_count - but its
 #       consumer, count_examined, runs AFTER validate() returns, so a value
 #       tied to the call's scope would be discarded exactly when it is
@@ -104,11 +103,14 @@ NOT_A_CACHE = {"stable"}
 # `git show`, in `_document_at`, which must return BYTES because `_git` passes
 # text=True and subprocess then decodes inside a reader thread, so invalid
 # UTF-8 raises where no caller can catch it. It went to extant/sweep.py with
-# `--deleted-since`, the only mode that reads a document as it stood at a ref.
+# `--deleted-since`, the only mode that reads a document as it stood at a ref,
+# and on with that mode to extant/deleted_since.py on 2026-09-14.
 #
 # None of the six stopped bypassing the seam by moving, and all six are counted
-# one file over as PACKAGE_DIRECT_SUBPROCESS_SITES below. Dropping this without
-# raising that would have retired six watched sites by losing track of them.
+# one file over as PACKAGE_DIRECT_SUBPROCESS_SITES below, with the seventh that
+# `--introduced-since` added beside them and the eighth the bounded ancestry
+# index did. Dropping this without raising that would have retired six watched
+# sites by losing track of them.
 #
 # The seam deliberately did not grow a method for these in Task 7. What they
 # have to do is stay visible, because CountingGit cannot see them and neither
@@ -141,8 +143,10 @@ PACKAGE_SEAM_OUTSIDE_SITES = 1
 #                               object-resolution helpers Task 8 moved
 #    1  extant/rules/pinned_ref.py   (1 `soft`)
 #    1  extant/rules/merge.py
-#    1  extant/sweep.py         `git diff --name-only`, in `_changed_between`,
-#                               the last routed call the shim had
+#    2  extant/deleted_since.py `git diff --name-only`, in `_changed_between`,
+#                               the last routed call the shim had, and the
+#                               `ls-tree` that tells a missing object from an
+#                               absent document in a partial repository
 #
 # config.py, finding.py, scope.py, session.py, report.py, cli.py, probes.py,
 # contract.py, entries.py, commits.py, sites.py, text.py, registry.py, the
@@ -172,25 +176,37 @@ PACKAGE_ROUTED_FLOOR = 20
 
 # The package call sites that run git through subprocess directly, for the
 # same reason the shim keeps one: they need something `Git.run(repo, *args)`
-# cannot express. Named here rather than waved through, so a SIXTH cannot
+# cannot express. Named here rather than waved through, so a NINTH cannot
 # appear unnoticed - which is exactly what an `== 0` assertion would have done
 # the moment the first one arrived:
 #
 #   1  `_batch_shas` in extant/refs.py - `cat-file --batch-check` fed on stdin
+#   1  `_settle` in the same file - `rev-list --stdin --not <ref>`, the batch
+#      that places the commits a bounded ancestry index could not, fed the
+#      full SHAs on stdin and wanting BYTES both ways: text mode would hand
+#      git `\r\n` on Windows, and the seam decodes where a caller cannot see
 #   2  the two `cat-file` batches in extant/rules/lfs.py, likewise stdin-fed
 #      and wanting bytes, since blob content is arbitrary
 #   1  `ls-tree -r -z HEAD` in the same file, whose NUL-separated output pairs
 #      with the next one
 #   1  `check-attr -z --stdin filter`, also stdin-fed
-#   1  `git show <ref>:<path>` in extant/sweep.py, which wants BYTES so that a
+#   1  `git show <ref>:<path>` in extant/deleted_since.py, which wants BYTES so that a
 #      previous version that is not valid UTF-8 is a fact `--deleted-since` can
 #      report rather than a traceback out of a subprocess reader thread
+#   1  `git diff -U0` in extant/introduced_since.py, which wants BYTES for the
+#      opposite reason: the seam translates every `\r` in a result to `\n`,
+#      and a patch is written in git's line discipline - a document line
+#      holding a bare `\r` would be cut in two, its second half arriving with
+#      no `+` prefix, and a fragment beginning `@@ -` would then read as a
+#      hunk header. The hunk numbers are git's, so the split is git's.
 #
 # It was 1 until Task 9 moved raw-lfs-blob into the package and 5 until Task 10
 # moved `--deleted-since`; the split is where the code is, not a change in how
 # many bypass the seam. The shim count came down by exactly the number that
 # arrived here, and is asserted to be zero rather than left as a stale ceiling.
-PACKAGE_DIRECT_SUBPROCESS_SITES = 6
+# The seventh arrived with `--introduced-since` on 2026-09-14, the eighth with
+# the bounded ancestry index on 2026-09-15.
+PACKAGE_DIRECT_SUBPROCESS_SITES = 8
 
 # The shim's own routed floor is GONE, and its absence is the point rather than
 # an omission. It was 12 when Task 7 wrote this test and every rule still lived
@@ -369,10 +385,11 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     printed below are why. Five invocations in the shim and one in the package
     run git through subprocess directly, because they need something
     `run(repo, *args)` cannot express - stdin for the three `cat-file`
-    batches, a `-z` listing paired with `check-attr --stdin`, and bytes rather
-    than decoded text for `git show`. Those are counted here rather than
-    glossed, so the gap is a number somebody chose and can watch, and so a
-    seventh cannot appear unnoticed. It was six-and-none until Task 8 moved
+    batches and the ancestry batch, a `-z` listing paired with `check-attr
+    --stdin`, and bytes rather than decoded text for `git show` and the two
+    range reads. Those are counted here rather than glossed, so the gap is a
+    number somebody chose and can watch, and so a ninth cannot appear
+    unnoticed. It was six-and-none until Task 8 moved
     `_batch_shas` into extant/refs.py; the split is where the code is, not a
     change in how many bypass the seam.
     tests/test_spawn_budget.py counts at the subprocess boundary for the same
@@ -504,7 +521,8 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     # satisfied by an empty file, so it would have gone on passing while
     # watching a population that no longer exists. Task 10 emptied the shim -
     # `_changed_between` was the last of the four that note predicted, and it
-    # left with `--deleted-since` for extant/sweep.py - so the honest gate here
+    # left with `--deleted-since` for extant/sweep.py, since moved on to
+    # extant/deleted_since.py - so the honest gate here
     # is the opposite one. The shim must reach git zero times, by every
     # spelling at once, which is an assertion a 68-line file can still fail:
     # put one git call back into it and this goes red.

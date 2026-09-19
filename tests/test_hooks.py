@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -143,11 +144,41 @@ def test_guard_exempts_linked_worktrees(git_repo, tmp_path: Path) -> None:
 VERIFY_HOOK = HOOKS_DIR / "extant-verify"
 
 
-def run_verify_hook(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_verify_hook(cwd: Path, *args: str, stdin: str = "",
+                    ) -> subprocess.CompletedProcess[str]:
+    """Run the hook as git would; `stdin` is what git writes to post-rewrite."""
     return subprocess.run(
         ["sh", str(VERIFY_HOOK), *args], cwd=cwd, capture_output=True, text=True,
-        encoding="utf-8",
+        encoding="utf-8", input=stdin,
     )
+
+
+def journal(repo: Path) -> Path:
+    return repo / ".git" / "extant" / "rewrites"
+
+
+def prune_until_gone(repo: Path, sha: str) -> None:
+    """Prune `sha` again until it no longer resolves, and say so if it never does.
+
+    `git prune` WARNS and exits 0 when it cannot unlink a loose object, and
+    on Windows an unlink loses to any process holding the file - git retries
+    for about 70 ms and then gives up. On the hosted runners a scanner's
+    handle outlives that window often enough: one windows job in five came
+    back with `[]` where `dead-sha` was due (2026-09-16), the object still
+    resolving after a `gc --prune=now` whose warning `check=True` had thrown
+    away. Held open through gc here, the same sequence reproduces that `[]`
+    every time. So the fixture asks until the object is gone, and a run that
+    never gets there fails on the fixture's own sentence, not on the rule's.
+    """
+    for _ in range(20):
+        if subprocess.run(["git", "cat-file", "-e", sha], cwd=repo,
+                          capture_output=True).returncode != 0:
+            return
+        time.sleep(0.1)
+        pruned = subprocess.run(["git", "prune", "--expire=now"], cwd=repo,
+                                capture_output=True, text=True, encoding="utf-8")
+    raise AssertionError(
+        f"{sha[:7]} still resolves after pruning: {pruned.stderr.strip()!r}")
 
 
 def _using_the_tool(repo: Path, doc: str = "STATUS.md") -> None:
@@ -277,15 +308,134 @@ def test_the_installed_post_rewrite_hook_drains_the_pairs_git_writes(git_repo) -
     hook = repo / ".git" / "hooks" / "post-rewrite"
     assert hook.exists(), "the installer did not wire post-rewrite"
     body = hook.read_text(encoding="utf-8")
-    assert "cat > /dev/null" in body, "the shim never reads git's pairs"
     assert "--after-rewrite" in body, "the shim did not pass the rewrite kind"
+    # The pairs reach the HOOK now, which journals them before anything slow
+    # runs; the shim drains them itself only where there is no hook to run.
+    assert "cat > /dev/null" in body, "a checkout without the hook leaves the pipe unread"
+    assert "< /dev/null" not in body, "the shim still runs the hook with stdin closed"
 
-    # And it survives being handed more than it will ever read.
+    # And it survives being handed more than it will ever read - and keeps it.
     flood = "".join(f"{'a' * 40} {'b' * 40}\n" for _ in range(5000))
     done = subprocess.run(["sh", str(hook), "rebase"], cwd=repo, input=flood,
                           capture_output=True, text=True, encoding="utf-8",
                           timeout=120)
     assert done.returncode == 0, done.stderr
+    assert journal(repo).read_text(encoding="utf-8").count("\n") == 5000, (
+        "the journal does not hold every pair the flood wrote")
+
+
+@requires_sh
+def test_after_rewrite_appends_the_pairs_to_the_journal(git_repo) -> None:
+    """The one record a rebase leaves. git writes `<old> <new> [extra]` per
+    rewritten commit to this hook's stdin and to nothing else; the hook keeps
+    the two ids, in the commit-map's own spelling, under the shared git
+    directory - before it does anything slow, so a long rebase never fills
+    the pipe the installer's shim used to drain into /dev/null."""
+    repo, commit = git_repo
+    commit("README.md", "# repo\n", "init")
+    _using_the_tool(repo)
+    pairs = f"{'a' * 40} {'b' * 40}\n{'c' * 40} {'d' * 40} extra-info\n"
+
+    done = run_verify_hook(repo, "--after-rewrite", "rebase", stdin=pairs)
+
+    assert done.returncode == 0, done.stderr
+    assert journal(repo).read_text(encoding="utf-8") == (
+        f"{'a' * 40} {'b' * 40}\n{'c' * 40} {'d' * 40}\n")
+    # A second rewrite APPENDS; the first is still there to explain its ids.
+    run_verify_hook(repo, "--after-rewrite", "rebase", stdin=f"{'e' * 40} {'f' * 40}\n")
+    assert journal(repo).read_text(encoding="utf-8").count("\n") == 3
+
+
+@requires_sh
+def test_an_amend_is_journaled_before_the_hook_declines_it(git_repo) -> None:
+    """post-commit already reported the amend, so the hook prints nothing -
+    but the rewritten id is a fact only this hook is told, so it is kept."""
+    repo, commit = git_repo
+    commit("README.md", "# repo\n", "init")
+    _using_the_tool(repo)
+
+    done = run_verify_hook(repo, "--after-rewrite", "amend",
+                           stdin=f"{'a' * 40} {'b' * 40}\n")
+
+    assert (done.stdout + done.stderr).strip() == "", "reported an amend twice"
+    assert journal(repo).read_text(encoding="utf-8") == f"{'a' * 40} {'b' * 40}\n"
+
+
+@requires_sh
+def test_the_hook_names_the_documents_that_cite_a_rewritten_commit(git_repo) -> None:
+    """After a local rebase the old ids still resolve through the reflog, so
+    `--verify` finds nothing while every clone already sees them dead. The
+    hook says which tracked documents cite a rewritten commit - one `git
+    grep` over the journal's prefixes - and names the repair, without making
+    it: check, never author."""
+    repo, commit = git_repo
+    old = "abc1234" + "0" * 33
+    commit("STATUS.md", f"# Status\n\nShipped in `{old[:7]}`.\n", "docs: status")
+    commit("OTHER.md", "# Other\n\nNothing cited.\n", "docs: other")
+    _using_the_tool(repo)
+
+    done = run_verify_hook(repo, "--after-rewrite", "rebase",
+                           stdin=f"{old} {'b' * 40}\n{'c' * 40} {'d' * 40}\n")
+
+    out = done.stdout + done.stderr
+    assert "2 commit(s) rewritten" in out, out
+    assert "STATUS.md" in out and "OTHER.md" not in out, out
+    assert "--sha-map" in out and "rewrites" in out, out
+
+
+@requires_sh
+def test_a_rewrite_that_no_document_cites_is_journaled_in_silence(git_repo) -> None:
+    repo, commit = git_repo
+    commit("STATUS.md", "# Status\n\nNothing cited.\n", "docs: status")
+    _using_the_tool(repo)
+
+    done = run_verify_hook(repo, "--after-rewrite", "rebase",
+                           stdin=f"{'a' * 40} {'b' * 40}\n")
+
+    out = done.stdout + done.stderr
+    assert "rewritten" not in out, out
+    assert journal(repo).exists()
+
+
+@requires_sh
+def test_a_real_rebase_journals_its_pairs_and_the_finding_names_the_new_id(
+        git_repo) -> None:
+    """The fixture the design named: git itself fires the installed hook.
+
+    A document cites a commit on a branch; the branch is rebased; the reflog
+    is expired and the old objects pruned, which is what a fresh clone or a
+    later `gc` does for free. The finding then names the rebased id from the
+    journal, where today it would say only that the commit does not resolve.
+    """
+    import shutil
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("README.md", "# repo\n", "init")
+    shutil.copytree(HOOKS_DIR, repo / "tools" / "hooks")
+    _using_the_tool(repo)
+    assert run_installer(repo).returncode == 0
+
+    trunk = git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    git(repo, "checkout", "-q", "-b", "feature")
+    cited = commit("a.py", "a = 1\n", "feat: a").strip()
+    doc = f"# Status\n\nShipped in `{cited[:7]}`.\n"
+    git(repo, "checkout", "-q", trunk)
+    commit("b.py", "b = 1\n", "feat: b")
+    git(repo, "checkout", "-q", "feature")
+    git(repo, "rebase", trunk)
+    rebased = git(repo, "rev-parse", "HEAD").strip()
+    assert rebased != cited
+
+    lines = journal(repo).read_text(encoding="utf-8").splitlines()
+    assert lines and lines[0].split()[:2] == [cited, rebased], lines
+
+    git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
+    git(repo, "gc", "--prune=now", "-q")
+    prune_until_gone(repo, cited)
+    with hc.run_scope():
+        found = hc.validate(repo, doc, has_entries=False)
+    assert [f.kind for f in found] == ["dead-sha"], found
+    assert rebased[:7] in found[0].render(), found[0].render()
 
 
 @requires_sh

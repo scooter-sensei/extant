@@ -126,8 +126,8 @@ def _line_count(ctx: Context, relative: str) -> int | None:
 # The repo and the format are compared as well, because unlike `_BARE_SHAS`
 # this reads both - a cache that ignored them would answer a question it was
 # never asked. `_STRIPPED` (extant/text.py) reads the format too, through
-# _blank_uncached, but does not compare it - a known latent bug recorded
-# there; this cache's format comparison is exactly what that one is missing.
+# _blank_uncached, and compares it since 2026-09-16; for months it did not,
+# and this cache's format comparison was the shape that one was missing.
 # Measured on pytest's 308 documents: 617 calls, 1.19s.
 _POINTER_SITES: (
     "tuple[str, Path, str, list[tuple[int, str, int, int, int | None]]] | None"

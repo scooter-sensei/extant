@@ -52,6 +52,21 @@ __all__ = [
 # finding that Unity project had.
 _NESTED_HEADING = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+#{1,6}\s+(.+?)\s*#*$")
 _EXPLICIT_ANCHOR = re.compile(r"""(?:name|id)\s*=\s*["']([^"']+)["']""")
+
+# Compiled once rather than passed to `re.sub` as strings on every call.
+# The `re` module caches compiled strings, but the cache is a dictionary
+# lookup and an argument check per call, and `anchors()` made four to six
+# such calls per heading: 232,581 `re._compile` calls on a 650-document
+# sweep. Measured on that sweep, `anchors()` went from 892 ms to 826 ms
+# with byte-identical results, which is why this is a tidy-up and not a
+# performance item. The patterns are the same characters as before.
+_LINK_TEXT = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_CODE_TEXT = re.compile(r"`([^`]*)`")
+_TAG = re.compile(r"<[^>]*>")
+_NOT_WORD_SPACE_DASH = re.compile(r"[^\w\s-]")
+_SPACE = re.compile(r"\s")
+_DASHES_OR_SPACES = re.compile(r"[-\s]+")
+_DEFINITION_MARK = re.compile(r"^:\s")
 # The attribute syntax pandoc, kramdown and PHP Markdown Extra use to name a
 # heading or a span outright: `## Template {#type-template}` and
 # `[Inlines]{#inlines-filter}`. It overrides whatever the text would slug to,
@@ -98,8 +113,8 @@ def _heading_text(title: str) -> str:
     `1-0-0-https-github-com-alamofire-...` and called all 119 of that
     repository's changelog anchors dead.
     """
-    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title.strip())
-    return re.sub(r"`([^`]*)`", r"\1", text).lower()
+    text = _LINK_TEXT.sub(r"\1", title.strip())
+    return _CODE_TEXT.sub(r"\1", text).lower()
 
 
 def _without_tags(title: str) -> str:
@@ -115,7 +130,7 @@ def _without_tags(title: str) -> str:
     Stripping unconditionally fixed vite's two and broke fifty of Prometheus's,
     which is the worse trade by far and is why this is additive.
     """
-    return re.sub(r"<[^>]*>", " ", title)
+    return _TAG.sub(" ", title)
 
 
 def _slug(title: str) -> str:
@@ -127,8 +142,8 @@ def _slug(title: str) -> str:
     `serialization--deserialization` with two. Collapsing produced one dash and
     called nlohmann/json's own README link dead.
     """
-    text = re.sub(r"[^\w\s-]", "", _heading_text(title))
-    return re.sub(r"\s", "-", text).strip("-")
+    text = _NOT_WORD_SPACE_DASH.sub("", _heading_text(title))
+    return _SPACE.sub("-", text).strip("-")
 
 
 def _slug_keeping_edges(title: str) -> str:
@@ -146,8 +161,8 @@ def _slug_keeping_edges(title: str) -> str:
     both are real: renderers that DO trim exist, and a fragment matching
     neither spelling is still dead.
     """
-    text = re.sub(r"[^\w\s-]", "", _heading_text(title))
-    untrimmed = re.sub(r"\s", "-", text)
+    text = _NOT_WORD_SPACE_DASH.sub("", _heading_text(title))
+    untrimmed = _SPACE.sub("-", text)
     # Contributes ONLY the spelling trimming would lose, and nothing when
     # there is no edge to keep.
     #
@@ -173,8 +188,8 @@ def _slug_punctuation_to_dash(title: str) -> str:
     costs nothing that matters - a fragment matching neither is still dead,
     which is why httpx's genuinely broken `#routing` survives this change.
     """
-    text = re.sub(r"[^\w\s-]", "-", _heading_text(title))
-    return re.sub(r"[-\s]+", "-", text).strip("-")
+    text = _NOT_WORD_SPACE_DASH.sub("-", _heading_text(title))
+    return _DASHES_OR_SPACES.sub("-", text).strip("-")
 
 
 def _definition_terms(lines: list[str]) -> list[str]:
@@ -202,7 +217,7 @@ def _definition_terms(lines: list[str]) -> list[str]:
     for index, line in enumerate(lines[:-1]):
         if not line.strip() or line.startswith((" ", "\t", "#", ">", "-", "*", "|", "=")):
             continue
-        if re.match(r"^:\s", lines[index + 1]):
+        if _DEFINITION_MARK.match(lines[index + 1]):
             terms.append(line.strip())
     return terms
 
@@ -284,13 +299,13 @@ def anchors(text: str) -> set[str]:
         primary = None
         for variant in variants:
             cleaned = _heading_text(variant)
-            kept = re.sub(r"\s", "-", re.sub(r"[^\w\s-]", "", cleaned))
+            kept = _SPACE.sub("-", _NOT_WORD_SPACE_DASH.sub("", cleaned))
             plain = kept.strip("-")
             if plain:
                 found.add(plain)
             if kept != plain:
                 found.add(kept)
-            dashed = re.sub(r"[-\s]+", "-", re.sub(r"[^\w\s-]", "-", cleaned)).strip("-")
+            dashed = _DASHES_OR_SPACES.sub("-", _NOT_WORD_SPACE_DASH.sub("-", cleaned)).strip("-")
             if dashed:
                 found.add(dashed)
             if primary is None:

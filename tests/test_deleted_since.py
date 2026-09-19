@@ -32,12 +32,12 @@ def _run(repo, *args):
 
 def test_a_deleted_false_claim_is_reported(git_repo) -> None:
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("NEXT_SESSION.md", ENTRY.format("Nothing to see here."), "docs: remove")
 
-    gone, examined, _skipped, _bad = sweep.deleted_claims(repo, "HEAD~1")
+    gone, examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~1")
     assert examined == 1, f"examined {examined} documents"
     assert [f for f in gone if f.finding.subject == DEAD], [f.finding for f in gone]
 
@@ -47,7 +47,7 @@ def test_a_claim_that_became_true_is_not_reported(git_repo) -> None:
     still-false check. Validating the OLD text against TODAY's git means a
     claim whose underlying fact was fixed produces no finding to begin with."""
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md",
            ENTRY.format("Work continues on `feature/pending`."), "docs: claim")
@@ -55,7 +55,7 @@ def test_a_claim_that_became_true_is_not_reported(git_repo) -> None:
     # The branch now exists, so the old text's claim is true today.
     _run(repo, "branch", "feature/pending")
 
-    gone, _examined, _skipped, _bad = sweep.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~1")
     assert not [f for f in gone if "feature/pending" in f.finding.detail], (
         [f.finding.detail for f in gone]
     )
@@ -65,7 +65,7 @@ def test_relocating_to_the_archive_is_not_a_deletion(git_repo) -> None:
     """`--archive` moves entries out of the live document by design. The token
     stays findable, so archiving must not look like hiding."""
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("docs/status-archive.md",
@@ -73,7 +73,7 @@ def test_relocating_to_the_archive_is_not_a_deletion(git_repo) -> None:
            "docs: archive it")
     commit("NEXT_SESSION.md", ENTRY.format("Moved to the archive."), "docs: relocate")
 
-    gone, _examined, _skipped, _bad = sweep.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~1")
     assert not [f for f in gone if f.finding.subject == DEAD], (
         "the token is still findable in the archive: " + str([f.finding for f in gone])
     )
@@ -83,13 +83,13 @@ def test_moving_a_claim_into_a_fence_is_a_deletion(git_repo) -> None:
     """Fenced code is exempt from every claim rule, so a fence silences them
     all. Without prose-scoping on the haystack it would silence this too."""
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("NEXT_SESSION.md",
            ENTRY.format(f"```\nMerged at `{DEAD}`.\n```"), "docs: hide it")
 
-    gone, _examined, _skipped, _bad = sweep.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~1")
     assert [f for f in gone if f.finding.subject == DEAD], (
         "a claim moved into a fence is still a claim withdrawn from prose"
     )
@@ -99,23 +99,23 @@ def test_an_unchanged_document_is_not_re_read(git_repo) -> None:
     """Cost, and correctness. A document that did not change cannot have lost
     a claim, so skipping it is not merely an optimisation."""
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("other.txt", "unrelated\n", "chore: touch something else")
 
-    _gone, examined, _skipped, _bad = sweep.deleted_claims(repo, "HEAD~1")
+    _gone, examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~1")
     assert examined == 0, "the document did not change; it must not be re-read"
 
 
 def test_the_mode_never_gates(git_repo, capsys) -> None:
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("NEXT_SESSION.md", ENTRY.format("Gone."), "docs: remove")
 
-    assert sweep.run_deleted_since(repo, "HEAD~1", "text") == 0
+    assert deleted_since.run_deleted_since(repo, "HEAD~1", "text") == 0
     printed = capsys.readouterr()
     assert "examined" in printed.out + printed.err, "the denominator must print"
 
@@ -138,7 +138,7 @@ def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
     test_rule_contract.py. It only asserts the failure is SAID.
     """
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
 
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
@@ -152,7 +152,7 @@ def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
     broken = dataclasses.replace(hc.RULES[0], check=explode)
     monkeypatch.setattr(hc, "RULES", (broken,) + hc.RULES[1:])
 
-    code = sweep.run_deleted_since(repo, "HEAD~1", "text")
+    code = deleted_since.run_deleted_since(repo, "HEAD~1", "text")
     printed = capsys.readouterr()
     combined = printed.out + printed.err
 
@@ -169,11 +169,11 @@ def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
 
 def test_a_missing_ref_is_reported_not_crashed(git_repo, capsys) -> None:
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format("x"), "docs: init")
 
-    assert sweep.run_deleted_since(repo, "no-such-ref", "text") == 0
+    assert deleted_since.run_deleted_since(repo, "no-such-ref", "text") == 0
     printed = capsys.readouterr()
     assert "examined" in printed.out + printed.err
 
@@ -189,11 +189,11 @@ def test_sarif_stdout_is_a_document_even_with_nothing_to_report(
     """
     import json
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format("Nothing wrong."), "docs: init")
 
-    assert sweep.run_deleted_since(repo, "HEAD", "sarif") == 0
+    assert deleted_since.run_deleted_since(repo, "HEAD", "sarif") == 0
     printed = capsys.readouterr()
     parsed = json.loads(printed.out)
     assert parsed["runs"][0]["results"] == [], parsed["runs"][0]["results"]
@@ -213,12 +213,12 @@ def test_a_correction_that_swaps_the_token_is_reported(git_repo) -> None:
     why it does not gate.
     """
     from extant import session as hc
-    from extant import sweep
+    from extant import deleted_since
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{OTHER}`."), "docs: swap")
 
-    gone, _examined, _skipped, _bad = sweep.deleted_claims(repo, "HEAD~1")
+    gone, _examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~1")
     assert [f for f in gone if f.finding.subject == DEAD], (
         "the removed token is still dead, so it is reported"
     )

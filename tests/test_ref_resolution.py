@@ -299,3 +299,90 @@ def test_a_pin_naming_a_version_that_does_not_exist_is_still_reported(
 
     assert [f.kind for f in findings] == ["dead-pinned-ref"], findings
     assert findings[0].subject == "v9.9.9"
+
+
+# --- does a BRANCH by this name exist ------------------------------------------
+#
+# `branch_exists` asked `rev-parse --verify <name>`, which follows git's
+# tags-before-heads precedence and so answered True for a TAG named like a
+# branch; refs.py said so and called it a pending question. Counted on the
+# 152 visible corpus clones: 23 names in 7 repositories are both a branch
+# and a tag - `v1.10.2`, `package-2.1.0`, `release-2013.1`, release lines
+# tagged at their own name - so it is not zero, and the question is a
+# branch's existence, not a ref's.
+
+def test_a_name_that_is_only_a_tag_is_not_a_branch(tagged) -> None:
+    from extant import session as hc
+    from extant.refs import branch_exists
+    repo, _first, _second = tagged
+    with hc.run_scope():
+        ctx = hc.context(repo)
+        assert branch_exists(ctx, "topic") is True
+        assert branch_exists(ctx, "v1.0.0") is False, (
+            "a tag named like a branch answered as a branch")
+
+
+def test_a_name_that_is_both_a_tag_and_a_branch_is_a_branch(tagged) -> None:
+    from extant import session as hc
+    from extant.refs import branch_exists
+    repo, _first, _second = tagged
+    git(repo, "branch", "v1.0.0")
+    with hc.run_scope():
+        assert branch_exists(hc.context(repo), "v1.0.0") is True
+
+
+def test_a_local_branch_costs_no_process_the_table_already_paid_for(
+        tagged, monkeypatch) -> None:
+    """The ref table one `for-each-ref` builds already lists every local
+    branch, so asking git again per branch claim was the spawn the review's
+    6.4 named as a performance fix wearing a behaviour question's clothing.
+    The behaviour question is settled above; the spawn goes with it."""
+    from extant import session as hc
+    from extant.refs import branch_exists, ref_table
+    repo, _first, _second = tagged
+    spawns: list[str] = []
+    counted(monkeypatch, spawns)
+    with hc.run_scope():
+        ctx = hc.context(repo)
+        ref_table(ctx)
+        before = len(spawns)
+        assert branch_exists(ctx, "topic") is True
+        assert branch_exists(ctx, "v1.0.0") is False
+    asked = spawns[before:]
+    assert not any("topic" in line for line in asked), asked
+
+
+def test_a_remote_tracking_name_still_resolves_the_way_git_resolves_it(
+        git_repo, tmp_path) -> None:
+    """A spelling no table holds - `origin/feature` is a remote-tracking ref,
+    not a local head - falls through to git exactly as before, so nothing a
+    document names today stops existing."""
+    from extant import session as hc
+    from extant.refs import branch_exists
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    upstream = tmp_path / "upstream"
+    git(repo, "clone", "-q", "--bare", ".", str(upstream))
+    git(repo, "remote", "add", "origin", str(upstream))
+    git(repo, "fetch", "-q", "origin")
+    git(repo, "branch", "feature")
+    git(repo, "push", "-q", "origin", "feature")
+    git(repo, "branch", "-D", "feature")
+    with hc.run_scope():
+        ctx = hc.context(repo)
+        assert branch_exists(ctx, "origin/feature") is True
+        assert branch_exists(ctx, "feature") is False
+
+
+def test_unknown_branch_reports_a_name_that_is_only_a_tag(tagged, reconfigure) -> None:
+    """The rule's question is whether the BRANCH exists or a merge commit
+    names it; a tag by that name is neither."""
+    import re
+    from extant import session as hc
+    from extant.rules import branch as rule_branch
+    repo, _first, _second = tagged
+    reconfigure(branch_token=re.compile(r"`((?:v|topic)[^`]*)`"))
+    text = "## Phase 1 - work (2026-09-16)\n\nOn `topic` and `v1.0.0`.\n"
+    with hc.run_scope():
+        findings = rule_branch.check(hc.context(repo), text)
+    assert [f.subject for f in findings] == ["v1.0.0"], findings

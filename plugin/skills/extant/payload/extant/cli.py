@@ -10,9 +10,13 @@ wherever the package was installed.
 The modes now live in three places, and the line between them is what the mode
 DOES with what it finds:
 
-* extant/sweep.py surveys and never gates: `--sweep`, `--deleted-since`.
+* extant/sweep.py surveys and never gates: `--sweep`; `--deleted-since` is
+  the same shape and lives in extant/deleted_since.py.
 * extant/gate.py checks one document and decides an exit code: `--validate`,
   `--verify`, `--check-text`.
+* extant/introduced_since.py is a survey that gates: `--introduced-since`
+  sweeps the documents a range changed and fails on the findings that sit
+  on lines the range wrote.
 * here: `--collect`, `--archive`, `--search`, `--selftest`, which are each a
   handful of lines over machinery that already exists.
 
@@ -30,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -38,9 +43,12 @@ from extant.collect import collect
 from extant.config import StatusConfig
 from extant.entries import archive, split_entries
 from extant.gate import run_check_text, run_validate
+from extant.git import repository_root
 from extant.registry import RULE_ERRORS
 from extant.report import BASELINE_NAME, FORMATS
-from extant.sweep import run_deleted_since, run_sweep
+from extant.deleted_since import run_deleted_since
+from extant.introduced_since import run_introduced_since
+from extant.sweep import run_sweep
 
 __all__ = ["build_parser", "cli", "main", "search_entries",
            "UndecodableDocument"]
@@ -157,7 +165,6 @@ def cli() -> int:
             # `extant --repo` with nothing after it. Reaching for argv[i+1]
             # raised IndexError before argparse could say what was wrong.
             build_parser().error("--repo requires a PATH")
-    session.reload_config(repo)
     return main(argv)
 
 
@@ -176,6 +183,11 @@ def build_parser() -> argparse.ArgumentParser:
                            "splitting a removal across commits does not hide it")
     mode.add_argument("--sweep", action="store_true",
                       help="survey every tracked markdown file; needs no config")
+    mode.add_argument("--introduced-since", metavar="REF",
+                      help="gate on the findings that sit on lines this "
+                           "checkout wrote since its merge base with REF; "
+                           "needs no config and pins no document. Pass the "
+                           "base branch in CI")
     mode.add_argument("--selftest", action="store_true",
                       help="corrupt one real claim per rule and confirm each fires")
     mode.add_argument("--search", metavar="TEXT",
@@ -465,42 +477,52 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     repo = Path(args.repo)
-    # Configuration is read once at import, relative to THIS FILE, which is
-    # correct when the tool sits at tools/ inside the repository it checks. Run
-    # from anywhere else with --repo, git operations follow --repo while the
-    # config does not, so .extant.toml in the target is silently ignored. Say
-    # so on stderr rather than let the two disagree quietly.
-    # Narrowed to the case where a real config file is actually being ignored.
-    # Warning whenever the paths merely differ would fire on every run against a
-    # repository that has no config at all, where nothing is lost and the
-    # defaults are what was wanted. A validator that cries wolf stops being read
-    # applies to its own diagnostics too.
-    ignored_config = repo / ".extant.toml"
-    # Read once, here: `reload_config` may not have run, and every reader
-    # below wants the SAME settings object rather than one re-read per line.
-    #
-    # Named `status`, not `config` - matching extant/collect.py's convention
-    # of `config: Config` vs `status: StatusConfig` - because this IS a
-    # StatusConfig (session.CONFIG, the raw parsed settings), not the derived
-    # Config that split_entries/archive/rules need. A `config` local here once
-    # shadowed that distinction closely enough that the search-mode
-    # denominator below passed this straight into split_entries(), which
-    # crashed on the first field only Config carries. See entries.py's
-    # split_entries for what the two types are for.
+    # Which repository git will answer about, said once when it is not the
+    # one `--repo` names. From a subdirectory git walks UP and answers about
+    # the checkout above, while every document and path here resolves against
+    # `--repo`: neither half is wrong alone, and together they are the "true
+    # where you are standing" confusion this tool exists to catch. A note, not
+    # a refusal - `--repo <subdir>` has worked since the flag existed. From a
+    # directory with no repository above it - a `git archive` extract, say -
+    # every rule that asks git errors, and this names the cause in front of
+    # the thirteen rule errors that would otherwise have to imply it.
+    root = repository_root(repo)
+    if root is None:
+        print(f"NOTE: no repository found at or above --repo {repo}, so every "
+              f"rule that asks git will report an error.", file=sys.stderr)
+    elif root != Path(os.path.abspath(repo)):
+        print(f"NOTE: --repo {repo} is not the root of a repository. git "
+              f"answers about {root}, while documents and paths resolve "
+              f"against --repo. Point --repo at {root} unless that is "
+              f"intended.", file=sys.stderr)
+    # SETTINGS COME FROM THE REPOSITORY BEING CHECKED. Configuration is read
+    # once at import, relative to this file - right when the tool sits at
+    # tools/ inside the repository it checks, and wrong for a run pointed
+    # anywhere else, where git followed --repo while the settings did not.
+    # This used to print a NOTE saying the target's `.extant.toml` was NOT
+    # read and leave the two disagreeing; the console script `cli()` had
+    # already learned to re-read from --repo, and this entry point - the one
+    # the installed shim and every hook run - had not. Re-read here, once,
+    # for both: an ordinary install finds the same file the import found, a
+    # run pointed elsewhere finds that repository's own settings or the
+    # defaults, and the NOTE has no condition left to report. The README's
+    # "what it cannot do" entry for this went with it. A `--config PATH` and
+    # a `[tool.extant]` table were considered and refused: 0 of the 152
+    # visible corpus repositories carry a `.extant.toml`, 0 a `[tool.extant]`,
+    # so neither has a population, and a second place for one setting is how
+    # a setting nobody reads gets written.
+    session.reload_config(repo)
+    # Read once, here, AFTER the reload, so every reader below wants the SAME
+    # settings object rather than one re-read per line. Named `status`, not
+    # `config` - matching extant/collect.py's convention of `config: Config`
+    # vs `status: StatusConfig` - because this IS a StatusConfig
+    # (session.CONFIG, the raw parsed settings), not the derived Config that
+    # split_entries/archive/rules need. A `config` local here once shadowed
+    # that distinction closely enough that the search-mode denominator below
+    # passed this straight into split_entries(), which crashed on the first
+    # field only Config carries. See entries.py's split_entries for what the
+    # two types are for.
     status = session.CONFIG
-    # Compared as resolved paths, not as strings. The upward search means the
-    # config found from the script's own location is very often the same file
-    # this names, and a string comparison called them different over a
-    # separator - producing a warning that said the file it had just read was
-    # not read.
-    same_file = (ignored_config.is_file() and status.source != "defaults"
-                 and ignored_config.resolve() == Path(status.source).resolve())
-    if (repo.resolve() != session.REPO_ROOT.resolve()
-            and ignored_config.is_file() and not same_file):
-        print(f"NOTE: settings came from {status.source}, so {ignored_config} was "
-              f"NOT read. Configuration loads relative to this script; install it "
-              f"into that repository as tools/ for its own settings to apply.",
-              file=sys.stderr)
     # Refused rather than ignored, on the reasoning `--sweep` uses below: a
     # flag that names a file cannot mean anything for a document that has no
     # file, and silently dropping it would let a caller believe a location was
@@ -571,6 +593,24 @@ def main(argv: list[str] | None = None) -> int:
         return run_archive(repo, status)
     if args.deleted_since:
         return run_deleted_since(repo, args.deleted_since, args.format)
+    if args.introduced_since:
+        # Refused for the reason `--sweep` refuses the first four below, and
+        # `--sha-map` besides: a baseline is a ratchet against OLD findings
+        # and this mode has none by construction, while the other two WRITE,
+        # and a gate on what a change wrote must not rewrite it.
+        conflicting = [name for name, value in (
+            ("--baseline", args.baseline), ("--write-baseline", args.write_baseline),
+            ("--baseline-check", args.baseline_check),
+            ("--suggest-fixes", args.suggest_fixes),
+            ("--sha-map", args.sha_map)) if value]
+        if conflicting:
+            print(f"--introduced-since does not support "
+                  f"{', '.join(conflicting)}. It gates on the lines a change "
+                  "wrote, which is already the ratchet a baseline provides, "
+                  "and it writes nothing; run --verify for the modes that "
+                  "suppress or rewrite.", file=sys.stderr)
+            return 2
+        return run_introduced_since(repo, args.introduced_since, args.format)
     if args.sweep:
         # Refused rather than ignored. A baseline suppresses findings, and a
         # survey whose whole job is to SHOW them would be silently gutted by

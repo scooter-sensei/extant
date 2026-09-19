@@ -221,9 +221,15 @@ def test_a_sweep_still_shares_the_remote_across_documents(
     from extant import session as hc
     from extant import sweep
     repo, commit = git_repo
-    commit("README.md", "# R\n", "chore: init")
-    commit("docs/a.md", "# A\n", "chore: a")
-    commit("docs/b.md", "# B\n", "chore: b")
+    # Each document pins a rev, because the origin is asked for only by a
+    # document holding one - `_pinned_refs` asks its cheapest question
+    # first - and three documents with nothing to govern would ask nothing,
+    # which the denominator assertion below refuses to call shared.
+    pin = ("```yaml\nrepos:\n  - repo: https://github.com/acme/widget\n"
+           "    rev: v1.0.0\n```\n")
+    commit("README.md", "# R\n\n" + pin, "chore: init")
+    commit("docs/a.md", "# A\n\n" + pin, "chore: a")
+    commit("docs/b.md", "# B\n\n" + pin, "chore: b")
 
     # `monkeypatch` rather than the bare assign-and-restore this used to do:
     # the old form leaked the wrapper onto the module whenever `run_sweep`
@@ -772,7 +778,6 @@ def test_a_changed_path_pointer_pattern_is_not_answered_from_the_previous_one(
     import re as _re
 
     from extant import session as hc
-    from extant import text as text_mod
     from extant.rules import path_pointer as rule_path_pointer
     repo, _commit = git_repo
 
@@ -780,18 +785,14 @@ def test_a_changed_path_pointer_pattern_is_not_answered_from_the_previous_one(
     # prose in markdown, so the indented pointer below is code in one reading
     # of this object and a claim in the other.
     #
-    # `_STRIPPED` is cleared between the two readings, and that is the point
-    # rather than a convenience: it is the memo whose key omits `doc_format`,
-    # so left in place it hands the markdown blanking back for the second
-    # reading and BOTH answers come out at 1 whatever this rule's key is. That
-    # is the known latent bug recorded in extant/scope.py, not this memo's, and
-    # clearing it is what isolates the key under test from it. Remove the two
-    # lines and this assertion stops discriminating.
+    # `_STRIPPED` used to be cleared between the two readings, because its
+    # key omitted `doc_format` and it handed the markdown blanking back for
+    # the rst reading - so BOTH answers came out at 1 whatever this rule's
+    # key was. The blanking memo carries the format since 2026-09-16, and
+    # the clears are gone: this assertion now discriminates on its own.
     both = "Example::\n\n    see `docs/plan.md` for it\n"
-    text_mod._STRIPPED.clear()
     hc.set_document(doc_format="markdown")
     as_markdown = rule_path_pointer.examined(hc.context(repo), both)
-    text_mod._STRIPPED.clear()
     hc.set_document(doc_format="rst")
     as_rst = rule_path_pointer.examined(hc.context(repo), both)
     hc.set_document(doc_format="markdown")
@@ -884,3 +885,136 @@ def test_the_path_pointer_denominator_did_not_move(git_repo) -> None:
     assert documents >= 5 and total >= 5, (
         f"only {documents} documents and {total} pointers, so agreement here "
         f"would prove nothing; the checkout or the filter is wrong")
+
+
+class _CountingPattern:
+    """A compiled pattern that counts the lines it is asked to scan."""
+
+    def __init__(self, pattern: re.Pattern[str]) -> None:
+        self.pattern = pattern.pattern
+        self.flags = pattern.flags
+        self.groups = pattern.groups
+        self.inner = pattern
+        self.scans = 0
+
+    def findall(self, text: str):
+        self.scans += 1
+        return self.inner.findall(text)
+
+    def finditer(self, text: str):
+        self.scans += 1
+        return self.inner.finditer(text)
+
+
+def test_the_link_scan_runs_once_per_document_not_once_per_caller(
+        git_repo, monkeypatch) -> None:
+    """Two callers ask which files one document links to; one scan answers.
+
+    `link_sites` was the last per-document scanner both a rule's `check` and
+    its `examined` re-ran over the same text object - measured on a
+    650-document sweep of ruff with a clock around it, 1,301 calls, 0.21 s
+    of scanning, half of it the second walk. The same one-entry identity
+    memo `find_sha_candidates` and `merge_claims` keep, with the document
+    FORMAT in the key beside the text, because the blanking the scan reads
+    differs by format.
+
+    Observed on the PATTERN rather than on the scan, so the test names no
+    inner function: `MD_LINK.findall` runs once per line that could hold a
+    link, and a memo hit runs it zero times.
+    """
+    from extant import links
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("docs/plan.md", "# plan\n", "docs: plan")
+
+    counting = _CountingPattern(links.MD_LINK)
+    monkeypatch.setattr(links, "MD_LINK", counting)
+    # The SAME string object for both halves, which is what the memo keys on.
+    text = "See [the plan](docs/plan.md) and [gone](docs/gone.md).\n"
+    hc.validate(repo, text, has_entries=False)
+    hc.count_examined(repo, text)
+    assert counting.scans == 1, (
+        f"the link scan ran {counting.scans} times for one document")
+
+
+def test_the_link_scan_is_not_answered_across_a_format_change() -> None:
+    """The half of the key `_STRIPPED` is missing, checked on the new memo.
+
+    The same text OBJECT read as markdown and then as reStructuredText:
+    `Example::` opens a literal block in the second reading, so the link
+    inside it is code there and a link in the first. A memo keyed on the
+    text alone would hand the markdown answer back for the rst reading.
+    Nothing is cleared between the two readings: the blanking memo beneath
+    this one carries the format too, since 2026-09-16.
+    """
+    from extant import links
+    from extant.scope import DocScope
+
+    both = "Example::\n\n    [the plan](docs/plan.md)\n"
+    as_markdown = links.link_sites(DocScope(doc_format="markdown"), both)
+    as_rst = links.link_sites(DocScope(doc_format="rst"), both)
+    assert ([t for _n, _r, t, _h in as_markdown], as_rst) == (["docs/plan.md"], []), (
+        "the same text object read as markdown and as reStructuredText gave "
+        f"{as_markdown} and {as_rst}; a key without the format answers the "
+        "second reading from the first")
+
+
+def test_the_release_scan_runs_once_per_document_not_once_per_caller(
+        git_repo, reconfigure) -> None:
+    """The same question, for the release-claim scan `check` and `examined`
+    both read through `_release_sites`: 1,301 calls on ruff's 650 documents,
+    and every second one a re-walk of prose the first had just read."""
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+
+    counting = _CountingPattern(hc._ACTIVE.release_tag)
+    reconfigure(release_tag=counting)
+    text = "Shipped in 1.0 yesterday.\n"
+    hc.validate(repo, text, has_entries=False)
+    hc.count_examined(repo, text)
+    assert counting.scans == 1, (
+        f"the release scan ran {counting.scans} times for one document")
+
+
+def test_a_changed_release_pattern_is_not_answered_from_the_previous_one(
+        reconfigure) -> None:
+    """The pattern is in the key, as it is for `merge_claims`: the same text
+    object under a reconfigured `release_tag` reaches the scanner."""
+    from extant import session as hc
+    from extant.rules.release_tag import _release_claims
+
+    text = "Shipped in 1.0 yesterday.\n"
+    assert _release_claims(hc._ACTIVE, text) == [(1, "1.0")], (
+        "the default pattern did not match the fixture, so the second half "
+        "below would pass against any implementation at all")
+    changed = reconfigure(release_tag=re.compile(
+        r"(?:landed)\s+in\s+`?(v?\d+\.\d+)`?", re.IGNORECASE))
+    assert _release_claims(changed, text) == [], (
+        "the same text object was answered from the previous pattern's memo, "
+        "so a reconfigured `release_tag` would never reach the scanner")
+
+
+def test_the_blanking_memo_is_not_answered_across_a_format_change() -> None:
+    """The latent bug text.py and scope.py recorded, closed by its own count.
+
+    `_STRIPPED` was keyed on the identity of the text object while its value
+    read `doc.doc_format`: the same object blanked as markdown and then asked
+    for as reStructuredText came back blanked as markdown. Counted first, the
+    way the review proposed, over a sweep of the 152 visible corpus clones:
+    168,774 blankings, 868,986 memo hits, 0 answered under a different format
+    - a sweep reads each document once, under one format, into its own string
+    object. The key carries the format anyway, because the reasoning cost more
+    than the two lines, and this is the test that had to exist before them.
+    """
+    from extant import text as text_mod
+    from extant.scope import DocScope
+
+    both = "Example::\n\n    `abc1234` is code in one reading and prose in the other\n"
+    as_markdown = text_mod.prose(DocScope(doc_format="markdown"), both)
+    as_rst = text_mod.prose(DocScope(doc_format="rst"), both)
+    assert "abc1234" in as_markdown, "markdown keeps the indented line as prose"
+    assert "abc1234" not in as_rst, (
+        "the same text object blanked as markdown was handed back for the rst "
+        "reading: the blanking memo's key does not carry the format")
+    assert len(as_rst) == len(both), "the blanking stopped preserving offsets"

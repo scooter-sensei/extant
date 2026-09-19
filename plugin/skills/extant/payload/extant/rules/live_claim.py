@@ -11,7 +11,9 @@ from extant.contract import Rule
 from extant.entries import split_entries
 from extant.finding import Finding
 from extant.probes import branch_in_newest
-from extant.refs import branch_exists, integrated_by
+from extant.refs import (
+    branch_exists, integrated_by, integration_refs, settle_ancestry,
+)
 from extant.scope import Context
 from extant.sites import looks_like_a_path
 from extant.text import prose
@@ -84,8 +86,20 @@ def check(ctx: Context, text: str) -> list[Finding]:
     restricted to that first phase segment.
     """
     findings: list[Finding] = []
-    for line, branch in _live_sites(ctx, text):
-        exists = branch_exists(ctx, branch)
+    # Existence first for every site, then one settling of everything the
+    # loop will ask about the branches that do exist, so a history longer
+    # than the ancestry index's bound settles its misses in one batch per
+    # integration ref. Asking existence inside the loop, as this used to,
+    # would have put the settling after the first question it was meant to
+    # cover; asking ancestry of a branch that does not exist would spend a
+    # `rev-parse` learning what `branch_exists` just learned.
+    sites = [(line, branch, branch_exists(ctx, branch))
+             for line, branch in _live_sites(ctx, text)]
+    settle_ancestry(ctx, [
+        (branch, ref)
+        for _line, branch, exists in sites if exists
+        for ref in integration_refs(ctx) if ref != branch])
+    for line, branch, exists in sites:
         # "Merged" means landed on an integration branch, and which one is
         # measured rather than configured. Against a single-trunk repo that
         # is the same question as before; on a gitflow repo with trunk=main

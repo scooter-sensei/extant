@@ -138,7 +138,23 @@ def check(ctx: Context, text: str) -> list[Finding]:
     authentication schemes".
     """
     repo = ctx.repo
-    own = anchors(text)
+
+    # The document's OWN headings are slugged on demand too, since 2026-09-15,
+    # and the demand is rarer than it looks: they answer one shape, a bare
+    # `#fragment` into this document, and 11 of ruff's 650 documents hold
+    # one. Slugged eagerly - three spellings per heading, every document -
+    # this was 0.84 s of a 5.9 s sequential sweep, 14%, measured with a clock
+    # around every scanner rather than a profiler, and 98% of it was read by
+    # nothing. Same closure shape as `ambient_anchors` below, for the same
+    # reason: `x in own` is the same test wherever `own` is built, so the
+    # verdicts cannot move. `examined` never needed them at all.
+    own: set[str] | None = None
+
+    def own_anchors() -> set[str]:
+        nonlocal own
+        if own is None:
+            own = anchors(text)
+        return own
 
     # The ambient set is built ON DEMAND, and the demand is rare.
     #
@@ -175,7 +191,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
     findings: list[Finding] = []
     for number, raw, fragment, resolved, offered in _fragment_sites(ctx, text):
         if resolved is None:
-            if fragment in own or fragment in ambient_anchors():
+            if fragment in own_anchors() or fragment in ambient_anchors():
                 continue
             findings.append(Finding(
                 number, "dead-md-anchor",
