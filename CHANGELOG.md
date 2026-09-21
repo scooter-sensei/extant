@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.27.0 (2026-09-21)
 
 Four rules read shapes they did not read before, over two measured passes,
 and one mode was added: `--introduced-since REF`, the gate that needs no
