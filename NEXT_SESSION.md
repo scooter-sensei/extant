@@ -6,36 +6,34 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 46 - Five correctness items counted, four changes made (unreleased, 2026-09-16)
+## Phase 46 - Five correctness items counted, four changes made (shipped, 2026-09-16)
 
-**Status.** Suite is 1,300 tests across 72 files: 1,297 passing and 3
-skipped, 13 added across `tests/test_config_discovery.py` (new),
+**Status.** Suite is 1,300 tests across 72 files: 1,297 passing and 3 skipped,
+13 added across `tests/test_config_discovery.py` (new),
 `tests/test_ref_resolution.py`, `tests/test_added_rules.py` and
-`tests/test_caching.py`. Thirteen rules; no mode added; no default or exit
-code moved; one NOTE removed with its condition. The tool remained released
-as 0.26.1 and this work sits above that tag with Phases 36 to 45,
-unreleased. Mutation campaign is 268 anchors: six written here and three
-retargeted on the patch generator's and the rename walk's changed lines,
-each applied to a copy and watched turning the suite red - 9 of 9 killed
-across two campaigns, none survived, none unapplied. The 152 visible
-corpus clones were swept before and after, twice: the first run showed 0
-outputs changed where a count had predicted 2, which is how the
-`diff.renames` finding below was made, and the second, after the fix,
-showed 152 compared and exactly those 2 differing - ruff's mdtest sibling
-and moby's vendored otel changelog, each gaining precisely the rename hint
-the count said it would. The rest of the pre-push list ran against a
-working-tree extract: smoke green with 45 checks; scenarios green, 25
-scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories,
-13 of 13 rules reached, no fault; `--self-check` with 21 of 21 properties
-going red, after one of the fuzzer's own breakage anchors - PROCESS, on
-the blanking memo's hit condition - was retargeted; `--verify` clean and
-`--selftest` with 7 fired and 0 silent. On the pull request, one windows
-job in five then failed the real-rebase fixture in `tests/test_hooks.py`
-with `[]` where `dead-sha` was due: `git prune` warns and exits 0 when
-Windows will not release a loose object, and the fixture had read only the
-exit code. Held open through gc, the sequence reproduces that `[]` every
-time; the fixture now prunes until the object no longer resolves, and
-names the object if it never does.
+`tests/test_caching.py`. Thirteen rules; no mode added; no default or exit code
+moved; one NOTE removed with its condition. This work shipped in 0.27.0, with
+Phases 36 to 45. Mutation campaign is 268 anchors: six written here and three
+retargeted on the patch generator's and the rename walk's changed lines, each
+applied to a copy and watched turning the suite red - 9 of 9 killed across two
+campaigns, none survived, none unapplied. The 152 visible corpus clones were
+swept before and after, twice: the first run showed 0 outputs changed where a
+count had predicted 2, which is how the `diff.renames` finding below was made,
+and the second, after the fix, showed 152 compared and exactly those 2
+differing - ruff's mdtest sibling and moby's vendored otel changelog, each
+gaining precisely the rename hint the count said it would. The rest of the
+pre-push list ran against a working-tree extract: smoke green with 45 checks;
+scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824 over 35
+repositories, 13 of 13 rules reached, no fault; `--self-check` with 21 of 21
+properties going red, after one of the fuzzer's own breakage anchors - PROCESS,
+on the blanking memo's hit condition - was retargeted; `--verify` clean and
+`--selftest` with 7 fired and 0 silent. On the pull request, one windows job in
+five then failed the real-rebase fixture in `tests/test_hooks.py` with `[]`
+where `dead-sha` was due: `git prune` warns and exits 0 when Windows will not
+release a loose object, and the fixture had read only the exit code. Held open
+through gc, the sequence reproduces that `[]` every time; the fixture now
+prunes until the object no longer resolves, and names the object if it never
+does.
 
 **What it is.** The review's section 6, measured together because each item
 ends in a number, then implemented where the number admitted it. 6.1: the
@@ -73,24 +71,22 @@ rest of a probe tranche and not taken here; and the memory note that said
 the shim ignores the target repository's configuration, which stopped being
 true this phase.
 
-## Phase 45 - The post-rewrite journal, and a declared stratum refused (unreleased, 2026-09-15)
+## Phase 45 - The post-rewrite journal, and a declared stratum refused (shipped, 2026-09-15)
 
-**Status.** Suite is 1,287 tests across 71 files: 1,284 passing and 3
-skipped, 14 added in `tests/test_rewrite_map.py` and `tests/test_hooks.py`.
-Thirteen rules; no mode added; no default or exit code moved; no verdict
-moved on any clone, because the record this phase adds exists only on the
-machine that rewrote. The tool remained released as 0.26.1 and this work
-sits above that tag with Phases 36 to 44, unreleased. Mutation campaign is
-262 anchors, six written here and the first this project has had on the
+**Status.** Suite is 1,287 tests across 71 files: 1,284 passing and 3 skipped,
+14 added in `tests/test_rewrite_map.py` and `tests/test_hooks.py`. Thirteen
+rules; no mode added; no default or exit code moved; no verdict moved on any
+clone, because the record this phase adds exists only on the machine that
+rewrote. This work shipped in 0.27.0, with Phases 36 to 44. Mutation campaign
+is 262 anchors, six written here and the first this project has had on the
 verify hook or the rewrite-map reader, each applied to a copy and watched
 turning the suite red - 6 of 6 killed, none survived, none unapplied, in 57
-minutes. The 152 visible corpus clones swept before and after: 152
-compared, 0 differ, as the record's location predicts. The rest of the
-pre-push list ran against a working-tree extract: smoke green with 45
-checks; scenarios green, 25 scenarios and 213 assertions; fuzz at seed
-20260824 over 35 repositories, 13 of 13 rules reached, no fault;
-`--self-check` with 21 of 21 properties going red; `--verify` clean and
-`--selftest` with 7 fired and 0 silent.
+minutes. The 152 visible corpus clones swept before and after: 152 compared, 0
+differ, as the record's location predicts. The rest of the pre-push list ran
+against a working-tree extract: smoke green with 45 checks; scenarios green, 25
+scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories, 13 of
+13 rules reached, no fault; `--self-check` with 21 of 21 properties going red;
+`--verify` clean and `--selftest` with 7 fired and 0 silent.
 
 **What it is.** The review's last line, taken one item at a time. 4.7,
 built: git writes one `<old> <new>` pair per rewritten commit to the
@@ -125,27 +121,25 @@ before its post-rewrite shim feeds the journal; and the reachability rule
 the hook's header still names as the other thing that would catch a rebase
 at the moment it happens, still unmeasured.
 
-## Phase 44 - One document scan, measured and refused; its bar all but met without it (unreleased, 2026-09-15)
+## Phase 44 - One document scan, measured and refused; its bar all but met without it (shipped, 2026-09-15)
 
-**Status.** Suite is 1,273 tests across 71 files: 1,270 passing and 3
-skipped, 36 added in `tests/test_unread_work.py`, `tests/test_prefilters.py`
-and `tests/test_caching.py`. Thirteen rules; no mode added; no default or
-exit code moved; no verdict moved - the 152 visible corpus clones swept
-before and after through the shipped payload, byte for byte, 152 compared
-and 0 differing. The tool remained released as 0.26.1 and this work sits
-above that tag with Phases 36 to 43, unreleased. Mutation campaign is 256
-anchors: ten written and one retargeted, each applied to a copy and
-watched turning the suite red - 12 of 12 killed, a Phase 39 anchor pulled
-in by a label prefix among them, none survived, none unapplied, in 64
-minutes. Sequential in-process sweep of ruff 5.75 s -> 3.65 s and of
-next.js 7.52 s -> 6.36 s, medians of three on the shipped code. The rest
-of the pre-push list ran against a working-tree extract: smoke green with
-45 checks; scenarios green, 25 scenarios and 213 assertions; fuzz at seed
-20260824 over 35 repositories, 13 of 13 rules reached, no fault;
-`--self-check` with 21 of 21 properties going red, after three of the
-fuzzer's own breakage anchors - CRASH, HANG and MODE-AGREE, all naming the
-`count_examined` signature or call this phase changed - were retargeted,
-which `mutate.py --check-only` cannot see and only that step does;
+**Status.** Suite is 1,273 tests across 71 files: 1,270 passing and 3 skipped,
+36 added in `tests/test_unread_work.py`, `tests/test_prefilters.py` and
+`tests/test_caching.py`. Thirteen rules; no mode added; no default or exit code
+moved; no verdict moved - the 152 visible corpus clones swept before and after
+through the shipped payload, byte for byte, 152 compared and 0 differing. This
+work shipped in 0.27.0, with Phases 36 to 43. Mutation campaign is 256 anchors:
+ten written and one retargeted, each applied to a copy and watched turning the
+suite red - 12 of 12 killed, a Phase 39 anchor pulled in by a label prefix
+among them, none survived, none unapplied, in 64 minutes. Sequential in-process
+sweep of ruff 5.75 s -> 3.65 s and of next.js 7.52 s -> 6.36 s, medians of
+three on the shipped code. The rest of the pre-push list ran against a
+working-tree extract: smoke green with 45 checks; scenarios green, 25 scenarios
+and 213 assertions; fuzz at seed 20260824 over 35 repositories, 13 of 13 rules
+reached, no fault; `--self-check` with 21 of 21 properties going red, after
+three of the fuzzer's own breakage anchors - CRASH, HANG and MODE-AGREE, all
+naming the `count_examined` signature or call this phase changed - were
+retargeted, which `mutate.py --check-only` cannot see and only that step does;
 `--verify` clean and `--selftest` with 7 fired and 0 silent.
 
 **What it is.** Item seven's second half in the review's order, 3.1: one
@@ -195,16 +189,15 @@ in the review's order: 4.7 the `post-rewrite` journal, 4.6 the
 `.gitattributes` stratum, 8.2 the agent surfaces - independent of each
 other and of everything above.
 
-## Phase 43 - A path index, measured and refused (unreleased, 2026-09-15)
+## Phase 43 - A path index, measured and refused (shipped, 2026-09-15)
 
-**Status.** Suite is 1,237 tests across 70 files: 1,234 passing and 3
-skipped, unchanged by this phase, which changed no code. Thirteen rules;
-no mode added; no verdict moved. What changed is the record: a design.md
-section, a CHANGELOG paragraph, this entry. The tool remained released as
-0.26.1 and this work sits above that tag with Phases 36 to 42, unreleased.
-The mutation campaign is 246 anchors, unchanged; nothing was run against
-an extract because nothing under the payload changed, and `--verify` is
-clean on the records.
+**Status.** Suite is 1,237 tests across 70 files: 1,234 passing and 3 skipped,
+unchanged by this phase, which changed no code. Thirteen rules; no mode added;
+no verdict moved. What changed is the record: a design.md section, a CHANGELOG
+paragraph, this entry. This work shipped in 0.27.0, with Phases 36 to 42. The
+mutation campaign is 246 anchors, unchanged; nothing was run against an extract
+because nothing under the payload changed, and `--verify` is clean on the
+records.
 
 **What it is.** Item seven of the review's order, 3.3: answer every link
 and path pointer from one `ls-tree -r HEAD` set instead of the filesystem
@@ -241,21 +234,23 @@ wants the 1,022 machine-dependent verdicts made deterministic. Next in the
 review's order is 3.1, the single scan, whose premise is the same inner
 loop and whose measurement starts from the profile this phase took.
 
-## Phase 42 - The suite's denominator, and the thirteen exit paths it had never run (unreleased, 2026-09-15)
+## Phase 42 - The suite's denominator, and the thirteen exit paths it had never run (shipped, 2026-09-15)
 
-**Status.** Suite is 1,237 tests across 70 files: 1,234 passing and 3
-skipped. Thirteen rules, unchanged; no mode added; no default or exit code
-moved; no line of the payload changed except that none needed to - every
-change here is a test, a record or a dev-side configuration. New:
+**Status.** Suite is 1,237 tests across 70 files: 1,234 passing and 3 skipped.
+Thirteen rules, unchanged; no mode added; no default or exit code moved; no
+line of the payload changed except that none needed to - every change here is a
+test, a record or a dev-side configuration. New:
 `tests/test_unreached_exits.py` and the coverage hook under
-`tests/harnesses/coverage_hook/`; `coverage>=7` in `requirements-dev.txt`
-and `[tool.coverage]` tables in `pyproject.toml`. The tool remained
-released as 0.26.1 and this work sits above that tag with Phases 36 to 41,
-unreleased. Mutation campaign is 246 anchors: six written against the exit
+`tests/harnesses/coverage_hook/`; `coverage>=7` in `requirements-dev.txt` and
+`[tool.coverage]` tables in `pyproject.toml`. This work shipped in 0.27.0, with
+Phases 36 to 41. Mutation campaign is 246 anchors: six written against the exit
 paths the measurement found, each applied to a copy and watched turning the
 suite red - 6 of 6 killed on a copy, none survived, none unapplied, in 56
 minutes. The rest of the pre-push list ran against a working-tree extract:
-smoke and scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories, 13 of 13 rules reached, no fault; `--self-check` with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7 fired and 0 silent..
+smoke and scenarios green, 25 scenarios and 213 assertions; fuzz at seed
+20260824 over 35 repositories, 13 of 13 rules reached, no fault; `--self-check`
+with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7
+fired and 0 silent..
 
 **What it is.** Item six of the review's order, 9.2, and the first tranche
 whose deliverable is a measurement rather than a change to the tool. The
@@ -306,24 +301,27 @@ builds. New: the 165 degraded paths are a list, not a plan; `--check-text
 --suggest-fixes --as-path` emits a patch nothing has ever read. Next in the
 review's order is 3.3, the path index.
 
-## Phase 41 - The ancestry index is bounded, and the batch the review proposed was measured first (unreleased, 2026-09-15)
+## Phase 41 - The ancestry index is bounded, and the batch the review proposed was measured first (shipped, 2026-09-15)
 
-**Status.** Suite is 1,224 tests across 69 files: 1,221 passing and 3
-skipped. Thirteen rules, unchanged; no mode added, no default or exit code
-moved, and no verdict changed anywhere it was measured. The payload changes
-in `plugin/skills/extant/payload/extant/refs.py` and the three rules that
-ask ancestry, `plugin/skills/extant/payload/extant/rules/merge.py`,
+**Status.** Suite is 1,224 tests across 69 files: 1,221 passing and 3 skipped.
+Thirteen rules, unchanged; no mode added, no default or exit code moved, and no
+verdict changed anywhere it was measured. The payload changes in
+`plugin/skills/extant/payload/extant/refs.py` and the three rules that ask
+ancestry, `plugin/skills/extant/payload/extant/rules/merge.py`,
 `plugin/skills/extant/payload/extant/rules/live_claim.py` and
-`plugin/skills/extant/payload/extant/rules/release_tag.py`, plus the
-docstrings in `plugin/skills/extant/payload/extant/scope.py` and
+`plugin/skills/extant/payload/extant/rules/release_tag.py`, plus the docstrings
+in `plugin/skills/extant/payload/extant/scope.py` and
 `plugin/skills/extant/payload/extant/git.py` that described the old shapes.
-The tool remained released as 0.26.1 and this work sits above that tag with
-Phases 36 to 40, unreleased. Mutation campaign is 240 anchors: five written
-against the new code, one retargeted from the prefix scan it named to the
-line that answers a miss on a complete index, and one whose text the
-refactor kept re-run to prove it still bites - 7 of 7 killed on a copy, none
-survived, none unapplied, in 14 minutes. The rest of the pre-push list ran
-against a working-tree extract: smoke and scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories, 13 of 13 rules reached, `--introduced-since` drawn twice, no fault; `--self-check` with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7 fired and 0 silent.
+This work shipped in 0.27.0, with Phases 36 to 40. Mutation campaign is 240
+anchors: five written against the new code, one retargeted from the prefix scan
+it named to the line that answers a miss on a complete index, and one whose
+text the refactor kept re-run to prove it still bites - 7 of 7 killed on a
+copy, none survived, none unapplied, in 14 minutes. The rest of the pre-push
+list ran against a working-tree extract: smoke and scenarios green, 25
+scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories, 13 of
+13 rules reached, `--introduced-since` drawn twice, no fault; `--self-check`
+with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7
+fired and 0 silent.
 
 **What it is.** Item five of the review's order, batch ancestry. The risk it
 named was real and the primitive it named was not. `_ancestor_index` ran
@@ -380,25 +378,26 @@ index and `--verify` still rebuilds it per document, both bounded now,
 neither removed. Next in the review's order is 9.2, coverage of the
 harness-driven modes.
 
-## Phase 40 - A gate with no document to configure: `--introduced-since` (unreleased, 2026-09-14)
+## Phase 40 - A gate with no document to configure: `--introduced-since` (shipped, 2026-09-14)
 
-**Status.** Suite is 1,206 tests across 68 files: 1,203
-passing and 3 skipped. Thirteen rules, unchanged; one mode
-added, `--introduced-since REF`, and no default or existing exit code moved.
-The payload gains one module,
+**Status.** Suite is 1,206 tests across 68 files: 1,203 passing and 3 skipped.
+Thirteen rules, unchanged; one mode added, `--introduced-since REF`, and no
+default or existing exit code moved. The payload gains one module,
 `plugin/skills/extant/payload/extant/introduced_since.py`, and four others
-change for it: the sweep module promotes `survey` and factors the exclusion
-and conflict block into `apply_exclusions` so the two survey-shaped modes
-share one implementation, the gate module factors the shallow and partial
-notes into `report_repository_notes`, the refs module names
-`DOCUMENT_SUFFIXES` so the diff's pathspecs and `tracked_markdown` read one
-tuple, and the command-line module wires the mode and refuses the five
-flags that suppress or rewrite. The tool
-remained released as 0.26.1 and this work sits above that tag with Phases
-36 to 39, unreleased. Mutation campaign is 235 anchors: eight written
-against the new module and three retargeted by the refactors, each applied
-to a copy and watched turning the suite red - 11 of 11 killed, none survived, none unapplied, in 61 minutes. The rest of the
-pre-push list ran against a working-tree extract: smoke and scenarios green; fuzz at seed 20260824 over 35 repositories, 13 of 13 rules reached, the new mode drawn twice in the rotation, no fault; `--self-check` with 21 of 21 properties going red; `--verify` clean and `--selftest` with 7 fired and 0 silent.
+change for it: the sweep module promotes `survey` and factors the exclusion and
+conflict block into `apply_exclusions` so the two survey-shaped modes share one
+implementation, the gate module factors the shallow and partial notes into
+`report_repository_notes`, the refs module names `DOCUMENT_SUFFIXES` so the
+diff's pathspecs and `tracked_markdown` read one tuple, and the command-line
+module wires the mode and refuses the five flags that suppress or rewrite. This
+work shipped in 0.27.0, with Phases 36 to 39. Mutation campaign is 235 anchors:
+eight written against the new module and three retargeted by the refactors,
+each applied to a copy and watched turning the suite red - 11 of 11 killed,
+none survived, none unapplied, in 61 minutes. The rest of the pre-push list ran
+against a working-tree extract: smoke and scenarios green; fuzz at seed
+20260824 over 35 repositories, 13 of 13 rules reached, the new mode drawn twice
+in the rotation, no fault; `--self-check` with 21 of 21 properties going red;
+`--verify` clean and `--selftest` with 7 fired and 0 silent.
 
 **What it is.** Item four of the review's order, the diff-scoped gate, and
 the first sweep-shaped mode that decides an exit code. The measured problem
@@ -462,23 +461,21 @@ Phase 39. `--sweep` still prints neither the shallow nor the partial note;
 the helper that would give it both now exists in `gate.py`. Next in the
 review's order is 4.1, batch ancestry with `rev-list --no-walk --stdin`.
 
-## Phase 39 - Four hot spots re-measured without the profiler: two taken, one tidied, one refused (unreleased, 2026-09-14)
+## Phase 39 - Four hot spots re-measured without the profiler: two taken, one tidied, one refused (shipped, 2026-09-14)
 
-**Status.** Suite is 1,176 tests across 67 files: 1,174 passing and 2
-skipped. Thirteen rules, unchanged - no rule, flag, default or suppression
-added, no exit code moved, and no finding moved: 87,189 documents across
-152 visible corpus repositories were digested before and after - both
-blanking flavours, the anchor set, the release, merge and pin lists - with
-no field differing. The payload changes in four modules under `payload/`:
-`text.py` gains the pre-filter, `commits.py` and `rules/release_tag.py`
-consult it, `rules/pinned_ref.py` asks its cheapest question first, and
-`anchors.py` compiles its slug patterns once. The tool remained released as
-0.26.1 and this work sits above that tag with Phases 36 to 38, unreleased.
-Mutation campaign is 227 anchors; the seven this phase added and the one it
-retargeted were each applied to a copy and watched turning the suite red,
-and every other gate on the pre-push list ran green against a working-tree
-extract - smoke, scenarios, fuzz with its self-check, `--verify` and
-`--selftest`.
+**Status.** Suite is 1,176 tests across 67 files: 1,174 passing and 2 skipped.
+Thirteen rules, unchanged - no rule, flag, default or suppression added, no
+exit code moved, and no finding moved: 87,189 documents across 152 visible
+corpus repositories were digested before and after - both blanking flavours,
+the anchor set, the release, merge and pin lists - with no field differing. The
+payload changes in four modules under `payload/`: `text.py` gains the
+pre-filter, `commits.py` and `rules/release_tag.py` consult it,
+`rules/pinned_ref.py` asks its cheapest question first, and `anchors.py`
+compiles its slug patterns once. This work shipped in 0.27.0, with Phases 36 to
+38. Mutation campaign is 227 anchors; the seven this phase added and the one it
+retargeted were each applied to a copy and watched turning the suite red, and
+every other gate on the pre-push list ran green against a working-tree extract
+- smoke, scenarios, fuzz with its self-check, `--verify` and `--selftest`.
 
 **What it is.** Item three of the review's order: four scan hot spots it
 had read off a cProfile of a sequential ruff sweep, projected as "the
@@ -536,23 +533,22 @@ saving are the link rule's filesystem walk, the two SHA candidate scanners
 at 0.76 s, and the rename-map `git log`. The review's fourth item, a
 diff-scoped gate, is next.
 
-## Phase 38 - The environment every git process inherits, and the five other places a rewrite can live (unreleased, 2026-09-14)
+## Phase 38 - The environment every git process inherits, and the five other places a rewrite can live (shipped, 2026-09-14)
 
 **Status.** Suite is 1,141 tests across 66 files: 1,139 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag, no default and no
-suppression, and moves no exit code. It changes the shipped payload in
-seven modules under `payload/`, one of them new: every git process the tool
-starts now gets one environment, built in `git.py` and handed to the seam
-and to the six `subprocess` sites in `refs.py`, `deleted_since.py` and
-`rules/lfs.py` that bypass it; `gate.py` prints a note for a partial
-repository beside the shallow one; `cli.py` says when `--repo` is not a
-repository root; and `--deleted-since` has a module of its own,
-`deleted_since.py`, beside the survey it left. The tool remained
-released as 0.26.1 and this work sits above that tag with Phases 36 and 37,
-unreleased. Mutation campaign is 220 anchors; the ten this phase added were
-each applied to a copy and watched turning the suite red, and every other
-gate on the pre-push list ran green against a working-tree extract - smoke,
-scenarios, fuzz with its self-check, `--verify` and `--selftest`.
+suppression, and moves no exit code. It changes the shipped payload in seven
+modules under `payload/`, one of them new: every git process the tool starts
+now gets one environment, built in `git.py` and handed to the seam and to the
+six `subprocess` sites in `refs.py`, `deleted_since.py` and `rules/lfs.py` that
+bypass it; `gate.py` prints a note for a partial repository beside the shallow
+one; `cli.py` says when `--repo` is not a repository root; and
+`--deleted-since` has a module of its own, `deleted_since.py`, beside the
+survey it left. This work shipped in 0.27.0, with Phases 36 and 37. Mutation
+campaign is 220 anchors; the ten this phase added were each applied to a copy
+and watched turning the suite red, and every other gate on the pre-push list
+ran green against a working-tree extract - smoke, scenarios, fuzz with its
+self-check, `--verify` and `--selftest`.
 
 **What it is.** A fifty-item review of the internals, read against 0.26.1,
 led with two wrong answers it had reproduced and put their general form
@@ -669,19 +665,18 @@ path index. The install-time detector still runs git with the environment it
 inherits; it does not ship and does not run from a hook. And the heldout and
 niche reserves remain unopened.
 
-## Phase 37 - Six more widenings measured, one shipped, five refused (unreleased, 2026-09-13)
+## Phase 37 - Six more widenings measured, one shipped, five refused (shipped, 2026-09-13)
 
 **Status.** Suite is 1,113 tests across 64 files: 1,111 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag, no default and no
-suppression, and moves no exit code. It changes the shipped payload: two
-rules read two CommonMark spellings they did not read, a reference definition
-ends where CommonMark ends it, and `dead-md-link` leaves rustdoc's intra-doc
-links to rustdoc, in eight modules under `payload/`, one of them new - the
-link scanner has a module of its own. The tool remained released as 0.26.1
-and this work sits above that tag with Phase 36, unreleased. Mutation
-campaign is 210 anchors; the nineteen this phase added and the eighteen it
-moved were each applied to a copy and watched turning the suite red, and
-every other gate on the pre-push list ran green against a working-tree
+suppression, and moves no exit code. It changes the shipped payload: two rules
+read two CommonMark spellings they did not read, a reference definition ends
+where CommonMark ends it, and `dead-md-link` leaves rustdoc's intra-doc links
+to rustdoc, in eight modules under `payload/`, one of them new - the link
+scanner has a module of its own. This work shipped in 0.27.0, with Phase 36.
+Mutation campaign is 210 anchors; the nineteen this phase added and the
+eighteen it moved were each applied to a copy and watched turning the suite
+red, and every other gate on the pre-push list ran green against a working-tree
 extract - smoke, scenarios, fuzz with its self-check, `--verify` and
 `--selftest`.
 
@@ -795,18 +790,17 @@ is on the tracked path.
 phrase no rule reads, which is the case the specification was written from
 and the one the corpus does not contain.
 
-## Phase 36 - Ten widenings measured, four shipped, six refused (unreleased, 2026-09-12)
+## Phase 36 - Ten widenings measured, four shipped, six refused (shipped, 2026-09-12)
 
 **Status.** Suite is 1,093 tests across 64 files: 1,091 passing and 2 skipped.
 Thirteen rules, unchanged - this adds no rule, no flag, no default and no
 suppression, and moves no exit code. It DOES change the shipped payload: three
 rules read shapes they did not read before, in five modules under `payload/`,
-so it needs a release rather than sitting above the tag. The tool remained
-released as 0.26.1 and this work sits above that tag, unreleased. Mutation
-campaign is 193 anchors; the twelve this phase added or retargeted were each
-applied to a copy and watched turning the suite red, and every other gate on
-the pre-push list ran green against a working-tree extract - smoke, scenarios,
-fuzz with its self-check, `--verify` and `--selftest`.
+so it needs a release rather than sitting above the tag. This work shipped in
+0.27.0. Mutation campaign is 193 anchors; the twelve this phase added or
+retargeted were each applied to a copy and watched turning the suite red, and
+every other gate on the pre-push list ran green against a working-tree extract
+- smoke, scenarios, fuzz with its self-check, `--verify` and `--selftest`.
 
 **What it is.** A specification arrived proposing widenings for nine of the
 thirteen rules, each described as falsifiable and each claiming zero false
