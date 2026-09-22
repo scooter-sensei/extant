@@ -21,3 +21,9 @@ build/
 # Untracked, not deleted. The four files that were tracked stay on disk and
 # their history is preserved in the commits that added them.
 docs/
+
+# The type checker's cache. At the repository root when `python -m mypy` is
+# run from here, which is where AGENTS.md says to run it: run from inside
+# `plugin/skills/extant/payload/` it lands beside the shipped source, and
+# the test that reads every shipped file whole then fails on its contents.
+.mypy_cache/

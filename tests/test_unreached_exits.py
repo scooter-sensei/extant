@@ -102,7 +102,8 @@ def test_cli_refuses_a_bare_repo_flag(configured_repo, monkeypatch, capsys) -> N
 def _worker_outcome(tasks, errors):
     """What `survey` returns when workers ran: every task answered, each
     carrying `errors` the way `_validate_chunk` attaches them."""
-    return ({relative: ([], None, {}, list(errors)) for relative, _primary in tasks},
+    return ({relative: ([], None, {}, list(errors), False)
+             for relative, _primary in tasks},
             2, None)
 
 
@@ -119,7 +120,7 @@ def test_a_rule_error_reported_by_a_sweep_worker_fails_the_run(
     from extant.registry import RULE_ERRORS
     repo, commit = git_repo
     commit("docs/a.md", "# A\n", "docs: a")
-    monkeypatch.setattr(sweep, "survey", lambda repo, tasks: _worker_outcome(
+    monkeypatch.setattr(sweep, "survey", lambda repo, tasks, tracked=None: _worker_outcome(
         tasks, [("dead-sha", "RuntimeError: boom")]))
     before = len(RULE_ERRORS)
     try:
@@ -160,7 +161,7 @@ def test_a_document_a_worker_never_returned_is_named_and_gates(
     from extant import sweep
     repo, commit = git_repo
     commit("docs/a.md", "# A\n", "docs: a")
-    monkeypatch.setattr(sweep, "survey", lambda repo, tasks: ({}, 2, None))
+    monkeypatch.setattr(sweep, "survey", lambda repo, tasks, tracked=None: ({}, 2, None))
     code = sweep.run_sweep(repo, "text")
     out = capsys.readouterr()
     assert code == 1

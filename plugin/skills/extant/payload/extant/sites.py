@@ -312,7 +312,7 @@ def resolve_reference(ctx: Context, base: Path,
         # about the repository first, and only a target that failed that probe
         # falls through. So refusing here reports dead root-relative links, as
         # before, and stops inventing an answer for the rest.
-        result = (False, None)
+        result: tuple[bool, str | None] = (False, None)
     else:
         actual = _actual_case(ctx, base, raw)
         if actual is None:

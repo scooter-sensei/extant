@@ -107,14 +107,15 @@ def find_boundary(repo: Path, config: Config) -> str:
         return ""
 
 
-def commits_since(repo: Path, boundary: str, config: Config) -> list[dict[str, str]]:
+def commits_since(repo: Path, boundary: str,
+                  config: Config) -> list[dict[str, str | None]]:
     """Commits after `boundary` (exclusive), oldest first, phase-labelled."""
     rev_range = f"{boundary}..HEAD" if boundary else "HEAD"
     try:
         out = _GIT.run(repo, "log", "--reverse", "--format=%H%x00%s", rev_range)
     except subprocess.CalledProcessError:
         return []  # unborn branch: no commits to report
-    commits: list[dict[str, str]] = []
+    commits: list[dict[str, str | None]] = []
     for line in out.splitlines():
         if not line.strip():
             continue
@@ -242,7 +243,7 @@ def run_suite(repo: Path, suite_json: str | None,
     """
     if suite_json:
         with open(suite_json, encoding="utf-8") as fh:
-            data = json.load(fh)
+            data: dict[str, object] = json.load(fh)
         data["source"] = "supplied"
         return data
     command = list(status.suite_command)

@@ -5,12 +5,22 @@
 ```sh
 python -m pip install -r requirements-dev.txt
 python -m pytest
+python -m mypy
 python plugin/skills/extant/payload/extant_collect.py --verify --repo .
 ```
 
-All three before you edit anything, so a failure afterwards is yours rather
-than inherited. The third is the tool checking its own documentation, and it
+All four before you edit anything, so a failure afterwards is yours rather
+than inherited. The last is the tool checking its own documentation, and it
 is the one people forget.
+
+`python -m mypy` reads `[tool.mypy]` in `pyproject.toml` and needs no
+arguments; run it from the repository root, since from inside the payload
+directory its cache lands beside the shipped files and the ASCII test reads
+it. It is `strict`, at the 3.10 target - the lowest mypy 2 takes - and it
+gates in the self-check CI job rather than in the suite, because it does not
+run on the 3.9 leg of the test matrix. That leg remains the only check of the
+3.9 floor: typeshed dropped 3.9 at its EOL and with it the guards that told a
+3.10-only call from an allowed one.
 
 Python 3.9 or newer, and git 2.31 or newer. The hook installer calls
 `git rev-parse --path-format=absolute`, which older git does not know. `tomllib` is the only thing in the payload

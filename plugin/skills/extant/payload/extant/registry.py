@@ -15,6 +15,7 @@ from typing import Callable
 
 from extant.contract import Rule
 from extant.rules import line_pointer as _rule_line
+from extant.scope import Context
 
 __all__ = ["RULES", "RULE_ERRORS", "Rule", "count_examined", "forget_memos"]
 
@@ -77,7 +78,7 @@ def forget_memos() -> None:
 RULE_ERRORS: list[tuple[str, str]] = []
 
 
-def count_examined(ctx: object, text: str,
+def count_examined(ctx: Context, text: str,
                    applies: Callable[[Rule], bool] | None = None,
                    ) -> dict[str, int]:
     """How many candidates each rule actually LOOKED AT, findings aside.
@@ -128,7 +129,7 @@ def count_examined(ctx: object, text: str,
             counts[rule.kind] = 0
             continue
         try:
-            counts[rule.kind] = rule.examined(ctx, text)  # type: ignore[operator]
+            counts[rule.kind] = rule.examined(ctx, text)
         except Exception as exc:                       # noqa: BLE001
             # Deliberately broad, and deliberately not silent. See RULE_ERRORS.
             RULE_ERRORS.append((rule.kind, f"{exc.__class__.__name__}: {exc}"))

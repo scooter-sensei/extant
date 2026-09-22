@@ -450,3 +450,70 @@ def test_a_pool_that_cannot_start_is_announced_not_swallowed(git_repo,
     # And it still surveyed everything, rather than reporting a clean repo.
     assert printed.count("[dead-path-pointer]") == 4, printed
     assert "worker process(es)" not in printed, printed
+
+
+def test_workers_do_not_relist_the_tree_the_parent_already_listed(
+        git_repo, capsys, monkeypatch, tmp_path) -> None:
+    """The review's 5.6: a worker re-asked `ls-tree` for the tracked list the
+    parent had already taken to build the survey, once per worker that
+    reached `sites.py`. Traced on ruff's clone with 8 workers: 5 listings,
+    the parent's and four re-asks, 46 ms each. The list rides through
+    `initargs` beside the config now, so the parent's one listing is the
+    only one.
+
+    Counted with `GIT_TRACE` pointed at a file, because a worker is another
+    process and a `subprocess.run` counter in this one cannot see it; every
+    git process the survey starts, in whichever process, appends its command
+    line there. `docs/conf.py` makes the repository a Sphinx site, which is
+    what sends an unresolved fragment link to the project-wide anchor set,
+    the reader that lists the tree.
+    """
+    from extant import sweep
+    repo, commit = git_repo
+    commit("docs/conf.py", "project = 'x'\n", "docs: sphinx")
+    for i in range(6):
+        commit(f"docs/d{i}.md", f"# Doc {i}\n\nSee [the part](#nowhere-{i}).\n",
+               f"docs: {i}")
+    trace = tmp_path / "git-trace.log"
+    monkeypatch.setenv("GIT_TRACE", str(trace))
+
+    monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 1)
+    parallel = _sweep_text(repo, capsys)
+    assert "worker process(es)" in parallel, parallel
+    assert "could not start" not in parallel, parallel
+    # The denominator for this test itself: the anchors were unresolved and
+    # reported, so the reader that lists the tree was reached in the workers.
+    assert parallel.count("[dead-md-anchor]") == 6, parallel
+
+    lines = trace.read_text(encoding="utf-8", errors="replace").splitlines()
+    listings = [ln for ln in lines if "ls-tree -r -z --name-only HEAD" in ln]
+    print(f"{len(listings)} tree listings across parent and workers")
+    assert len(listings) == 1, (
+        f"the tree was listed {len(listings)} times for one survey; the "
+        f"parent lists it once and hands the list to every worker")
+
+
+def test_a_sequential_survey_lists_the_tree_once(git_repo, capsys, monkeypatch,
+                                                 tmp_path) -> None:
+    """The other half of the same listing: `run_sweep` takes the tracked list
+    BEFORE it opens its scope, so the list was memoised nowhere, and the
+    first document that reached `sites.py` had the parent list the tree
+    again. The list is seeded into the scope now; one listing per survey on
+    this path too. Same fixture and the same trace as the parallel test
+    above, with the pool switched off."""
+    from extant import sweep
+    repo, commit = git_repo
+    commit("docs/conf.py", "project = 'x'\n", "docs: sphinx")
+    commit("docs/d0.md", "# Doc 0\n\nSee [the part](#nowhere).\n", "docs: 0")
+    trace = tmp_path / "git-trace.log"
+    monkeypatch.setenv("GIT_TRACE", str(trace))
+
+    monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 10 ** 9)
+    serial = _sweep_text(repo, capsys)
+    assert "worker process(es)" not in serial, serial
+    assert serial.count("[dead-md-anchor]") == 1, serial
+
+    lines = trace.read_text(encoding="utf-8", errors="replace").splitlines()
+    listings = [ln for ln in lines if "ls-tree -r -z --name-only HEAD" in ln]
+    assert len(listings) == 1, (
+        f"the tree was listed {len(listings)} times by one sequential survey")

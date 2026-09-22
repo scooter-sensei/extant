@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from typing import Callable
 from urllib.parse import quote
 
 from extant import registry as _registry
@@ -146,7 +147,7 @@ class Collector:
     """
 
     def __init__(self, baselined: dict[str, dict[str, str]] | None = None, *,
-                 echo=None) -> None:
+                 echo: Callable[[str], None] | None = None) -> None:
         # Empty, never None, so a caller that records without a baseline takes
         # the same path as one that records with an empty one.
         self.baselined = baselined or {}
@@ -515,7 +516,7 @@ def _mask(message: str, value: str) -> str:
     return _BACKTICKED.sub(fix, message)
 
 
-def _identity_keys(item: Located) -> list[tuple]:
+def _identity_keys(item: Located) -> list[tuple[object, ...]]:
     """Every identity this finding could share with another.
 
     One key per DIRECTORY segment, plus the finding's own path unchanged so
@@ -534,7 +535,7 @@ def _identity_keys(item: Located) -> list[tuple]:
     """
     parts = item.path.split("/")
     base = (item.finding.kind, item.stratum, item.primary)
-    keys = [base + (tuple(parts), item.finding.message())]
+    keys: list[tuple[object, ...]] = [base + (tuple(parts), item.finding.message())]
     for i in range(len(parts) - 1):
         wild = parts[:i] + ["*"] + parts[i + 1:]
         keys.append(base + (tuple(wild), _mask(item.finding.message(), parts[i])))
@@ -550,7 +551,7 @@ def group_parallel(located: list[Located]) -> list[list[Located]]:
     three findings that differ in two places as one defect. Measured cost of
     refusing that across the corpus: 6 findings.
     """
-    keyed: dict[tuple, list[int]] = {}
+    keyed: dict[tuple[object, ...], list[int]] = {}
     for index, item in enumerate(located):
         for key in _identity_keys(item):
             keyed.setdefault(key, []).append(index)
@@ -623,7 +624,7 @@ SWEEP_SECTIONS = (
 )
 
 
-def format_sweep_sections(results: dict) -> tuple[list[str], int]:
+def format_sweep_sections(results: dict[str, list[Located]]) -> tuple[list[str], int]:
     """A sweep's three sections as lines, plus how many entries they hold.
 
     Here rather than in `sweep.py`, and the reason is a ceiling rather than

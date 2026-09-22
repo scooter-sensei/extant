@@ -39,6 +39,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NoReturn
 
 # `tomllib` arrived in 3.11, and enterprise distributions are years behind it:
 # RHEL 9 and Debian 11 ship 3.9, Ubuntu 22.04 LTS ships 3.10. Nothing else here
@@ -55,13 +56,19 @@ from pathlib import Path
 # with no config file never parses TOML at all: the defaults below are Python.
 # Failing at import would deny the whole tool to someone who needs none of this,
 # so the failure is raised at the point a config file is actually found.
+#
+# The type checker runs at the 3.10 target, the lowest it takes, where the
+# first import names a module that does not exist yet; the one suppression
+# says so. `tomli` is resolved through `[tool.mypy]` in pyproject.toml rather
+# than here, because whether it can be found is a fact about the interpreter
+# running the check, not about this file.
 try:
-    import tomllib
+    import tomllib  # type: ignore[import-not-found]
 except ModuleNotFoundError:                              # Python < 3.11
     try:
-        import tomli as tomllib                          # type: ignore[no-redef]
+        import tomli as tomllib
     except ModuleNotFoundError:
-        tomllib = None                                   # type: ignore[assignment]
+        tomllib = None
 
 # `tomllib` is deliberately absent: it is an implementation detail of this
 # module's fallback, not something a sibling should reach for. One test does
@@ -491,6 +498,29 @@ def _explain(path: Path, exc: Exception) -> str:
     return f"{path}: {exc}\n\n{hint}"
 
 
+def _toml_name(value: object) -> str:
+    """What the parser handed over, in the vocabulary of the file it read.
+
+    `bool` before `int`, because it is a subclass and `true` would otherwise
+    be reported as an integer - which is the confusion being explained.
+    """
+    if value is None:
+        return "absent"
+    if isinstance(value, bool):
+        return "a boolean"
+    if isinstance(value, int):
+        return "an integer"
+    if isinstance(value, float):
+        return "a float"
+    if isinstance(value, str):
+        return "a string"
+    if isinstance(value, (list, tuple)):
+        return "an array"
+    if isinstance(value, dict):
+        return "a table"
+    return type(value).__name__
+
+
 def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
     # Raised HERE rather than at import, because this is the first moment the
     # parser is genuinely needed. Someone on 3.9 with no config file gets a
@@ -590,7 +620,7 @@ def _find_config(start: Path) -> Path | None:
 
 
 def _compile_consistency(
-    raw: object, path: Path
+    raw: object, path: Path | None
 ) -> dict[str, tuple[tuple[str, re.Pattern[str]], ...]]:
     """Validate and compile the consistency block.
 
@@ -601,6 +631,10 @@ def _compile_consistency(
 
     A pattern with no capture group is rejected for the same reason - there
     would be no value to compare, so the check would pass vacuously forever.
+
+    `path` is None when no config file was found. Every message below names
+    it, and none can be reached then: the default block is empty, and the
+    first line returns before a message is built.
     """
     if not raw:
         return {}
@@ -675,13 +709,54 @@ def load_config(repo: Path) -> StatusConfig:
         values.update(overrides)
         source = str(path)
 
-    trunk = str(values["trunk"])
+    # The SHAPE of each setting is checked, not coerced, and the message uses
+    # TOML's names because the reader is holding a TOML file. Coercion looked
+    # like tolerance and was the quiet failure this module names in its
+    # docstring: `tuple("pytest")` is six one-letter arguments, `str(["main"])`
+    # is a branch called "['main']", a pattern given as an array compiles to
+    # one that matches nothing, and `bool("false")` is True - a setting written
+    # to switch a rule off switched it on. Found by the type checker refusing
+    # `int(object)` where this loader had been refusing nothing.
+    def refuse(key: str, wanted: str, got: object, held: bool = False) -> NoReturn:
+        where = "holds" if held else "is"
+        raise ValueError(
+            f"{source}: {key} must be {wanted}, and {where} {_toml_name(got)}")
+
+    def string(key: str) -> str:
+        raw = values[key]
+        if not isinstance(raw, str):
+            refuse(key, "a string", raw)
+        return raw
+
+    def integer(key: str) -> int:
+        raw = values[key]
+        # bool is a subclass of int, and `true` is not a count of anything.
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            refuse(key, "an integer", raw)
+        return raw
+
+    def boolean(key: str) -> bool:
+        raw = values[key]
+        if not isinstance(raw, bool):
+            refuse(key, "a boolean", raw)
+        return raw
+
+    def strings(key: str) -> tuple[str, ...]:
+        raw = values[key]
+        if not isinstance(raw, (list, tuple)):
+            refuse(key, "an array of strings", raw)
+        for item in raw:
+            if not isinstance(item, str):
+                refuse(key, "an array of strings", item, held=True)
+        return tuple(raw)
+
+    trunk = string("trunk")
     # The default pattern no longer embeds the trunk name, but a project that
     # customised `merge_claim` before this change may still write `{trunk}`, and
     # substituting it costs nothing when the token is absent. Dropping the
     # substitution would turn those configs into a pattern that compiles and
     # matches nothing, which is this module's named failure mode.
-    merge_src = str(values["merge_claim"]).replace("{trunk}", re.escape(trunk))
+    merge_src = string("merge_claim").replace("{trunk}", re.escape(trunk))
 
     def _timeout(raw: object) -> float | None:
         """A positive number of seconds, or None for unbounded."""
@@ -717,7 +792,9 @@ def load_config(repo: Path) -> StatusConfig:
     def optional(key: str) -> re.Pattern[str] | None:
         """A disableable pattern: empty means off, not 'use the default'."""
         raw = values[key]
-        return compiled(key, str(raw)) if raw else None
+        if raw is None or raw == "":
+            return None
+        return compiled(key, string(key))
 
     return StatusConfig(
         # NORMALISED HERE, at the one place a configured document name is read,
@@ -729,42 +806,40 @@ def load_config(repo: Path) -> StatusConfig:
         # which is not a path git tracks, so a `--format=github` annotation
         # carrying it matches no line of the pull request diff and attaches to
         # nothing, while still printing in the log as though it had.
-        primary_doc=normalise_document(str(values["primary_doc"])),
-        archive_doc=normalise_document(str(values["archive_doc"])),
-        retain_entries=int(values["retain_entries"]),
+        primary_doc=normalise_document(string("primary_doc")),
+        archive_doc=normalise_document(string("archive_doc")),
+        retain_entries=integer("retain_entries"),
         consistency_timeout_seconds=_timeout(values["consistency_timeout_seconds"]),
-        release_claims_name_our_tags=bool(
-            values["release_claims_name_our_tags"]),
+        release_claims_name_our_tags=boolean("release_claims_name_our_tags"),
         trunk=trunk,
-        plans_dir=str(values["plans_dir"]),
-        archive_header=str(values["archive_header"]),
-        entry_prefix=str(values["entry_prefix"]),
-        pointer_prefix=str(values["pointer_prefix"]),
-        venv_python=str(values["venv_python"]),
-        suite_command=tuple(values["suite_command"]),          # type: ignore[arg-type]
-        suite_passed=compiled("suite_passed", str(values["suite_passed"])),
-        suite_failed=compiled("suite_failed", str(values["suite_failed"])),
-        suite_duration=compiled("suite_duration", str(values["suite_duration"])),
-        code_suffixes=tuple(values["code_suffixes"]),          # type: ignore[arg-type]
-        todo_exclude_files=tuple(values["todo_exclude_files"]),  # type: ignore[arg-type]
-        todo_exclude_dirs=tuple(values["todo_exclude_dirs"]),    # type: ignore[arg-type]
-        exclude_paths=tuple(values["exclude_paths"]),            # type: ignore[arg-type]
-        extra_docs=tuple(normalise_document(str(d))
-                         for d in values["extra_docs"]),         # type: ignore[arg-type]
-        release_tag=compiled("release_tag", str(values["release_tag"]),
+        plans_dir=string("plans_dir"),
+        archive_header=string("archive_header"),
+        entry_prefix=string("entry_prefix"),
+        pointer_prefix=string("pointer_prefix"),
+        venv_python=string("venv_python"),
+        suite_command=strings("suite_command"),
+        suite_passed=compiled("suite_passed", string("suite_passed")),
+        suite_failed=compiled("suite_failed", string("suite_failed")),
+        suite_duration=compiled("suite_duration", string("suite_duration")),
+        code_suffixes=strings("code_suffixes"),
+        todo_exclude_files=strings("todo_exclude_files"),
+        todo_exclude_dirs=strings("todo_exclude_dirs"),
+        exclude_paths=strings("exclude_paths"),
+        extra_docs=tuple(normalise_document(d) for d in strings("extra_docs")),
+        release_tag=compiled("release_tag", string("release_tag"),
                              re.IGNORECASE),
         consistency=_compile_consistency(values["consistency"], path),
-        base_header=compiled("base_header", str(values["base_header"]),
+        base_header=compiled("base_header", string("base_header"),
                              re.MULTILINE),
         phase_task=optional("phase_task"),
         phase_bare=optional("phase_bare"),
-        branch_token=compiled("branch_token", str(values["branch_token"])),
-        live_phrases=compiled("live_phrases", str(values["live_phrases"]),
+        branch_token=compiled("branch_token", string("branch_token")),
+        live_phrases=compiled("live_phrases", string("live_phrases"),
                               re.IGNORECASE),
         merge_claim=compiled("merge_claim", merge_src, re.IGNORECASE),
-        path_pointer=compiled("path_pointer", str(values["path_pointer"]),
+        path_pointer=compiled("path_pointer", string("path_pointer"),
                               re.IGNORECASE),
-        todo_markers=compiled("todo_markers", str(values["todo_markers"])),
+        todo_markers=compiled("todo_markers", string("todo_markers")),
         source=source,
         warnings=tuple(warnings),
     )

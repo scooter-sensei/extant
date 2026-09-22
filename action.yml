@@ -5,6 +5,15 @@
 #         fetch-depth: 0          # REQUIRED - see below
 #     - uses: scooter-sensei/extant@v0.24.1
 #
+# Or, on a pull request, gate only on the claims the change WROTE - no
+# document to configure, no path pinned, and a finding on a line the range
+# did not touch is reported and does not fail the job:
+#
+#     - uses: scooter-sensei/extant@v0.24.1
+#       with:
+#         mode: introduced-since
+#         since: ${{ github.event.pull_request.base.sha }}
+#
 # WHY fetch-depth: 0 IS NOT OPTIONAL
 #
 # `actions/checkout` defaults to a depth-limited checkout, and this tool asks
@@ -41,8 +50,19 @@ inputs:
       `verify` checks the documents .extant.toml names and fails the job on a
       finding. `sweep` surveys every tracked markdown file and always passes -
       use it to see the shape of the problem before configuring anything.
+      `introduced-since` reads the documents the checkout changed since its
+      merge base with `since` and fails only on findings sitting on lines the
+      range wrote; it needs no configuration at all.
     required: false
     default: verify
+  since:
+    description: >
+      The ref `introduced-since` measures from - on a pull request,
+      `${{ github.event.pull_request.base.sha }}`. Required by that mode and
+      ignored by the others. The merge base must be present in the checkout,
+      which is one more reason `fetch-depth: 0` is not optional.
+    required: false
+    default: ""
   repo:
     description: Repository root to check, relative to the workspace.
     required: false
@@ -85,18 +105,33 @@ runs:
         INPUT_REPO: ${{ inputs.repo }}
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_ARGS: ${{ inputs.args }}
+        INPUT_SINCE: ${{ inputs.since }}
       run: |
         set -eu
         case "$INPUT_MODE" in
-          verify|sweep) : ;;
-          *) echo "::error::mode must be 'verify' or 'sweep', not '$INPUT_MODE'" >&2
+          verify|sweep|introduced-since) : ;;
+          *) echo "::error::mode must be 'verify', 'sweep' or 'introduced-since', not '$INPUT_MODE'" >&2
              exit 2 ;;
         esac
+        # The range mode takes its base as the flag's VALUE, so the mode and
+        # the ref are assembled here rather than as `--$INPUT_MODE` below. An
+        # empty ref would reach the CLI as `--introduced-since ''` and be
+        # refused there with a sentence about merge bases; the missing input
+        # is the actual problem, so it is named here.
+        MODE_FLAGS="--$INPUT_MODE"
+        if [ "$INPUT_MODE" = introduced-since ]; then
+          if [ -z "$INPUT_SINCE" ]; then
+            echo "::error::mode 'introduced-since' needs the 'since' input: the ref the range is measured from, such as the pull request's base sha" >&2
+            exit 2
+          fi
+          MODE_FLAGS="--introduced-since $INPUT_SINCE"
+        fi
         case "$INPUT_FORMAT" in
           text|github|sarif) : ;;
           *) echo "::error::format must be 'text', 'github' or 'sarif', not '$INPUT_FORMAT'" >&2
              exit 2 ;;
         esac
-        # Word-split deliberately and only here: `args` is a flag list.
+        # Word-split deliberately and only here: `args` is a flag list, and
+        # `MODE_FLAGS` is the mode with, for the range mode, its ref.
         # shellcheck disable=SC2086
-        extant "--$INPUT_MODE" --repo "$INPUT_REPO" "--format=$INPUT_FORMAT" $INPUT_ARGS
+        extant $MODE_FLAGS --repo "$INPUT_REPO" "--format=$INPUT_FORMAT" $INPUT_ARGS

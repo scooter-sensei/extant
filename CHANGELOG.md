@@ -1,5 +1,273 @@
 # Changelog
 
+## Unreleased
+
+Above 0.27.0, unreleased: the six tranches of the internals review that
+followed the release - the diff-scoped gate replayed against its own bar, the
+debts the shipped items carried, the five probes Phase 45 named, the
+structural three, the type checker, the four measurements that change
+what the skill tells an author, and the first of the two shapes those
+measurements found. No rule added or removed, thirteen as before; no mode
+added; no default or exit code moved; on the 152 visible corpus clones the
+findings on the word `ed25519`, read as a commit, disappeared from seven of
+them, the findings on a SHA that is the link text of another repository's
+commit URL disappeared from fifteen, and nothing else moved; 139 outputs
+gained the one line that says the checkout is partial. The record is in
+`plugin/skills/extant/references/design.md` under "The diff-scoped gate,
+replayed; and the debts the shipped items carried", "The probe tranche: one
+batch, one scope, one list, and a matcher read against git", "The
+structural tranche: one Config, and two shapes the numbers kept", "The
+type checker: four measured, the floor none can see, and a gate on the one
+that enforces the most", "The four probes: a split only the network can
+make, a rebase that reaches nothing, a rescue with no population, and the
+gate's missing listing" and "The bare commit-link text: whose commit it is,
+and a number re-derived".
+
+**The diff-scoped gate was replayed, and it does not replace the default
+install policy.** `--introduced-since` pins no path, and the review that
+proposed it set its bar there: reach what `docs3-ord` reaches while pinning
+nothing, and it becomes the default. Measured rather than believed - the last
+50 first-parent commits of each of 13 autopsy clones, 650 integrated changes,
+each run from a worktree at that commit asking of its first parent: 9 changes
+would have gone red, 36 findings, 33 ordinary, 2 repositories of 13 reporting
+an ordinary finding where `docs3-ord` reaches 9 of the same 13 at HEAD. The
+bar is not met. What the replay measured instead is why: at the moment each
+change landed, the documents it touched held 211 findings and 36 of them,
+17.1 per cent, sat on lines the change wrote. Documentation claims go false
+without being edited, and the gate that pins nothing sees the least of it.
+The reach it does have is one repository's - 31 of the 33 ordinary findings
+are plan and spec documents written during agent sessions in one project -
+and the precision of exactly those 36, judged in the tree at each commit, is
+36 of 36. The section "The diff-scoped gate, replayed" in `CORPUS.md` is
+rendered from the figures like everything else there.
+
+**The action gates a pull request on what it wrote.** `mode:
+introduced-since` with `since: ${{ github.event.pull_request.base.sha }}`
+runs the mode from the workflow; given the mode without `since`, the step
+fails naming the input rather than handing the CLI an empty ref. And the
+fuzzer's twenty-second property, `INTRODUCED`, reads `git diff -U0` for
+itself and requires every finding the mode gates to sit on a line that diff
+added - the mode's whole promise, and the seam the CRLF and encoding axes
+stress. `--self-check` watches it go red with the other twenty-one.
+
+**`--sweep` says what the checkout is.** The shallow and partial notes that
+`--verify`, `--check-text` and `--introduced-since` print beside their
+denominators were never printed by the survey - the mode most often pointed
+at a repository nobody here had seen, where a wall of dead SHAs from a
+depth-limited copy is exactly what a reader needs told. It prints them now,
+once, after the `examined:` line; 139 of the 152 corpus clones are partial
+and each gains the one line - and cpython, 132,999 commits with a release
+claim in its documents and no commit-graph, gains the note below beside it,
+the first time that note has fired anywhere.
+
+**A third note, when the ancestry index reached its bound and the repository
+has no commit-graph.** Every ancestry question past the bound is then
+settled by walking the history, and a commit-graph would answer it
+near-instantly: measured on rust at 7.5x on the index, 27x on the batch and
+77x on `merge-base`. The note names `git commit-graph write --reachable` and
+writes nothing - this tool checks and never authors, a stranger's `.git`
+least of all. It was measured and earned in Phase 41 and not built because
+the trigger is a fact of the run scope and the notes print after that scope
+has closed; the flag is now read inside each scope, carried out of the
+survey's workers with their results, and OR-ed across the documents a run
+examines. Only when both hold: a bound the history merely exceeds is not a
+cost anyone paid, and a repository that has the file is already paying
+nothing.
+
+**The rename hint is a repair, not part of the finding's identity.** `git
+shows it renamed to ...` was appended to a dead link's or pointer's
+`detail`, so it sat inside the baseline fingerprint although it varies with
+the checkout - shallow, partial, a move older than the rename walk's window
+- while the dead link does not; the commit-map hint left `detail` for
+`repair` on the same argument in 0.25.0, and this follows it. What a reader
+sees is byte-identical, since every human-facing format renders `detail;
+repair`. What changes is the fingerprint of a hinted finding: a baseline
+recorded with the hint inside `detail` re-raises that finding once, and
+re-recording forgives it again.
+
+**`--deleted-since` reads every previous version in one process, under one
+scope.** Each changed document's old text came from a `git show` of its own,
+and each was validated under a run scope of its own, so the ref table and
+the trunk index were rebuilt per document; on this repository's four changed
+documents that was ten git processes in 543 ms. One `cat-file --batch` fed
+`<ref>:<path>` per line now answers every read, and one scope spans the
+loop: five processes, about 330 ms, the same four examined. A partial copy's
+missing object is still told from an absent path, and still counted as a
+version that could not be read. Two small answers changed: a configured
+name that was a directory at the ref is "not a document there" rather than
+a tree listing validated as one, and a document name holding a newline can
+no longer be asked, because the batch reads names on lines - `--batch -z`
+is git 2.40 and the floor is 2.31 - and no configuration names such a file.
+
+**`--verify` holds one run scope across every document.** It opened one per
+document, so a status document and an extra document that both ask about
+refs each built the ref table and the trunk index - two of this repository's
+five git processes per `--verify`, 101 ms of 700, on the command the
+post-commit hook runs after every commit. Three processes now. With
+`--sha-map` the scope stays per document, opened after each rewrite,
+because a scope promises the checkout does not change while it is held and
+a map rewrites documents between reads; the budget test asserts both
+shapes.
+
+**A survey's workers are handed the tracked list instead of listing the tree
+again.** Traced on a 650-document clone with eight workers: the tree was
+listed five times, once by the parent and four times by workers whose
+documents reached the site machinery, and the parent's own listing was
+taken outside its scope, so a sequential survey listed it twice. Once per
+survey now, in either shape. The rename map, the ref table and the trunk
+index are NOT handed down, on the numbers: a worker asks for them only when
+a document needs them, and computing them in the parent to hand over would
+cost every sweep 1,361 ms for the map alone, including the sweeps where no
+worker asks.
+
+**`exclude_paths` was read against git's own matcher, and a trailing slash
+now means a directory.** Every tracked path of 152 corpus repositories -
+793,684 distinct - was fed through `_exclusion_regex` and `git check-ignore`
+under 23 documented and common shapes: zero disagreements on documents, and
+five on packaging files literally named `docs` or `vendor`, which `docs/`
+took and git did not. It no longer does, on the one line, with a row in the
+configuration reference. Swapping the matcher for `check-ignore`, as
+proposed, was refused: the two features it would add, `!` and `[a-z]`, are
+used by 0 of the patterns anyone has written and are already named by the
+sweep as matching nothing rather than quietly excluding something else, and
+git's answer follows `core.ignorecase` - 8,508 paths under `**/test/**`
+excluded on a Windows clone and read on Linux CI - where the regex answers
+the same everywhere.
+
+**Deferring the mode modules was measured and refused.** The review asked
+for `--verify` to import under about 50 ms; the four modules it never
+reaches cost 3.65 ms of a 181 ms import on this machine, the eager rule
+registry 60, the standard library 120. Nothing moved.
+
+**The configuration has one table.** Beside the `Config` every rule reads,
+`session.py` wrote twenty-one module globals derived from it through
+`globals()[name] = ...` - a second copy of the same values, kept for the
+callers that predate `Context`, of which two names were still read at
+thirteen sites in two modules and nine were read by nothing at all. No
+type checker, IDE or reader could see the binding: mypy in default mode
+reported 31 errors, and 13 were `Module has no attribute "PRIMARY_DOC"` at
+exactly those sites. The globals are gone; the modes read
+`session.config()`, a function returning the one built object, the way the
+rules read `ctx.config`. mypy reports 17 now, none of them a missing
+attribute, and a test refuses any `globals()` or `vars()` write anywhere in
+the package. What a user sees is byte-identical: the identity sweep over the
+152 visible clones differs in 0 outputs. A library caller that imported
+`session.PRIMARY_DOC` or `session.TRUNK` by name reads
+`session.config().primary_doc` and `.trunk` instead.
+
+**`contextvars` for the ambient scopes, and a sites-and-judge `Rule`, were
+measured and refused; the result cache is recorded as blocked.** The
+package starts no threads, so nothing that runs today can tell a context
+variable from a module global, and the port the review asks for changes 89
+test lines against its own bar of zero; it waits for the thread pool that
+would need it, which waits for a free-threaded interpreter in the CI
+matrix. Of the thirteen rules, `inconsistent-artifact` yields up to one
+finding per source plus one per group from a single site and counts
+sources, which the strict `sites`/`judge` contract cannot hold without
+re-admitting the drift the existing structural test refuses; by the
+review's own rule the test stays. The content-addressed result cache is
+sound only once every claim is resolved against git rather than the
+working tree, which is the path index refused in Phase 43 on 1,022
+gitignored-path verdicts - so it is blocked by that refusal, not open.
+
+**The package is typed to `mypy --strict`, and CI holds it there.** Three
+checkers were run on the tree before one was chosen - mypy 2.3.1, Pyrefly
+1.3.1 and basedpyright 1.40.1 - and all three named the same eight sites
+where an annotation or a docstring said something the code did not do:
+`report_denominators` had returned the integer mark from a signature
+annotated `-> bool` since 2026-08-31, `collect.py` recorded a `str | None` in a
+dict declared to hold strings, `cli.py` called `reconfigure` on a `TextIO`
+that promises none, and the anchor rule tested membership in a set its own
+tuple said could be None. All eight are fixed. Of the 22 `# type: ignore`
+comments written against a mypy nobody ran, 7 named a code that no longer
+fired on their line while another did; 5 remain, each with one code and
+its reason. The 28 `dict[Any, Any]` memo fields on `RunScope` state what
+they hold, the `Rule` contract says what `check`, `probe` and `examined` are
+called with and every rule's is checked against it, and the ancestry index
+is a `Protocol` on the scope rather than a private class of a module that
+imports it. mypy rather than the faster Pyrefly because its
+`warn_return_any` is the only rule in any of the three that made the memos
+typed, and because no checker can see the 3.9 floor any more: typeshed
+dropped 3.9 at its EOL and the `>= (3, 10)` guards with it, so a
+`python-version = "3.9"` is a check of syntax, not of the standard library,
+and the 3.9 test leg remains the floor's only check. `[tool.mypy]` in
+`pyproject.toml` is the whole configuration; the self-check job runs
+`python -m mypy` and fails on one error.
+
+**A setting of the wrong TOML type is refused, not coerced.** Found by the
+checker refusing `int(object)`. `suite_command = "pytest"` used to run six
+one-letter arguments, `trunk = ["main"]` named a branch called `['main']`,
+a pattern given as an array compiled to one that matched nothing, and
+`release_claims_name_our_tags = "false"` switched the rule on, because
+`bool` of a non-empty string is true. The loader now checks one shape per
+setting and names the setting, the file and the shape it wanted. Reach: 0
+of the 152 visible corpus rows track an `.extant.toml`; nothing this
+project ships or tests writes a coerced shape. `config.md` states the type
+of every setting.
+
+**`--introduced-since` now sees a document you have only just added or
+moved.** Run before a commit, the gate reads the working tree - but it
+listed the changed documents from HEAD's tree, so a plan written this
+session and `git add`ed, or a document moved with `git mv` and edited, was
+dropped without a word: "examined 0 changed document(s)" and, for the moved
+one, "1 tracked document(s) the range did not change were not read". Found
+by staging a document with a dead SHA, the experiment the review's 4.11
+asked for. The changed documents are the diff's own `+++` side now and
+HEAD's tree only counts what the range left alone, minus both names of a
+rename. A pull-request checkout was never affected, since there HEAD carries
+every change; no `--staged` mode is added, because nothing needs the index
+read. `--sweep` still lists HEAD's tree, the documented decision.
+
+**The dead SHA an agent writes was usually never this repository's.** The
+review asked whether a dead reference was wrong when written or rotted
+since, and a clone cannot say: the rewrite records settle 0 of 2,489
+findings across the agent and autopsy tiers, because they are artefacts of
+the machine the rewrite ran on. GitHub's commits API can, and does - it
+still serves a commit this project's own 2026-08-10 rewrite made
+unreachable. Over the 172 distinct dead ids in ordinary documents of nine
+repositories, 6 existed once (squash and rebase casualties, every one in a
+document written the same season) and 166 never did - one session
+transcript's local auto-commits, a grader's quoted output, another
+project's changelog. The skill's advice changed from "keep your documents
+fresh" to naming where an id came from or leaving it out. Two more
+measurements refused their items with numbers: a rebase of the last fifty
+commits reaches a document citing one in 9 of 139 repositories and 0.93 per
+cent of 13,064 live citations, so no `--impact` mode; and `unknown-branch`
+names nothing on the two real status documents there are, so no
+`reference-transaction` journal.
+
+**`ed25519` is a word.** Seven hex digits with a letter and a digit among
+them, the shape both SHA tests admit, reported as a bare dead SHA in 7 of
+152 corpus clones and the only such word the corpus holds. Refused by name
+in both spellings.
+
+**A SHA that is the link text of a commit URL is checked when the URL
+names this repository, and left to that repository when it does not - in
+either spelling.** `[8ea71e5](https://github.com/nodejs/node-gyp/commit/8ea71e5a...)`
+is how release-please, standard-version and the changelogs they generate
+write every entry, and the URL says whose commit it is. The bare spelling
+was read as this repository's claim whoever the URL named, because `_URL`
+skips the hex inside the parentheses and nothing skipped the copy before
+`](`: in the recorded sweep of the 152 visible corpus clones, 2,835 bare
+dead-SHA findings link to a repository other than the clone's origin -
+moby's vendored changelogs, node's dependency changelogs, angular's
+absorbed zone.js changelog, kubernetes' dependency pins - and they are no
+longer reported. The backticked spelling had been skipped since 2026-08-08
+whoever the URL named; both spellings now compare the URL's owner with
+`origin`, the comparison `dead-pinned-ref` has always made, and a link to
+this repository's own commit is examined: 15,257 such links resolve today
+across the corpus and 31 do not, and a squash or force-push that kills one
+is reported, as a rotting citation should be - and the unconditional
+backticked skip had been hiding 1,188 such citations across the corpus,
+1,165 of them in node's versioned changelogs, where every entry links an
+abbreviation of a commit from the io.js era that the repository no longer
+holds. A clone with no origin, or a link under a name the repository no
+longer has, is skipped rather than guessed at. The count the Phase 51 record carried, 1,425, was a pass that
+was never persisted and read its own spelling literally; the re-derivation
+is a script now, and the number in the record is corrected in the design
+rationale under "The bare commit-link text: whose commit it is, and a
+number re-derived".
+
 ## 0.27.0 (2026-09-21)
 
 Four rules read shapes they did not read before, over two measured passes,

@@ -400,7 +400,7 @@ def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
     findings = rule_md_link.check(hc.context(repo), "See [it](docs/old.md).\n")
 
     assert len(findings) == 1
-    assert "renamed to `docs/new.md`" in findings[0].detail
+    assert "renamed to `docs/new.md`" in findings[0].message()
 
 
 def test_the_rename_hint_does_not_depend_on_the_repositorys_diff_renames_setting(
@@ -425,7 +425,7 @@ def test_the_rename_hint_does_not_depend_on_the_repositorys_diff_renames_setting
     findings = rule_md_link.check(hc.context(repo), "See [it](docs/old.md).\n")
 
     assert len(findings) == 1
-    assert "renamed to `docs/new.md`" in findings[0].detail, findings[0].detail
+    assert "renamed to `docs/new.md`" in findings[0].message(), findings[0]
 
 
 def test_a_link_relative_to_its_document_still_gets_the_rename_hint(git_repo) -> None:
@@ -453,7 +453,7 @@ def test_a_link_relative_to_its_document_still_gets_the_rename_hint(git_repo) ->
                                base=repo / "docs", doc="docs/a.md", has_entries=False)
     assert [f.kind for f in findings] == ["dead-md-link", "dead-md-link"], findings
     for finding in findings:
-        assert "renamed to `docs/new.md`" in finding.detail, finding.detail
+        assert "renamed to `docs/new.md`" in finding.message(), finding
 
 
 def test_a_pointer_beside_its_document_still_gets_the_rename_hint(git_repo) -> None:
@@ -473,8 +473,8 @@ def test_a_pointer_beside_its_document_still_gets_the_rename_hint(git_repo) -> N
                                base=repo / "skills" / "x", doc="skills/x/SKILL.md",
                                has_entries=False)
     assert [f.kind for f in findings] == ["dead-path-pointer"], findings
-    assert "renamed to `skills/x/references/tool.md`" in findings[0].detail, (
-        findings[0].detail)
+    assert "renamed to `skills/x/references/tool.md`" in findings[0].message(), (
+        findings[0])
 
 
 def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
@@ -500,6 +500,36 @@ def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
                             has_entries=False)
         patch = gate.suggest_renames(repo, repo / "docs", text, "docs/a.md", found)
     assert "+See [it](new.md#install) and [far](../guides/far.md)." in patch, patch
+
+
+def test_the_rename_hint_is_a_repair_and_not_part_of_the_findings_identity(
+        git_repo) -> None:
+    """The hint varies with the CHECKOUT - shallow, partial, a rename older
+    than the window - while the finding does not, which is the argument that
+    moved the commit-map hint out of `detail` and into `repair`. Left inside
+    `detail`, the hint was inside the baseline fingerprint, so a project
+    whose rename walk started reaching an older move would have every
+    forgiven dead link re-raised. What a reader sees is unchanged: `message()`
+    joins the two halves exactly as the old string read."""
+    from extant import session as hc
+    from extant.rules import md_link as rule_md_link
+    from extant.rules import path_pointer as rule_path_pointer
+    repo, commit = git_repo
+    commit("docs/old.md", "# old\n", "docs: add")
+    git(repo, "mv", "docs/old.md", "docs/new.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    hc._SCOPE = hc.RunScope()
+
+    link, = rule_md_link.check(hc.context(repo), "See [it](docs/old.md).\n")
+    pointer, = rule_path_pointer.check(hc.context(repo),
+                                       "see `docs/old.md` for the flags\n")
+
+    for finding in (link, pointer):
+        assert finding.repair == "git shows it renamed to `docs/new.md`", finding
+        assert "renamed" not in finding.detail, finding.detail
+        assert finding.message() == f"{finding.detail}; {finding.repair}"
+    assert link.message() == ("links to `docs/old.md`, which does not exist; "
+                              "git shows it renamed to `docs/new.md`")
 
 
 # --- the registry and the selftest -------------------------------------------

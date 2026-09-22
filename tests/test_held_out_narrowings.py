@@ -346,19 +346,59 @@ def test_two_documents_answering_one_route_are_not_guessed(git_repo) -> None:
 # 3. A SHA that is link text for somebody else's commit.       192 findings
 # --------------------------------------------------------------------------
 
+def _with_origin(repo, url: str) -> None:
+    """Give the fixture an `origin`, the repository's own statement of what
+    it is - the thing a linked SHA's URL is compared with."""
+    import subprocess
+    subprocess.run(["git", "remote", "add", "origin", url], cwd=repo,
+                   check=True, capture_output=True, stdin=subprocess.DEVNULL)
+
+
+def _examined_shas(repo, text) -> int:
+    from extant import session as hc
+    from extant.rules import sha as rule_sha
+    _clear()
+    return rule_sha.examined(hc.context(repo), text)
+
+
 def test_a_sha_linked_to_a_commit_url_is_not_this_repos_claim(git_repo) -> None:
     """Changesets writes release notes this way, and a monorepo that absorbed
     another project keeps citing the original. The URL states whose commit it
     is; `_URL` has always dropped a BARE hex run inside a link target for that
     reason, and the backticked path never had the equivalent.
+
+    Since 2026-09-22 the URL is read rather than merely noticed: it names
+    another repository than `origin` here, so the claim is theirs.
     """
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/acme/widget.git")
     text = ("- [#159](https://github.com/withastro/adapters/pull/159) "
             "[`adb8bf2a4caeead9a1a255740c7abe8666a6f852`]"
             "(https://github.com/withastro/adapters/commit/"
             "adb8bf2a4caeead9a1a255740c7abe8666a6f852) Thanks!\n")
     assert _shas(repo, text) == []
+    assert _examined_shas(repo, text) == 0
+
+
+def test_a_backticked_sha_linked_to_this_repositorys_own_commit_is_checked(git_repo) -> None:
+    """The other half, which the skip never had until 2026-09-22: when the
+    URL names THIS repository, the claim is ours and checkable - and this is
+    the changelog entry whose commit a squash or a force-push takes away,
+    the casualty this tool exists to report. Measured across the 152 visible
+    corpus clones on 2026-09-22 for the bare spelling: 15,257 such links
+    resolve today and 31 do not (angular 25, helix 3, axe-core 2,
+    lobe-chat 1); the unconditional skip would have stopped examining all
+    of them.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/withastro/adapters.git")
+    text = ("- [`adb8bf2a4caeead9a1a255740c7abe8666a6f852`]"
+            "(https://github.com/withastro/adapters/commit/"
+            "adb8bf2a4caeead9a1a255740c7abe8666a6f852) Thanks!\n")
+    assert _shas(repo, text) == ["adb8bf2a4caeead9a1a255740c7abe8666a6f852"]
+    assert _examined_shas(repo, text) == 1
 
 
 def test_a_backticked_sha_with_no_link_still_fires(git_repo) -> None:
@@ -367,6 +407,114 @@ def test_a_backticked_sha_with_no_link_still_fires(git_repo) -> None:
     commit("README.md", "x\n", "seed")
     text = "Fixed in `adb8bf2a4caeead9a1a255740c7abe8666a6f852`.\n"
     assert _shas(repo, text) == ["adb8bf2a4caeead9a1a255740c7abe8666a6f852"]
+
+
+def test_a_bare_sha_linked_to_another_repositorys_commit_is_not_this_repos_claim(git_repo) -> None:
+    """The same shape WITHOUT backticks - the conventional-changelog spelling,
+    which is how release-please, standard-version and the changelogs they
+    generate write every entry - and the argument is the same: the URL says
+    whose commit it is. `_URL` skips the hex inside the parentheses and
+    nothing skipped the copy before `](`. Re-derived on 2026-09-22 from the
+    recorded sweep of the 152 visible corpus clones: 2,835 bare dead-SHA
+    findings link to a repository other than the clone's origin (moby's
+    vendored google-cloud-go changelogs, node's node-gyp and corepack,
+    angular's absorbed zone.js, kubernetes' dependency pins).
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/acme/widget.git")
+    text = ("* update gyp-next to v0.22.2 "
+            "([#3316](https://github.com/nodejs/node-gyp/issues/3316)) "
+            "([8ea71e5](https://github.com/nodejs/node-gyp/commit/"
+            "8ea71e5a0d5577f8f780df7597fa1f94089e1be4))\n")
+    assert _shas(repo, text) == []
+    # Silent for the right reason: the token is not examined, rather than
+    # examined and found alive.
+    assert _examined_shas(repo, text) == 0
+
+
+def test_a_bare_sha_linked_to_this_repositorys_own_commit_is_still_checked(git_repo) -> None:
+    """The URL names `origin`, so the claim is this repository's, and the
+    token does not resolve here: reported, as a rewrite casualty in a
+    changelog should be."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/nodejs/node-gyp.git")
+    text = ("* update gyp-next to v0.22.2 "
+            "([8ea71e5](https://github.com/nodejs/node-gyp/commit/"
+            "8ea71e5a0d5577f8f780df7597fa1f94089e1be4))\n")
+    assert _shas(repo, text) == ["8ea71e5"]
+    assert _examined_shas(repo, text) == 1
+
+
+def test_the_owner_comparison_reads_through_scheme_host_and_suffix(git_repo) -> None:
+    """`git@github.com:o/r.git` and `https://www.github.com/o/r` are one
+    repository. moby's vendored changelogs link through `www.github.com`
+    and `api.github.com/repos/...`, and an SSH origin is the common
+    developer spelling, so the comparison is on `owner/name` alone - the
+    same reduction `dead-pinned-ref` has applied to `repo:` lines since it
+    was written."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "git@github.com:nodejs/node-gyp.git")
+    text = ("* fix ([8ea71e5](https://www.github.com/nodejs/node-gyp/commit/"
+            "8ea71e5a0d5577f8f780df7597fa1f94089e1be4))\n")
+    assert _shas(repo, text) == ["8ea71e5"]
+
+
+def test_a_linked_sha_is_not_examined_when_the_repository_has_no_origin(git_repo) -> None:
+    """Without an origin nothing can say whether the URL names this
+    repository, and a rule only asks what git in THIS repository can settle:
+    the site is skipped, the caution the backticked skip took from the start.
+    The corpus holds no such site (0 of 18,285 on 2026-09-22), so this pins
+    the arm rather than a measured population."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    text = ("* fix ([8ea71e5](https://github.com/nodejs/node-gyp/commit/"
+            "8ea71e5a0d5577f8f780df7597fa1f94089e1be4))\n")
+    assert _shas(repo, text) == []
+    assert _examined_shas(repo, text) == 0
+
+
+def test_a_bare_sha_as_link_text_of_a_non_commit_url_still_fires(git_repo) -> None:
+    """A link is only a qualification when it names a commit, blob, tree,
+    pull or compare page. Link text pointing anywhere else is a bare token
+    like any other, whoever the URL belongs to."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/acme/widget.git")
+    text = "See [abc1234](https://example.com/notes) for the fix.\n"
+    assert _shas(repo, text) == ["abc1234"]
+
+
+def test_a_bare_range_linked_to_another_repositorys_compare_page_belongs_to_it(git_repo) -> None:
+    """`[a..b](.../compare/a..b)` is the range arm the backticked pattern
+    already has, in the bare spelling. The span covers both ends."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/acme/widget.git")
+    text = ("- Overhaul ([a1b2c3d..e4f5a6b]"
+            "(https://github.com/helix-editor/helix/compare/a1b2c3d..e4f5a6b))\n")
+    assert _shas(repo, text) == []
+
+
+def test_a_bare_range_linked_to_this_repositorys_compare_page_is_checked_at_both_ends(git_repo) -> None:
+    """The own arm of the range: both ends are this repository's claims."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/helix-editor/helix.git")
+    text = ("- Overhaul ([a1b2c3d..e4f5a6b]"
+            "(https://github.com/helix-editor/helix/compare/a1b2c3d..e4f5a6b))\n")
+    assert _shas(repo, text) == ["a1b2c3d", "e4f5a6b"]
+
+
+def test_a_bare_range_outside_a_link_still_fires_at_both_ends(git_repo) -> None:
+    """The other half of the pair above: the same range with no link behind
+    it is two bare claims, and both are reported."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    text = "Pushed a1b2c3d..e4f5a6b to the trunk.\n"
+    assert _shas(repo, text) == ["a1b2c3d", "e4f5a6b"]
 
 
 # --------------------------------------------------------------------------
@@ -669,22 +817,62 @@ def test_a_dead_anchor_in_a_setext_document_still_fires(git_repo) -> None:
 
 
 # --------------------------------------------------------------------------
+# 11. A word spelled in hex digits is a word.         7 of 152 visible clones
+# --------------------------------------------------------------------------
+
+def test_the_algorithm_name_ed25519_is_not_a_sha(git_repo) -> None:
+    """`ed25519` is seven characters, every one a hex digit, with a letter
+    and a digit among them - the exact shape both shape tests admit - and it
+    names a signature scheme, never a commit. Found on 2026-09-22 in the
+    recorded sweep of the 152 visible corpus clones: reported as a bare dead
+    SHA in 7 of them (goose, deno, kubernetes, node, unraid, PX4-Autopilot,
+    pdns), the one such word the corpus holds. Both spellings, because the
+    backticked one is how a key type is written in prose.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    text = ("Each node holds one ed25519 keypair; the `ed25519` public key is "
+            "its id.\n")
+    assert _shas(repo, text) == []
+
+
+def test_a_bare_sha_beside_the_word_still_fires(git_repo) -> None:
+    """The skip is one word, not a shape: a hex run one character longer is a
+    candidate exactly as before. Backticked candidates come first, the order
+    `_sha_sites` has always reported in."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    text = "Keys are ed25519; the fix landed in ed25519a and `ed25519ab`.\n"
+    assert _shas(repo, text) == ["ed25519ab", "ed25519a"]
+
+
+# --------------------------------------------------------------------------
 # Every narrowing above, re-checked in one pass against the fast path.
 # --------------------------------------------------------------------------
 
-def _bare_scan_as_it_stood(text: str) -> list[tuple[int, str]]:
+def _bare_scan_as_it_stood(text: str, own: str | None) -> list[tuple[int, str]]:
     """`_find_bare_sha_candidates` as it stood at 7c51c2f, before the gate.
 
     A DELIBERATE second copy of the implementation, and the cost is worth
-    stating: a sixth exclusion pattern has to be added here as well as there,
+    stating: a new exclusion pattern has to be added here as well as there,
     and this test goes red until it is. That is the contract rather than an
     oversight. The function it mirrors decides what counts as a bare SHA, and
     every exclusion in it exists because of a false positive measured against
     a 40-repository corpus - so the property worth pinning is not any single
     exclusion but that the whole set still yields exactly what it yielded
     before, token for token and line for line.
+
+    The contract only bites if the corpus below holds the shape: the sixth
+    exclusion (the bare commit-link text, 2026-09-22) was added with its own
+    templates in `_adversarial_corpus` - one linking `o/r`, one linking
+    another repository - because without them this test stayed green with
+    the line in one copy and not the other; this repository's own documents
+    hold no such link. `own` is the origin as `owner/name`, the value the
+    real scanner asks for lazily; the comparison runs at None and at `o/r`
+    so both arms of the sixth exclusion are held to the mirror.
     """
     from extant import commits
+    from extant.refs import normalise_remote
     out: list[tuple[int, str]] = []
     for number, line in enumerate(text.splitlines(), start=1):
         skip_spans = [m.span() for m in commits.BACKTICKED.finditer(line)]
@@ -692,6 +880,8 @@ def _bare_scan_as_it_stood(text: str) -> list[tuple[int, str]]:
         skip_spans += [m.span() for m in commits._UUID.finditer(line)]
         skip_spans += [m.span() for m in commits._ASSET_PATH.finditer(line)]
         skip_spans += [m.span() for m in commits._PINNED_REF.finditer(line)]
+        skip_spans += [m.span() for m in commits._LINKED_BARE_SHA.finditer(line)
+                       if own is None or normalise_remote(m.group("head")) != own]
         for match in commits.BARE_SHA_TOKEN.finditer(line):
             if commits.spans_overlap(match.span(), skip_spans):
                 continue
@@ -725,6 +915,8 @@ def _adversarial_corpus() -> str:
         "A colour like #{s}aa sits in a drop-shadow.",
         "The token `{h}` is backticked here.",
         "[`{h}`](https://github.com/o/r/commit/{h})",
+        "* fix the thing ([#12](https://github.com/o/r/issues/12)) ([{s}](https://github.com/o/r/commit/{h}))",
+        "* vendored fix ([{s}](https://www.github.com/other/repo/commit/{h}))",
         "conversation_{u} in a debug log",
         "identifier{h}zz embedded in a longer word",
         "The number {d} is INT64-ish.",
@@ -782,15 +974,16 @@ def test_the_bare_sha_gate_yields_the_same_tokens_as_the_scan_it_replaces() -> N
     disagreed = []
     for name, body in corpus:
         lines += len(body.splitlines())
-        want = _bare_scan_as_it_stood(body)
-        tokens += len(want)
-        # A fresh comparison per document, and never through
-        # `find_bare_sha_candidates`: the memo in front of it would answer
-        # from whichever implementation ran first.
-        if commits._find_bare_sha_candidates(body) != want:
-            disagreed.append(name)
-    print(f"compared {len(corpus)} documents, {lines} lines and {tokens} "
-          f"tokens between the gated scan and the one it replaced")
+        for own in (None, "o/r"):
+            want = _bare_scan_as_it_stood(body, own)
+            tokens += len(want)
+            # A fresh comparison per document, and never through
+            # `find_bare_sha_candidates`: the memo in front of it would answer
+            # from whichever implementation ran first.
+            if commits._find_bare_sha_candidates(body, lambda: own)[0] != want:
+                disagreed.append((name, own))
+    print(f"compared {len(corpus)} documents at two origins, {lines} lines and "
+          f"{tokens} tokens between the gated scan and the one it replaced")
     assert tokens >= 100, (
         f"only {tokens} tokens in the whole corpus, so agreement here would "
         f"mean almost nothing; the generator or the checkout is wrong")

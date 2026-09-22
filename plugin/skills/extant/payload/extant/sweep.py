@@ -39,6 +39,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from extant import refs, session
 # ALIASED, because `text` is what every function here calls the document
@@ -48,8 +49,9 @@ from extant import refs, session
 # naming the import.
 from extant import text as markup
 from extant import strata
-from extant.config import normalise_document
-from extant.finding import Located
+from extant.config import StatusConfig, normalise_document
+from extant.finding import Finding, Located
+from extant.gate import report_repository_notes
 from extant.registry import RULE_ERRORS
 from extant.report import (
     format_sweep_sections, render_findings, sweep_entry_note,
@@ -59,6 +61,19 @@ __all__ = [
     "apply_exclusions", "excluded_documents", "partition_documents",
     "run_sweep", "survey",
 ]
+
+if TYPE_CHECKING:
+    # What one worker hands back per document, and what `survey` gathers them
+    # into keyed by path with the path dropped: the findings, the reason the
+    # file could not be read or None, the denominators, the rule errors
+    # raised while reading it, and whether an ancestry index reached its
+    # bound. Named for the checker only - the block never runs - because a
+    # module-level alias would be evaluated on import and `str | None` is
+    # not an expression Python 3.9 can evaluate.
+    _Result = tuple[str, list[Finding], str | None, dict[str, int],
+                    list[tuple[str, str]], bool]
+    _ByPath = dict[str, tuple[list[Finding], str | None, dict[str, int],
+                              list[tuple[str, str]], bool]]
 
 # Below this many documents a survey is faster in one process than in eight.
 # Measured 2026-08-23 on 12 cores, best of three, cache-free, over generated
@@ -92,21 +107,34 @@ _WORKER_SCOPE = None
 _normalise = normalise_document
 
 
-def _worker_init(config: object) -> None:
-    """Give a freshly spawned worker the config and a run scope of its own.
+def _worker_init(config: StatusConfig, key: str,
+                 tracked: list[str] | None) -> None:
+    """Give a freshly spawned worker the config, a run scope of its own, and
+    the tracked list the parent already took.
 
     `install_config`, never `session.CONFIG = config`. The bare assignment sat
     here for eight releases and reached no rule; that function records what it
     cost and why re-reading the configuration here would be wrong rather than
     merely slower.
+
+    The list is seeded into the scope under the key `refs.tracked_markdown`
+    reads it back by, so a worker whose documents reach `sites.py` answers
+    from the parent's `ls-tree` instead of running its own - the review's
+    5.6, traced on ruff's clone as five listings for one survey, the parent's
+    and four re-asks at 46 ms each. It is the same list the survey was built
+    from, so nothing a worker reads can differ from what the parent read.
+    None when the caller took no listing, and the worker then asks as it
+    always did.
     """
     global _WORKER_SCOPE
-    session.install_config(config)         # type: ignore[arg-type]
+    session.install_config(config)
     _WORKER_SCOPE = session.run_scope()
-    _WORKER_SCOPE.__enter__()
+    scope = _WORKER_SCOPE.__enter__()
+    if tracked is not None:
+        scope.tracked_markdown[key] = tracked
 
 
-def _validate_one(repo: Path, relative: str, is_primary: bool):
+def _validate_one(repo: Path, relative: str, is_primary: bool) -> _Result:
     """Everything one document contributes to a survey.
 
     The ONE implementation, called by the sequential path and by the workers
@@ -114,7 +142,10 @@ def _validate_one(repo: Path, relative: str, is_primary: bool):
     behaviours and only ever exercises one of them; the parallel and serial
     results have to be the same result or the mode is not worth having.
 
-    Returns (relative, findings, unreadable_or_None, examined, rule_errors).
+    Returns (relative, findings, unreadable_or_None, examined, rule_errors,
+    index_incomplete) - the last a fact of the scope this ran under, carried
+    out because a worker's scope dies with the worker and the parent prints
+    the note.
     The errors are RETURNED rather than only appended, because in a worker
     `RULE_ERRORS` is a list in a process the parent cannot see. The sequential
     caller must therefore ignore what it gets back - the append already
@@ -128,7 +159,8 @@ def _validate_one(repo: Path, relative: str, is_primary: bool):
         # Counted and named, never skipped quietly. A file that could not be
         # read is not a file with no findings, and printing the same thing for
         # both is the conflation this tool is about.
-        return (relative, [], f"{relative} ({exc.__class__.__name__})", {}, [])
+        return (relative, [], f"{relative} ({exc.__class__.__name__})", {}, [],
+                False)
 
     mark = len(RULE_ERRORS)
     # All three, and the PATH is the one that was missing. It used to be
@@ -173,29 +205,33 @@ def _validate_one(repo: Path, relative: str, is_primary: bool):
     counted = session.count_examined(repo, text, applies)
     examined = {rule.kind: counted[rule.kind] for rule in session.RULES
                 if applies(rule)}
-    return (relative, findings, None, examined, list(RULE_ERRORS[mark:]))
+    return (relative, findings, None, examined, list(RULE_ERRORS[mark:]),
+            session.ancestry_incomplete())
 
 
-def _validate_chunk(args):
+def _validate_chunk(args: tuple[Path, list[tuple[str, bool]]]) -> list[_Result]:
     """A batch of documents in one worker, so the scope is reused across them."""
     repo, items = args
     return [_validate_one(repo, relative, is_primary)
             for relative, is_primary in items]
 
 
-def _sequential(repo: Path, tasks: list[tuple[str, bool]]) -> dict:
+def _sequential(repo: Path, tasks: list[tuple[str, bool]]) -> _ByPath:
     """Every document, one after another, in this process."""
     gathered = {}
     for relative, is_primary in tasks:
-        name, findings, unread, counts, errors = _validate_one(
+        name, findings, unread, counts, errors, incomplete = _validate_one(
             repo, relative, is_primary)
-        gathered[name] = (findings, unread, counts, errors)
+        gathered[name] = (findings, unread, counts, errors, incomplete)
     return gathered
 
 
 def survey(repo: Path,
-           tasks: list[tuple[str, bool]]) -> tuple[dict, int, str | None]:
-    """Validate every task. Returns (by_path, workers_used, fallback_reason).
+           tasks: list[tuple[str, bool]],
+           tracked: list[str] | None = None) -> tuple[_ByPath, int, str | None]:
+    """Validate every task. Returns (by_path, workers_used, fallback_reason),
+    where each `by_path` value is (findings, unreadable_or_None, examined,
+    rule_errors, index_incomplete).
 
     `workers_used` is 0 for a single-process survey, and the caller PRINTS it.
     Which path ran is not an implementation detail: these are two pieces of
@@ -205,6 +241,11 @@ def survey(repo: Path,
     Public since `--introduced-since` became its second caller: that mode
     surveys the documents a range changed through exactly this machinery,
     and a sibling may not import an underscore name.
+
+    `tracked` is the tracked-document list the caller already took from
+    `refs.tracked_markdown`, handed to every worker so none re-lists the tree
+    for itself; `--sweep` passes the one it built the survey from, and
+    `--introduced-since` passes nothing, because its parent lists no tree.
     """
     cpus = os.cpu_count() or 1
     if len(tasks) < _PARALLEL_FLOOR or cpus < 2:
@@ -213,7 +254,7 @@ def survey(repo: Path,
     workers = min(_MAX_WORKERS, cpus)
     size = max(1, len(tasks) // (workers * 4))
     batches = [(repo, tasks[i:i + size]) for i in range(0, len(tasks), size)]
-    gathered: dict = {}
+    gathered: _ByPath = {}
     try:
         # IMPORTED HERE, and inside the `try` rather than above it. `cli.py`
         # imports this module for `--sweep`, so every `--verify` from a git
@@ -233,10 +274,11 @@ def survey(repo: Path,
 
         with concurrent.futures.ProcessPoolExecutor(
                 max_workers=workers, initializer=_worker_init,
-                initargs=(session.CONFIG,)) as pool:
+                initargs=(session.CONFIG, str(repo), tracked)) as pool:
             for produced in pool.map(_validate_chunk, batches):
-                for relative, findings, unread, counts, errors in produced:
-                    gathered[relative] = (findings, unread, counts, errors)
+                for relative, findings, unread, counts, errors, incomplete in produced:
+                    gathered[relative] = (findings, unread, counts, errors,
+                                          incomplete)
     except Exception as exc:                       # noqa: BLE001
         # Broad deliberately, and tolerable only because it is ANNOUNCED. A
         # pool can fail for reasons that have nothing to do with this tool: a
@@ -306,7 +348,7 @@ def summarise_strata(items: list[Located], paths: list[str]) -> list[str]:
     and the whole thing is testable without capturing stdout.
     """
     findings: dict[str, int] = {}
-    hit: dict[str, set] = {}
+    hit: dict[str, set[str]] = {}
     for item in items:
         findings[item.stratum] = findings.get(item.stratum, 0) + 1
         hit.setdefault(item.stratum, set()).add(item.path)
@@ -359,6 +401,11 @@ def run_sweep(repo: Path, fmt: str) -> int:
     if not paths:
         return _report_empty_survey(repo, fmt)
 
+    # The listing as `tracked_markdown` returned it, BEFORE exclusions, kept
+    # for the scopes below: what a rule reading the tracked list would get
+    # by asking git again, seeded so nothing here asks again. It is the
+    # listing above, taken outside any scope and so memoised nowhere.
+    tracked = paths
     tracked_total = len(paths)
     paths, excluded_counts, conflicting = apply_exclusions(paths)
     if conflicting:
@@ -390,7 +437,12 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # validation in the process resolved relative links against a directory it
     # never chose. Cheap to get right, invisible when wrong.
     previous_document = session.document()
-    with session.run_scope():
+    with session.run_scope() as scope:
+        # The tracked list this survey was built from, seeded into the scope
+        # a sequential survey reads through, and handed to the workers of a
+        # parallel one, so the tree is listed ONCE per survey. It was listed
+        # once more by every process whose documents reached `sites.py`.
+        scope.tracked_markdown[str(repo)] = tracked
         try:
             # Seeded here, inside the stable scope, for two reasons at once: it
             # fixes the printing ORDER to the one `--verify` uses, so the two modes
@@ -401,8 +453,12 @@ def run_sweep(repo: Path, fmt: str) -> int:
             examined: dict[str, int] = {kind: 0 for kind in repository_examined}
             tasks = [(relative, relative == primary)
                      for _label, group, _gates in sections for relative in group]
-            gathered, workers, fallback = survey(repo, tasks)
+            gathered, workers, fallback = survey(repo, tasks, tracked=tracked)
 
+            # OR-ed across every document's outcome, because a worker's scope
+            # is not this one: the flag is the only way its index's bound
+            # reaches the note printed below.
+            index_incomplete = False
             for label, group, _gates in sections:
                 for relative in group:
                     outcome = gathered.get(relative)
@@ -414,7 +470,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
                         # the unreadable ones instead.
                         unreturned.append(relative)
                         continue
-                    findings, unread, doc_examined, errors = outcome
+                    findings, unread, doc_examined, errors, incomplete = outcome
+                    index_incomplete = index_incomplete or incomplete
                     # Only from a worker. In this process the append inside
                     # `_validate_one` already happened, and adding them again
                     # would report every rule error twice.
@@ -460,7 +517,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
                 # repository rule that raised would take down a whole survey
                 # rather than one rule of it.
                 try:
-                    produced = rule.check(session.context(repo), "")  # type: ignore[operator]
+                    produced = rule.check(session.context(repo), "")
                 except Exception as exc:                   # noqa: BLE001
                     RULE_ERRORS.append(
                         (rule.kind, f"{exc.__class__.__name__}: {exc}"))
@@ -568,6 +625,13 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # documents, one malformed input - and it is exactly why isolation was
     # worth adding here.
     session.report_rule_errors(lambda line: print(line, file=out))
+    # What the checkout is, beside the denominators as every gating mode has
+    # them. The survey printed neither the shallow nor the partial note for
+    # a year - on the mode most often pointed at a repository nobody here had
+    # seen, where a wall of dead SHAs from a depth-limited copy is exactly
+    # what a reader needs told. 139 of the 152 corpus clones are partial.
+    report_repository_notes(lambda line: print(line, file=out), repo,
+                            index_incomplete)
     # Zero counts are REPORTED rather than filtered, and named again here. A
     # rule examining nothing across a WHOLE repository is a far stronger signal
     # than the same zero in one document, and it is the one a reader skimming a
@@ -616,6 +680,14 @@ def _exclusion_regex(pattern: str) -> re.Pattern[str] | None:
     if not pattern or pattern.startswith("#"):
         return None
     anchored = "/" in pattern.rstrip("/")
+    # A trailing slash names a DIRECTORY, as it does in a .gitignore, so a
+    # file of that name is not matched and everything beneath it is. The
+    # matcher took the file too until 2026-09-20, when git's own matcher was
+    # fed every tracked path of 152 corpus clones beside it: five
+    # disagreements in 793,684 distinct paths, every one a Debian packaging
+    # FILE called `docs` or `vendor`, none of them a document. Closed so the
+    # two agree on every shape this docstring claims.
+    directory_only = pattern.endswith("/")
     body = pattern.strip("/")
     out: list[str] = []
     index = 0
@@ -639,13 +711,16 @@ def _exclusion_regex(pattern: str) -> re.Pattern[str] | None:
             out.append(re.escape(char))
         index += 1
     core = "".join(out)
+    # What may follow the matched name: something beneath it, or nothing when
+    # the name itself may be the file - never nothing for a directory pattern.
+    beneath = r"(?:/.*)" if directory_only else r"(?:/.*)?"
     if anchored:
         # Rooted at the repository. A directory pattern also covers what is
         # underneath it, which is what a reader means by excluding a folder.
-        source = rf"^{core}(?:/.*)?$"
+        source = rf"^{core}{beneath}$"
     else:
         # A bare name is a segment anywhere, and everything beneath it.
-        source = rf"^(?:.*/)?{core}(?:/.*)?$"
+        source = rf"^(?:.*/)?{core}{beneath}$"
     try:
         return re.compile(source)
     except re.error:

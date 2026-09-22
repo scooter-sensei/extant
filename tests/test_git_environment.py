@@ -102,11 +102,16 @@ def _commit_raw(repo: Path, rel: str, content: str) -> None:
 
 
 # The git invocations CountingGit's docstring lists as bypassing the seam,
-# each named by the argv it starts with. Every one must be reached below, or
-# a site nobody reached is a site nobody checked.
-DIRECT_SITES = ("cat-file --batch-check", "ls-tree -r -z HEAD",
-                "check-attr -z --stdin filter", "cat-file --batch",
-                "show HEAD~1:", "diff -U0")
+# each named by the argv it starts with and how many sites spell it. Every
+# one must be reached below, or a site nobody reached is a site nobody
+# checked. `cat-file --batch` is TWO sites with one argv - the LFS rule's
+# blob read and `--deleted-since`'s read of every previous version, which
+# replaced one `git show` per document on 2026-09-20 - so a presence check
+# would let either of them go unreached behind the other; the count is what
+# keeps both in the denominator.
+DIRECT_SITES = {"cat-file --batch-check": 1, "ls-tree -r -z HEAD": 1,
+                "check-attr -z --stdin filter": 1, "cat-file --batch": 2,
+                "diff -U0": 1}
 
 
 def test_every_git_process_starts_with_the_scrubbed_environment(
@@ -114,12 +119,13 @@ def test_every_git_process_starts_with_the_scrubbed_environment(
     """Including the seven that call `subprocess` directly.
 
     A scrub applied in `_git` alone would leave the `cat-file` batches, the
-    attribute query, `git show` and `git diff` answering from the leaked
-    location, and those are the SHA rule, the LFS rule, `--deleted-since` and
+    attribute query and `git diff` answering from the leaked location, and
+    those are the SHA rule, the LFS rule, `--deleted-since` and
     `--introduced-since` - so the seam is not where this is checked. Every
     `git` process started while four modes run is recorded at the subprocess
     boundary with the environment it was handed, and the denominator is that
-    each direct site was actually reached.
+    each direct site was actually reached, as many times as there are sites
+    spelling that argv.
     """
     from extant import session as hc
     from extant import deleted_since, introduced_since
@@ -162,14 +168,16 @@ def test_every_git_process_starts_with_the_scrubbed_environment(
     unscrubbed = [cmd for cmd, env in spawned
                   if env is None or "GIT_DIR" in env
                   or env.get("GIT_NO_LAZY_FETCH") != "1"]
-    reached = {site: any(cmd.startswith(site) for cmd, _env in spawned)
+    reached = {site: sum(cmd.startswith(site) for cmd, _env in spawned)
                for site in DIRECT_SITES}
     print(f"{len(spawned)} git processes, {len(unscrubbed)} unscrubbed; "
           f"direct sites reached: {reached}")
     assert not unscrubbed, (
         f"{len(unscrubbed)} of {len(spawned)} git processes inherited the "
         f"operator's environment unscrubbed: {unscrubbed}")
-    assert all(reached.values()), reached
+    short = {site: (reached[site], wanted) for site, wanted in DIRECT_SITES.items()
+             if reached[site] < wanted}
+    assert not short, f"direct sites reached fewer times than sites exist: {short}"
 
 
 def test_a_repo_that_is_not_a_repository_root_is_said_so(git_repo, capsys) -> None:

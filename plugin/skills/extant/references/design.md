@@ -227,7 +227,13 @@ and is absent by default.
 
 Three cheaper mechanisms were tried and rejected. A watchdog thread cannot
 work: `re` does not release the GIL while matching, so the watchdog is never
-scheduled. Static rejection of dangerous constructs is a heuristic whose false
+scheduled. Nor can `signal.setitimer`, the fourth mechanism and the one a
+third reader proposed in the internals review: Python runs a signal handler
+only between bytecodes, and one `re` match is one bytecode, so the alarm is
+delivered after the match returns - which for the pattern in question is
+never. Confirmed by inspection of the interpreter rather than by measurement,
+and recorded here so the next reader does not re-derive it. Static rejection
+of dangerous constructs is a heuristic whose false
 positives reject patterns that work today, which for that user is worse than
 the hang. An always-on subprocess costs a spawn per pattern, and `stress.py`
 case 11 puts 200 files through this rule.
@@ -2697,10 +2703,1177 @@ findings 6.3's count said would gain a hint, each gaining precisely it;
 then the pre-push chain, green, with one of the fuzzer's own breakage
 anchors retargeted at the blanking memo's new hit condition.
 
+## The diff-scoped gate, replayed; and the debts the shipped items carried
+
+Tranche 10 of the internals review, 2026-09-20, the first after the nine
+tranches merged to `main` as pull request 13. Nothing here is a new item of
+the review; every piece is a debt one of the shipped items left on its own
+record - the probe `--introduced-since` was shipped without, the note the
+ancestry bound earned and did not print, the two notes the survey never
+printed, the field the rename hint should have moved into when the
+commit-map hint did, and the sentences three closed items still owed.
+
+**8.1's probe, run.** The mode shipped in Phase 40 with its measurement
+undone: the review said "measure it into the policy table before you believe
+me", and the table's rows are sweeps at HEAD, which a gate on lines a change
+wrote cannot be read off. Phase 40 substituted a proxy - bench findings at
+HEAD intersected with `git diff -U0 HEAD~N` - and said plainly it was not
+the mode's population. The population is a replay: the last 50 first-parent
+commits of each of the 13 autopsy clones (a merge, a squash and a direct
+push are each one integrated change, and `--introduced-since <first
+parent>` from a detached worktree at that commit is what the gate would
+have said when it landed), 650 changes, every one run rather than only the
+ones a pre-filter thought touched documentation, because the tool's own
+header says how many changed documents it examined and that number is the
+denominator. The apparatus is `m10_replay.py` in the extant-hardening
+checkout; one JSON line per commit under `D:/repo/out-replay/`, judged in
+place while the worktree stood at the commit, with the instruments the
+precision table was built with - `resolution_audit.reading`,
+`gated_precision.anchor_resolves`, and for a SHA the two mechanical tests
+`groundtruth.py` applies - and the four context annotations that file
+keeps beside a verdict, annotated and never a veto, because the 641
+hand-labelled findings confirmed placeholder-shaped bare SHAs 64 times in
+65. Skew, stated: the tree is the commit's own and the refs and object store
+are today's, so a branch deleted since reads dead and a commit merged since
+reads merged. The worktrees under `D:/repo/replay/` are linked worktrees;
+`common_git_dir` finds the shared `.git` and `environment()` drops what the
+parent shell leaks, which the first run confirmed rather than assumed.
+
+The numbers, all rendered into `CORPUS.md` from `CORPUS-figures.json` under
+"The diff-scoped gate, replayed", so they cannot go stale in prose: 273 of
+the 650 changes touched a document the tool reads, 1,168 document-changes,
+24,467 introduced lines; 9 changes would have gone red, 36 findings, 33 of
+them ordinary and 3 vendored (moby, where `exclude_paths` is the one-line
+answer and the strata label rather than exclude); 3 repositories report in
+any stratum, 2 in the ordinary one; 0 paths pinned. Read against the ladder
+on the SAME 13 at HEAD, from the same recorded sweep the published table was
+aggregated from: `installed` reaches 2, `root+docs-ord` 5, `docs3-ord` 9,
+`ordinary` 11. The diff-scoped gate reaches what `installed` reaches, at
+zero pinned paths against `installed`'s 66, and not what `docs3-ord`
+reaches. **The review's bar - "if it reaches the repositories `docs3-ord`
+reaches while pinning nothing, it replaces the default install policy" - is
+not met, and the mode stays what Phase 40 shipped it as: the gate for a
+pull request, beside the document-scoped default rather than instead of
+it.**
+
+What the replay measured instead is the review's other reading, with a
+number: at the moment each change landed, the documents it touched held 211
+findings, and 36 of them - 17.1 per cent - sat on lines the change wrote.
+The other 175 sat on lines the change did not touch, findings the mode
+reports as "aside" and does not gate. A document-scoped gate fails on all
+211 at that moment; the diff-scoped one on 36, by design. Documentation
+claims go false without being edited, and the gate that pins nothing sees
+the least of it. This is a lower bound on the "never true when written"
+share and says nothing about the rest; splitting the 175 into born-false
+and rotted is the review's 4.9, a per-finding question for `git log -S`,
+not this replay.
+
+The reach it has is one repository's. `obra/superpowers` carries 31 of the
+33 ordinary findings and would have gone red on 6 of its 34 document-touching
+changes, every one in a plan or spec document under `docs/superpowers/`
+written during an agent session - 23 `bare-dead-sha`, 6 `dead-sha`, 2
+`dead-path-pointer` across the six. The shapes are the ones the corpus has
+met before: seven-character placeholders in an implementation plan, the
+short ids of an evaluation's own workspace, a nine-character citation of a
+commit that exists nowhere in this history. Whether that reach is a property
+of agent-written documentation is a question about the agent tier, which is
+`blob:none` and cannot be replayed without retrieving its history; the
+figure names it as a hypothesis with one repository behind it, and the
+memory note about pilots applies before anyone scales it. Precision of
+exactly these 36: 0 resolve under any reading in the tree at their commit,
+7 carry the `future-tense` annotation, 0 sit in a fence, 0 on a
+placeholder-shaped line, 0 in a template tree.
+
+Read by hand on 2026-09-21, in the gap audit that closed tranches 10 and
+11, because the review asked for the replay's findings to be adjudicated
+the way the precision sample was and the paragraph above had judged them by
+instrument alone. All 36 are dead as stated. Of the 31 in `obra/superpowers`,
+22 sit in QUOTED text: ten in blockquoted grader output that cross-checks
+five commits of an evaluation workspace against that workspace's `git log`,
+six in a list quoting the same output beside a grader's own verdict that
+four ledger hashes were "stale/fabricated", six in a bracketed example of a
+ledger line whose commit ids are the keyboard's first placeholders (not
+quoted here, for the reason this sentence gives) - text the authoring
+constraints already say the rules cannot tell from a claim. Six more name two cleanup
+commits of the same workspace in the document's own prose. Three are the
+document's own claims: one bare seven-character id whose origin the line
+does not say, and two path pointers, one of them future-tense. The two in
+`vuejs/vitepress` are a licence notice's `[Notices](#notices)`, copied into
+a compiled third-party-notices file whose headings are its own. So the
+mode's one-repository reach is narrower than the sentence above says: 28
+times in 31, what it would have failed a build on is an agent's transcript
+of ANOTHER repository's commits, quoted or cited - dead here by
+construction, and exactly what an author would want told is unverifiable
+here.
+
+Population, stated: `Aider-AI/aider`, `astral-sh/ruff` and `vuejs/vitepress`
+are reserved rows in the benchmark manifest, read here through their autopsy
+copies, which every identity run since Phase 43 has swept; without the three
+the ordinary count is 31 in 1 repository, the same picture. The figure
+carries the three names.
+
+**The action, and the oracle.** `action.yml` takes `mode: introduced-since`
+with a `since` input - on a pull request,
+`${{ github.event.pull_request.base.sha }}` - and refuses the mode without
+it, naming the input, rather than passing `--introduced-since ''` to a CLI
+whose refusal would then explain merge bases. The three packaging tests that
+pin the action's shape (no interpolation into the script, no version of its
+own, every mode a CLI flag) still pass, and three more run the step under
+bash with a stub `extant` on PATH and read the command line it assembled. The
+fuzzer's twenty-second property, `INTRODUCED`, parses `git diff -U0` for
+itself - importing the tool's `introduced_lines` would agree with it by
+construction - and requires every finding the mode gates to sit on a line
+that diff added. It chooses its own range, the parent of the last commit
+that changed a document, rather than the mode list's `HEAD~1`: the
+self-check's repository ends with a binary under an LFS filter, so a range
+of one commit held no document, examined nothing, and no breakage of the
+gate could be seen through it - `INTRODUCED` was NOT OBSERVED on its first
+run for exactly the mirror image of `AXIS`'s reason, a sound breakage
+watched through a window that showed nothing. With the range chosen from
+the history, 22 of 22.
+
+**4.2, plumbed.** The commit-graph note was measured in Phase 41 - 7.5x on
+the index, 27x on the batch, 77x on `merge-base`, on rust - and not built,
+because its only deterministic trigger, an index that came back incomplete,
+is a fact of the run scope and every mode prints its repository notes after
+that scope has closed. `RunScope.index_incomplete()` answers the question of
+the scope; `session.ancestry_incomplete()` asks it of the ambient one;
+`run_validate` and `run_check_text` read it inside each `with
+session.run_scope():` block before the block closes, `run_validate` OR-ing
+the archive's and the extras' scopes into one flag and printing the note
+once at the end if only they raised it; the survey's `_validate_one` returns
+it as the sixth element of its tuple, because a worker's scope dies with the
+worker, and the parent OR-s across every document's outcome;
+`--introduced-since` does the same through the same `survey()`.
+`git.has_commit_graph` is one stat on the shared git directory, in both
+spellings git writes - `objects/info/commit-graph`, and
+`commit-graphs/commit-graph-chain` after `--split` - so a linked worktree
+answers as its checkout does and the spawn budget is untouched. The note
+prints only when both hold - incomplete AND no graph - since a bound the
+history merely exceeds is not a cost anyone paid, and a repository holding
+the file is already paying nothing; it names `git commit-graph write
+--reachable` and writes nothing. The prediction made before the identity
+run said the note would change no corpus output: no visible sweep examines
+a merge or live claim, and moby, the largest autopsy history at 57,797
+commits, carries no release claim either. The prediction forgot the eight
+sweeps that examine a release claim, and one of them is cpython, at 132,999
+commits with no commit-graph: its sweep examined one release claim, built
+the index, hit the bound, and printed the note - the first time it has
+fired anywhere, on exactly the repository shape it was written for. The
+count of differing outputs matched the prediction; the composition did not,
+and that is recorded as the miss it was.
+
+**The survey's notes.** `--sweep` printed neither the shallow nor the
+partial note - the shallow one for the five weeks it had existed, since
+2026-08-17, and the partial one since Phase 38 four days earlier - on the
+mode most often pointed at a repository nobody here had seen. (This
+sentence said "for a year" until Phase 50 dated it against the log; the
+repository is two months old.) It prints them now through the one implementation the
+gating modes share, once, after the `examined:` line; the third note rides
+with them. 139 of the 152 visible clones are partial (`blob:none`) and the 13
+autopsy clones are full, so the identity gate's prediction was exactly 139
+outputs differing, each by that one added line, and the 13 byte-identical.
+Observed, against the after-side of Phase 46's second run: 152 compared,
+139 differ - 138 by the partial note alone and cpython by the partial note
+and the commit-graph note together - and the 13 autopsy outputs
+byte-identical, which is also the rename hint's field change holding its
+promise that no text output moves. The first diff, run against Phase 46's
+FIRST after-side by mistake, showed 141: the two extra were the ruff and
+moby findings that gained their hint when `-M` landed, present on the
+correct before-side and absent on the stale one - a wrong before-side
+reads exactly like a regression, which is why the diff names its inputs.
+
+**The rename hint's field.** Phase 39 recorded the debt: the hint sat inside
+`detail`, so inside the baseline fingerprint, although it varies with the
+checkout while the dead link does not - the argument that moved the
+commit-map hint into `repair` in 0.25.0. It is a `repair` now at both sites,
+`dead-md-link` and `dead-path-pointer`; `message()` renders `detail; repair`,
+so every human-facing format and every corpus text output is byte-identical,
+and only a hinted finding's fingerprint changes, which the changelog says
+and a baseline recorded before it will notice once. On the visible corpus
+exactly 2 findings carry the hint, the two Phase 46's `-M` fix gave it to.
+
+**The three sentences.** 6.2's closure now sits in the `line_number_at`
+docstring beside the divergence it closes (15 of 108,647 documents, 0.014
+per cent); the `signal.setitimer` refusal sits beside the watchdog thread's
+in the regex-hang record above, confirmed by inspection of the interpreter
+rather than by measurement; and the sentence in `scope.py` that still
+described `_STRIPPED` as missing the format 6.1 had given it says so no
+longer.
+
+**The gate.** Suite, five anchors written and two retargeted on the lines F
+and D changed, each applied to a copy and watched turning the suite red; the
+corpus identity sweep against the prediction above; the pre-push chain
+against a working-tree extract with `--self-check` at 22 of 22. The
+replay itself ran from a `git archive` extract of `main` at the merge, so
+its numbers are the shipped mode's and not the branch's.
+
+## The probe tranche: one batch, one scope, one list, and a matcher read against git
+
+Tranche 11 of the internals review, 2026-09-20 and 21: the five probes Phase
+45 named as "an afternoon with a number each" and nobody had taken - 4.10,
+4.5, 5.9, 5.6 and 5.7. Every one was measured before anything was written,
+on this machine, and the numbers decided them the way they were supposed to:
+two built whole, one built by half, two refused, and a differential that
+found a one-line disagreement nothing could reach and closed it anyway. The
+whole tranche changes no output on the visible corpus, by construction and
+by the identity gate below.
+
+**4.10, one batch and one scope.** `--deleted-since` read each changed
+document's previous version in a `git show` of its own, and the review's
+decider was the spawn count. Counted on this repository before the change:
+`--deleted-since v0.26.1` started TEN git processes for four changed
+documents, in 543 ms - the four reads, the `diff --name-only`, one
+`cat-file --batch-check`, and the ref table and the trunk `rev-list`
+twice each. That second cause was not in the review. `deleted_claims`
+opened no run scope, so every `validate()` it called opened a fresh one and
+re-asked what the previous document's had learned: the exact deleted
+`with session.run_scope():` that tests/test_spawn_budget.py pins for
+`--verify`, in a mode nothing pinned. Both closed: `_documents_at` is ONE
+`cat-file --batch` fed `<ref>:<path>` per line, its records paired with the
+names by position rather than by parsing the echoed name out of a header
+that may hold a space, and the loop sits inside one scope. After: five
+processes for the same four documents in about 330 ms, five for the five of
+`v0.20.0` where there were eleven, `examined` unchanged at 4 and 5. What the
+batch answers with `missing` is three facts under one spelling - an absent
+path, an object a `blob:none` copy does not hold, or a bad ref - and on such
+a copy with `GIT_NO_LAZY_FETCH=1` the missing-object case prints exactly what
+the absent-path case prints; `_listed_at`'s `ls-tree` still tells them
+apart, so `MissingObject` survives the change and the partial-repository
+test that found the guard's gap still passes. One answer changed on purpose:
+a configured name that was a DIRECTORY at the ref used to come back from
+`git show` as a tree listing and be validated as a document; the batch says
+`tree`, which is not a document, and the name counts as absent then. One
+capability was given up and is written in the docstring: names are fed on
+lines, so a configured document name holding a newline cannot be asked -
+`--batch -z` would allow it and arrived in git 2.40, against a floor of
+2.31; no configuration anyone has written names such a file. A name holding
+a SPACE is fine, and was not for an hour: a `missing` line echoes the name,
+so `HEAD~1:docs/my doc.md missing` has four fields, and a parser counting
+three from the front read it as a blob record whose size was the word
+`missing` and crashed on the integer. The gap audit that closed the tranche
+found it; the header is read from its end now, where the type and the size
+are, with a test for the absent spaced name and one for the present one,
+and an anchor. Population, stated: 0 of the 152 visible corpus clones track
+an `.extant.toml`, so this repository is the only measured caller of the
+mode, and the direct subprocess ledger in tests/test_scope.py stays at
+eight with its eighth site renamed.
+
+**5.7, one scope across `--verify`.** This repository's own `--verify` made
+five git processes: the SHA batch, and the ref table with the trunk
+`rev-list` TWICE - once for the status document and once for
+tests/harnesses/README.md, which carries one release claim - because
+`run_validate` opened a scope per document. The pair costs 40 and 61 ms here,
+101 ms of a 700 ms run, 14 per cent of the command the post-commit hook runs
+after every commit. It holds one scope across the run now, and `--sha-map`
+is what decides: with a map the mode translates a document's SHAs and
+writes the file back between reads, which is precisely the write a stable
+scope promises does not happen, so there the scope stays per document,
+opened after each rewrite, exactly as it was. Three spawns for this
+repository's five documents. The budget test's invariant moved from "twice,
+once per validate() + count_examined() pair" to "once per run", and its
+narrative says why; a second test runs the same two-document fixture with
+and without a map and asserts one table and two - the assertion the review
+asked for beside the change. The shape of the regression is different now
+and the test says so: a deleted outer scope shows as one table per asking
+document, a deleted inner one as two per document in the arm this checkout
+never takes.
+
+**5.6, the list handed down; the rest refused.** The review measured
+workers re-asking three `ls-tree` and two `log --diff-filter=R` in one
+sweep. Traced here with `GIT_TRACE` over a parallel sweep of ruff's autopsy
+clone - 650 documents, 8 workers, 5.1 s - the survey started ten git
+processes: `ls-tree -r -z --name-only HEAD` five times (the parent's listing
+and four workers re-asking through `sites.py`), the bounded rename log
+three times (three workers that needed a hint), and two SHA batches. The
+listing costs 46 ms there; the rename log 1,361 ms. And the parent's own
+listing is taken before its scope opens, so it was memoised nowhere: on the
+sequential path the first document to reach `sites.py` had the parent list
+the tree a second time. Built: `run_sweep` keeps the listing it built the
+survey from, seeds it into its own scope, and hands it through `initargs`
+beside the config so `_worker_init` seeds each worker's; `survey()` takes
+it as an optional third argument and `--introduced-since`, whose parent
+lists no tree, passes nothing. It is the same list the survey was built
+from, so nothing a worker reads can differ from what the parent read - the
+identity gate's prediction of zero rests on that sentence. Measured on a
+six-document fixture whose documents reach the project-wide anchor set:
+seven listings for one parallel survey became one, two for one sequential
+survey became one, both counted through `GIT_TRACE` because a worker is a
+process a `subprocess.run` counter in the test cannot see. Refused with
+the numbers: the rename map, because handing it down means the parent
+computing it eagerly - 1,361 ms serial before the pool, on every sweep
+including the ones where no worker asks - against three of eight workers
+paying it lazily only when a hint is needed; and the ref table and the
+trunk index, which no worker asked for on ruff at all and which would cost
+28 and 337 ms eagerly to seed. Passing what the parent already has is free;
+passing what it would have to go and get is not.
+
+**4.5, the differential run, the swap refused, one line fixed.** The review
+proposed `git check-ignore` as the exclusion engine and asked for a
+differential first. `m11_checkignore.py` in the extant-hardening checkout
+fed every tracked path of the 152 visible clones - 866,696 paths, 793,684
+distinct strings, 81,424 of them documents - through `_exclusion_regex` and
+through a scratch repository's `check-ignore --stdin --no-index -v
+--non-matching`, one pattern at a time, with the operator's global excludes
+neutralised (they had ignored `.claude/settings.local.json` under every
+pattern on the first run) and `core.ignorecase` pinned false; rows under
+`D:/repo/out-checkignore/`. The six shapes config.md documents and
+seventeen more a skip-list is likely to be written in: zero disagreements
+on documents. Five disagreements on non-document paths, all one class: a
+trailing slash names a DIRECTORY in gitignore and the matcher also took a
+FILE of that name - `pkg/debian/docs`, `hack/validate/vendor` and three
+more Debian packaging files. `excluded_documents` could never reach the
+difference, because its input is the document list and a document carries
+a suffix; it is closed anyway, one line making the slash mean "something
+beneath", with a unit test, an anchor, and a row in config.md's table, so
+the matcher agrees with git on every shape that table claims. The review's
+gap classes, confirmed with counts rather than asserted: `*.md` with
+`!README.md` differs on 4,830 documents and `docs/*` with `!docs/README.md`
+on 1, because the negation is a literal that matches nothing; `[Dd]ocs`
+differs on 56,866 paths, `docs/[a-c]*.md` on 68, `docs/[!a-c]*.md` on 327,
+because a class is a literal too. Not silently, which corrects the review's
+premise: a pattern that matches nothing is named by the sweep as one, so a
+user who writes `!` or `[a-z]` is told their pattern excluded nothing. A
+third class the review did not name: with `core.ignorecase=true`, the
+default of every Windows and macOS clone, git additionally excludes 8,508
+paths under `**/test/**`, 5,143 under `*test*` and 34 under
+`**/fixtures/**`; the regex answers everywhere as git answers on Linux.
+Real-world use of the two missing features, the review's other count: this
+repository configures no `exclude_paths`, no corpus clone tracks a
+configuration, and the documented example and the apparatus's canary use
+neither - 0 of the 3 patterns anyone has written. The swap is refused on
+three numbers: it adds a spawn and a git dependency to a pure function for
+two features 0 patterns use; it would make the skip-list follow
+`core.ignorecase`, so that 8,508 documents excluded on a developer's Windows
+clone would be read on Linux CI - the "true where you are standing" shape
+this tool exists to catch, installed as a setting; and the matcher it would
+replace has just been shown to agree with git on every documented shape.
+Six rows of the differential matched nothing on either side (`docs/guide.md`,
+`docs/**/fixtures`, `test/fixtures/a.md`, `a/b/c` and the two escapes) and
+so decided nothing; the middle-`**` arm is exercised by `src/**/*.md` alone,
+1,078 paths, exact. `!` and `[...]` would be an afternoon if a user ever
+writes one; the sweep will say so when they do.
+
+**5.9, refused.** The review asked for `-X importtime` and then for the
+modes `--verify` never reaches to be imported inside the dispatch, with a
+bar: `--verify` under about 50 ms of import. Whole-interpreter medians of
+fifteen here: a bare interpreter 40 ms, `import extant.cli` 221 ms. The
+in-process marginal cost, median of twenty fresh interpreters: the four
+deferrable modes - `sweep`, `deleted_since`, `introduced_since`, `collect` -
+3.65 ms; `extant.session`, which is the eager registry and its thirteen
+rules, 60 ms after the standard library; the standard library the package
+needs about 120 ms, of which `dataclasses` through `inspect` is 22,
+`argparse` 21, `re` 17, `pathlib` 10, `subprocess` 9 and `tomllib` 7. The
+only other lever is `report.py`'s `hashlib` and `urllib.parse` at 12.65 ms,
+and `report` is what renders the baseline and the machine formats `--verify`
+itself emits. The bar is three times further away than everything
+deferrable put together, and the deferral buys 2 per cent of the import and
+half a per cent of a 700 ms `--verify` - 5.1 was refused at 1.5 per cent of a
+sweep, and this is smaller. Refused; the review's sentence goes here
+instead of into a comment on code that did not change: "a lazily imported
+rule is a missing rule" protects the registry, which must stay eager, and
+says nothing about the modes, which could be deferred any afternoon the
+number justified it.
+
+**The gate.** Suite 1,322 passing and 3 skipped, eleven tests added. Ten
+anchors written and five retargeted on the lines the batch, the scopes,
+the seed and the matcher changed - fourteen run on one copy, 14 of 14
+killed in 69 minutes, and the two on the batch header's parse, written
+after that campaign had started, on a second copy of the final tree: one
+killed, and one SURVIVED - the anchor that turned the header's `rsplit`
+into a `split`, which the size-field guard beside it makes equivalent for
+every name a `missing` line can echo. An anchor that matches without
+biting is the AXIS lesson again; it was retargeted at the guard itself,
+which the spaced-name test does catch, and run for real: killed. The corpus identity sweep against a stated prediction of
+zero of 152 differing, because the only change a sweep runs through is
+which process lists the tree: 152 compared, 0 differ. The pre-push chain
+against a working-tree extract: smoke 45 clean of 47 with the two
+expected flags, scenarios 213 of 213, fuzz at seed 20260824 over 35
+repositories with 0 violations, `--verify` clean, `--selftest` 7 fired
+and 0 silent, and `--self-check` 22 of 22 on its second run - the first refused
+one of its own breakages, whose anchor at eight spaces of indentation
+matched mid-line once `run_validate` put its documents under one scope
+at twelve, exactly the refusal the harness's record says it makes. The measurements above were taken before any of it was
+built, and the after-numbers in 4.10 and 5.7 on the same repository
+afterwards.
+
+## The structural tranche: one Config, and two shapes the numbers kept
+
+Tranche 12 of the internals review, 2026-09-21: the three structural items
+the previous handoff ordered - 3.8, then 3.4, then 3.2 - and 3.6, which it
+asked to have recorded rather than left open. Each was measured before
+anything was written, and the measurements decided them the way they are
+supposed to: one built, two refused, one recorded as blocked. The tranche
+changes no output anywhere, by construction and by the identity gate at
+the end.
+
+**3.8, the dynamic config globals, gone.** `session._apply_config` built
+the one `Config` every rule reads through `ctx.config` and then wrote
+twenty-one module globals from it - `PRIMARY_DOC`, `TRUNK`,
+`_SECTION_HEADER` and the rest - through `globals()[name] = ...`, a second
+table kept for the callers that predate `Context`. Counted before
+anything moved: 2 of the 21 were still read outside
+`plugin/skills/extant/payload/extant/session.py`, at 13 sites in 2 modules
+(`cli.py` 9, `gate.py` 4; `sweep.py`, which the review named, reads the raw
+`StatusConfig` and none of them), and 9 of the 21 were read by nothing but
+the table that built them. mypy 2.3.1 in default mode
+- at `--python-version 3.10`, because that release no longer targets the
+3.9 floor, which CI checks and mypy now cannot - reported 31 errors in 7
+of 39 files, 14 of them `attr-defined` and 13 of those `Module has no
+attribute "PRIMARY_DOC"` or `"ARCHIVE_DOC"` at exactly those 13 sites.
+Two shapes satisfy the review's decider. Twenty-one annotations beside
+the table would tell mypy the names exist and change nothing else - a
+third copy of the name list, since `__all__` already carried four, with
+the mechanism the review objects to intact. The other is to delete the
+surface: the modes read `session.config()`, a function returning the one
+built object, the spelling the rules already use; `_ACTIVE` is declared
+`Config` and never assigned at module level, so a read before
+`_apply_config()` is a `NameError` rather than a `None` every reader has
+to explain; the table, the loop, the annotation-only `_CONSISTENCY_TIMEOUT`
+and four names in `__all__` leave. A function rather than the attribute,
+because the attribute is rebound by `reload_config` and a sibling
+importing it by name would hold the import-time object across the reload -
+the staleness the single writer exists to prevent, reintroduced at the
+import boundary. After: 17 errors, `Module has no attribute` 0 of 0, and
+the `Generator has incompatible item type` complaint on `--search`'s
+denominator went with them, because it was the unresolved names' type
+reaching a `sum`; the 17 that remain belong to the review's mypy item and
+were left alone so the delta is attributable - `Context.config` is still
+`Any` for the same reason. The suite moved with it, about fifty lines in
+eight files, every one `hc.TRUNK` becoming `hc.config().trunk` in kind:
+the two conftest fixtures lost their save-and-restore loops over the
+table; the bijection test between `Config`'s fields and the table had no
+second table to guard and became the narrower property that survives -
+`config()` and `context().config` hand out one object, and it equals a
+fresh build; the one-place test lost the two assertions about the table
+and the exemption for it, its stray scan and both `_apply_config` checks
+untouched; and the reload oracle, which compares every module global
+between a fresh import inside a project and a reload pointed at it, now
+compares eight names where it compared thirty, with the built Config's
+twenty-one fields inside one of them - the same information, since the
+globals were derived from that object. One structural test was added,
+`test_no_module_binds_a_global_through_globals`: a subscript assignment
+to `globals()` or `vars()` anywhere in the package fails it, which is what
+keeps the shape from coming back; it went red on the one such write in
+the package before the change and green after. Two anchors: the one on `--search`'s document
+loop retargeted at the new spelling, and one new, `config()` handing out
+a second build - a fresh `Config.build(CONFIG)` per call agrees with the
+rules on every CLI run and disagrees under the `reconfigure` fixture,
+which replaces the built object and not the raw settings, the trap the
+globals used to spring - pinned by the identity assertion in the new
+test.
+
+**3.4, `contextvars`, refused now and gated on 3.5.** The review's case:
+`_SCOPE` and `_DOC` are module globals saved and restored by hand, a
+`ContextVar` token restores them with the pairing enforced by the API, and
+each thread then gets its own view, which is what makes the thread pool of
+3.5 reachable. Four numbers. The package starts no threads: the one pool is
+a `ProcessPoolExecutor`, each worker owns its module globals, the
+consistency rule bounds a pattern's time by process isolation, and nothing
+that runs today can observe the difference between a module global and a
+context variable. The review's decider is zero test changes, and a port
+that changes the attribute's type touches 89 code lines in 15 files - 67
+of them `hc._SCOPE = hc.RunScope()`, 17 attribute reads, one in the corpus
+harness - plus the anchor on the scope's restore; none is a lifetime
+moving, all are test changes, and the only route to zero is to swap the
+module's class for one with properties, so that `hc._SCOPE = x` sets a
+context variable while reading as an assignment - the "looks like it
+works" shape this project keeps paying for. The `finally` stays: a token
+still has to be reset on the failing path, and what the API removes is the
+`previous_scope = _SCOPE` line, one of two in `run_scope()`. And the one
+consumer, 3.5, has no interpreter: CI runs 3.9 through 3.13 with the GIL
+and this machine runs 3.14.3 with it; a thread pool also needs each thread
+to ENTER its own scope, which is the same initializer the process pool
+runs, so 3.4 and 3.5 are one change and are measured together when a
+free-threaded build is in the matrix. For whoever ports it then: a
+variable set inside `run_scope()`, a generator-based context manager,
+binds the caller's context, which is right, and `reset` refuses a token
+from another context, which no caller here has.
+
+**3.2, `Rule` as sites and judge, refused on paper.** The review wants
+`check` and `examined` replaced by `sites(ctx, text)` and
+`judge(ctx, site) -> Finding | None`, with `examined` becoming
+`len(sites(...))` in the base class, and its own decider is 13 of 13 rules
+porting byte-identical, failing which the AST gate in
+tests/test_module_quality.py stays. Read against the thirteen: 11 already
+have `examined = len(_x_sites(ctx, text))`, and two sum over grouped sites -
+`dead-path-pointer` over `(line, raws)`, which would flatten to one site
+per raw with the line's link map carried along, identical by construction,
+and `inconsistent-artifact`, which does not fit. One of its sites is a
+consistency group, and a group yields up to `len(sources) + 1` findings:
+one when the sources are the same file, one per source that is missing,
+times out or matches nothing, and one for the group when the values
+disagree - five `Finding` constructions at three nesting levels, with the
+denominator counting sources. The strict contract holds it only with two
+relaxations, a list-valued judge and a per-site weight, and the second
+re-admits exactly the drift the gate refuses: a count the judge never
+reads. By the review's own rule that is the answer. The handoff's spike -
+`unknown-branch` and `dead-path-pointer`, one simple and one with a
+`required_literals` gate - could not have produced it, since both port;
+it was not spent, and the reading above is the record.
+
+**3.6, recorded as blocked.** A content-addressed result cache keyed on
+the document's blob, `HEAD`, the ref table, the configuration and the tool
+version is sound, the review says, only once 3.3 removes every claim
+resolved against the working tree rather than against git; 3.3 was
+refused above on its own numbers, and the 1,022 gitignored-path verdicts
+that section counts - dead in every fresh clone, resolving on any machine
+that has run the docs build - are precisely the machine-dependent answers
+such a cache would freeze and replay as if they were git's. Blocked by
+that refusal, not open.
+
+**The gate.** Suite 1,323 passing and 3 skipped: one test added, one
+replaced, and about fifty lines in eight files moved to the new spelling,
+every one of them red against the unchanged package first. Two anchors -
+the retargeted one and the new one - run for real on a copy of the tree,
+2 of 2 killed in fourteen minutes with the baseline; 284 anchors match
+exactly once. The corpus identity sweep against a stated prediction of
+zero of 152 differing, because no output carries a global's name: 152
+compared, 0 differ. The pre-push chain against a working-tree extract:
+smoke 45 clean of 47 with the two expected flags, scenarios 213 of 213,
+fuzz at seed 20260824 over 35 repositories with 0 violations,
+`--self-check` 22 of 22, `--verify` clean, `--selftest` 7 fired and 0
+silent. mypy on the tree afterwards: 17 errors where there were 31,
+`Module has no attribute` 0 where there were 13. The measurements above
+were taken before any of it was built.
+
+## The type checker: four measured, the floor none can see, and a gate on the one that enforces the most
+
+Tranche 13 of the internals review, 2026-09-21: the review's mypy item under
+9.2, the cheapest of the dev-side tools once 3.8 had made the configuration
+visible to a checker at all, and - because it was asked for - a look at
+what else a project could gate its types on in 2026. Everything below was
+measured on this tree before anything was written, and the first
+measurement overturned the argument the design had been going to make.
+
+**Four checkers on one tree.** The shipped package and the shim, 39 files,
+each checker at the lowest Python it can be told to assume, best of three
+runs: mypy 2.3.1 at 3.10 (it rejects 3.9) reported 17 errors, 10 of them
+real, in 2.94 s; Pyrefly 1.3.1 at 3.9 reported 10, 8 real, in 0.64 s;
+basedpyright 1.40.1 at 3.9 reported 11, 8 real with one site counted twice,
+in 4.35 s. ty was left at its beta and 53-86% conformance, and zuban at its
+AGPL; neither is a CI gate for a project that ships to strangers. The three
+that were run agree on the same eight sites: `config.py` calling `int()` on
+an `object` and passing a `Path | None` where a `Path` was declared,
+`collect.py` recording `parse_phase`'s `str | None` in a dict declared to
+hold strings, `gate.py` returning the integer mark from a function annotated
+`-> bool` and threading it through two more signatures as a boolean,
+`cli.py` calling `reconfigure` on a `TextIO` that promises no such method,
+and the anchor rule testing membership in a set the tuple said could be
+None. mypy's other seven were artefacts of its 3.10 target and of the shim's
+`tools.extant` fallback; Pyrefly's flow typing resolved the one site
+(`sites.py`'s `result`) that mypy flags only because a first assignment
+fixes a variable's type, and Pyrefly missed the one (`config.py:753`) that
+sat under a mypy-vocabulary suppression it honoured as blanket. Every one of
+the eight was a docstring or an annotation saying something the code did not
+do, and one - `report_denominators` - had said it since the split that
+made `gate.py` on 2026-08-31, three weeks and one release.
+
+**The floor no checker can see.** The design's first reason for preferring
+a Rust checker was going to be that Pyrefly and pyright accept
+`python-version = "3.9"` and mypy 2 does not, so only they could check the
+floor this project promises. Six 3.10-and-later usages were planted in a
+scratch file to see what each would say. Pyrefly at 3.9 caught a `match`
+statement and a 3.12 `Path.with_segments`; basedpyright at 3.9 caught those
+and a module-level `Callable[[str], None] | None`, which is an import-time
+`TypeError` on 3.9; mypy at 3.10 caught `with_segments` and an unguarded
+`import tomllib`, the only one of the three to read typeshed's `VERSIONS`.
+Neither Rust checker at 3.9 caught `itertools.pairwise`, `zip(strict=True)`
+or `int.bit_count()` - mypy at 3.10 cannot be asked, since all three are
+legal there - and the reason is in the typeshed mypy bundles:
+`bit_count` sits in `builtins.pyi` with no version guard at all. typeshed
+dropped Python 3.9 at its end of life in October 2025 and removed the
+`>= (3, 10)` guards with it, so whatever `python-version` a checker is told,
+a 3.10-only call now reads as always present. The 3.9 leg of the test
+matrix is the only check of the floor, and a `python_version` in any
+checker's config is a check of everything above it. With that reason gone,
+the comparison was cost and enforcement, and it went the other way.
+
+**Why mypy.** Three things the others lack, each with its number. Its
+`warn_return_any` is the only rule in any of the three that objects to a
+typed function returning a value nobody typed, which is what turned the 28
+`dict[Any, Any]` memo fields on `RunScope` into 28 statements of what each
+holds - Pyrefly's strict preset raised 41 implicit-`Any` errors of four
+kinds on this tree, and none of those kinds looks at an explicit one. It reads `VERSIONS`, so an unguarded 3.11
+import is red at the 3.10 target where the others are silent. And it is the
+reference implementation with a decade behind it, where Meta retired Pyre
+for Pyrefly and Pyrefly went 1.0 to 1.3 between May and September with its
+strict preset changing on the way. The costs, also measured: 2.94 s against
+0.64, which is nothing in a CI job; an environment marker on the
+requirement, because mypy 2 needs 3.10 and the test matrix installs the dev
+requirements on 3.9; and five suppressions where Pyrefly would have needed
+one, each named below.
+
+**Twenty-two suppressions, seven of them stale.** Before the gate, the
+package and `install.py` carried 22 `# type: ignore[code]` comments written
+against a mypy nobody ran. Under `warn_unused_ignores`, 7 of them - six in
+`install.py`, one in `config.py` - named a code that no longer fired on
+their line while a different one did, which is a suppression waiting to
+hide a real error of the code it names: the failure this project describes
+for its own baselines, in its own source. After: 5, each with its reason on
+the line above and one code each. `config.py`'s `import tomllib` is
+`import-not-found` at the 3.10 target because the module arrives in 3.11,
+which is what the try/except beneath it is for; `scope.py`'s `git: Git =
+None` is a sentinel the tests pin, declared as the type every reader may
+assume and defaulted to what fails where git is used; `session.py`'s
+`replace(_DOC, **changes)` forwards field names it never reads; and the
+shim's two fallback imports rebind a name the first arm bound, which is a
+redefinition and the one the file exists to make. `tomli` and `tools.*`
+are resolved in `[tool.mypy]` rather than on their lines, because whether
+either can be found is a fact about the interpreter running the check, and
+a per-line suppression that is needed on one machine and unused on the next
+would itself go red - measured: with `tomli` installed and without, the
+same output.
+
+**What `strict` asked for, and what it found.** Before the work, 17 errors
+in default mode and 79 under `--strict` on the package and shim, and 12
+and 18 on `install.py` (`detect.py` was clean): 29 and 97 across the 41
+files. After it, 0. The `Rule` contract's `check`, `probe` and
+`examined` were `object`, which said nothing and needed a suppression at
+each of five call sites; they are `Callable[[Context, str], ...]` now, the
+two names reached under `TYPE_CHECKING` so the module still imports nothing
+at runtime and the cycle it was split to avoid stays impossible, and every
+rule's `RULE = Rule(...)` is checked against the contract - all thirteen
+matched. `scope` became a `Literal` of its three values, so a rule naming a
+fourth is a type error rather than a rule the loops never select. The
+ancestry index is declared as a `Protocol` on the scope that holds it
+rather than imported from `refs.py`, which imports the scope; the one
+consumer that re-read the memo to prove an index it had just built existed
+now carries the index beside its misses instead. `md_anchor.py`'s
+five-tuple, whose docstring promised two elements were "None together",
+carries them as one pair or None, so the promise is the type. `sweep.py`'s
+worker result and `survey`'s gathering are named once under `TYPE_CHECKING`,
+because a module-level alias holding `str | None` is an expression Python
+3.9 evaluates on import and cannot - the one 3.9 hazard the checkers do not
+see, and the house style now says so. `run_scope` is a `Generator`, which is
+what a `@contextmanager` function is (Pyrefly warned; mypy did not).
+`install.py`'s measurements and presets are `TypedDict`s in `detect.py` and
+`install.py`, and the two readers that need an observation's value in a
+specific shape narrow it and refuse the rest.
+
+**The one behaviour change, and its reach: 0 of 152.** The loader coerced
+every setting into the shape it wanted, and mypy refused two of the
+coercions - `int(object)` and `tuple(object)` - which was the thread. Pulled:
+`suite_command = "pytest"` ran six one-letter arguments, `trunk = ["main"]`
+named a branch called `['main']`, a pattern given as an array compiled to
+one that matched nothing, and `release_claims_name_our_tags = "false"`
+switched the rule ON, because `bool` of a non-empty string is true. Each is
+a configuration that looks right and is not, which is the failure
+`config.py` names in its own docstring, sitting in the function that
+docstring is on. The loader now checks one TOML shape per setting - 20
+strings including every pattern, 6 arrays of strings, 1 integer, 1 boolean,
+the number-or-absent and the table it already checked - and refuses another
+with the setting, the file and the shape named, in TOML's vocabulary
+because that is the file the reader is holding. Reach, counted: 0 of the
+152 visible corpus rows track an `.extant.toml`; this repository's own uses
+native shapes; the installer renders booleans and arrays natively; no test,
+harness or preset writes a coerced shape (0 hits). Six tests: five
+refusals, red first, and one control that every documented shape still
+loads, green before and after; `config.md` states the type of every
+setting, which it did not.
+
+**The gate's shape.** `[tool.mypy]` in `pyproject.toml` is the whole
+configuration - the four targets, `python_version = "3.10"`, `strict`, the
+two missing-import overrides - so `python -m mypy` from the repository root
+takes no arguments; the cache lands at the root and is ignored there, and
+the docs say not to run it from inside `payload/`, where the cache would
+sit beside the shipped source and fail the test that reads every shipped
+file whole. It is a step of the self-check CI job, not a test: the suite
+runs on 3.9, mypy 2 does not, and a test that skipped there would print as
+a pass on the one leg whose floor it cannot see anyway. The step prints the
+checker's version before running it, so a verdict that moved between
+releases can be told from one that moved with the code. The requirement is
+`mypy>=2.3,<3` with a marker for 3.10 and up: bounded above because a
+checker's verdicts change at a major - 2.0 moved three defaults - and a gate
+that reddens `main` on a release nobody committed is the failure
+`mutate.py --check-only` exists to catch for the anchors; the bump is a
+deliberate commit with the new count in it.
+
+**Not done, with the number that decided it.** pytest-randomly: the suite
+was run once in a seeded random order with tests from different files
+interleaved across workers (`--dist load`, seed 20260921) - 1,323 passed, 3
+skipped - and the property was already evidenced by the load/loadfile
+identity AGENTS.md records; a plugin that shuffles every developer run on
+this machine to keep a property that holds is not installed. pytest-timeout
+waits on the slowest test being measured first, so the bound is a number
+rather than a guess. The tests are not type-checked - 1,329 of them is a
+tranche of its own. A `py.typed` marker is refused: nothing imports the
+package as a library, so the marker would ship into strangers' `tools/`
+directories for nobody.
+
+**The gate, as run.** Five refusal tests red before the loader refused
+anything and one control green before and after, and two tests given a
+real `Config` where they had handed the field None; the suite 1,329
+passing and 3 skipped. `python -m mypy`: no issues in 41 files.
+Five anchors retargeted on lines that lost a suppression or gained an
+annotation - the probe loop, the parser fallback, the preset's disable
+list, the worker's configuration, the absolute-target refusal - each
+applied to a copy of this tree and watched turning the suite red: 5 of 5
+killed in thirty-one minutes with the baseline; 284 anchors match exactly
+once. The corpus identity sweep against a stated prediction of zero of 152
+differing, because an annotation changes no output and the loader's
+refusals reach no clone: 152 compared, 0 differ. The pre-push chain
+against a working-tree extract: smoke 45 clean of 47 with the two expected
+flags, scenarios 213 of 213, fuzz at seed 20260824 over 35 repositories
+with 0 violations, `--self-check` 22 of 22 with every breakage anchor
+matching once, `--verify` clean, `--selftest` 7 fired and 0 silent. The
+measurements above were taken before any of it was built, and the first
+of them changed what was built.
+
+## The four probes: a split only the network can make, a rebase that reaches nothing, a rescue with no population, and the gate's missing listing
+
+Tranche 14 of the internals review, 2026-09-22: the four measurements the
+review's 4.9, 3.7, 4.8 and 4.11 asked for, run before anything was designed
+and each deciding its item. The apparatus is the `m14_*` scripts in the
+extant-hardening checkout, rows under `D:/repo/out-split`,
+`D:/repo/out-impact` and `D:/repo/out-branches`; every scanner is the
+tool's own (`prose()`, `_document_sha_tokens`, `branch_exists`,
+`named_in_merge_history`, `strata.classify`), so "cites" and "names" mean
+what the rules mean by them, and only the visible corpus rows were read.
+Two items became code, one of them not the item the review named.
+
+**4.9, the split: born false, or rotted?** The population is every
+`dead-sha` and `bare-dead-sha` the shipped `--sweep` reports at HEAD on
+the 17 agent and 13 autopsy clones, de-duplicated to 9 repositories that
+carry any: 2,489 findings, 874 distinct (repository, token) - 1,064 in the
+vendored stratum and 1,102 in the generated one, both moby's changelogs and
+API documents, 320 ordinary, 3 historical. Cerene validated the instrument
+first: 27 findings, 12 tokens, its commit-map settles 27 of 27 and the
+introducing commit is found for 27 of 27. On the corpus the offline half
+answers exactly what Stage 4's item 9 said it would: the rewrite record - the
+commit-map and the post-rewrite journal, read by the tool's own reader -
+settles 0 of 2,489, because both are artefacts of the machine the rewrite
+ran on and a clone never carries them. What a clone CAN say is when the line
+was written. `git log -S<token> -- <document>` under `environment()` found
+the introducing commit for 2,488 of 2,489 (the one refusal a blob:none
+clone's lazy fetch, refused rather than taken); plain first, because
+`--follow` answered nothing for a token the plain walk placed, so the
+rename-following pass is the fallback and never the first reading. In the
+ordinary stratum 315 of the 319 dated findings were in the document's FIRST
+version - written into a new file, not edited into an old one - and the
+line's median age at HEAD is 637 days. The 36 tokens that resolve in a clone
+with every blob are blob prefixes, which is why the rule asks
+`cat-file -e <sha>^{commit}` and this probe peels the same way.
+
+The 320 ordinary findings, read by document: 244 are transcripts of a
+session's commits - aider's chat-history test fixture, 215, is aider working
+on aider itself, and of its 75 distinct "Commit <id> <subject>" lines 13
+subjects exist in the history under another id and 62 do not; aider's 29
+website examples are sessions on scratch projects - and superpowers' 23 are
+the quoted evaluation output Phase 47's hand-read named; 28 are docker
+network and container ids in libnetwork's vagrant walkthrough (see the third
+shape found below); 8 cite another project's commit on purpose, five of
+them with that project's URL on the same line and one saying "imported
+from commit"; 13 are not commits at all (a content hash repeated across
+eight translations of one page, a signature scheme's name four times, a
+fixture hash); and 4 findings, 3 tokens, were read by hand as this
+repository's own commit that no longer resolves - goose's merge notes and
+langgraph's generated threat model - with a fifth in fastapi's release
+notes in the historical stratum. The network step below moved that line
+in both directions: it found three more of the repository's own ids in
+superpowers' plan and spec prose that the hand read had counted with the
+quoted output, and it refused fastapi's. The review's dichotomy has a
+third leg larger than either: a commit id that was true in ANOTHER object
+store - a local session's auto-commits, an evaluation workspace, a vendored
+project - and never in this one.
+
+The split itself, made by the one instrument that can make it. GitHub's
+commits API answers 200 for any commit the repository network's object
+store still holds, reachable or not - verified on this repository on
+2026-09-22: the tip of the local `backup/pre-rewrite-main`, unreachable from
+`main` since the 2026-08-10 rewrite with no branch on GitHub holding it, is
+served six weeks later, and so is its tenth ancestor; a never-existed token
+answers 422; a 7-character abbreviation resolves. Limits stated: a 200 can
+be a fork's commit, a 422 a commit GitHub has since collected, so each is a
+lower bound. Run over the 172 distinct tokens of the ordinary and historical
+strata (the 705 vendored and generated ones are other projects' changelogs
+and would answer 422 for nothing), one read-only call each: **6 existed
+once and 166 never did**. The 6 are exactly the class read by hand as the
+repository's own - goose's merge notes citing two commits of its own July
+history, langgraph's generated threat model citing the commit it was
+generated at, three ids in superpowers' own plan and spec prose - every one
+a commit of the repository's recent history squashed or rebased away, cited
+in a document written in the same season, 2026. The 166: aider's 129 are one
+session transcript kept as a test fixture whose auto-commits never reached
+the remote in any form; superpowers' 16 are quoted output about another
+workspace; moby's 14 are thirteen docker ids and the commit of the project
+it imported a package from; ruff's 2, vitepress's 2, pytest's 1 and
+goose's 1 are another project's commit or not a commit; fastapi's 1 is an
+id its release notes carry that GitHub has never held. Outside the one
+fixture, 6 of 43.
+
+What that changes, and what it does not. The finding is right either way -
+dead is dead, and the rule never claimed to know why. The advice is what
+moves. "Keep your documents fresh" describes 6 tokens in 172, and every one
+of those was a squash or a rebase, which the post-rewrite hook already
+names at the moment it happens. The rest were never this repository's fact:
+an agent quoting a transcript, a grader's output, another workspace's
+history, into a plan that the next session reads as a claim about this one.
+So the sentence the skill now carries is neither of the review's two. A
+commit id is a fact about one object store; written into a document from
+anywhere else it is a claim this repository can never check, and the tool
+will read it as one - name where it came from, or leave it out. The
+"paraphrase, never quote" constraint below is the same instruction with the
+number behind it now. `--at <ref>` itself stays unbuilt: the question it
+would answer is settled by the network or not at all.
+
+**3.7, `--impact`: documents citing `HEAD~50..HEAD`.** 153 rows over the
+152 visible clones and Cerene, 140 clone names, 139 repositories (SWE-agent
+is cloned under two owners). "Cites" is the rules' token union resolved by
+one `cat-file --batch-check`, tags peeled to their commits; the window is
+`rev-list HEAD~50..HEAD`, side branches merged in it included; 7 repositories
+younger than fifty first-parent commits used their whole history and are
+named in the rows. **9 of 139 have one or more documents citing a commit in
+the window, and the median is 0 in every group**: the agent tier 1 of 15 (a
+changelog), heldout-ai 1 of 10 (agno's test logs), niche 1 of 38 (a
+changelog), control 6 of 25, autopsy 0 of 13, bench 0 of 28, heldout-human
+0 of 10, Cerene 0 - it cites 12 tokens and every one is dead. Of the 75
+repositories carrying an agent-document signature, 6. Twelve of the
+fifteen agent-tier repositories cite no SHA token in prose at all, two
+cite only dead ones, and one cites live commits - in its changelog. The
+second pass makes the answer robust to the fifty: 50 repositories cite any
+live commit, 13,064 citations, and the smallest N at which a rebase of the
+last N commits reaches one is 50 or less in 9, 200 or less in 15, 1,000 or
+less in 21, median 1,789 first-parent commits (an exact index on the line,
+an upper bound off it); of all 13,064 live citations 0.93 per cent sit
+within 50 commits and 17.7 per cent within 1,000, median depth 4,523.
+Documents cite what shipped long ago. Refused: the dead-SHA problem is a
+rewrite problem, not a rebase-of-recent-work problem - the outcome the
+review said was worth knowing too - and the moment a rewrite happens is
+already the post-rewrite hook's, which greps every tracked document for the
+old ids and names the repair.
+
+**4.8, the rescue rate.** `unknown-branch` reads the newest entry of a
+primary document, and the review's sentence about a squash merge erasing a
+name describes the merge rule's deliberate silence (a missing branch plus an
+integrated commit), not this rule, which fires when neither the ref table
+nor the merge log holds the name. The two real status documents: this
+repository's names no branch in the pattern's shape - its entries cite
+pull-request numbers, and its five sites are examples in this document, the
+harness README and one entry sentence - and Cerene's newest entry has one
+site, rescued. The rule's population today is zero findings. The proxy, so
+the number exists: every `branch_token` match in every document of 141
+repositories, judged with the rule's own functions - 78 sites in 21
+repositories, 32 rescued by merge history, 46 neither. The 46, read one by
+one: 22 examples, templates and workflow globs; 2 vendored (one README
+absorbed by kubernetes and by moby); and 22 real names in the session, test
+and design documents of 6 repositories, one line saying "merged via #47" and
+another "Closed PR #4 and deleted" - squash-merged then deleted, or
+worktree-only. So the rescue fires on 32 of 54 real-name sites and a
+`reference-transaction` journal would settle the other 22, none of which the
+shipped rule reads. The structural ceiling, over the last 200 first-parent
+commits of 141 repositories: integrations that leave a branch name behind
+are a median 1 per cent, 64 of 129 repositories at zero (squash or rebase
+only), 15 at one; the agent tier 2 per cent, 7 of 14 at zero. Refused, with
+the trigger: the journal earns its place the day the rule reads standing
+documents, which Phase 36 measured at 56 tokens and not one a claim, and
+which this proxy measures again at 22 examples in 46.
+
+**4.11, the pre-commit hook reads HEAD - and the gate did too.** The
+experiment the review asked for, in a scratch repository: a new document
+`git add`ed with a dead SHA, a tracked document edited and staged, another
+edited and not staged, a fourth never added. `--sweep` reads the edits from
+the working tree and cannot see the new document - its listing is HEAD's
+tree, the documented decision, since an index that did not complete is
+empty. `--verify`, which the pre-commit framework's bare `extant` entry runs,
+reads every configured document from the working tree - staged, unstaged,
+even untracked - and has no gap. `raw-lfs-blob` examined 0 with the
+attributes and pointer staged and 1 once committed: HEAD by design, stays.
+And `--introduced-since HEAD` dropped the staged new document and, in a
+second run, an uncommitted `git mv` with an edit, printing "examined 0
+changed document(s)" and "1 tracked document(s) the range did not change
+were not read" of a file the range had moved. The diff named both; the mode
+intersected the diff's paths with `tracked_markdown`, which is HEAD's tree,
+and the new name fell out. Its own docstring said "the working tree holds
+and base does not". A pull-request checkout never showed it, because there
+HEAD carries every change; the gate run locally before committing a new plan
+document - the agent's most common artefact - showed it every time, as a
+clean run. The `--staged` mode the review floated is refused: nothing needs
+the index read. The listing is fixed: the changed documents are the diff's
+own `+++ b/` side, which the pathspec already restricts to the suffixes
+`tracked_markdown` reads; HEAD's tree only counts what the range left alone,
+minus both names of a rename, read off the `--- a/` side the same reader
+now returns. Two tests red first, the staged document and the moved one.
+Adopters wiring the pre-commit hook rather than the post-commit one: not
+measurable - no telemetry, and one known install - and stated as such.
+
+**Three shapes found on the way**, each with its count. First, `ed25519`
+read as a bare dead SHA in 7 of the 152 visible clones (goose, deno,
+kubernetes, node, unraid, PX4-Autopilot, pdns): seven characters, every one
+a hex digit, a letter and a digit among them, the exact shape both shape
+tests admit, and the only such word the corpus holds. Shipped as a one-word
+list beside the shape, `_HEX_WORDS`, refused in both spellings; the cost is
+a commit whose abbreviation is exactly that word, one in 268 million
+objects; 7 identity outputs predicted to change. Second, a SHA as the link
+text of a commit URL WITHOUT backticks - `[<sha>](https://github.com/<owner>/<repo>/commit/...)`,
+the conventional-changelog spelling - is 1,425 of the 11,191 dead-SHA
+findings in the recorded sweep (12.7 per cent; angular's absorbed zone.js
+changelog 379, moby's vendored changelogs 358, node's deps 290), and 28 more
+link to the repository's own URL and are real rewrite casualties. The
+backticked spelling has been suppressed since the held-out narrowings (192
+findings then), deliberately without comparing owners; the bare spelling is
+the same shape and the same argument, one skip span in the bare scanner,
+and it is recorded here rather than built because the design that was
+approved said recorded. Third, a CommonMark indented code block is not
+blanked by `prose()`: a five-line document proves it, the fenced token
+blanked and the four-space-indented one reported. Corpus: moby 1,139
+findings (its generated API documents and the vagrant walkthrough), 76
+findings in 16 other repositories, and bazel's 36,321 anchors in version
+snapshots. Not built here, on purpose: a four-space-indented continuation
+paragraph under a list item is prose, and blanking it is the false negative
+this tool refuses, so the change needs its own measurement of what it would
+blank before it is a change.
+
+**The gate, as run.** Four tests red before the code moved - the staged
+document, the moved document, the hex word in both spellings, and the
+control that a hex run one character longer still fires; two direct
+callers of `introduced_lines` unpack its third value. Two anchors
+retargeted (the listing, the unlistable-tree refusal's sentence) and three
+written (the listing from HEAD's tree again, the renamed-away name counted
+as unchanged, the emptied word list), each to be applied to a copy and
+watched turning the suite red; 287 anchors match exactly once. The corpus
+identity sweep against a stated prediction of 7 of 152 differing - the
+`ed25519` clones and nothing else, because the gate's listing reaches no
+clone's clean working tree - and the pre-push chain against a working-tree
+extract, recorded in the Phase 51 entry with their numbers.
+
+## The bare commit-link text: whose commit it is, and a number re-derived
+
+The first of the two shapes Phase 51 recorded and did not build, built as
+Phase 52 on 2026-09-22 - twice, because the gate on the first build put a
+question the design had not asked. The shape: a SHA as the unbackticked
+link text of a commit URL, `[<sha>](https://github.com/<owner>/<repo>/commit/...)`,
+which is how release-please, standard-version and the changelogs they
+generate write every entry. `_URL` has always skipped the hex inside the
+parentheses; nothing skipped the copy before `](`, so a token the URL
+beside it attributes to another repository was checked against this one.
+The backticked spelling of exactly this had been suppressed since the
+held-out narrowings, deliberately without comparing owners, and the first
+design was the same argument in the bare spelling: one more pattern
+beside `_LINKED_SHA` with the same URL tail, its whole-match span the
+sixth line of the bare scanner's skip list.
+
+**The count did not reproduce, and the reason is that it was never
+persisted.** The Phase 51 record said 1,425 of the 11,191 dead-SHA
+findings in the recorded sweep, naming angular, moby and node; no
+apparatus script held that count - it was a pass over the sweep outputs
+that was not written down. A persisted one (`m15_linktext.py` beside the
+other `m14_*` scripts in the extant-hardening checkout) re-derives it by
+parsing both dead-SHA kinds back out of every sweep output, reading each
+finding's line from its clone, and scanning that line twice with the
+tool's own scanner, with and without the new span. Population first: the
+after-side of the Phase 51 sweep holds 11,142 dead-SHA occurrences, the
+record's 11,191 less exactly the 49 `ed25519` sites that phase removed,
+so the two passes read the same documents. Then the count: the pattern
+that mirrors `_LINKED_SHA` - any host, `commit`, `commits`, `blob`,
+`tree`, `pull` or `compare` - covers 2,866 findings across 15 of the 152
+outputs, 2,107 once a repository that sits in two tiers is counted once:
+moby's vendored google-cloud-go changelogs 754, node's node-gyp and
+corepack changelogs 491, angular's absorbed zone.js changelog 424, and
+kubernetes 414, absent from the record entirely - its changelogs pin
+every dependency as a short SHA linking to that repository's `/tree/`
+page. Restricting the pass to the record's own literal spelling, host
+`github.com` and tail `/commit/`, gives moby's 358 exactly and node's 286
+against a recorded 290, so the unpersisted pass took its own words
+literally; under that reading the total over all 152 outputs is 1,459,
+within 34 of the recorded 1,425, and the residual cannot be reconstructed
+because nothing was kept.
+
+**The gate on the first build said 29, not 15, and the miss was the
+prediction's.** The identity sweep compares outputs byte for byte, and an
+output carries the `examined:` denominators as well as the findings. A
+bare SHA that is commit-link text and RESOLVES was examined and reported
+nothing; the unconditional skip stopped examining it, so the `dead-sha`
+denominator moved in every clone that holds one, dead or alive - and the
+measurement had counted dead findings only. In the 15 predicted outputs
+the findings removed matched the prediction exactly, output by output,
+nothing was added, and nothing else moved but the denominators and the
+summary lines that follow them; the other 14 outputs moved in the
+`examined:` line alone. The script gained a second pass that counts every
+site through the tool's own `prose()`, and it predicted 29 outputs and
+18,285 sites, each output's count equal to its observed denominator drop.
+That pass is what put the question: 15,419 of the 18,285 sites resolved
+today - angular's changelogs 7,069 of them, lobe-chat 2,361, openfoodfacts
+2,159, vitepress 1,173, axe-core 1,161, sile 862 - and a link text that
+resolves in the clone is, by construction, a commit this repository has.
+Live, so no finding moved; but a rewrite that kills one of them is
+reported today and would not have been with the skip in, which is the
+shape of the casualties below at a scale of thousands rather than tens.
+The backticked skip had accepted the same exposure in 2026-08 without
+measuring it, because that spelling is rare; this one is the common one.
+
+**The decision: the URL's owner is compared with `origin`, in both
+spellings.** Split the way that comparison splits them, the 18,285 sites
+are 15,257 own and alive, 31 own and dead, 162 foreign and alive (a fork
+or a monorepo carrying the other repository's history), 2,835 foreign and
+dead, and none in a clone without an origin. So the comparison removes
+exactly the 2,835 foreign findings and 162 live foreign sites, and keeps
+15,288 own sites examined with their 31 casualties reported: angular 25,
+helix 3, axe-core 2, lobe-chat 1 - 27 of them with the URL's full SHA
+dead too, and 4 in angular's old changelog whose link text is the LAST
+ten characters of a SHA that resolves, a token no abbreviation could ever
+satisfy, reported today and still reported, which is the status quo
+rather than a verdict this change makes. The reasoning is the tool's own
+guarantee, that a rule asks only what git in this repository can settle
+about this repository: the URL says which repository the commit belongs
+to, `origin` says which repository this is, and when the two agree the
+claim is in scope and checkable - the changelog entry whose commit a
+squash or a force-push takes away is the one rotting citation the tool
+exists to report, in the document type that cites commits more than any
+other. When they disagree the claim is about another object store, out of
+scope, and reporting it is the false positive by construction that
+vendored changelogs and dependency pins produced by the thousand. The
+first design's reason for not comparing - "a document does not reliably
+state which repository it is in" - was true and beside the point: the
+document does not, the repository does, and `dead-pinned-ref` has told a
+pin aimed at us from one aimed elsewhere by exactly this comparison since
+it was written. Two rules, one notion of "ours", one function.
+
+What the comparison costs, named: a repository renamed on GitHub keeps
+old links under the old name, which read as foreign and are skipped -
+lost coverage, never a false positive; a clone with no origin cannot
+settle "ours" and skips, the caution the unconditional version took, on 0
+sites in the corpus; a fork skips upstream's links, which are upstream's
+claims. The reduction is `owner/name`, so `www.github.com`,
+`api.github.com/repos/...`, an SSH origin and a GitLab mirror all compare
+as one repository, and GitLab's `/-/commit/` spelling is allowed for.
+
+**How.** `own_remote` and `normalise_remote` moved from the pinned-ref
+rule to `refs.py`, public because a sibling reads them now. The two
+scanners take the origin as a zero-argument callable and ask it only on a
+line holding one of the two shapes, never before - the same economy
+`_pinned_refs` keeps by not asking on a document without a `rev:` line -
+so a document with no linked commit costs no question, the spawn budget's
+fixture count does not move, and a checkout whose config fast path
+answers pays a 0.19 ms file read once per run. Each memo's key carries
+the origin the scan compared with, or a sentinel when none was needed and
+any origin hits, the discipline `_MERGE_CLAIMS` keeps for its pattern and
+trunk; `_document_sha_tokens`, the batch, takes the same callable, so
+what is resolved is what is examined. One helper, `_linked_spans`, serves
+both spellings: the backticked skip is owner-aware now as well, or the
+verdict on one claim would depend on whether the author typed backticks.
+
+**Tests.** Ten pairs in section 3 of `tests/test_held_out_narrowings.py`,
+each arm of the comparison with its control: a foreign link skipped with
+`examined` at zero, so it is silent because unexamined rather than
+examined and found alive; the same link naming `origin` reported, in both
+spellings; an SSH origin against a `www.` URL compared as one repository;
+a link with no origin to compare against skipped; link text on a page
+that names no commit still reported; a bare range as link text skipped
+when foreign and reported at both ends when own; the same range unlinked
+reported at both ends. The mirror copy of the bare scanner compares at
+two origins, None and the `o/r` the generated corpus links, with a
+template for each arm - because the plan had promised the agreement test
+would go red on the sixth exclusion and it was not going to: the corpus
+held the backticked link template only, and this repository's documents
+hold no bare commit link. Three mutation anchors: the foreign skip
+deleted, the own arm skipped like a foreign one (the first design,
+sneaking back), and the backticked skip forgetting whose commit it is;
+four retargeted by path with the moved helpers.
+
+**The corpus said the own arm is not a corner.** The same pass, run over
+the backticked spelling that had been skipped unconditionally since
+2026-08-08, found 81,166 such sites in the 152 clones: 79,978 own and
+alive, 1,188 own and DEAD, 199 foreign and alive, 555 foreign and dead.
+So the unconditional skip had been hiding 1,188 real rotting citations in
+the corpus all along, and node alone holds 1,165 of them - its versioned
+changelogs cite ten-character abbreviations, one per entry, of commits
+from the io.js era that the repository's own object store no longer
+has - and each is written as link text of a link to node's own commit
+page, so the unconditional skip silenced every one. astro holds 23 of
+the rest, in its packages' changelogs. Neither is a repository with a rewrite in its recent past;
+both are what a decade of changelogs looks like. The comparison turns
+them back on, and the identity gate's prediction is therefore 24 outputs
+and 84,163 sites changing examined status - 2,997 foreign sites of both
+spellings switched off, 81,166 own ones switched on - rather than the
+2,835-in-15 the first design predicted.
+
+**The gate, as run.** Nine tests red before the code moved - the four own
+arms of the comparison in both spellings, the SSH-against-`www` reduction,
+the no-origin arm, and the three the first design had written - plus the
+mirror's two-origin comparison, which is red until the copy carries the
+same owner test. Three anchors written and four retargeted by path with
+the moved helpers. The corpus identity sweep against a stated prediction
+of 24 of 152 differing: 24 differ, the predicted set exactly, none missing
+and none unpredicted. 2,835 findings left, every one a bare SHA linked to
+another repository's commit; 1,188 appeared, every one a backticked SHA
+linked to this repository's own - node 1,165 and astro 23 - and no other
+kind moved anywhere. The `examined:` denominators moved by the net of the
+two directions, output by output: node's 62,479 sites changing status show
+as a net of +61,497, which is 61,988 switched on less the 491 switched
+off, and angular keeps 25 of its 424 because those 25 name angular's own
+commits. The pre-push chain ran against a working-tree extract, and the
+rebase-journal flake that had reddened CI since PR #15 was diagnosed and
+fixed on the way: the fixture cited `cited[:7]`, and a seven-character
+prefix that is all digits is no candidate at all, so the rule correctly
+found nothing and the test read `[]` where `dead-sha` was due - 3.8 per
+cent of runs, one in forty locally and about one red leg in three across
+ten CI legs. `_abbrev`, written for exactly this in another file on
+2026-09-13, moved to `tests/conftest.py`; 60 of 60 runs green after it,
+against 1 failure in 40 before.
+
+**Did it silence anything useful? Audited rather than asserted**
+(`m15_audit.py` beside the measurement script; output beside it in the
+logs). Every one of the 2,835 findings the comparison removed is read back
+out of the two sweeps with its document's stratum and with the URL head
+that decided it. Where they sit: 1,933 in vendored trees, 880 in
+historical records, and 22 in ordinary documents - the stratum that
+gates. All 22 were read by hand, and each cites another project by name in
+its own prose: aider's post about a litellm commit (3, in two tiers of the
+same clone), a CVE archive's "fix commit" in three upstream projects,
+PX4's NuttX upgrade in three translations of one page, tensorflow's
+advisory about tflite-micro, uv's vendored copy of pypa/packaging, and
+helix's note that its lsp-types crate is a fork of gluon-lang's. There is
+no argument for checking any of them against the repository that cites
+them.
+
+How foreign was established matters more than where the findings sat, and
+it is the question the audit exists to answer: the skip could silence a
+real claim only by treating "cannot tell" as foreign. In all 2,835 the
+URL head parsed to a real `owner/name`; none was relative, none empty,
+none in a clone without an origin. Across the whole corpus there is not
+one linked-commit site whose head names no repository, and every one of
+the 98,109 sites the comparison calls OURS is on the same host as the
+origin it was compared with, so ignoring the host mis-attributed nothing.
+891 of the removed sit under the same owner as the origin and a different
+repository - `angular/angular` citing `angular/zone.js`,
+`tensorflow/tensorflow` citing `tensorflow/tflite-micro` - which is a
+sibling project rather than a rename; the shape a rename or fork would
+take, the same repository NAME under another owner, occurs zero times. No
+document's `dead-sha` denominator fell from nonzero to zero, so the rule
+goes silent in no document anywhere, and three clones gained a denominator
+they did not have.
+
+The residual risks, stated because the corpus cannot close them: a
+repository renamed on its host keeps old links under the old name, which
+read as foreign and are skipped - lost coverage, never a false positive,
+and indistinguishable from the 891 sibling-project cases above; a clone
+with no origin cannot settle whose commit a link names, so both spellings
+skip there, which is a loss of the bare spelling's old coverage in that
+one case - the corpus holds no such clone, and the one origin-less
+repository this project knows of holds 29 documents and not a single
+linked-commit site, so the arm is pinned by a test rather than by a
+population. And the four angular sites whose link text is the last ten
+characters of a resolving SHA are still reported, as they were before:
+this change neither makes nor removes them.
+
+**Not done here, and the next measurement.** `_URL`'s hex skip is still
+unconditional: `[the fix](https://github.com/<us>/commit/<sha>)`, a commit
+URL of this repository with words as its link text, is not examined,
+because the hex sits inside a URL. The same argument applies and the
+same comparison would settle it; it is a wider verdict change - every own
+commit URL in every document becomes a site - and gets its own count
+before it is a change.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them
-  through.** The rules cannot distinguish a quotation from a claim.
+  through.** The rules cannot distinguish a quotation from a claim. Measured
+  on 2026-09-22 across the agent and autopsy corpus tiers: of 172 distinct
+  dead commit ids in ordinary documents, 6 had ever existed in the
+  repository's own history and 166 were quoted from a transcript, a grader's
+  output or another project - true elsewhere, never here, and read here as
+  claims.
 - Write a SHA range with git's own dots, `` `a..b` `` or `` `a...b` ``, or as
   two tokens `` `a` `` -> `` `b` ``. Both ends of a dotted range are checked
   and repaired since 2026-09-12; an arrow inside one backtick pair,

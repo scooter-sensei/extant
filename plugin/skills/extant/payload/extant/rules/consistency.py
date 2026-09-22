@@ -16,7 +16,7 @@ from extant.scope import Context
 __all__ = ["RULE", "check", "examined", "probe"]
 
 
-def _consistency_for(ctx: Context) -> dict:
+def _consistency_for(ctx: Context) -> dict[str, tuple[tuple[str, re.Pattern[str]], ...]]:
     """The consistency block belonging to the repository being checked."""
     try:
         return load_config(ctx.repo).consistency
@@ -43,7 +43,7 @@ class _Captured:
 
 
 def _search_with_limit(pattern: "re.Pattern[str]", content: str,
-                       timeout: float | None):
+                       timeout: float | None) -> re.Match[str] | _Captured | None:
     """`pattern.search(content)`, optionally under a wall-clock bound.
 
     Unbounded by default, and that is deliberate rather than neglected. Python's
@@ -83,7 +83,7 @@ def _search_with_limit(pattern: "re.Pattern[str]", content: str,
     return None if captured is None else _Captured(captured)
 
 
-def _file_identity(path: Path) -> tuple:
+def _file_identity(path: Path) -> tuple[object, ...]:
     """A value equal for two paths that reach the same file.
 
     `(st_dev, st_ino)` is the filesystem's own answer, and it handles symlinks,

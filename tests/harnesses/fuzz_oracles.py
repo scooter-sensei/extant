@@ -48,7 +48,7 @@ __all__ = [
     "DidNotRun", "ORACLES", "Result", "finding_count", "findings_in",
     "run_all",
     "oracle_baseline", "oracle_crlf", "oracle_denominator_agrees",
-    "oracle_fence", "oracle_github", "oracle_mode_agrees",
+    "oracle_fence", "oracle_github", "oracle_introduced", "oracle_mode_agrees",
     "oracle_monotone", "oracle_process", "oracle_relocate", "oracle_shift",
 ]
 
@@ -584,6 +584,90 @@ def oracle_github(run, repo: Path) -> Result:
     return Result()
 
 
+# `@@ -a[,b] +c[,d] @@`: the `+` side of one hunk starts at line c and runs
+# for d lines, one when d is absent, none when it is 0 (a pure deletion).
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@",
+                   re.M)
+_NEW_FILE = re.compile(r"^\+\+\+ b/(?P<path>.+)$", re.M)
+
+
+def _lines_the_range_wrote(repo: Path, ref: str) -> set[tuple[str, int]]:
+    """Every (path, line) the working tree holds that `ref`'s merge base with
+    HEAD did not, read from `git diff -U0` and parsed HERE. The tool parses
+    the same diff in `introduced_since.introduced_lines`; an oracle that
+    imported it would agree with it by construction, and agreeing is not
+    what an oracle is for."""
+    base = subprocess.run(["git", "merge-base", ref, "HEAD"], cwd=repo,
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace").stdout.strip()
+    if not base:
+        raise DidNotRun(f"git finds no merge base between {ref} and HEAD")
+    diff = subprocess.run(
+        ["git", "-c", "core.quotePath=false", "diff", "-U0", "--no-color",
+         "--no-ext-diff", "--no-renames", base],
+        cwd=repo, capture_output=True).stdout.decode("utf-8", "replace")
+    wrote: set[tuple[str, int]] = set()
+    path = None
+    for line in diff.split("\n"):
+        named = _NEW_FILE.match(line)
+        if named:
+            path = named["path"].strip('"')
+            continue
+        hunk = _HUNK.match(line)
+        if hunk and path is not None:
+            start = int(hunk["start"])
+            count = 1 if hunk["count"] is None else int(hunk["count"])
+            wrote.update((path, n) for n in range(start, start + count))
+    return wrote
+
+
+def oracle_introduced(run, repo: Path) -> Result:
+    """Every finding `--introduced-since` GATES sits on a line the range wrote.
+
+    The mode's whole promise is that a pull request fails only on the claims
+    it wrote, and the promise has two halves that can disagree: the tool's
+    reading of `git diff -U0` and the line numbers its rules report. The
+    CRLF and encoding axes are what stress the seam - the diff is read as
+    bytes and a bare carriage return is a line break to the rules and not to
+    git, which is why a document holding one is surveyed and never gated.
+    A gated finding at a line git did not add is therefore a defect on one
+    side or the other, and this reads the diff independently to notice.
+
+    The range starts at the parent of the last commit that changed a tracked
+    document, chosen HERE rather than inherited from the mode list's
+    `HEAD~1`: the generated history ends with whatever axis was drawn last -
+    the self-check's ends with a binary under an LFS filter - and a range
+    holding no document examines nothing, which no breakage of the gate can
+    be seen through. A repository whose only document-writing commit is the
+    root has no such parent, and this steps aside there and says so.
+    """
+    last = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", "*.md", "*.markdown", "*.rst"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+        errors="replace").stdout.strip()
+    if not last:
+        return Result(skipped="no commit changes a document")
+    parent = subprocess.run(["git", "rev-parse", "--verify", "--quiet", last + "^"],
+                            cwd=repo, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace").stdout.strip()
+    if not parent:
+        return Result(skipped="the only document-writing commit is the root")
+    done = run(repo, ["--introduced-since", parent])
+    out = _text(done)
+    if done.returncode == 2 or "examined " not in out:
+        return Result(skipped="--introduced-since declined: "
+                              + (out.strip().splitlines() or ["no output"])[0][:80])
+    wrote = _lines_the_range_wrote(repo, parent)
+    faults = []
+    for path, line, kind, detail in sorted(findings_in(out)):
+        where = (path or PRIMARY).replace("\\", "/")
+        if (where, line) not in wrote:
+            faults.append(("INTRODUCED",
+                           f"{where}:{line} [{kind}] was gated, but the "
+                           f"range wrote no line {line} of that document"))
+    return Result(faults)
+
+
 # Order matters only for reading the output. The mutating oracles come first
 # so that a failure in one is reported before the read-only ones spend spawns.
 ORACLES = (
@@ -597,6 +681,7 @@ ORACLES = (
     ("MODE-AGREE", oracle_mode_agrees),
     ("DENOM-AGREE", oracle_denominator_agrees),
     ("GITHUB", oracle_github),
+    ("INTRODUCED", oracle_introduced),
 )
 
 

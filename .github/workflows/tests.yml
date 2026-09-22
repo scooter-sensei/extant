@@ -249,6 +249,20 @@ jobs:
       - name: Are the mutations still pointed at real code?
         run: python tests/harnesses/mutate.py --check-only
 
+      # A step of this job rather than a test, because the suite runs on 3.9
+      # and mypy 2 does not; a test that skipped there would print as a pass
+      # on the one leg whose floor it cannot see anyway. The version is
+      # printed first so a verdict that moved between releases can be told
+      # from one that moved with the code. About three seconds on the
+      # development machine; every error names its file and line.
+      # `[tool.mypy]` in pyproject.toml is the whole configuration: the
+      # files, the 3.10 target, `strict`.
+      - name: Do the types still agree with the code?
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements-dev.txt
+          python -m mypy --version
+          python -m mypy
+
       # The performance numbers in the docs were all measured on Windows, where
       # process spawning is expensive, and the docs say so rather than claiming
       # a Linux figure that was never taken. This takes it, so the claim has

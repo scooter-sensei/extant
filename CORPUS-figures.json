@@ -905,6 +905,176 @@
       }
     }
   },
+  "replay": {
+    "aside": 175,
+    "by_kind": {
+      "bare-dead-sha": 23,
+      "dead-md-anchor": 2,
+      "dead-md-link": 2,
+      "dead-path-pointer": 2,
+      "dead-sha": 6,
+      "manifest-floor-mismatch": 1
+    },
+    "by_repository": {
+      "Aider-AI/aider": {
+        "aside": 0,
+        "changes": 50,
+        "changes_with_documents": 16,
+        "document_changes": 40,
+        "introduced_lines": 975
+      },
+      "SWE-agent/SWE-agent": {
+        "aside": 9,
+        "changes": 50,
+        "changes_with_documents": 10,
+        "document_changes": 21,
+        "introduced_lines": 74
+      },
+      "astral-sh/ruff": {
+        "aside": 2,
+        "changes": 50,
+        "changes_with_documents": 36,
+        "document_changes": 87,
+        "introduced_lines": 6309
+      },
+      "babel/babel": {
+        "aside": 74,
+        "changes": 50,
+        "changes_with_documents": 5,
+        "document_changes": 7,
+        "introduced_lines": 46
+      },
+      "fastapi/fastapi": {
+        "aside": 37,
+        "changes": 50,
+        "changes_with_documents": 37,
+        "document_changes": 755,
+        "introduced_lines": 4506
+      },
+      "helm/helm": {
+        "aside": 0,
+        "changes": 50
+      },
+      "mkdocs/mkdocs": {
+        "aside": 7,
+        "changes": 50,
+        "changes_with_documents": 18,
+        "document_changes": 21,
+        "introduced_lines": 463
+      },
+      "moby/moby": {
+        "aside": 24,
+        "changes": 50,
+        "changes_red": 2,
+        "changes_with_documents": 9,
+        "document_changes": 12,
+        "gated": 3,
+        "introduced_lines": 645,
+        "ordinary": 0
+      },
+      "obra/superpowers": {
+        "aside": 6,
+        "changes": 50,
+        "changes_red": 6,
+        "changes_with_documents": 34,
+        "document_changes": 56,
+        "gated": 31,
+        "introduced_lines": 7532,
+        "ordinary": 31
+      },
+      "prometheus/docs": {
+        "aside": 10,
+        "changes": 50,
+        "changes_with_documents": 27,
+        "document_changes": 30,
+        "introduced_lines": 488
+      },
+      "pytest-dev/pytest": {
+        "aside": 1,
+        "changes": 50,
+        "changes_with_documents": 30,
+        "document_changes": 40,
+        "introduced_lines": 748
+      },
+      "sphinx-doc/sphinx": {
+        "aside": 0,
+        "changes": 50,
+        "changes_with_documents": 32,
+        "document_changes": 41,
+        "introduced_lines": 276
+      },
+      "vuejs/vitepress": {
+        "aside": 5,
+        "changes": 50,
+        "changes_red": 1,
+        "changes_with_documents": 19,
+        "document_changes": 58,
+        "gated": 2,
+        "introduced_lines": 2405,
+        "ordinary": 2
+      }
+    },
+    "by_stratum": {
+      "ordinary": 33,
+      "vendored": 3
+    },
+    "changes": 650,
+    "changes_each": 50,
+    "changes_red": 9,
+    "changes_with_documents": 273,
+    "clones": 13,
+    "concentration": {
+      "changes_red": 6,
+      "changes_with_documents": 34,
+      "ordinary": 31,
+      "repository": "obra/superpowers"
+    },
+    "context": {
+      "future-tense": 7
+    },
+    "document_changes": 1168,
+    "gated": 36,
+    "introduced_lines": 24467,
+    "judged": 36,
+    "ladder_on_these": {
+      "docs3-ord": {
+        "no_answer": 0,
+        "ordinary": 123,
+        "repos": 9
+      },
+      "installed": {
+        "no_answer": 2,
+        "ordinary": 2,
+        "repos": 2
+      },
+      "ordinary": {
+        "no_answer": 0,
+        "ordinary": 454,
+        "repos": 11
+      },
+      "root+docs-ord": {
+        "no_answer": 0,
+        "ordinary": 37,
+        "repos": 5
+      }
+    },
+    "measured": "2026-09-20",
+    "ordinary": 33,
+    "payload": "73f1f22",
+    "present_at_edit": 211,
+    "readings": {
+      "none": 36
+    },
+    "repositories_reporting": 3,
+    "repositories_reporting_ordinary": 2,
+    "reserved_elsewhere": [
+      "Aider-AI/aider",
+      "astral-sh/ruff",
+      "vuejs/vitepress"
+    ],
+    "resolve_under_some_reading": 0,
+    "written_by_edit_pct": 17.1
+  },
   "sha_census": {
     "absent_pct": 41.9,
     "by_form": {

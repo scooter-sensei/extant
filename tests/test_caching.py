@@ -27,14 +27,14 @@ sys.path.insert(0, str(PAYLOAD))
 
 def test_the_remote_is_asked_for_once_rather_than_once_per_document(
         git_repo, monkeypatch) -> None:
-    """`_own_remote` answers a question about the REPOSITORY.
+    """`own_remote` answers a question about the REPOSITORY.
 
     It was being called once per document by the pinned-ref rule. Profiled over
     400 documents, that was 11.3 seconds of a 16.2 second sweep - 70 percent of
     the run spent spawning `git remote get-url` to receive the same string.
     """
     from extant import session as hc
-    from extant.rules import pinned_ref as rule_pinned_ref
+    from extant import refs
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -49,13 +49,13 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     monkeypatch.setattr(hc, "_GIT", counter)
     calls = counter.calls
     # A fresh ambient scope, rather than clearing the one cache this test
-    # knows the name of. `_own_remote` is called DIRECTLY here, so what it
+    # knows the name of. `own_remote` is called DIRECTLY here, so what it
     # memoises into is whatever scope the module is holding.
     hc._SCOPE = hc.RunScope()
     try:
-        first = rule_pinned_ref._own_remote(hc.context(repo))
+        first = refs.own_remote(hc.context(repo))
         for _ in range(20):
-            rule_pinned_ref._own_remote(hc.context(repo))
+            refs.own_remote(hc.context(repo))
     finally:
         hc._SCOPE = hc.RunScope()
 
@@ -67,7 +67,7 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     # A second repository must still be asked about separately, or the cache is
     # answering for the wrong project - which would be a correctness bug and
     # the reason this is keyed by path rather than being a single value.
-    assert first == rule_pinned_ref._own_remote(hc.context(repo))
+    assert first == refs.own_remote(hc.context(repo))
 
 
 def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) -> None:
@@ -78,7 +78,7 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     rule does the least useful work.
     """
     from extant import session as hc
-    from extant.rules import pinned_ref as rule_pinned_ref
+    from extant import refs
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -87,9 +87,9 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     calls = counter.calls
     hc._SCOPE = hc.RunScope()
     try:
-        assert rule_pinned_ref._own_remote(hc.context(repo)) is None, "the fixture has no origin"
+        assert refs.own_remote(hc.context(repo)) is None, "the fixture has no origin"
         for _ in range(10):
-            rule_pinned_ref._own_remote(hc.context(repo))
+            refs.own_remote(hc.context(repo))
     finally:
         hc._SCOPE = hc.RunScope()
 
@@ -665,9 +665,9 @@ def test_the_candidate_scans_run_once_per_document_not_once_per_caller(
     real_sha = commits._find_sha_candidates
     real_claims = commits._merge_claims
 
-    def counted_sha(text):
+    def counted_sha(text, own):
         sha_scans.append(text)
-        return real_sha(text)
+        return real_sha(text, own)
 
     def counted_claims(config, prose):
         claim_scans.append(prose)

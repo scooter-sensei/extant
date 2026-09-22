@@ -30,16 +30,17 @@ one, and only the claim rule ever sees it.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
-
+from extant.config import Config
 from extant.git import rewrite_journal_path, rewrite_map_path
-from extant.refs import SHA_SHAPE, resolve_shas
+from extant.refs import SHA_SHAPE, normalise_remote, own_remote, resolve_shas
 from extant.scope import Context
 from extant.text import could_match, line_breaks, line_number_at
 
 __all__ = [
-    "BACKTICKED", "BARE_SHA_TOKEN", "_ASSET_PATH", "_BARE_SHAS", "_LINKED_SHA",
+    "BACKTICKED", "BARE_SHA_TOKEN", "_ASSET_PATH", "_BARE_SHAS",
+    "_LINKED_BARE_SHA", "_LINKED_SHA",
     "_MERGE_CLAIMS", "_PINNED_REF", "_SHA_CANDIDATES", "_SHA_RANGE", "_URL",
     "_UUID", "_range_ends",
     "_document_sha_tokens", "_find_bare_sha_candidates",
@@ -81,6 +82,21 @@ _SHA_RANGE = re.compile(r"^([0-9a-f]{7,40})(\.\.\.?)([0-9a-f]{7,40})$")
 BARE_SHA_TOKEN = re.compile(r"(?<![#\w])[0-9a-f]{7,40}\b")
 
 
+# A WORD spelled entirely in hex digits, which the two shape tests below would
+# otherwise admit: seven characters, a letter and a digit among them.
+#
+# `ed25519` names a signature scheme and is written bare in prose about keys
+# - "each node has one ed25519 keypair". Measured 2026-09-22 against the
+# recorded sweep of the 152 visible corpus clones: reported as a bare dead SHA
+# in 7 of them (goose, deno, kubernetes, node, unraid, PX4-Autopilot, pdns),
+# and it is the ONLY such word the corpus holds - every other repeated dead
+# token was hex that named something. A list rather than a rule, because the
+# shape cannot be told from a commit's and a second word will be measured in,
+# not inferred. What the skip costs: a commit whose abbreviation is exactly
+# this word, one in 268 million objects.
+_HEX_WORDS = frozenset({"ed25519"})
+
+
 def looks_like_sha(token: str) -> bool:
     """Shape test for a BACKTICKED token.
 
@@ -93,9 +109,13 @@ def looks_like_sha(token: str) -> bool:
     all-digits about 4% of the time, and those go unchecked now. That is the
     better side of the trade - a missed check is silent, while flagging every
     large number in a document is the noise that gets a validator ignored.
+
+    A word from `_HEX_WORDS` is refused in either spelling: `` `ed25519` `` is
+    how a key type is written in prose, not a citation.
     """
     return (bool(SHA_SHAPE.match(token))
             and not _is_digest_length(token)
+            and token.lower() not in _HEX_WORDS
             and any(ch.isdigit() for ch in token)
             and any(ch.isalpha() for ch in token))
 
@@ -126,9 +146,12 @@ def looks_like_bare_sha(token: str) -> bool:
     year, a test count) that `looks_like_sha` alone would wrongly accept.
     The digit requirement excludes a hex-looking English word the same way it
     already does for `looks_like_sha`. Measured against ~2600 lines of the
-    real status documents with zero false positives.
+    real status documents with zero false positives - and against 152 corpus
+    clones on 2026-09-22, where one word carrying BOTH a letter and a digit
+    slipped it, so `_HEX_WORDS` names that word beside the shape.
     """
     return (not _is_digest_length(token)
+            and token.lower() not in _HEX_WORDS
             and any(ch.isdigit() for ch in token)
             and any(ch.isalpha() for ch in token))
 
@@ -220,19 +243,69 @@ def spans_overlap(span: tuple[int, int], others: list[tuple[int, int]]) -> bool:
 # because it was also written as link text. 192 findings on the held-out
 # corpus, 162 of them in one changelog tree.
 #
-# Deliberately does NOT compare owners. Neither does the `_URL` rule it
-# mirrors, and it cannot: a document does not reliably state which repository
-# it is in. A link to this repository's own commit is unaffected in practice,
-# because a SHA that resolves produces no finding to suppress.
+# THE URL'S OWNER IS COMPARED WITH `origin`, since 2026-09-22. Until then the
+# skip was unconditional, on the reasoning that a document does not reliably
+# state which repository it is in - true, and beside the point: the
+# repository states it, through its origin, which is how `dead-pinned-ref`
+# has told a pin aimed at us from one aimed elsewhere all along. A link
+# naming THIS repository's commit is this repository's claim, and it is the
+# changelog entry whose commit a squash or a force-push takes away - the one
+# rotting citation this tool exists to report. Measured over the 152 visible
+# corpus clones for the bare spelling below: 15,257 such links resolve today
+# and 31 do not, and the unconditional skip stopped examining every one.
+# Foreign is skipped; unsettled (no origin) is skipped, the caution the
+# unconditional version took; own is examined. `<head>` is what is compared,
+# reduced by `normalise_remote` so `www.github.com`, `api.github.com/repos`
+# and an SSH origin all read as one `owner/name`; GitLab's `/-/commit/`
+# spelling is allowed for.
 #
 # A RANGE as link text is the same shape with a compare URL behind it:
 # `` [`6728344..4080341`](.../compare/6728344..4080341) `` in helix's
 # changelog, where the first commit is one a rebase left unreachable while
-# the compare page still serves it. The span covers both ends, so neither is
-# read as this repository's claim.
+# the compare page still serves it. The span covers both ends.
+_LINKED_TAIL = (r"\s*\]\(\s*(?P<head>[^)\s]*?)(?:/-)?"
+                r"/(?:commit|commits|blob|tree|pull|compare)/[^)\s]*\)")
 _LINKED_SHA = re.compile(
-    r"\[\s*`([0-9a-fA-F]{6,40}(?:\.\.\.?[0-9a-fA-F]{6,40})?)`\s*\]\(\s*[^)\s]*?"
-    r"/(?:commit|commits|blob|tree|pull|compare)/[^)\s]*\)", re.I)
+    r"\[\s*`([0-9a-fA-F]{6,40}(?:\.\.\.?[0-9a-fA-F]{6,40})?)`" + _LINKED_TAIL, re.I)
+# The same shape WITHOUT backticks, which is how release-please,
+# standard-version and every changelog they generate write an entry:
+#
+#     * update gyp-next ([#3316](.../issues/3316)) ([8ea71e5](https://github.com/nodejs/node-gyp/commit/8ea71e5a...))
+#
+# `_URL` skips the hex inside the parentheses; nothing skipped the copy
+# before `](`, so it was read as this repository's claim whoever the URL
+# named. Re-derived on 2026-09-22 from the recorded sweep of the 152
+# visible corpus clones (m15_linktext.py in the measurement apparatus):
+# 2,835 bare dead-SHA findings link to a repository other than the clone's
+# origin - moby's vendored google-cloud-go changelogs, node's node-gyp and
+# corepack, angular's absorbed zone.js, kubernetes' dependency pins at
+# `/tree/<sha>` - and 31 link to its own, which stay reported.
+#
+# Read by the bare scanner only: a line without a hex run never reaches it,
+# and a line with one pays for six scans instead of five.
+_LINKED_BARE_SHA = re.compile(
+    r"\[\s*([0-9a-fA-F]{6,40}(?:\.\.\.?[0-9a-fA-F]{6,40})?)" + _LINKED_TAIL, re.I)
+# What a scan records when no line held a linked commit: `origin` was never
+# asked for, the same economy `_pinned_refs` keeps on a document without a
+# `rev:` line, and the result holds for every origin.
+_UNASKED = object()
+
+
+def _linked_spans(pattern: "re.Pattern[str]", line: str,
+                  own: Callable[[], str | None], asked: list[object],
+                  whole: bool) -> list[tuple[int, int]]:
+    """Spans of linked SHAs on this line that are NOT this repository's.
+    `asked` records what `own()` answered, filled on the first shape met, so
+    the memo above each scanner can key on the value the scan used."""
+    spans: list[tuple[int, int]] = []
+    for match in pattern.finditer(line):
+        if not asked:
+            asked.append(own())
+        ours = asked[0]
+        if ours is not None and normalise_remote(match.group("head")) == ours:
+            continue
+        spans.append(match.span() if whole else match.span(1))
+    return spans
 
 
 # The same memo `_BARE_SHAS` below carries, for the same reason and with the
@@ -246,22 +319,33 @@ _LINKED_SHA = re.compile(
 # document three times over identical bytes. Measured on a 29-document sweep of
 # a real repository: 89 calls, 0.18s of self time, of which two thirds bought
 # nothing.
-_SHA_CANDIDATES: tuple[str, list[tuple[int, str]]] | None = None
+# The key carries the ORIGIN the scan compared linked commits with (since
+# 2026-09-22), or `_UNASKED` when none was needed and any origin hits:
+# everything the scan reads is in the key, as `_MERGE_CLAIMS` keeps it.
+_SHA_CANDIDATES: tuple[str, object, list[tuple[int, str]]] | None = None
 
 
-def find_sha_candidates(text: str) -> list[tuple[int, str]]:
-    """(line number, token) for every backticked SHA-shaped token."""
+def find_sha_candidates(text: str,
+                        own: Callable[[], str | None]) -> list[tuple[int, str]]:
+    """(line number, token) for every backticked SHA-shaped token. `own`
+    answers `owner/name` for this repository, called only when a line holds
+    a linked commit - see `_linked_spans`."""
     global _SHA_CANDIDATES
     if _SHA_CANDIDATES is not None and _SHA_CANDIDATES[0] is text:
-        return _SHA_CANDIDATES[1]
-    result = _find_sha_candidates(text)
-    _SHA_CANDIDATES = (text, result)
+        _text, compared, hit = _SHA_CANDIDATES
+        if compared is _UNASKED or compared == own():
+            return hit
+    result, compared = _find_sha_candidates(text, own)
+    _SHA_CANDIDATES = (text, compared, result)
     return result
 
 
-def _find_sha_candidates(text: str) -> list[tuple[int, str]]:
-    """The scan itself. Separate only so the cache above stays readable."""
+def _find_sha_candidates(
+        text: str, own: Callable[[], str | None]) -> tuple[list[tuple[int, str]], object]:
+    """The scan itself, and the origin it compared with (or `_UNASKED`).
+    Separate only so the cache above stays readable."""
     out: list[tuple[int, str]] = []
+    asked: list[object] = []
     for number, line in enumerate(text.splitlines(), start=1):
         # Both patterns below carry a literal backtick - `BACKTICKED` opens
         # with one and `_LINKED_SHA` needs `` [` `` - so a line without one
@@ -272,14 +356,14 @@ def _find_sha_candidates(text: str) -> list[tuple[int, str]]:
         # of every document: 0.32 s of a 5.9 s sequential sweep of ruff.
         if "`" not in line:
             continue
-        qualified = [m.span(1) for m in _LINKED_SHA.finditer(line)]
+        qualified = _linked_spans(_LINKED_SHA, line, own, asked, whole=False)
         for match in BACKTICKED.finditer(line):
             if spans_overlap(match.span(1), qualified):
                 continue
             for token in _range_ends(match.group(1)):
                 if looks_like_sha(token):
                     out.append((number, token))
-    return out
+    return out, (asked[0] if asked else _UNASKED)
 
 
 def _range_ends(token: str) -> tuple[str, ...]:
@@ -304,10 +388,11 @@ def _range_ends(token: str) -> tuple[str, ...]:
 # in extant/rules/line_pointer.py were then the two most expensive things in a
 # sweep, each computed twice over identical bytes. Measured on pytest's 308
 # documents: 617 calls, 1.20s.
-_BARE_SHAS: tuple[str, list[tuple[int, str]]] | None = None
+_BARE_SHAS: tuple[str, object, list[tuple[int, str]]] | None = None
 
 
-def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
+def find_bare_sha_candidates(text: str,
+                             own: Callable[[], str | None]) -> list[tuple[int, str]]:
     """(line number, token) for every SHA-shaped token OUTSIDE backticks.
 
     I-1: a SHA written without backticks previously escaped both
@@ -323,15 +408,20 @@ def find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
     """
     global _BARE_SHAS
     if _BARE_SHAS is not None and _BARE_SHAS[0] is text:
-        return _BARE_SHAS[1]
-    result = _find_bare_sha_candidates(text)
-    _BARE_SHAS = (text, result)
+        _text, compared, hit = _BARE_SHAS
+        if compared is _UNASKED or compared == own():
+            return hit
+    result, compared = _find_bare_sha_candidates(text, own)
+    _BARE_SHAS = (text, compared, result)
     return result
 
 
-def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
-    """The scan itself. Separate only so the cache above stays readable."""
+def _find_bare_sha_candidates(
+        text: str, own: Callable[[], str | None]) -> tuple[list[tuple[int, str]], object]:
+    """The scan itself, and the origin it compared with (or `_UNASKED`).
+    Separate only so the cache above stays readable."""
     out: list[tuple[int, str]] = []
+    asked: list[object] = []
     for number, line in enumerate(text.splitlines(), start=1):
         # Does this line contain a hex-shaped run at ALL? Almost none do, and
         # the five exclusion scans below are the expensive half of this
@@ -362,13 +452,14 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
         skip_spans += [m.span() for m in _UUID.finditer(line)]
         skip_spans += [m.span() for m in _ASSET_PATH.finditer(line)]
         skip_spans += [m.span() for m in _PINNED_REF.finditer(line)]
+        skip_spans += _linked_spans(_LINKED_BARE_SHA, line, own, asked, whole=True)
         for match in BARE_SHA_TOKEN.finditer(line):
             if spans_overlap(match.span(), skip_spans):
                 continue
             token = match.group(0)
             if looks_like_bare_sha(token):
                 out.append((number, token))
-    return out
+    return out, (asked[0] if asked else _UNASKED)
 
 
 # The third scan of the same document, memoised like the two above and read by
@@ -384,10 +475,10 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
 # input a hit could be wrong about. `reload_config` and the `reconfigure`
 # fixture both build a fresh Config, so a changed `merge_claim` arrives as a
 # different pattern object and simply misses.
-_MERGE_CLAIMS: "tuple[str, Any, str, list[tuple[int, str, str]]] | None" = None
+_MERGE_CLAIMS: "tuple[str, re.Pattern[str], str, list[tuple[int, str, str]]] | None" = None
 
 
-def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
+def merge_claims(config: Config, prose: str) -> list[tuple[int, str, str]]:
     """(line, ref, sha) for every merge claim, ref as written.
 
     Split out of what is now `extant.rules.merge.check` so `_document_sha_tokens`
@@ -413,7 +504,7 @@ def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     return result
 
 
-def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
+def _merge_claims(config: Config, prose: str) -> list[tuple[int, str, str]]:
     """The scan itself. Separate only so the cache above stays readable."""
     pattern = config.merge_claim
     named = pattern.groups >= 2
@@ -457,7 +548,8 @@ def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     return claims
 
 
-def _document_sha_tokens(config: Any, prose: str) -> list[str]:
+def _document_sha_tokens(config: Config, prose: str,
+                         own: Callable[[], str | None]) -> list[str]:
     """Every SHA-shaped token in this document that a rule will ask git about.
 
     The UNION, gathered once so a document costs ONE `cat-file --batch-check`
@@ -481,15 +573,16 @@ def _document_sha_tokens(config: Any, prose: str) -> list[str]:
     Takes PROSE, because both callers blank code blocks before reading and
     passing raw text here would resolve tokens from fences that no rule reads.
     """
-    tokens = [token for _number, token in find_sha_candidates(prose)]
-    tokens += [token for _number, token in find_bare_sha_candidates(prose)]
+    tokens = [token for _number, token in find_sha_candidates(prose, own)]
+    tokens += [token for _number, token in find_bare_sha_candidates(prose, own)]
     tokens += [sha for _number, _ref, sha in merge_claims(config, prose)]
     return tokens
 
 
 def document_shas(ctx: Context, prose: str) -> set[str]:
     """Which of this document's SHA-shaped tokens resolve to commits."""
-    return resolve_shas(ctx, _document_sha_tokens(ctx.config, prose))
+    return resolve_shas(ctx, _document_sha_tokens(
+        ctx.config, prose, lambda: own_remote(ctx)))
 
 
 # The `--sha-map` rewriter, which repairs the references the scanners above
@@ -618,7 +711,9 @@ def _translated_value(token: str, mapping: dict[str, str],
     return hits[0][: len(token)] if len(hits) == 1 else None
 
 
-def _read_rewrite_map(repo: Path) -> tuple[dict[str, str], Any, str | None]:
+def _read_rewrite_map(
+    repo: Path,
+) -> tuple[dict[str, str], dict[str, list[tuple[str, str]]], str | None]:
     """The repository's commit-map, and why it could not be read if it could not.
 
     Two answers rather than one, because "no rewrite has happened here" and
@@ -661,7 +756,9 @@ def _read_rewrite_map(repo: Path) -> tuple[dict[str, str], Any, str | None]:
     return mapping, _bucket_index(mapping), None
 
 
-def _rewrite_map(ctx: Context) -> tuple[dict[str, str], Any, str | None]:
+def _rewrite_map(
+    ctx: Context,
+) -> tuple[dict[str, str], dict[str, list[tuple[str, str]]], str | None]:
     """Cached for the run, like every other answer the disk gave.
 
     A sweep validates every tracked document in one scope and a commit-map

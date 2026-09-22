@@ -15,6 +15,29 @@ An unknown key is **reported as a warning**, not silently ignored - a typo that
 quietly does nothing is the same class of failure as a pattern that matches
 nothing.
 
+### Every setting has one TOML type, and another is refused
+
+`retain_entries` is an integer, `release_claims_name_our_tags` a boolean,
+`consistency_timeout_seconds` a number or absent, `consistency` a table, the
+six list-shaped settings (`extra_docs`, `suite_command`, `code_suffixes`,
+`todo_exclude_files`, `todo_exclude_dirs`, `exclude_paths`) arrays of strings,
+and everything else a string - including every pattern, and the two optional
+patterns `phase_task` and `phase_bare`, which may be empty to switch off. A
+value of any other shape stops the load with a message naming the setting,
+the file and the shape it wanted:
+
+```
+.extant.toml: suite_command must be an array of strings, and is a string
+```
+
+Refused rather than coerced, because the coercions looked like tolerance and
+were not: `suite_command = "pytest"` used to run six one-letter arguments,
+`trunk = ["main"]` used to name a branch called `['main']`, a pattern given as
+an array compiled to one that matched nothing, and
+`release_claims_name_our_tags = "false"` switched the rule ON - `bool` of a
+non-empty string is true. Each is a configuration that looks right and is not,
+which is the failure this file exists to warn about.
+
 ### Both placements are merged, and a key may not use both
 
 The two placements are read together rather than one winning. This mattered
@@ -186,10 +209,20 @@ be" mistake the admission test exists to prevent.
 | `docs/*` | entries in `docs`, and everything under a matched directory |
 | `**/fixtures/**` | any `fixtures` directory at any depth |
 | `docs/guide.md` | that one file, rooted at the repository |
+| `vendor/` | a DIRECTORY called `vendor` at any depth and everything under it, never a file of that name - the one thing the trailing slash changes |
 
 `*` stops at a separator and `**` spans them. `fnmatch`'s `*` crosses `/`
 silently, so `docs/*.md` there would take the whole tree and the only evidence
 would be a smaller number.
+
+Every row above was checked against `git check-ignore` on 793,684 distinct
+tracked paths from 152 repositories and agreed exactly. What the matcher does
+NOT read is `!` negation, `[a-z]` character classes and backslash escapes -
+such a pattern becomes a literal, matches nothing, and is named by the sweep
+as a pattern that matched nothing rather than quietly excluding something else
+- and `core.ignorecase`: a pattern matches the case it is written in, on
+every platform, where git on a Windows or macOS clone would also take
+`Docs/`.
 
 **The sweep prints what it removed, per pattern, and names any pattern that
 matched nothing.** A skip-list fails silently in both directions - by

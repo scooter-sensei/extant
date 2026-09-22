@@ -83,12 +83,15 @@ def test_selftest_without_the_primary_document_reports_it(tmp_path) -> None:
     assert done.returncode == 1, combined
 
 
-def test_a_configured_consistency_timeout_reaches_the_global(tmp_path) -> None:
+def test_a_configured_consistency_timeout_reaches_the_built_config(tmp_path) -> None:
     """The setting was inert on every CLI run, and looked configured.
 
-    `_apply_config()` runs at import and sets `_CONSISTENCY_TIMEOUT`; a later
-    module-level ASSIGNMENT then replaced it with None. The config parsed, the
-    value reached CONFIG, and the global the rule actually reads never saw it.
+    `_apply_config()` ran at import and set a module global from it; a later
+    module-level ASSIGNMENT then replaced that global with None. The config
+    parsed, the value reached CONFIG, and the name the rule actually read
+    never saw it. The rule reads `ctx.config.consistency_timeout` off the
+    built Config now and the global is gone, so this asks the object every
+    reader shares, through `session.config()`.
 
     Run as a subprocess with the payload in `tools/`, because that is the only
     arrangement in which the target repository's own config is read at all -
@@ -102,10 +105,10 @@ def test_a_configured_consistency_timeout_reaches_the_global(tmp_path) -> None:
         [sys.executable, "-c",
          "import sys; sys.path.insert(0, 'tools');"
          " from extant import session as hc;"
-         " print(hc.CONFIG.consistency_timeout_seconds, hc._CONSISTENCY_TIMEOUT)"],
+         " print(hc.CONFIG.consistency_timeout_seconds, hc.config().consistency_timeout)"],
         cwd=repo, capture_output=True, text=True)
     assert done.stdout.split() == ["5.0", "5.0"], (
-        f"config and the global disagree: {done.stdout!r} {done.stderr!r}")
+        f"config and the built Config disagree: {done.stdout!r} {done.stderr!r}")
 
 
 def test_write_baseline_resolves_against_the_repository(tmp_path) -> None:

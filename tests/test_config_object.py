@@ -1,9 +1,11 @@
 """Config is built in exactly one place, and rebuilding it is total.
 
-The bug this shape prevents, recorded when `_CONFIG_DERIVED` was introduced:
+The bug this shape prevents, recorded when the one-place build was introduced:
 nineteen scattered assignments plus a SECOND list naming which to refresh. The
-two diverged, `_SECTION_HEADER` was computed rather than copied, and it went
-stale on every reload.
+two diverged, the section header was computed rather than copied, and it went
+stale on every reload. The table of module globals that first closed that
+gap, `_CONFIG_DERIVED`, is gone in turn - every reader takes the built
+`Config` itself now - so the property here is about that one object.
 """
 from __future__ import annotations
 
@@ -71,7 +73,7 @@ def test_a_rebuilt_config_differs_in_every_value_that_changed(tmp_path) -> None:
     assert first.phase_prefix != second.phase_prefix
     assert first.section_header.pattern != second.section_header.pattern, (
         "section_header is computed from entry_prefix and did not change with "
-        "it, which is the exact staleness _CONFIG_DERIVED exists to prevent")
+        "it, which is the exact staleness the one-place build exists to prevent")
 
 
 def _canonical(value: object) -> object:
@@ -81,56 +83,36 @@ def _canonical(value: object) -> object:
     return value
 
 
-def test_the_shim_derives_one_global_per_config_field() -> None:
-    """`_ACTIVE` and the shim's globals must come from ONE build.
+def test_every_reader_is_handed_the_one_built_config(tmp_path) -> None:
+    """`config()` and `context(repo).config` hand out ONE object, and it is
+    what a fresh build from the current CONFIG gives.
 
-    Two tables that describe the same thing diverge - that is the whole reason
-    `Config` exists - and `_ACTIVE` alongside `_CONFIG_DERIVED` is two tables
-    unless `_apply_config` derives both from a single Config. A name added to
-    one and not the other fails the count; an `_apply_config` that rebinds
-    CONFIG without rebuilding `_ACTIVE` fails the comparison.
+    This replaced a bijection check between `Config`'s fields and a table of
+    twenty-one module globals derived from them, `_CONFIG_DERIVED`. That
+    table was the second copy of the configuration - one for the rules,
+    which read `ctx.config`, and one for the modes, which read
+    `session.PRIMARY_DOC` - kept from diverging only because `_apply_config`
+    wrote both from one build, and invisible to a type checker because it
+    was written through `globals()`. The globals are gone, so there is no
+    second table to keep in step. What is left to guard is narrower and
+    stated here: whichever door a caller reaches the configuration through,
+    it gets the object `_apply_config` last built, and that object is
+    current - an `_apply_config` that rebinds CONFIG without rebuilding it
+    fails the comparison below.
     """
     from extant import session as hc
     from extant.config import Config
 
-    fields = dataclasses.fields(Config)
-    assert len(hc._CONFIG_DERIVED) == len(fields), (
-        f"{len(hc._CONFIG_DERIVED)} derived globals against {len(fields)} "
-        f"Config fields; one table gained a value the other did not")
+    built = hc.config()
+    assert built is hc.context(tmp_path).config, (
+        "config() and context().config hand out different objects, so a mode "
+        "and a rule could be reading two configurations at once")
 
-    assert hc._ACTIVE is not None, "_apply_config never set _ACTIVE"
+    fields = dataclasses.fields(Config)
     rebuilt = Config.build(hc.CONFIG)
     stale = [f.name for f in fields
-             if _canonical(getattr(hc._ACTIVE, f.name))
+             if _canonical(getattr(built, f.name))
              != _canonical(getattr(rebuilt, f.name))]
     assert not stale, (
-        f"compared {len(fields)} fields; _ACTIVE disagrees with a fresh build "
-        f"from the current CONFIG in: {stale}")
-
-    # WIRING, not just count. Both checks above pass even if an entry reads
-    # the WRONG field - `"TRUNK": lambda c: c.primary_doc` still leaves the
-    # table at 21 entries, and never touches _ACTIVE, since neither check
-    # above ever calls a _CONFIG_DERIVED lambda.
-    #
-    # Give every field a value no other field shares - its own name - and
-    # call each lambda against that Config directly. Built directly rather
-    # than through `Config.build`, which maps one fixed StatusConfig and has
-    # no way to make 21 fields simultaneously distinct in one call; `Config`
-    # itself is a plain `@dataclass(frozen=True)` with no `__post_init__`, so
-    # a field typed for a compiled pattern or a bool accepts its own name as
-    # a plain string with no validation to fail.
-    #
-    # A correctly wired table then reads back exactly the 21 field names,
-    # each once. A mis-wired entry breaks that bijection from either side:
-    # its target field's name is produced twice (once by the entry that
-    # rightly reads it, once by the mis-wired one) and its own field's name
-    # is not produced at all - caught whether the mistake points at another
-    # field or is simply missing. Neither the count nor the full-object
-    # comparison above can see this, because both are blind to which
-    # specific field each entry's lambda actually reads.
-    sentinel = Config(**{f.name: f.name for f in fields})
-    produced = sorted(build(sentinel) for build in hc._CONFIG_DERIVED.values())
-    expected = sorted(f.name for f in fields)
-    assert produced == expected, (
-        f"_CONFIG_DERIVED entries do not all read the field their name "
-        f"claims - got {produced}, expected {expected}")
+        f"compared {len(fields)} fields; config() disagrees with a fresh "
+        f"build from the current CONFIG in: {stale}")

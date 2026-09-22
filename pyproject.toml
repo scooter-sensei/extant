@@ -94,3 +94,39 @@ extant = [
 [tool.coverage.report]
 show_missing = true
 precision = 1
+
+# The type checker, and unlike coverage it IS a gate: the self-check job runs
+# `python -m mypy` and fails on one error. Everything the project maintains
+# in Python is listed - the shipped package, the shim, and the two files that
+# run at install time and never ship - and the tests are not, which is a
+# separate decision a later tranche can take. `strict` rather than a chosen
+# subset, because a subset is a second list to keep in step with this one.
+#
+# `python_version` is pinned at 3.10, the lowest mypy 2 targets, and it is not
+# the 3.9 floor CI runs the suite on. No checker can see that floor any more:
+# typeshed dropped 3.9 with its EOL and removed the `>= (3, 10)` guards, so
+# `int.bit_count` reads as always present whatever version is named here. The
+# 3.9 leg of the test matrix is the check of the floor; this is the check of
+# everything else, at the lowest version a checker still distinguishes.
+[tool.mypy]
+files = [
+    "plugin/skills/extant/payload/extant",
+    "plugin/skills/extant/payload/extant_collect.py",
+    "plugin/skills/extant/install.py",
+    "plugin/skills/extant/detect.py",
+]
+python_version = "3.10"
+strict = true
+
+# Two modules that exist only in some environments, and whose absence says
+# nothing about this code. `tomli` is the pre-3.11 spelling of `tomllib`,
+# installed by requirements-dev.txt on interpreters that need it and by
+# nobody on the ones that do not; `tools.extant` is where the shim finds the
+# package once it is installed into a target repository, and it is not here.
+# Resolved in config rather than with a comment on the line, because whether
+# either can be found is a fact about the interpreter running the check, and
+# a per-line suppression that is needed on one machine and unused on the next
+# would itself go red under `warn_unused_ignores`.
+[[tool.mypy.overrides]]
+module = ["tomli", "tools", "tools.*"]
+ignore_missing_imports = true
