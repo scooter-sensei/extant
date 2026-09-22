@@ -8,15 +8,23 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 51 - The four probes: a split only the network can make, a rebase that reaches nothing, a rescue with no population, and the gate's missing listing (unreleased, 2026-09-22)
 
-**Status.** Suite is 1,336 tests across 73 files: 1,333 passing and 3
+**Status.** Suite is 1,337 tests across 73 files: 1,334 passing and 3
 skipped, four added - two in `tests/test_introduced_since.py` (a staged new
 document, an uncommitted move with an edit), each red against the gate as
 it stood, and two in `tests/test_held_out_narrowings.py` (the hex-spelled
 word in both spellings, red first; a hex run one character longer still
-reported, the control). Thirteen rules; no mode added; no default or exit
-code moved; one document listing moved from HEAD's tree to the diff, and
-one word refused by name. The tool remained released as 0.27.0, and this
-work sits above that tag with Phases 47 to 50, uncommitted beside them.
+reported, the control) - and one split in two by the first CI run of the
+five tranches, which went red on all ten test legs and green on the six
+harness jobs: `tests/test_spawn_budget.py` allowed the remote lookup
+either none or once per pinned document, the shape of the scope per
+document that Phase 48 replaced, and a runner's checkout - the only kind
+whose config fast path declines - showed once per run. The allowance is
+once per run now, and the declining arm is forced by a parametrization so
+it runs on every checkout rather than only where nobody had run it.
+Thirteen rules; no mode added; no default or exit code moved; one document
+listing moved from HEAD's tree to the diff, and one word refused by name.
+The tool remained released as 0.27.0, and this work sits above that tag
+with Phases 47 to 50, carried together by pull request #16.
 `python -m mypy`: no issues in 41 files. Mutation campaign is 287
 anchors: two retargeted on the lines the listing and its refusal changed
 and three written here, each applied to a copy of this tree and watched

@@ -29,6 +29,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -283,8 +285,22 @@ def _explain_the_remote(spawns: list[str]) -> None:
           f"{sorted({l.split('=')[0].strip() for l in text.splitlines() if '=' in l})}")
 
 
-def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
+@pytest.mark.parametrize("config_declines", [False, True],
+                         ids=["as-checked-out", "config-declined"])
+def test_the_verify_cli_stays_within_its_own_spawn_budget(
+        monkeypatch, config_declines: bool) -> None:
     """`main()`'s OWN use of run_scope(), not the fixture's.
+
+    Run twice: once against the checkout as it is, and once with the remote
+    config fast path forced to decline, which is what a GitHub runner's
+    checkout does (its `.git/config` carries `includeIf` sections) and no
+    developer checkout here ever did. The second arm exists because the
+    first ran green on every machine that ever ran it while the runner was
+    red: the arm the runner takes was asserted from memory - one remote
+    spawn per pinned document, the shape of a scope per document - and had
+    not been run anywhere since `--verify` took one scope across the run on
+    2026-09-20. Ten legs of the first CI run after that change failed on it,
+    on 2026-09-22, with `1` where the test allowed `0` or `3`.
 
     The two tests above open `hc.run_scope()` themselves and call `validate()`
     and `count_examined()` directly, so they pin the CONTEXT MANAGER working
@@ -321,8 +337,14 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     """
     from extant import session as hc
     from extant import cli
+    from extant.rules import pinned_ref
 
     hc.reload_config(hc.REPO_ROOT)
+    if config_declines:
+        # The rule's own binding, since it imports the name. `None` is the
+        # fast path saying it could not settle the question, which is what
+        # sends `_own_remote` to git.
+        monkeypatch.setattr(pinned_ref, "remote_url", lambda repo, name: None)
 
     spawns: list[str] = []
     real = subprocess.run
@@ -417,18 +439,27 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # conditional on the CHECKOUT rather than on the code:
     #
     #   `remote get-url origin`   0 where `remote_url` can read the config,
-    #                             and where it declines one per document that
-    #                             HOLDS A PIN - three of the five here, the
-    #                             ones with a `rev:` line - since `_pinned_refs`
-    #                             stopped asking for the remote on a document
-    #                             with nothing to govern. It was one per
-    #                             document before that. A GitHub Actions runner
-    #                             declines: measured, its `.git/config` carries
-    #                             four `[includeIf "gitdir:..."]` sections and a
+    #                             and where it declines ONCE PER RUN since
+    #                             2026-09-20 - `_own_remote` memoises the
+    #                             answer on the RunScope, and the scope spans
+    #                             every document when no --sha-map is given.
+    #                             It was one per document that HOLDS A PIN
+    #                             before that (three of the five here, the
+    #                             ones with a `rev:` line), and one per
+    #                             document before `_pinned_refs` stopped
+    #                             asking on a document with nothing to govern.
+    #                             A GitHub Actions runner declines: measured,
+    #                             its `.git/config` carries four
+    #                             `[includeIf "gitdir:..."]` sections and a
     #                             `config.worktree` beside it, and either alone
     #                             is a reason this cannot know whether the
     #                             remote is redefined elsewhere. The guard is
     #                             working; the count simply is not a constant.
+    #                             The declining arm is forced by the second
+    #                             parametrization above, because this
+    #                             paragraph asserted "one per pinned document"
+    #                             for two days after the scope change and no
+    #                             developer checkout could have shown it wrong.
     #   the trunk lookup          `rev-list main` where a local `main` exists,
     #                             `rev-parse --verify --quiet main^{commit}`
     #                             where it does not, and NEITHER on a checkout
@@ -519,13 +550,22 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
         f"two rules are each spawning their own again.")
 
     # The two the CHECKOUT decides, bounded rather than allowed. Zero on a
-    # checkout that answers them for free, and never more than one per document
-    # or one per run.
-    assert len(kinds["remote"]) in (0, pinned), (
-        f"{len(kinds['remote'])} `remote get-url origin` for {pinned} "
-        f"documents holding a pin: it is one per such document where the "
-        f"config cannot be read and none where it can, so any other number "
-        f"is a new shape.")
+    # checkout that answers them for free, and never more than one per run.
+    # `pinned` is the precondition rather than the bound: with no document
+    # holding a pin the remote is never asked and this arm asserts nothing.
+    if config_declines:
+        assert len(kinds["remote"]) == 1, (
+            f"{len(kinds['remote'])} `remote get-url origin` with the config "
+            f"fast path declining and {pinned} documents holding a pin: it is "
+            f"asked once and memoised on the run scope, so zero means the "
+            f"decline no longer reaches git and more than one means the memo "
+            f"or the scope stopped spanning the run.")
+    else:
+        assert len(kinds["remote"]) in (0, 1), (
+            f"{len(kinds['remote'])} `remote get-url origin` for {pinned} "
+            f"documents holding a pin: it is none where the config can be "
+            f"read and once per run where it cannot, so any other number is "
+            f"a new shape.")
     assert len(kinds["trunk"]) <= 1, (
         f"{len(kinds['trunk'])} trunk lookups; it is memoised per run scope "
         f"and the run holds one, so more than one means the memo stopped "
