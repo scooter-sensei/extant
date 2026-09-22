@@ -715,6 +715,26 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a hex-spelled word reads as a commit again", commits,
          '_HEX_WORDS = frozenset({"ed25519"})',
          "_HEX_WORDS: frozenset[str] = frozenset()"),
+        # The bare commit-link text of ANOTHER repository's commit (2,835
+        # findings in the recorded sweep, Phase 52) reads as this repository's
+        # claim again when its span is not skipped. The mirror scan in
+        # tests/test_held_out_narrowings.py keeps its own copy of the line, so
+        # the pair test and the agreement test both go red.
+        ("a bare sha that is commit-link text reads as a claim again", commits,
+         "        skip_spans += _linked_spans(_LINKED_BARE_SHA, line, own, asked, whole=True)\n",
+         ""),
+        # The other arm, and the one design (a) would have shipped: a link to
+        # THIS repository's commit skipped like a foreign one, so the 15,257
+        # own changelog links stop being examined and a rewrite casualty among
+        # them goes unreported.
+        ("a link to this repository's own commit is skipped like a foreign one", commits,
+         '        if ours is not None and normalise_remote(match.group("head")) == ours:\n',
+         "        if False:\n"),
+        # The backticked spelling forgetting whose commit it is - the shape the
+        # skip had from 2026-08-08 until the owner comparison.
+        ("the backticked link-text skip forgets whose commit it is", commits,
+         "        qualified = _linked_spans(_LINKED_SHA, line, own, asked, whole=False)\n",
+         "        qualified = [m.span(1) for m in _LINKED_SHA.finditer(line)]\n"),
 
         # --- config errors -----------------------------------------------------
         ("every TOML error blamed on regex quoting again", collect.parent / "extant/config.py",
@@ -1004,12 +1024,15 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          rules / "pinned_ref.py",
          "        if match and governing == own:",
          "        if match:"),
+        # `normalise_remote` moved to refs.py with `own_remote` on 2026-09-22,
+        # when the SHA rule began comparing a linked commit's URL with origin
+        # through the same reduction; both anchors followed it by path.
         ("pinned-ref stops normalising remotes (SSH never matches HTTPS)",
-         rules / "pinned_ref.py",
+         refs,
          '    parts = [p for p in url.replace(":", "/").split("/") if p]',
          '    parts = [p for p in url.split("/") if p]'),
         ("pinned-ref keeps the .git suffix, so no remote ever matches",
-         rules / "pinned_ref.py",
+         refs,
          '    if url.endswith(".git"):',
          "    if False:"),
         # NOT a no-origin mutation. Removing `if own is None: return []` changes
@@ -1743,8 +1766,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted again when the remote started being READ rather than
         # spawned for. The memo is unchanged and so is what this probes; the
         # expression it wraps gained a fast path in front of the spawn, so the
-        # anchor named a line that no longer exists.
-        ("the remote is fetched once per document again", rules / "pinned_ref.py",
+        # anchor named a line that no longer exists. Retargeted a third time,
+        # path only, when `own_remote` moved to refs.py for the SHA rule to
+        # read as well (Phase 52): the code is byte-identical there.
+        ("the remote is fetched once per document again", refs,
          "    key = str(ctx.repo)\n"
          "    if key not in ctx.run.own_remote:",
          "    key = str(ctx.repo)\n"
@@ -1767,7 +1792,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted when the caches moved onto a RunScope; the cache
         # is the same, the name it is reached through is not.
         ("a cached no-origin answer is treated as a cache miss",
-         rules / "pinned_ref.py",
+         refs,
          "    if key not in ctx.run.own_remote:",
          "    if not ctx.run.own_remote.get(key):"),
         # Retargeted when the caches became a RunScope. The sweep hands back one

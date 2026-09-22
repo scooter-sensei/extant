@@ -554,7 +554,7 @@ def test_find_sha_candidates_requires_backticks_a_digit_and_a_letter():
     from extant import commits
     text = ("merged at `7544a63` but not decade or `facade` or `deadbeef` "
             "or `9223372036854775807` or bare 7544a63\n")
-    found = [token for _, token in commits.find_sha_candidates(text)]
+    found = [token for _, token in commits.find_sha_candidates(text, lambda: None)]
     assert found == ["7544a63"]
     # `deadbeef` has no digit; `9223372036854775807` has no letter. Both are
     # valid hex and within the length bound, so only those checks reject them.
@@ -570,7 +570,7 @@ def test_find_bare_sha_candidates_requires_digit_and_letter():
         "bare sha bead123 here, a plain year 2026072 alone, "
         "and hex word deadbeef alone\n"
     )
-    found = [token for _, token in commits.find_bare_sha_candidates(text)]
+    found = [token for _, token in commits.find_bare_sha_candidates(text, lambda: None)]
     assert found == ["bead123"]
 
 
@@ -581,7 +581,7 @@ def test_find_bare_sha_candidates_skips_backticked_spans():
     find_sha_candidates / the "dead-sha" path)."""
     from extant import commits
     text = "backticked `abc1234` must not appear as bare, but bead123 must\n"
-    found = [token for _, token in commits.find_bare_sha_candidates(text)]
+    found = [token for _, token in commits.find_bare_sha_candidates(text, lambda: None)]
     assert found == ["bead123"]
 
 
@@ -592,7 +592,7 @@ def test_find_bare_sha_candidates_excludes_a_hex_run_embedded_in_a_longer_word()
     prefix."""
     from extant import commits
     text = "identifier deadbeefzz is not a sha-shaped token\n"
-    assert commits.find_bare_sha_candidates(text) == []
+    assert commits.find_bare_sha_candidates(text, lambda: None) == []
 
 
 def test_validate_references_flags_a_dead_sha(git_repo):
@@ -1006,7 +1006,7 @@ def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(tmp_path):
         "Final commit `4c0ffee` closes it out.\n"
     )
 
-    candidates = commits.find_sha_candidates(doc)
+    candidates = commits.find_sha_candidates(doc, lambda: None)
     tokens = [token for _, token in candidates]
     assert tokens == ["abc1234", "def5678", "4c0ffee"]
 
@@ -1056,7 +1056,7 @@ def test_bare_candidates_and_translation_agree_on_tokenization(tmp_path):
         "Second bare sha facade12 follows on another line.\n"
     )
 
-    candidates = commits.find_bare_sha_candidates(doc)
+    candidates = commits.find_bare_sha_candidates(doc, lambda: None)
     tokens = [token for _, token in candidates]
     assert tokens == ["bead123", "facade12"]
 

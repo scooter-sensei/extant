@@ -3637,6 +3637,234 @@ identity sweep against a stated prediction of 7 of 152 differing - the
 clone's clean working tree - and the pre-push chain against a working-tree
 extract, recorded in the Phase 51 entry with their numbers.
 
+## The bare commit-link text: whose commit it is, and a number re-derived
+
+The first of the two shapes Phase 51 recorded and did not build, built as
+Phase 52 on 2026-09-22 - twice, because the gate on the first build put a
+question the design had not asked. The shape: a SHA as the unbackticked
+link text of a commit URL, `[<sha>](https://github.com/<owner>/<repo>/commit/...)`,
+which is how release-please, standard-version and the changelogs they
+generate write every entry. `_URL` has always skipped the hex inside the
+parentheses; nothing skipped the copy before `](`, so a token the URL
+beside it attributes to another repository was checked against this one.
+The backticked spelling of exactly this had been suppressed since the
+held-out narrowings, deliberately without comparing owners, and the first
+design was the same argument in the bare spelling: one more pattern
+beside `_LINKED_SHA` with the same URL tail, its whole-match span the
+sixth line of the bare scanner's skip list.
+
+**The count did not reproduce, and the reason is that it was never
+persisted.** The Phase 51 record said 1,425 of the 11,191 dead-SHA
+findings in the recorded sweep, naming angular, moby and node; no
+apparatus script held that count - it was a pass over the sweep outputs
+that was not written down. A persisted one (`m15_linktext.py` beside the
+other `m14_*` scripts in the extant-hardening checkout) re-derives it by
+parsing both dead-SHA kinds back out of every sweep output, reading each
+finding's line from its clone, and scanning that line twice with the
+tool's own scanner, with and without the new span. Population first: the
+after-side of the Phase 51 sweep holds 11,142 dead-SHA occurrences, the
+record's 11,191 less exactly the 49 `ed25519` sites that phase removed,
+so the two passes read the same documents. Then the count: the pattern
+that mirrors `_LINKED_SHA` - any host, `commit`, `commits`, `blob`,
+`tree`, `pull` or `compare` - covers 2,866 findings across 15 of the 152
+outputs, 2,107 once a repository that sits in two tiers is counted once:
+moby's vendored google-cloud-go changelogs 754, node's node-gyp and
+corepack changelogs 491, angular's absorbed zone.js changelog 424, and
+kubernetes 414, absent from the record entirely - its changelogs pin
+every dependency as a short SHA linking to that repository's `/tree/`
+page. Restricting the pass to the record's own literal spelling, host
+`github.com` and tail `/commit/`, gives moby's 358 exactly and node's 286
+against a recorded 290, so the unpersisted pass took its own words
+literally; under that reading the total over all 152 outputs is 1,459,
+within 34 of the recorded 1,425, and the residual cannot be reconstructed
+because nothing was kept.
+
+**The gate on the first build said 29, not 15, and the miss was the
+prediction's.** The identity sweep compares outputs byte for byte, and an
+output carries the `examined:` denominators as well as the findings. A
+bare SHA that is commit-link text and RESOLVES was examined and reported
+nothing; the unconditional skip stopped examining it, so the `dead-sha`
+denominator moved in every clone that holds one, dead or alive - and the
+measurement had counted dead findings only. In the 15 predicted outputs
+the findings removed matched the prediction exactly, output by output,
+nothing was added, and nothing else moved but the denominators and the
+summary lines that follow them; the other 14 outputs moved in the
+`examined:` line alone. The script gained a second pass that counts every
+site through the tool's own `prose()`, and it predicted 29 outputs and
+18,285 sites, each output's count equal to its observed denominator drop.
+That pass is what put the question: 15,419 of the 18,285 sites resolved
+today - angular's changelogs 7,069 of them, lobe-chat 2,361, openfoodfacts
+2,159, vitepress 1,173, axe-core 1,161, sile 862 - and a link text that
+resolves in the clone is, by construction, a commit this repository has.
+Live, so no finding moved; but a rewrite that kills one of them is
+reported today and would not have been with the skip in, which is the
+shape of the casualties below at a scale of thousands rather than tens.
+The backticked skip had accepted the same exposure in 2026-08 without
+measuring it, because that spelling is rare; this one is the common one.
+
+**The decision: the URL's owner is compared with `origin`, in both
+spellings.** Split the way that comparison splits them, the 18,285 sites
+are 15,257 own and alive, 31 own and dead, 162 foreign and alive (a fork
+or a monorepo carrying the other repository's history), 2,835 foreign and
+dead, and none in a clone without an origin. So the comparison removes
+exactly the 2,835 foreign findings and 162 live foreign sites, and keeps
+15,288 own sites examined with their 31 casualties reported: angular 25,
+helix 3, axe-core 2, lobe-chat 1 - 27 of them with the URL's full SHA
+dead too, and 4 in angular's old changelog whose link text is the LAST
+ten characters of a SHA that resolves, a token no abbreviation could ever
+satisfy, reported today and still reported, which is the status quo
+rather than a verdict this change makes. The reasoning is the tool's own
+guarantee, that a rule asks only what git in this repository can settle
+about this repository: the URL says which repository the commit belongs
+to, `origin` says which repository this is, and when the two agree the
+claim is in scope and checkable - the changelog entry whose commit a
+squash or a force-push takes away is the one rotting citation the tool
+exists to report, in the document type that cites commits more than any
+other. When they disagree the claim is about another object store, out of
+scope, and reporting it is the false positive by construction that
+vendored changelogs and dependency pins produced by the thousand. The
+first design's reason for not comparing - "a document does not reliably
+state which repository it is in" - was true and beside the point: the
+document does not, the repository does, and `dead-pinned-ref` has told a
+pin aimed at us from one aimed elsewhere by exactly this comparison since
+it was written. Two rules, one notion of "ours", one function.
+
+What the comparison costs, named: a repository renamed on GitHub keeps
+old links under the old name, which read as foreign and are skipped -
+lost coverage, never a false positive; a clone with no origin cannot
+settle "ours" and skips, the caution the unconditional version took, on 0
+sites in the corpus; a fork skips upstream's links, which are upstream's
+claims. The reduction is `owner/name`, so `www.github.com`,
+`api.github.com/repos/...`, an SSH origin and a GitLab mirror all compare
+as one repository, and GitLab's `/-/commit/` spelling is allowed for.
+
+**How.** `own_remote` and `normalise_remote` moved from the pinned-ref
+rule to `refs.py`, public because a sibling reads them now. The two
+scanners take the origin as a zero-argument callable and ask it only on a
+line holding one of the two shapes, never before - the same economy
+`_pinned_refs` keeps by not asking on a document without a `rev:` line -
+so a document with no linked commit costs no question, the spawn budget's
+fixture count does not move, and a checkout whose config fast path
+answers pays a 0.19 ms file read once per run. Each memo's key carries
+the origin the scan compared with, or a sentinel when none was needed and
+any origin hits, the discipline `_MERGE_CLAIMS` keeps for its pattern and
+trunk; `_document_sha_tokens`, the batch, takes the same callable, so
+what is resolved is what is examined. One helper, `_linked_spans`, serves
+both spellings: the backticked skip is owner-aware now as well, or the
+verdict on one claim would depend on whether the author typed backticks.
+
+**Tests.** Ten pairs in section 3 of `tests/test_held_out_narrowings.py`,
+each arm of the comparison with its control: a foreign link skipped with
+`examined` at zero, so it is silent because unexamined rather than
+examined and found alive; the same link naming `origin` reported, in both
+spellings; an SSH origin against a `www.` URL compared as one repository;
+a link with no origin to compare against skipped; link text on a page
+that names no commit still reported; a bare range as link text skipped
+when foreign and reported at both ends when own; the same range unlinked
+reported at both ends. The mirror copy of the bare scanner compares at
+two origins, None and the `o/r` the generated corpus links, with a
+template for each arm - because the plan had promised the agreement test
+would go red on the sixth exclusion and it was not going to: the corpus
+held the backticked link template only, and this repository's documents
+hold no bare commit link. Three mutation anchors: the foreign skip
+deleted, the own arm skipped like a foreign one (the first design,
+sneaking back), and the backticked skip forgetting whose commit it is;
+four retargeted by path with the moved helpers.
+
+**The corpus said the own arm is not a corner.** The same pass, run over
+the backticked spelling that had been skipped unconditionally since
+2026-08-08, found 81,166 such sites in the 152 clones: 79,978 own and
+alive, 1,188 own and DEAD, 199 foreign and alive, 555 foreign and dead.
+So the unconditional skip had been hiding 1,188 real rotting citations in
+the corpus all along, and node alone holds 1,165 of them - its versioned
+changelogs cite ten-character abbreviations, one per entry, of commits
+from the io.js era that the repository's own object store no longer
+has - and each is written as link text of a link to node's own commit
+page, so the unconditional skip silenced every one. astro holds 23 of
+the rest, in its packages' changelogs. Neither is a repository with a rewrite in its recent past;
+both are what a decade of changelogs looks like. The comparison turns
+them back on, and the identity gate's prediction is therefore 24 outputs
+and 84,163 sites changing examined status - 2,997 foreign sites of both
+spellings switched off, 81,166 own ones switched on - rather than the
+2,835-in-15 the first design predicted.
+
+**The gate, as run.** Nine tests red before the code moved - the four own
+arms of the comparison in both spellings, the SSH-against-`www` reduction,
+the no-origin arm, and the three the first design had written - plus the
+mirror's two-origin comparison, which is red until the copy carries the
+same owner test. Three anchors written and four retargeted by path with
+the moved helpers. The corpus identity sweep against a stated prediction
+of 24 of 152 differing: 24 differ, the predicted set exactly, none missing
+and none unpredicted. 2,835 findings left, every one a bare SHA linked to
+another repository's commit; 1,188 appeared, every one a backticked SHA
+linked to this repository's own - node 1,165 and astro 23 - and no other
+kind moved anywhere. The `examined:` denominators moved by the net of the
+two directions, output by output: node's 62,479 sites changing status show
+as a net of +61,497, which is 61,988 switched on less the 491 switched
+off, and angular keeps 25 of its 424 because those 25 name angular's own
+commits. The pre-push chain ran against a working-tree extract, and the
+rebase-journal flake that had reddened CI since PR #15 was diagnosed and
+fixed on the way: the fixture cited `cited[:7]`, and a seven-character
+prefix that is all digits is no candidate at all, so the rule correctly
+found nothing and the test read `[]` where `dead-sha` was due - 3.8 per
+cent of runs, one in forty locally and about one red leg in three across
+ten CI legs. `_abbrev`, written for exactly this in another file on
+2026-09-13, moved to `tests/conftest.py`; 60 of 60 runs green after it,
+against 1 failure in 40 before.
+
+**Did it silence anything useful? Audited rather than asserted**
+(`m15_audit.py` beside the measurement script; output beside it in the
+logs). Every one of the 2,835 findings the comparison removed is read back
+out of the two sweeps with its document's stratum and with the URL head
+that decided it. Where they sit: 1,933 in vendored trees, 880 in
+historical records, and 22 in ordinary documents - the stratum that
+gates. All 22 were read by hand, and each cites another project by name in
+its own prose: aider's post about a litellm commit (3, in two tiers of the
+same clone), a CVE archive's "fix commit" in three upstream projects,
+PX4's NuttX upgrade in three translations of one page, tensorflow's
+advisory about tflite-micro, uv's vendored copy of pypa/packaging, and
+helix's note that its lsp-types crate is a fork of gluon-lang's. There is
+no argument for checking any of them against the repository that cites
+them.
+
+How foreign was established matters more than where the findings sat, and
+it is the question the audit exists to answer: the skip could silence a
+real claim only by treating "cannot tell" as foreign. In all 2,835 the
+URL head parsed to a real `owner/name`; none was relative, none empty,
+none in a clone without an origin. Across the whole corpus there is not
+one linked-commit site whose head names no repository, and every one of
+the 98,109 sites the comparison calls OURS is on the same host as the
+origin it was compared with, so ignoring the host mis-attributed nothing.
+891 of the removed sit under the same owner as the origin and a different
+repository - `angular/angular` citing `angular/zone.js`,
+`tensorflow/tensorflow` citing `tensorflow/tflite-micro` - which is a
+sibling project rather than a rename; the shape a rename or fork would
+take, the same repository NAME under another owner, occurs zero times. No
+document's `dead-sha` denominator fell from nonzero to zero, so the rule
+goes silent in no document anywhere, and three clones gained a denominator
+they did not have.
+
+The residual risks, stated because the corpus cannot close them: a
+repository renamed on its host keeps old links under the old name, which
+read as foreign and are skipped - lost coverage, never a false positive,
+and indistinguishable from the 891 sibling-project cases above; a clone
+with no origin cannot settle whose commit a link names, so both spellings
+skip there, which is a loss of the bare spelling's old coverage in that
+one case - the corpus holds no such clone, and the one origin-less
+repository this project knows of holds 29 documents and not a single
+linked-commit site, so the arm is pinned by a test rather than by a
+population. And the four angular sites whose link text is the last ten
+characters of a resolving SHA are still reported, as they were before:
+this change neither makes nor removes them.
+
+**Not done here, and the next measurement.** `_URL`'s hex skip is still
+unconditional: `[the fix](https://github.com/<us>/commit/<sha>)`, a commit
+URL of this repository with words as its link text, is not examined,
+because the hex sits inside a URL. The same argument applies and the
+same comparison would settle it; it is a wider verdict change - every own
+commit URL in every document becomes a site - and gets its own count
+before it is a change.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

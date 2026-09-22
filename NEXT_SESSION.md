@@ -6,6 +6,98 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 52 - Whose commit a linked SHA is, in either spelling (unreleased, 2026-09-22)
+
+**Status.** Suite is 1,346 tests across 73 files: 1,343 passing and 3
+skipped, nine added to section 3 of `tests/test_held_out_narrowings.py` -
+each arm of the owner comparison with its control, in both spellings, plus
+the reduction that makes an SSH origin and a `www.` URL one repository and
+the arm where no origin can settle it. Thirteen rules; no mode added; no
+default or exit code moved; one question added to the SHA rule, asked only
+on a line that links a commit by URL. The tool remained released as
+0.27.0, and this work sits above that tag with Phases 47 to 51, which
+pull request #16 carries with it. `python -m mypy`: no issues in 41
+files. Mutation campaign is 290 anchors: three written here
+and four retargeted with the helpers that moved, each applied to a copy of
+this tree and watched turning the suite red - 7 of 7 killed in fifty-three
+minutes with the baseline, none survived, none unapplied. The 152 visible
+corpus clones
+were swept before and after against a stated prediction of twenty-four
+differing: 24 differ, the predicted set exactly, none missing and none
+unpredicted - 2,835 findings left, every one a bare SHA linked to another
+repository's commit, and 1,188 appeared, every one a backticked SHA linked
+to this repository's own, with no other kind of finding moving anywhere.
+The rest of the pre-push list ran against a working-tree extract: smoke
+green with 45 clean of 47 and the two expected flags; scenarios green, 25
+scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories,
+0 violations; `--self-check` 22 of 22; `--verify` clean; `--selftest` 7
+fired and 0 silent.
+
+**What it is.** The first of the two shapes Phase 51 measured and did not
+build, built twice - because the gate on the first build put a question the
+design had not asked. A SHA written as the unbackticked link text of a
+commit URL, the conventional-changelog spelling that release-please and
+standard-version write on every entry, was read as this repository's claim
+whoever the URL named: `_URL` skips the hex inside the parentheses and
+nothing skipped the copy before the bracket. The first design mirrored the
+backticked skip that has covered the same shape since the held-out
+narrowings, which suppresses without comparing owners. Its gate showed why
+that is the wrong half of the argument: the skip stops a site being
+EXAMINED, and 15,419 of the 18,285 sites it would have stopped examining
+resolve today, because they are the repository's own commits cited in its
+own changelogs. So both spellings now compare the URL's owner with
+`origin`, the comparison `dead-pinned-ref` has always made to tell a pin
+aimed at us from one aimed elsewhere; `own_remote` and `normalise_remote`
+moved to the reference module for the two rules to share, and the scanners
+ask for the origin only when a line links a commit, so a document without
+one costs no question and the spawn budget does not move. What it costs is
+stated: a repository renamed on the host keeps old links under the old
+name and they read as foreign, a clone with no origin skips, and a fork
+skips upstream's links. What it buys, measured on the corpus: 2,835 false
+positives in vendored changelogs and dependency pins go, and 1,188 real
+rotting citations that the unconditional backticked skip had hidden since
+2026-08-08 come back - 1,165 in node's versioned changelogs, where every
+entry links an abbreviation of a commit from the io.js era that the
+repository no longer holds. The count Phase 51 recorded for this shape,
+1,425 of 11,191, did not reproduce and is corrected: it was an unpersisted
+pass reading its own spelling literally, and the re-derivation is a script
+now. The full record is the section "The bare commit-link text: whose
+commit it is, and a number re-derived" in the design rationale under the
+skill's references.
+
+**What it did not silence.** The removals were audited rather than
+asserted, since a suppression that fires wrongly deletes a real finding
+where a false positive at least appears in the output. Of the 2,835, 1,933
+sit in vendored trees and 880 in historical records; the 22 in ordinary
+documents were read by hand and every one names another project in its own
+prose - a post about a litellm commit, a CVE archive's fix commits in
+three upstream projects, a NuttX upgrade in three translations, an
+advisory about tflite-micro, a vendored copy of pypa's packaging, and a
+note that a crate is a fork of somebody else's. The way each was decided
+matters more: in all 2,835 the URL named a real repository, so none was
+skipped on a guess, and across the corpus there is not one linked-commit
+site whose URL names no repository at all. No document's denominator fell
+to zero, and three clones gained one. The recovered findings all sit in
+historical records, so they are surveyed rather than gated. What the
+corpus cannot close is recorded beside it: a repository renamed on its
+host loses coverage on its old links, and a clone with no origin loses the
+bare spelling's coverage entirely - the one origin-less repository this
+project knows of holds no linked-commit site at all.
+
+**What this leaves owed.** Everything Phase 51 left except this shape, and
+one thing it did not name: `_URL`'s hex skip is still unconditional, so a
+commit URL of this repository whose link text is words rather than a SHA
+is not examined at all - the same argument applies and the same comparison
+would settle it, and it is a wider verdict change that gets its own count
+first. The second shape Phase 51 measured, CommonMark indented code
+blocks, still needs its measurement against a reference parser before it
+is a change. Fixed on the way: the rebase-journal test in
+`tests/test_hooks.py` cited a seven-character prefix that is all digits
+about four times in a hundred, which is no SHA candidate at all, so the
+rule correctly found nothing and the test read a missing finding - the
+flake that had reddened CI legs since pull request #15, 1 run in 40
+locally and 60 of 60 green after the fix.
+
 ## Phase 51 - The four probes: a split only the network can make, a rebase that reaches nothing, a rescue with no population, and the gate's missing listing (unreleased, 2026-09-22)
 
 **Status.** Suite is 1,337 tests across 73 files: 1,334 passing and 3

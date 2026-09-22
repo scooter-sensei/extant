@@ -33,6 +33,28 @@ def _run(repo: Path, *args: str) -> str:
     ).stdout
 
 
+def _abbrev(sha: str) -> str:
+    """The shortest prefix of at least seven characters that the scanner
+    will read as a commit.
+
+    `looks_like_sha` refuses an all-digit token by design - a number is not
+    a commit - and a real seven-character abbreviation is all digits about
+    4% of the time, so a test written `real[:7]` went red on one run in
+    twenty-five. Found on 2026-09-13 when a mutation was reported caught by
+    test_widened_scanners.py's range test rather than by the bounds test it
+    was written for; found AGAIN on 2026-09-22, when the rebase-journal test
+    in test_hooks.py - `Shipped in `{cited[:7]}`` - had reddened one CI leg
+    in three since PR #15 and once in forty local runs, always as `[]` where
+    `dead-sha` was due: a prefix of digits alone is no candidate at all. One
+    helper here, so the third copy of `[:7]` is not written.
+    """
+    for width in range(7, len(sha) + 1):
+        prefix = sha[:width]
+        if any(c.isalpha() for c in prefix) and any(c.isdigit() for c in prefix):
+            return prefix
+    return sha
+
+
 def _install_into(repo: Path) -> Path:
     """Reproduce the installed layout: the shim, plus the package beside it.
 

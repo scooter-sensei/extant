@@ -2,23 +2,26 @@
 
 ## Unreleased
 
-Above 0.27.0, unreleased: the five tranches of the internals review that
+Above 0.27.0, unreleased: the six tranches of the internals review that
 followed the release - the diff-scoped gate replayed against its own bar, the
 debts the shipped items carried, the five probes Phase 45 named, the
-structural three, the type checker, and the four measurements that change
-what the skill tells an author. No rule added or removed, thirteen as
-before; no mode added; no default or exit code moved; on the 152 visible
-corpus clones the findings on the word `ed25519`, read as a commit,
-disappeared from seven of them and nothing else moved; 139 outputs gained
-the one line that says the checkout is partial. The record is in
+structural three, the type checker, the four measurements that change
+what the skill tells an author, and the first of the two shapes those
+measurements found. No rule added or removed, thirteen as before; no mode
+added; no default or exit code moved; on the 152 visible corpus clones the
+findings on the word `ed25519`, read as a commit, disappeared from seven of
+them, the findings on a SHA that is the link text of another repository's
+commit URL disappeared from fifteen, and nothing else moved; 139 outputs
+gained the one line that says the checkout is partial. The record is in
 `plugin/skills/extant/references/design.md` under "The diff-scoped gate,
 replayed; and the debts the shipped items carried", "The probe tranche: one
 batch, one scope, one list, and a matcher read against git", "The
 structural tranche: one Config, and two shapes the numbers kept", "The
 type checker: four measured, the floor none can see, and a gate on the one
-that enforces the most" and "The four probes: a split only the network can
+that enforces the most", "The four probes: a split only the network can
 make, a rebase that reaches nothing, a rescue with no population, and the
-gate's missing listing".
+gate's missing listing" and "The bare commit-link text: whose commit it is,
+and a number re-derived".
 
 **The diff-scoped gate was replayed, and it does not replace the default
 install policy.** `--introduced-since` pins no path, and the review that
@@ -237,6 +240,33 @@ names nothing on the two real status documents there are, so no
 them, the shape both SHA tests admit, reported as a bare dead SHA in 7 of
 152 corpus clones and the only such word the corpus holds. Refused by name
 in both spellings.
+
+**A SHA that is the link text of a commit URL is checked when the URL
+names this repository, and left to that repository when it does not - in
+either spelling.** `[8ea71e5](https://github.com/nodejs/node-gyp/commit/8ea71e5a...)`
+is how release-please, standard-version and the changelogs they generate
+write every entry, and the URL says whose commit it is. The bare spelling
+was read as this repository's claim whoever the URL named, because `_URL`
+skips the hex inside the parentheses and nothing skipped the copy before
+`](`: in the recorded sweep of the 152 visible corpus clones, 2,835 bare
+dead-SHA findings link to a repository other than the clone's origin -
+moby's vendored changelogs, node's dependency changelogs, angular's
+absorbed zone.js changelog, kubernetes' dependency pins - and they are no
+longer reported. The backticked spelling had been skipped since 2026-08-08
+whoever the URL named; both spellings now compare the URL's owner with
+`origin`, the comparison `dead-pinned-ref` has always made, and a link to
+this repository's own commit is examined: 15,257 such links resolve today
+across the corpus and 31 do not, and a squash or force-push that kills one
+is reported, as a rotting citation should be - and the unconditional
+backticked skip had been hiding 1,188 such citations across the corpus,
+1,165 of them in node's versioned changelogs, where every entry links an
+abbreviation of a commit from the io.js era that the repository no longer
+holds. A clone with no origin, or a link under a name the repository no
+longer has, is skipped rather than guessed at. The count the Phase 51 record carried, 1,425, was a pass that
+was never persisted and read its own spelling literally; the re-derivation
+is a script now, and the number in the record is corrected in the design
+rationale under "The bare commit-link text: whose commit it is, and a
+number re-derived".
 
 ## 0.27.0 (2026-09-21)
 

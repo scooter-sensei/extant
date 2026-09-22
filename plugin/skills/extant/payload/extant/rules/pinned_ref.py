@@ -5,8 +5,7 @@ import re
 
 from extant.contract import Rule
 from extant.finding import Finding
-from extant.git import remote_url
-from extant.refs import resolve_ref
+from extant.refs import normalise_remote, own_remote, resolve_ref
 from extant.scope import Context
 
 __all__ = ["RULE", "check", "examined", "probe"]
@@ -19,56 +18,6 @@ __all__ = ["RULE", "check", "examined", "probe"]
 _PIN_QUOTES = "'\""
 _PIN_REPO = re.compile(r"^\s*(?:-\s*)?repo:\s*(\S+)")
 _PIN_REV = re.compile(r"^\s*rev:\s*([^\s#]+)")
-
-
-def _normalise_remote(url: str) -> str | None:
-    """A remote URL reduced to `owner/name`, lowercased.
-
-    Both spellings of the same repository must compare equal: an SSH remote
-    reads `git@github.com:owner/name.git` and the URL a README tells people to
-    use reads `https://github.com/owner/name`.
-    """
-    url = url.strip().rstrip("/")
-    if url.endswith(".git"):
-        url = url[:-4]
-    parts = [p for p in url.replace(":", "/").split("/") if p]
-    return "/".join(parts[-2:]).lower() if len(parts) >= 2 else None
-
-
-def _own_remote(ctx: Context) -> str | None:
-    """This repository as `owner/name`, or None when it has no origin.
-
-    Memoised, because the answer is a property of the REPOSITORY and this is
-    asked once per DOCUMENT. `--sweep` therefore spawned one `git remote
-    get-url` per file to receive the same string every time: profiled over 400
-    documents, that was 11.3 seconds of a 16.2 second run - 70 percent of the
-    work, for one answer.
-
-    A remote cannot change while a process runs, and every mode here is a
-    single short-lived process. `None` is a real answer, meaning no origin, so
-    membership decides rather than truthiness.
-
-    THE MEMO IS NOT THE WHOLE ANSWER, because its lifetime is one RunScope and
-    `--verify` opens one per DOCUMENT - so this repository-level fact was still
-    asked five times per run here, at 28.92 ms each (median of 20). `remote_url`
-    reads it out of the config file in 0.19 ms instead, and falls back for any
-    syntax it declines to parse. That is deliberately not the same thing as
-    widening the scope to share one answer across documents: every field on
-    RunScope states that a repository change between calls must be visible, and
-    an `own_remote` cached without a lifetime is precisely the wrong answer
-    this one already produced once. Reading the file buys the same five spawns
-    and changes no lifetime at all.
-    """
-    key = str(ctx.repo)
-    if key not in ctx.run.own_remote:
-        # `or`, because `remote_url` returning None means IT could not settle
-        # the question - not that there is no origin. Every one of those falls
-        # through to git, which is the only thing here that can tell a
-        # repository with no origin from a config this refuses to guess at.
-        ctx.run.own_remote[key] = _normalise_remote(
-            remote_url(ctx.repo, "origin")
-            or ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))
-    return ctx.run.own_remote[key]
 
 
 def _pinned_refs(ctx: Context, text: str) -> list[tuple[int, str]]:
@@ -89,7 +38,7 @@ def _pinned_refs(ctx: Context, text: str) -> list[tuple[int, str]]:
     # tests/test_spawn_budget.py counts it that way now.
     if "rev:" not in text:
         return []
-    own = _own_remote(ctx)
+    own = own_remote(ctx)
     if own is None:
         return []
     found: list[tuple[int, str]] = []
@@ -97,7 +46,7 @@ def _pinned_refs(ctx: Context, text: str) -> list[tuple[int, str]]:
     for number, line in enumerate(text.splitlines(), start=1):
         match = _PIN_REPO.match(line)
         if match:
-            governing = _normalise_remote(match.group(1))
+            governing = normalise_remote(match.group(1))
             continue
         match = _PIN_REV.match(line)
         if match and governing == own:

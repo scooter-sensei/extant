@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import _abbrev
+
 
 def _reset():
     from extant import session as hc
@@ -334,23 +336,6 @@ def _dead_sha(repo: Path, text: str):
     _reset()
     ctx = hc.context(repo)
     return rule.check(ctx, text), rule.examined(ctx, text)
-
-
-def _abbrev(sha: str) -> str:
-    """The shortest prefix of at least seven characters that the scanner
-    will read as a commit.
-
-    `looks_like_sha` refuses an all-digit token by design - a number is not
-    a commit - and a real seven-character abbreviation is all digits about
-    4% of the time, so a test written `real[:7]` went red on one run in
-    twenty-five. Found on 2026-09-13 when a mutation was reported caught by
-    this file's range test rather than by the bounds test it was written for.
-    """
-    for width in range(7, len(sha) + 1):
-        prefix = sha[:width]
-        if any(c.isalpha() for c in prefix) and any(c.isdigit() for c in prefix):
-            return prefix
-    return sha
 
 
 def test_both_ends_of_a_backticked_range_are_resolved(git_repo) -> None:

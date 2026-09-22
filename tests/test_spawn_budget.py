@@ -337,14 +337,14 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
     """
     from extant import session as hc
     from extant import cli
-    from extant.rules import pinned_ref
+    from extant import refs
 
     hc.reload_config(hc.REPO_ROOT)
     if config_declines:
-        # The rule's own binding, since it imports the name. `None` is the
+        # refs.py's own binding, since it imports the name. `None` is the
         # fast path saying it could not settle the question, which is what
-        # sends `_own_remote` to git.
-        monkeypatch.setattr(pinned_ref, "remote_url", lambda repo, name: None)
+        # sends `own_remote` to git.
+        monkeypatch.setattr(refs, "remote_url", lambda repo, name: None)
 
     spawns: list[str] = []
     real = subprocess.run
@@ -440,7 +440,7 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
     #
     #   `remote get-url origin`   0 where `remote_url` can read the config,
     #                             and where it declines ONCE PER RUN since
-    #                             2026-09-20 - `_own_remote` memoises the
+    #                             2026-09-20 - `own_remote` memoises the
     #                             answer on the RunScope, and the scope spans
     #                             every document when no --sha-map is given.
     #                             It was one per document that HOLDS A PIN
@@ -460,6 +460,11 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
     #                             paragraph asserted "one per pinned document"
     #                             for two days after the scope change and no
     #                             developer checkout could have shown it wrong.
+    #                             Since Phase 52 the SHA rule asks the same
+    #                             question, LAZILY - only on a line linking a
+    #                             commit by URL, through the same memo - so a
+    #                             document without one adds nothing here, and
+    #                             this repository's five hold none.
     #   the trunk lookup          `rev-list main` where a local `main` exists,
     #                             `rev-parse --verify --quiet main^{commit}`
     #                             where it does not, and NEITHER on a checkout
