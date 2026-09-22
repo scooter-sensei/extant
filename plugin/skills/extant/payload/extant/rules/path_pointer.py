@@ -160,6 +160,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
                     continue
                 actual_case = actual_case or beside_case
             if not exists:
+                repair = None
                 if actual_case:
                     detail = (f"points at `{raw}`, but the file on disk is "
                               f"`{actual_case}`; the case differs, which fails "
@@ -176,9 +177,11 @@ def check(ctx: Context, text: str) -> list[Finding]:
                         if beside_path is not None:
                             moved = renamed_to(ctx, beside_path)
                     if moved:
-                        detail += f"; git shows it renamed to `{moved}`"
+                        # A `repair`, outside the baseline's identity, for
+                        # the reason md_link.py gives at its own hint.
+                        repair = f"git shows it renamed to `{moved}`"
                 findings.append(Finding(number, "dead-path-pointer", detail,
-                                        subject=raw))
+                                        subject=raw, repair=repair))
     return findings
 
 

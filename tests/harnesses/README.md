@@ -659,7 +659,15 @@ line inserted at the top, LF rewritten to CRLF, the document under another
 name, an unrelated document added, a baseline recorded and then honoured, one
 process reading two documents against two reading one, and the sweep against
 verify. Plus the cheap ones that need no extra run - findings and the exit code
-agreeing, and a raised rule never exiting 0.
+agreeing, and a raised rule never exiting 0. And one that is not metamorphic
+but reads the same evidence twice: `INTRODUCED` parses `git diff -U0` for
+itself and requires every finding `--introduced-since` gates to sit on a line
+that diff added - the mode's whole promise, and the seam the CRLF and encoding
+axes stress. It picks its own range, the parent of the last commit that
+changed a document, because a range holding no document examines nothing
+and no breakage of the gate can be seen through it; the self-check's
+repository ends with a binary under an LFS filter, which is how that was
+learned.
 
 The mutable regions are chosen from what the tool GUARANTEES: `strip_code`
 blanks a fence with spaces so every character offset survives, so what is
@@ -709,13 +717,16 @@ which is how a breakage that fails to apply reads as a success. An anchor that
 does not match is a HARNESS FAULT rather than a skip, the same rule `mutate.py`
 states for the same reason.
 
-**21 of 21 properties are observed going red**, including the four the Stage 3
+**22 of 22 properties are observed going red**, including the four the Stage 3
 audit recorded as never watched, and `HARNESS`, which an audit of this stage
 found had been left out of the list entirely. `AXIS` was the last holdout and
 was reported NOT OBSERVED for four days: its breakage was aimed at a fallback
 in `resolve_ref` that stopped being reached when the ref table started
-answering, so the anchor went on matching a line nothing executed. **4 of the
-21 need contrived breakages** and are marked as such in the output, because
+answering, so the anchor went on matching a line nothing executed.
+`INTRODUCED`, the twenty-second, was NOT OBSERVED on its first run for the
+mirror-image reason: the breakage was sound and the range it was watched
+through held no document. **4 of the
+22 need contrived breakages** and are marked as such in the output, because
 "this property can be made to fire" and "this property guards something
 somebody might really write" are different claims and only the first is being
 made. `MONOTONE`'s is tautological - it keys on the

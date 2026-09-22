@@ -16,11 +16,25 @@ whether something it names still exists or still holds.
 ```sh
 python -m pip install -r requirements-dev.txt
 python -m pytest
+python -m mypy
 python plugin/skills/extant/payload/extant_collect.py --verify --repo .
 ```
 
-The suite must be green and `--verify` must exit 0 before you edit, so a failure
-afterwards is yours rather than inherited.
+The suite must be green, `mypy` must find nothing and `--verify` must exit 0
+before you edit, so a failure afterwards is yours rather than inherited.
+
+`python -m mypy` takes its whole configuration from `[tool.mypy]` in
+`pyproject.toml` - the shipped package, the shim, `install.py` and `detect.py`,
+at the 3.10 target, `strict` - and needs no arguments. Run it from the
+repository root: run from inside `plugin/skills/extant/payload/` its cache
+lands beside the shipped source and the test that reads every shipped file
+whole fails on it. It is a type checker, not a linter - there is still no
+ruff, flake8 or black, and what enforces style is the suite - and it gates in
+the self-check CI job rather than in the suite, because it does not run on
+the 3.9 leg. About three seconds. The 3.9 floor itself it cannot see: typeshed
+dropped 3.9 with its EOL and removed the `>= (3, 10)` guards, so no checker
+can any longer tell a 3.10-only call from one the floor allows. The 3.9 test
+leg is the check of the floor; this is the check of everything else.
 
 The suite is bound by process spawns rather than by compute, so it parallelises
 well:
@@ -65,12 +79,13 @@ and that is the check to repeat if this ever flakes.
 The suite is not the whole gate, and treating it as one is how this repository
 gets a red `main`. Three of the audits under `tests/harnesses/` run as their
 own CI jobs precisely because pytest structurally cannot perform them, and
-`fuzz.py --self-check` runs as a step of the self-check job for the same
-reason:
+`fuzz.py --self-check` and `mypy` run as steps of the self-check job for the
+same reason:
 
 ```sh
 PKG=$(mktemp -d); ARENA=$(mktemp -d)
 python -m pytest
+python -m mypy
 python tests/harnesses/mutate.py --check-only
 git archive HEAD | tar -x -C "$PKG"
 python tests/harnesses/smoke.py "$PKG" "$ARENA"
@@ -300,6 +315,17 @@ only the author knows which two strings name one fact.
   Use `-` for a dash, `...` for an ellipsis, `->` for an arrow.
 - `from __future__ import annotations` at the top of every module. The floor is
   Python 3.9, and that import is what keeps `X | Y` annotations legal there.
+  It covers annotations only: a module-level alias such as
+  `Diag = Callable[[str], None] | None` is an expression Python 3.9 evaluates
+  on import and cannot, and no checker sees that. Spell such an alias under
+  `if TYPE_CHECKING:`, as `extant/sweep.py` does, or inline it.
+- Typed to `mypy --strict`, with every suppression carrying its reason on the
+  line above and naming one error code. A `# type: ignore` that names a code
+  no longer raised on its line is what `warn_unused_ignores` refuses: seven
+  of the twenty-two that predated the gate had drifted that way, each one a
+  suppression waiting to hide a real error of that code. Explicit `Any` is
+  the other way to say nothing, and is not taken: a memo on `RunScope` states
+  what it holds, and a `Callable` says what it is called with.
 - Narrow exception handlers. Bare `except:` hides the failures this project
   exists to surface. A broad catch is allowed in exactly one shape: when it
   REPORTS what it caught, so the degraded path names itself instead of printing

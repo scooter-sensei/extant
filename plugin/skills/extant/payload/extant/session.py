@@ -2,11 +2,12 @@
 
 Everything here was module-level state in extant_collect.py, and it is here
 rather than deleted because something still has to hold it: configuration is
-read ONCE at import and derived from in twenty-one places, and a rule's answers
-are memoised for the lifetime of a call that spans several modules. The rules
-themselves stopped reading any of it in Task 9 - they take a `Context` - so
-what survives is the layer that BUILDS that Context for a caller who has a
-repository and a string and nothing else.
+read ONCE at import and built ONCE into the `Config` every reader is handed,
+and a rule's answers are memoised for the lifetime of a call that spans
+several modules. The rules themselves stopped reading any of it in Task 9 -
+they take a `Context` - so what survives is the layer that BUILDS that Context
+for a caller who has a repository and a string and nothing else, and
+`config()` for the modes, which read the same object without one.
 
 That is the whole justification for this module, and it is worth stating
 plainly because the alternative looks tempting: thread a Context from `main()`
@@ -25,7 +26,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Generator
 
 from extant import registry as _registry
 from extant.config import Config, StatusConfig, load_config
@@ -39,9 +40,10 @@ from extant.scope import Context, DocScope, RunScope
 from extant.text import MARKDOWN_ONLY
 
 __all__ = [
-    "ARCHIVE_DOC", "CONFIG", "Config", "Context", "CountingGit", "DocScope",
-    "PRIMARY_DOC", "REPO_ROOT", "RETAIN_ENTRIES", "RULES", "RULE_ERRORS",
-    "Rule", "RunScope", "SubprocessGit", "TRUNK", "context", "count_examined",
+    "CONFIG", "Config", "Context", "CountingGit", "DocScope",
+    "REPO_ROOT", "RULES", "RULE_ERRORS",
+    "Rule", "RunScope", "SubprocessGit", "ancestry_incomplete",
+    "config", "context", "count_examined",
     "document", "install_config", "install_document", "reload_config",
     "report_rule_errors",
     "rule_applies", "run_scope", "selftest", "set_document", "validate",
@@ -56,9 +58,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Every project-specific value is resolved once, here, from .extant.toml beside
 # the repo root - falling back to defaults that reproduce this project's
-# behaviour exactly, so a repo without a config file sees no change. The names
-# below stay module-level constants because the whole module and its tests refer
-# to them directly; only their SOURCE moved.
+# behaviour exactly, so a repo without a config file sees no change. This is
+# the RAW settings object; what every reader is handed is the `Config` that
+# `_apply_config` builds from it, below.
 #
 # Porting warning, stated at length in extant/config.py: three of these
 # patterns were derived by MEASURING this repo's documents. Copy them to another
@@ -119,6 +121,11 @@ def set_document(**changes: object) -> None:
     relative links against the last swept document's directory.
     """
     global _DOC
+    # `changes` holds whichever of DocScope's three fields the caller named,
+    # and this function reads none of them, so `object` is their honest width
+    # here. `replace` checks the names at runtime and raises on one DocScope
+    # lacks; the checker cannot see that from a `**` and would want each
+    # field's type spelled on a parameter this function never looks at.
     _DOC = replace(_DOC, **changes)      # type: ignore[arg-type]
 
 
@@ -139,70 +146,74 @@ def install_document(doc: DocScope) -> None:
     _DOC = doc
 
 
-# The live Config, and the values the package's functions are handed. Assigned
-# by `_apply_config` and nowhere else: a module-level `_ACTIVE =
+# The live Config: the one object every reader of the configuration is handed,
+# rules through `ctx.config` and modes through `config()` below. Bound by
+# `_apply_config` and nowhere else. A module-level `_ACTIVE =
 # Config.build(CONFIG)` here would read CONFIG outside the single writer, which
 # is both the bug this shape prevents and a test failure - the AST check in
 # test_packaging.py::test_configuration_is_applied_in_exactly_one_place flags
-# any module-level assignment whose value reads CONFIG, `_CONFIG_DERIVED`
-# excepted. Declared None and filled in below.
-_ACTIVE: Config | None = None
-
-# EVERY module global derived from configuration, and the only place any of
-# them is set. Import and `reload_config` both call `_apply_config`, so the two
-# cannot describe different sets - which is the whole point.
+# any module-level assignment whose value reads CONFIG.
 #
-# They used to be nineteen assignments scattered over 1,500 lines, with a
-# SECOND list inside reload_config naming which ones to refresh. The same
-# information written twice is an invitation to divergence, and it was
-# accepted: `_SECTION_HEADER` is COMPUTED from `entry_prefix` rather than
-# copied, the second list only knew about copies, and it went stale on every
-# reload. Installed as a package by the pre-commit framework - the one path
-# reload_config exists for - a project with a non-default heading level got
-# the right prefix everywhere and a splitter looking for the wrong one.
-#
-# The DERIVING moved to `Config.build`, which is now the one place a computed
-# value is expressed at all; the reasons each of these takes the shape it does
-# moved with it, to the fields in extant/config.py. What is left here is the
-# mapping from this tool's historical global names to those fields, and
-# nothing else. Every entry reads the SAME built Config, so a global and
-# `_ACTIVE` cannot describe different configurations.
-_CONFIG_DERIVED: dict[str, Callable[[Config], object]] = {
-    "PRIMARY_DOC": lambda c: c.primary_doc,
-    "ARCHIVE_DOC": lambda c: c.archive_doc,
-    "RETAIN_ENTRIES": lambda c: c.retain_entries,
-    "TRUNK": lambda c: c.trunk,
-    "_CONSISTENCY_TIMEOUT": lambda c: c.consistency_timeout,
-    "_ARCHIVE_HEADER": lambda c: c.archive_header,
-    "_BASE_HEADER": lambda c: c.base_header,
-    "_PHASE_PREFIX": lambda c: c.phase_prefix,
-    "_POINTER_PREFIX": lambda c: c.pointer_prefix,
-    "_PHASE_TASK": lambda c: c.phase_task,
-    "_PHASE_BARE": lambda c: c.phase_bare,
-    "_TODO_MARKER": lambda c: c.todo_marker,
-    "_LIVE_PHRASES": lambda c: c.live_phrases,
-    "_BRANCH_TOKEN": lambda c: c.branch_token,
-    "_PATH_POINTER": lambda c: c.path_pointer,
-    "_MERGE_CLAIM": lambda c: c.merge_claim,
-    "_RELEASE_TAG": lambda c: c.release_tag,
-    "_RELEASE_CLAIMS_ARE_OURS": lambda c: c.release_claims_are_ours,
-    "_SECTION_HEADER": lambda c: c.section_header,
-    "_TODO_SCAN_EXCLUDED_FILES": lambda c: c.todo_excluded_files,
-    "_TODO_SCAN_EXCLUDED_DIR_PREFIX": lambda c: c.todo_excluded_dir_prefix,
-}
+# ANNOTATED, NOT ASSIGNED. A `= None` here would have to be typed `Config |
+# None`, and every reader would then carry a None check for a state that
+# exists only between this declaration and the `_apply_config()` call a few
+# lines below. An annotation binds no value, so a read before that call is a
+# NameError rather than a None that has to be explained.
+_ACTIVE: Config
 
 
 def _apply_config() -> None:
-    """Set every configuration-derived global from the current CONFIG."""
+    """Build the one Config every reader is handed, from the current CONFIG.
+
+    Import and `reload_config` both call this, so the two cannot describe
+    different configurations - which is the whole point. Configuration used
+    to be nineteen assignments scattered over 1,500 lines, with a SECOND list
+    inside reload_config naming which ones to refresh. The same information
+    written twice is an invitation to divergence, and it was accepted: the
+    section header is COMPUTED from `entry_prefix` rather than copied, the
+    second list only knew about copies, and it went stale on every reload.
+    Installed as a package by the pre-commit framework - the one path
+    reload_config exists for - a project with a non-default heading level got
+    the right prefix everywhere and a splitter looking for the wrong one.
+
+    The DERIVING lives in `Config.build`, the one place a computed value is
+    expressed at all; the reason each field takes the shape it does lives
+    beside it in extant/config.py. For the eight weeks from 0.12.2 this
+    function also wrote twenty-one module globals from the same build -
+    `PRIMARY_DOC`, `TRUNK`, `_SECTION_HEADER` and the rest - through
+    `globals()[name] = ...`, a second table for the callers that predate
+    `Context`. Two of the twenty-one were still read, at thirteen sites in
+    two modules, and none of the twenty-one was visible to a type checker:
+    mypy reported `Module has no attribute` at every one of those sites and
+    could see nothing at the other nineteen. The readers take `config()`
+    now, and there is one table.
+    """
     global _ACTIVE
     _ACTIVE = Config.build(CONFIG)
-    # From `_ACTIVE`, not from a per-name rebuild: one build feeds both, so
-    # there is no arrangement in which a global and `_ACTIVE` disagree.
-    for name, build in _CONFIG_DERIVED.items():
-        globals()[name] = build(_ACTIVE)
 
 
 _apply_config()
+
+
+def config() -> Config:
+    """The built Config, for a caller that has no Context to read it from.
+
+    The rules never call this: every rule is handed `ctx.config`, which is
+    this same object - `context()` and `validate()` both read `_ACTIVE` at
+    call time, and so does this, which is what lets `reload_config` and
+    `install_config` reach every reader at once. The callers are the modes
+    that need a configured document NAME before there is a document to build
+    a Context around: `--verify` opening the archive, `--search` walking the
+    status documents, `--selftest` finding its target.
+
+    A function rather than the attribute itself, because the attribute is
+    rebound. A sibling that imported `_ACTIVE` by name would hold whatever
+    object existed at its import and keep it across a reload - the
+    staleness this module's single writer exists to prevent, reintroduced
+    at the import boundary - and it would be reaching for an underscore
+    name across a module wall, which the suite refuses.
+    """
+    return _ACTIVE
 
 
 def reload_config(repo: Path) -> None:
@@ -262,24 +273,6 @@ def install_config(config: StatusConfig) -> None:
     _apply_config()
 
 
-# None means unbounded, which is the default and the historical behaviour.
-# See `extant.rules.consistency._search_with_limit` for why an unbounded
-# default is right rather than an oversight.
-#
-# ANNOTATED, NOT ASSIGNED. `_apply_config()` runs at import, above this line,
-# and sets this from `consistency_timeout_seconds`. An assignment here then ran
-# afterwards and silently replaced the configured bound with None, so the
-# opt-in was inert on every CLI run: the config parsed, the value reached
-# CONFIG, and the global the rule actually reads never saw it. An annotation
-# binds no value, so the one `_apply_config` set survives.
-#
-# The rule reads `ctx.config.consistency_timeout` now rather than this name,
-# so a test that needs a different bound has to go through the built Config -
-# see the `reconfigure` fixture in tests/conftest.py. This stays because
-# `_CONFIG_DERIVED` names it and the suite reads it.
-_CONSISTENCY_TIMEOUT: float | None
-
-
 def context(repo: Path) -> Context:
     """This module's ambient state, as the object every rule takes.
 
@@ -291,13 +284,14 @@ def context(repo: Path) -> Context:
     memoisation-lifetime bug extant/scope.py exists to make unrepresentable,
     reintroduced one layer up.
 
-    TRAP: patching a CONFIG-DERIVED global on this module (`TRUNK`,
-    `_BRANCH_TOKEN`, `_RELEASE_TAG`, ...) does NOT reach any rule, because
-    every rule reads the built Config through `ctx.config`. It has not reached
-    one since Task 9 moved the last rule out; the seven names the suite used to
-    patch that way all go through the `reconfigure` fixture now, which writes
-    the built Config and the globals together. A test that needs a different
-    value must use that fixture or call `reload_config`.
+    A test that needs a different configured value goes through the
+    `reconfigure` fixture in tests/conftest.py, which replaces the built
+    Config, or calls `reload_config`. The module used to carry twenty-one
+    globals derived from that Config, and patching one of those reached no
+    rule - the rules read `ctx.config` - so a test that did so exercised
+    the default pattern instead of the one it set; seven names were patched
+    that way once, and two tests failed for it when their rules moved. There
+    is nothing else to patch now.
     """
     return Context(config=_ACTIVE, run=_SCOPE, doc=_DOC, repo=repo, git=_GIT)
 
@@ -320,7 +314,19 @@ def count_examined(repo: Path, text: str,
     return _registry.count_examined(context(repo), text, applies)
 
 
-def report_rule_errors(emit, mark: int = 0) -> int:
+def ancestry_incomplete() -> bool:
+    """Did an ancestry index built in the CURRENT run scope reach its bound?
+
+    Asked by a mode from inside its `run_scope()` block, before the block
+    closes, and handed to `report_repository_notes` in extant/gate.py, which
+    prints after it has. The answer belongs to the scope and dies with it,
+    which is why the note reporting it is the one repository note that has
+    to be carried out by hand rather than read from the checkout.
+    """
+    return _SCOPE.index_incomplete()
+
+
+def report_rule_errors(emit: Callable[[str], None], mark: int = 0) -> int:
     """Name every rule that RAISED since `mark`, and return the new mark.
 
     Printed where the denominators are printed, not to a log. That placement is
@@ -367,7 +373,7 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
     ctx = context(repo)
     for rule in RULES:
         try:
-            probed = rule.probe(ctx, text)  # type: ignore[operator]
+            probed = rule.probe(ctx, text)
         except Exception as exc:                            # noqa: BLE001
             # The probe half of the same contract the check below honours.
             # Left uncaught, a probe that raises takes the whole mode down
@@ -389,7 +395,7 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
                          f"nothing to corrupt it with)")
             continue
         try:
-            findings = [f for f in rule.check(ctx, probed)  # type: ignore[operator]
+            findings = [f for f in rule.check(ctx, probed)
                         if f.kind == rule.kind]
         except Exception as exc:                            # noqa: BLE001
             # Deliberately broad, and deliberately not silent - the same
@@ -455,7 +461,7 @@ def rule_applies(rule: Rule, in_archive: bool, has_entries: bool, *,
 
 
 @contextmanager
-def run_scope() -> Iterator[RunScope]:
+def run_scope() -> Generator[RunScope, None, None]:
     """Hold ONE RunScope across several calls that read one static checkout.
 
     `validate()` opens a scope per call and drops it on the way out, which is
@@ -477,9 +483,10 @@ def run_scope() -> Iterator[RunScope]:
     `stable=True`, because that is the flag `validate()` reads to decide
     whether the scope is its own or somebody else's. It carries the promise
     documented on the field: the checkout does not change and nothing inside
-    writes to it. `--verify` therefore wraps each document's two halves
-    separately rather than the whole run, because it rewrites documents between
-    them when `--sha-map` is given.
+    writes to it. `--verify` therefore holds one scope across the whole run
+    only when `--sha-map` is absent; given a map it rewrites documents
+    between reads, and wraps each document's two halves separately instead,
+    which is the shape every `--verify` had until 2026-09-20.
     """
     global _SCOPE
     previous_scope = _SCOPE
@@ -605,7 +612,7 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
                                 repository_rules=repository_rules):
                 continue
             try:
-                findings += rule.check(ctx, text)      # type: ignore[operator]
+                findings += rule.check(ctx, text)
             except Exception as exc:                   # noqa: BLE001
                 # Deliberately broad, and deliberately not silent. A rule that
                 # raises has not "found nothing"; it has failed to LOOK, and

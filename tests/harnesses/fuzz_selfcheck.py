@@ -83,7 +83,7 @@ CORE_PROPERTIES = ("CRASH", "HANG", "EXIT", "ERRORED", "DENOMINATOR",
                    "CONCURRENT")
 ORACLE_PROPERTIES = ("FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
                      "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE",
-                     "GITHUB")
+                     "GITHUB", "INTRODUCED")
 ALL_PROPERTIES = CORE_PROPERTIES + ORACLE_PROPERTIES
 
 # Names this list is NOT required to carry, each with the reason, so the
@@ -256,6 +256,22 @@ BREAKAGES = (
                 "    if cached is not None:"),),
     ),
 
+    # --- the diff-scoped gate -----------------------------------------
+    Breakage(
+        prop="INTRODUCED",
+        why="the gate keeps every finding in a changed document, not only "
+            "those on lines the range wrote, so a pull request fails on "
+            "claims it never touched",
+        # The membership test is the whole mode. Dropping it gates the
+        # `aside` findings too - the ones the mode reports as sitting on
+        # lines the range did not touch - and the oracle, reading the diff
+        # for itself, sees a gated finding at a line git did not add.
+        edits=(("extant/introduced_since.py",
+                "                    elif finding.line in wrote:",
+                "                    elif True:"),),
+        mode=("--introduced-since", "HEAD~1"),
+    ),
+
     # --- the output formats -------------------------------------------
     Breakage(
         prop="GITHUB",
@@ -424,9 +440,12 @@ BREAKAGES = (
         edits=(("extant/gate.py",
                 '    diag(f"checked {name}: {summary}")',
                 '    pass  # denominator line dropped'),
+               # Twelve spaces since 2026-09-21, when `run_validate` put its
+               # documents under one run scope; the anchor at eight matched
+               # mid-line and `--self-check` refused it, as it is meant to.
                ("extant/gate.py",
-                """        diag(f"checked {relative}: {checked or 'nothing applicable'}")""",
-                '        pass  # the extra-document denominator, dropped too'),),
+                """            diag(f"checked {relative}: {checked or 'nothing applicable'}")""",
+                '            pass  # the extra-document denominator, dropped too'),),
     ),
 
     # --- the two the Stage 3 audit predicted would need contriving -----

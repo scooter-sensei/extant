@@ -47,7 +47,7 @@ import re
 import subprocess
 
 from extant.git import environment
-from extant.scope import Context
+from extant.scope import AncestryIndex, Context
 
 # Eight of these names lost their underscore in Task 9, when the rules became
 # modules of this package and their calls into here became SIBLING calls. That
@@ -251,13 +251,13 @@ class _Ancestry:
     """
     __slots__ = ("commits", "complete", "settled")
 
-    def __init__(self, commits: frozenset, complete: bool) -> None:
+    def __init__(self, commits: frozenset[str], complete: bool) -> None:
         self.commits = commits
         self.complete = complete
         self.settled: dict[str, bool] = {}
 
 
-def _ancestor_index(ctx: Context, ref: str) -> _Ancestry | None:
+def _ancestor_index(ctx: Context, ref: str) -> AncestryIndex | None:
     """The newest `INDEX_BOUND + 1` commits reachable from `ref`, as full SHAs.
 
     ONE `git rev-list` answers what would otherwise be one
@@ -356,7 +356,10 @@ def settle_ancestry(ctx: Context, questions: list[tuple[str, str]]) -> None:
     ref per rule - and on the 92 per cent of histories the bound covers, to
     none at all beyond the index itself.
     """
-    pending: dict[str, list[str]] = {}
+    # The index travels with its misses rather than being looked up again
+    # below: the loop has just proved it exists and is incomplete, and a
+    # second read of the memo would have to prove that twice.
+    pending: dict[str, tuple[AncestryIndex, list[str]]] = {}
     for rev, ref in questions:
         index = _ancestor_index(ctx, ref)
         if index is None or index.complete:
@@ -364,14 +367,14 @@ def settle_ancestry(ctx: Context, questions: list[tuple[str, str]]) -> None:
         commit = commit_id(ctx, rev)
         if commit is None or commit in index.commits or commit in index.settled:
             continue
-        misses = pending.setdefault(ref, [])
+        misses = pending.setdefault(ref, (index, []))[1]
         if commit not in misses:
             misses.append(commit)
-    for ref, misses in pending.items():
-        _settle(ctx, ctx.run.ancestors[(str(ctx.repo), ref)], misses, ref)
+    for ref, (index, misses) in pending.items():
+        _settle(ctx, index, misses, ref)
 
 
-def _settle(ctx: Context, index: _Ancestry, commits: list[str], ref: str) -> None:
+def _settle(ctx: Context, index: AncestryIndex, commits: list[str], ref: str) -> None:
     """One `rev-list --stdin --not REF` for every commit the bounded index
     could not place, recorded on `index.settled`.
 

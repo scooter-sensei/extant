@@ -20,7 +20,7 @@ import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypedDict
 
 COMMIT_SAMPLE = 500
 BRANCH_SAMPLE = 400
@@ -448,7 +448,24 @@ _MERGEISH = re.compile(
 )
 
 
-def inspect_document(path: Path) -> dict[str, object]:
+class DocumentInfo(TypedDict):
+    """What `inspect_document` measured, by name.
+
+    A TypedDict rather than a mapping of objects so the installer reads each
+    measurement as what it is: a mapping of objects made every read a
+    suppression, and six of those suppressions had drifted to name an error
+    that no longer fired while a different one did on the same line.
+    """
+
+    path: Path
+    lines: int
+    header_scores: list[tuple[str, int]]
+    merge_verbs: list[str]
+    merge_count: int
+    merge_targets: list[tuple[str, int]]
+
+
+def inspect_document(path: Path) -> DocumentInfo:
     """Measure one document: entry headers, merge phrasing, size."""
     # open() rather than Path.read_text(newline=""): read_text did not accept a
     # newline argument until Python 3.13, so this line raised TypeError on 3.11

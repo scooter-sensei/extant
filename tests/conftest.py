@@ -109,15 +109,13 @@ def neutral_config(tmp_path: Path):
     neutral = tmp_path / "_neutral_config"
     (neutral / ".git").mkdir(parents=True, exist_ok=True)
 
-    saved_config = hc.CONFIG
-    saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
-    # `_ACTIVE` is the built Config the package's functions are handed, and it
-    # is the same information as the globals above in a second shape. Restoring
-    # one without the other would leave this module describing two different
-    # projects at once, which is the exact divergence Config was introduced to
-    # end - so it is saved and restored alongside them rather than left to the
-    # next test's reload to fix.
-    saved_active = hc._ACTIVE
+    # Both halves of the configuration: the raw settings and the Config built
+    # from them, which every reader - rule or mode - is handed. They used to
+    # be three: twenty-one module globals derived from the same build sat
+    # beside `_ACTIVE`, and restoring one without the others left this module
+    # describing two projects at once. The globals are gone; what is saved
+    # here is everything `reload_config` writes.
+    saved_config, saved_active = hc.CONFIG, hc._ACTIVE
     # Per-document and per-run state, cleared for the same reason the config is
     # neutralised: both are reachable from the module, and a test that leaves
     # either set makes the NEXT test's answer depend on which one ran first.
@@ -142,34 +140,30 @@ def neutral_config(tmp_path: Path):
     try:
         yield
     finally:
-        hc.CONFIG = saved_config
-        hc._ACTIVE = saved_active
+        hc.CONFIG, hc._ACTIVE = saved_config, saved_active
         hc._DOC, hc._SCOPE = saved_doc, saved_scope
-        for name, value in saved.items():
-            setattr(hc, name, value)
 
 
 @pytest.fixture
 def reconfigure(monkeypatch):
-    """Change a configured value so that BOTH readers see it.
+    """Change a configured value so that every reader sees it.
 
-    Setting `session._BRANCH_TOKEN` (or any of the twenty-one names in
-    `_CONFIG_DERIVED`) used to be enough, because the rules read those globals.
-    From Task 9 the rules are package modules that read `ctx.config`, which is
-    the built `Config` on `session._ACTIVE` - so a plain attribute patch
-    reaches the derived globals and NOT the rule under test. The rule then matches
-    nothing and the test reports no findings, which is indistinguishable from
-    the rule working and the document being clean. Two tests failed exactly
-    that way when their rules moved; the danger is the ones that would have
-    kept passing.
+    Setting `session._BRANCH_TOKEN` (or any of twenty-one such module
+    globals) used to be enough, because the rules read those globals. From
+    Task 9 the rules are package modules that read `ctx.config`, which is the
+    built `Config` on `session._ACTIVE` - so a plain attribute patch reached
+    the derived globals and NOT the rule under test. The rule then matched
+    nothing and the test reported no findings, which is indistinguishable
+    from the rule working and the document being clean. Two tests failed
+    exactly that way when their rules moved; the danger was the ones that
+    would have kept passing.
 
-    This writes the built Config and every global derived from it together,
-    which is the same invariant `_apply_config` maintains: one build feeds both,
-    so there is no arrangement in which a global and `_ACTIVE` disagree.
-    `monkeypatch` undoes both at teardown.
+    The globals are gone now and the modes read `session.config()`, the same
+    object the rules are handed, so there is one place to write and this
+    writes it. `monkeypatch` undoes it at teardown.
 
     The alternative - writing a `.extant.toml` and calling `reload_config` -
-    reaches the same two places and is what a test should use when the point IS
+    reaches the same place and is what a test should use when the point IS
     the file. This exists for the many tests whose point is a pattern.
     """
     import dataclasses
@@ -179,8 +173,6 @@ def reconfigure(monkeypatch):
     def apply(**changes: object):
         monkeypatch.setattr(hc, "_ACTIVE",
                             dataclasses.replace(hc._ACTIVE, **changes))
-        for name, build in hc._CONFIG_DERIVED.items():
-            monkeypatch.setattr(hc, name, build(hc._ACTIVE))
         return hc._ACTIVE
 
     return apply

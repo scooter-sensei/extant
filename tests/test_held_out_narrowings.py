@@ -669,6 +669,36 @@ def test_a_dead_anchor_in_a_setext_document_still_fires(git_repo) -> None:
 
 
 # --------------------------------------------------------------------------
+# 11. A word spelled in hex digits is a word.         7 of 152 visible clones
+# --------------------------------------------------------------------------
+
+def test_the_algorithm_name_ed25519_is_not_a_sha(git_repo) -> None:
+    """`ed25519` is seven characters, every one a hex digit, with a letter
+    and a digit among them - the exact shape both shape tests admit - and it
+    names a signature scheme, never a commit. Found on 2026-09-22 in the
+    recorded sweep of the 152 visible corpus clones: reported as a bare dead
+    SHA in 7 of them (goose, deno, kubernetes, node, unraid, PX4-Autopilot,
+    pdns), the one such word the corpus holds. Both spellings, because the
+    backticked one is how a key type is written in prose.
+    """
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    text = ("Each node holds one ed25519 keypair; the `ed25519` public key is "
+            "its id.\n")
+    assert _shas(repo, text) == []
+
+
+def test_a_bare_sha_beside_the_word_still_fires(git_repo) -> None:
+    """The skip is one word, not a shape: a hex run one character longer is a
+    candidate exactly as before. Backticked candidates come first, the order
+    `_sha_sites` has always reported in."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    text = "Keys are ed25519; the fix landed in ed25519a and `ed25519ab`.\n"
+    assert _shas(repo, text) == ["ed25519ab", "ed25519a"]
+
+
+# --------------------------------------------------------------------------
 # Every narrowing above, re-checked in one pass against the fast path.
 # --------------------------------------------------------------------------
 

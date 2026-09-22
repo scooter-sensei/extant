@@ -31,8 +31,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
-
+from extant.config import Config
 from extant.git import rewrite_journal_path, rewrite_map_path
 from extant.refs import SHA_SHAPE, resolve_shas
 from extant.scope import Context
@@ -81,6 +80,21 @@ _SHA_RANGE = re.compile(r"^([0-9a-f]{7,40})(\.\.\.?)([0-9a-f]{7,40})$")
 BARE_SHA_TOKEN = re.compile(r"(?<![#\w])[0-9a-f]{7,40}\b")
 
 
+# A WORD spelled entirely in hex digits, which the two shape tests below would
+# otherwise admit: seven characters, a letter and a digit among them.
+#
+# `ed25519` names a signature scheme and is written bare in prose about keys
+# - "each node has one ed25519 keypair". Measured 2026-09-22 against the
+# recorded sweep of the 152 visible corpus clones: reported as a bare dead SHA
+# in 7 of them (goose, deno, kubernetes, node, unraid, PX4-Autopilot, pdns),
+# and it is the ONLY such word the corpus holds - every other repeated dead
+# token was hex that named something. A list rather than a rule, because the
+# shape cannot be told from a commit's and a second word will be measured in,
+# not inferred. What the skip costs: a commit whose abbreviation is exactly
+# this word, one in 268 million objects.
+_HEX_WORDS = frozenset({"ed25519"})
+
+
 def looks_like_sha(token: str) -> bool:
     """Shape test for a BACKTICKED token.
 
@@ -93,9 +107,13 @@ def looks_like_sha(token: str) -> bool:
     all-digits about 4% of the time, and those go unchecked now. That is the
     better side of the trade - a missed check is silent, while flagging every
     large number in a document is the noise that gets a validator ignored.
+
+    A word from `_HEX_WORDS` is refused in either spelling: `` `ed25519` `` is
+    how a key type is written in prose, not a citation.
     """
     return (bool(SHA_SHAPE.match(token))
             and not _is_digest_length(token)
+            and token.lower() not in _HEX_WORDS
             and any(ch.isdigit() for ch in token)
             and any(ch.isalpha() for ch in token))
 
@@ -126,9 +144,12 @@ def looks_like_bare_sha(token: str) -> bool:
     year, a test count) that `looks_like_sha` alone would wrongly accept.
     The digit requirement excludes a hex-looking English word the same way it
     already does for `looks_like_sha`. Measured against ~2600 lines of the
-    real status documents with zero false positives.
+    real status documents with zero false positives - and against 152 corpus
+    clones on 2026-09-22, where one word carrying BOTH a letter and a digit
+    slipped it, so `_HEX_WORDS` names that word beside the shape.
     """
     return (not _is_digest_length(token)
+            and token.lower() not in _HEX_WORDS
             and any(ch.isdigit() for ch in token)
             and any(ch.isalpha() for ch in token))
 
@@ -384,10 +405,10 @@ def _find_bare_sha_candidates(text: str) -> list[tuple[int, str]]:
 # input a hit could be wrong about. `reload_config` and the `reconfigure`
 # fixture both build a fresh Config, so a changed `merge_claim` arrives as a
 # different pattern object and simply misses.
-_MERGE_CLAIMS: "tuple[str, Any, str, list[tuple[int, str, str]]] | None" = None
+_MERGE_CLAIMS: "tuple[str, re.Pattern[str], str, list[tuple[int, str, str]]] | None" = None
 
 
-def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
+def merge_claims(config: Config, prose: str) -> list[tuple[int, str, str]]:
     """(line, ref, sha) for every merge claim, ref as written.
 
     Split out of what is now `extant.rules.merge.check` so `_document_sha_tokens`
@@ -413,7 +434,7 @@ def merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     return result
 
 
-def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
+def _merge_claims(config: Config, prose: str) -> list[tuple[int, str, str]]:
     """The scan itself. Separate only so the cache above stays readable."""
     pattern = config.merge_claim
     named = pattern.groups >= 2
@@ -457,7 +478,7 @@ def _merge_claims(config: Any, prose: str) -> list[tuple[int, str, str]]:
     return claims
 
 
-def _document_sha_tokens(config: Any, prose: str) -> list[str]:
+def _document_sha_tokens(config: Config, prose: str) -> list[str]:
     """Every SHA-shaped token in this document that a rule will ask git about.
 
     The UNION, gathered once so a document costs ONE `cat-file --batch-check`
@@ -618,7 +639,9 @@ def _translated_value(token: str, mapping: dict[str, str],
     return hits[0][: len(token)] if len(hits) == 1 else None
 
 
-def _read_rewrite_map(repo: Path) -> tuple[dict[str, str], Any, str | None]:
+def _read_rewrite_map(
+    repo: Path,
+) -> tuple[dict[str, str], dict[str, list[tuple[str, str]]], str | None]:
     """The repository's commit-map, and why it could not be read if it could not.
 
     Two answers rather than one, because "no rewrite has happened here" and
@@ -661,7 +684,9 @@ def _read_rewrite_map(repo: Path) -> tuple[dict[str, str], Any, str | None]:
     return mapping, _bucket_index(mapping), None
 
 
-def _rewrite_map(ctx: Context) -> tuple[dict[str, str], Any, str | None]:
+def _rewrite_map(
+    ctx: Context,
+) -> tuple[dict[str, str], dict[str, list[tuple[str, str]]], str | None]:
     """Cached for the run, like every other answer the disk gave.
 
     A sweep validates every tracked document in one scope and a commit-map

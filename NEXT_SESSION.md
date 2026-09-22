@@ -6,6 +6,375 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 51 - The four probes: a split only the network can make, a rebase that reaches nothing, a rescue with no population, and the gate's missing listing (unreleased, 2026-09-22)
+
+**Status.** Suite is 1,336 tests across 73 files: 1,333 passing and 3
+skipped, four added - two in `tests/test_introduced_since.py` (a staged new
+document, an uncommitted move with an edit), each red against the gate as
+it stood, and two in `tests/test_held_out_narrowings.py` (the hex-spelled
+word in both spellings, red first; a hex run one character longer still
+reported, the control). Thirteen rules; no mode added; no default or exit
+code moved; one document listing moved from HEAD's tree to the diff, and
+one word refused by name. The tool remained released as 0.27.0, and this
+work sits above that tag with Phases 47 to 50, uncommitted beside them.
+`python -m mypy`: no issues in 41 files. Mutation campaign is 287
+anchors: two retargeted on the lines the listing and its refusal changed
+and three written here, each applied to a copy of this tree and watched
+turning the suite red - 5 of 5 killed in fifty-two minutes with the baseline, none
+survived, none unapplied. The 152 visible corpus clones were swept before
+and after against a stated prediction of seven differing - the clones
+where `ed25519` read as a commit, and nothing else: 152 compared, 7
+differ, and in each of the seven every line that moved is that word's
+finding or the `dead-sha` denominator that fell with it, 49 sites in all.
+The rest of the pre-push list ran against a working-tree extract: smoke
+green with 45 clean of 47 and the two
+expected flags; scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824 over 35 repositories, 0 violations;
+`--self-check` 22 of 22; `--verify` clean; `--selftest` 7 fired and 0 silent.
+
+**What it is.** The review's four measurements - 4.9, 3.7, 4.8, 4.11 - run
+before anything was designed, each deciding its item, and two changes
+the numbers asked for. 4.9, whether a dead SHA was wrong when written or
+rotted since: over the 17 agent and 13 autopsy clones the shipped survey
+reports 2,489 dead references, 874 distinct, in 9 repositories, and the
+rewrite records a clone carries settle 0 of them, so the question is put
+to the one instrument that can answer it, GitHub's commits API, which
+still serves this project's own commits that the 2026-08-10 rewrite made
+unreachable. Over the 172 distinct ids in ordinary and historical
+documents, 6 existed once - squash and rebase casualties in goose,
+langgraph and superpowers, each cited in a document written the same
+season - and 166 never did: one session transcript kept as a test
+fixture, a grader's quoted output about another workspace, docker ids,
+other projects' commits. The skill now says so, and its advice is
+neither of the review's two: a commit id is a fact about one object
+store, so name where it came from or leave it out. 3.7, documents citing
+a commit of the last fifty: 9 of 139 repositories, median zero in every
+group, 0.93 per cent of 13,064 live citations within fifty commits and a
+median depth of 4,523 - no `--impact` mode, the rewrite hook already owns
+the moment. 4.8, the merge-history rescue: the shipped rule names nothing
+on the two real status documents there are; across every branch token in
+141 repositories, 32 of 54 real names are rescued and the 22 that are not
+sit in documents the rule does not read - no `reference-transaction`
+journal. 4.11, the pre-commit hook: `--verify` reads the working tree and
+has no gap, `--sweep` lists HEAD's tree by its documented decision, and
+`--introduced-since` dropped a `git add`ed new document and an
+uncommitted `git mv` with an edit while printing a clean run - fixed, the
+changed documents are the diff's own `+++` side now and HEAD's tree only
+counts what the range left alone, minus both names of a rename; no
+`--staged` mode. And `ed25519`, read as a bare dead SHA in 7 of 152
+clones, the only hex-spelled word the corpus holds, is refused by name.
+The full record is the section "The four probes: a split only the
+network can make, a rebase that reaches nothing, a rescue with no
+population, and the gate's missing listing" in the design rationale under
+the skill's references; the apparatus is the `m14_*` scripts in the
+extant-hardening checkout, with rows under `D:/repo/out-split`,
+`D:/repo/out-impact` and `D:/repo/out-branches`.
+
+**What this leaves owed.** Everything Phase 50 left. New, from the two
+shapes found on the way and measured: a SHA as the unbackticked link text
+of another repository's commit URL, 1,425 of the 11,191 dead-SHA findings
+in the recorded corpus sweep, the same shape and the same argument as the
+backticked spelling suppressed since the held-out narrowings, one skip
+span in the bare scanner when it is asked for; and CommonMark indented
+code blocks, which `prose()` does not blank - 1,139 findings in moby, 76
+in sixteen other repositories, 36,321 anchors in bazel's version
+snapshots - which needs its own measurement of what it would blank
+before it is a change, because a four-space-indented continuation
+paragraph under a list item is prose. `--at <ref>` stays unbuilt, since
+the question it would answer is settled by the network or not at all.
+
+## Phase 50 - The type checker: four measured, one gated, and a floor none can see (unreleased, 2026-09-21)
+
+**Status.** Suite is 1,332 tests across 73 files: 1,329 passing and 3
+skipped, six added in `tests/test_extant_config.py` - five refusals, each
+red against the loader before it refused anything, and one control that
+every documented shape still loads, green before and after - and two in
+`tests/test_scope.py` given a real `Config` where they had handed the
+field None. Thirteen rules; no
+mode added; no default, output or exit code moved. The tool remained
+released as 0.27.0, and this work sits above that tag with Phases 47, 48
+and 49, uncommitted beside them. `python -m mypy` at `--strict` over the
+package, the shim, `install.py` and `detect.py`: 0 errors in 41 files,
+from 29 in default mode and 97 under `--strict` before the work - 17 and
+79 of those on the package and shim, 12 and 18 on `install.py`; 5
+suppressions remain of the 22 that predated the gate, 7 of which had
+named a code no longer raised on their line. Mutation campaign is 284
+anchors, five of them retargeted on lines that lost a suppression or
+gained an annotation, each applied to a copy of this tree and watched
+turning the suite red - 5 of 5 killed in thirty-one minutes with the baseline, none survived,
+none unapplied. The 152 visible corpus clones were
+swept before and after against a stated prediction of zero differing:
+152 compared, 0 differ. The rest of the pre-push list ran against a working-tree
+extract: smoke green with 45 clean of 47 and the two
+expected flags; scenarios green, 25 scenarios and 213 assertions; fuzz at
+seed 20260824 over 35 repositories, 0 violations; `--self-check` 22 of 22;
+`--verify` clean; `--selftest` 7 fired and 0 silent; `python -m mypy` in
+the same chain, no issues in 41 files.
+
+**What it is.** The review's mypy item under 9.2, and the research the
+session was asked for on what else a project can gate its types on. Three
+checkers were run on this tree before one was chosen: mypy 2.3.1 at its
+3.10 floor, 17 errors of which 10 real, 2.94 s; Pyrefly 1.3.1 at 3.9, 10
+of which 8 real, 0.64 s; basedpyright 1.40.1 at 3.9, 11 of which 8 real,
+4.35 s. All three named the same eight sites where an annotation or a
+docstring said what the code did not do - `report_denominators` annotated
+`-> bool` while returning the integer mark since the module's split on
+2026-08-31, the anchor rule
+testing membership in a set its own tuple said could be None - and all
+eight are fixed. The argument for a Rust checker was that it accepts a
+3.9 target and mypy 2 does not; six planted 3.10-and-later usages showed
+no checker catches `int.bit_count()` or `zip(strict=True)` at any
+target, because typeshed dropped 3.9 at its EOL and the `>= (3, 10)`
+guards with it, so the 3.9 test leg stays the floor's only check. mypy was
+chosen on the three things the others lack: `warn_return_any`, which is
+what typed the 28 `dict[Any, Any]` memos on `RunScope`; `VERSIONS`, which
+makes an unguarded 3.11 import red at the 3.10 target; and a decade of
+maintenance. The `Rule` contract's `check`, `probe` and `examined` are
+`Callable`s now and every rule's is checked against them, `scope` is a
+`Literal` of its three values, the ancestry index is a `Protocol` on the
+scope that holds it, and the loader refuses a setting of the wrong TOML
+type instead of coercing it - `suite_command = "pytest"` used to run six
+one-letter arguments and `release_claims_name_our_tags = "false"` used to
+switch the rule on - with a reach of 0 of the 152 visible corpus rows,
+none of which tracks an `.extant.toml`. `[tool.mypy]` in `pyproject.toml`
+is the whole configuration; the self-check CI job runs `python -m mypy`
+after the anchor check and fails on one error; `mypy>=2.3,<3` sits in
+`requirements-dev.txt` with a marker for 3.10 and up. pytest-randomly was
+measured - a seeded random order with tests interleaved across files,
+1,323 passed - and not installed. The full record is the section "The
+type checker: four measured, the floor none can see, and a gate on the one
+that enforces the most" in the design rationale under the skill's
+references.
+
+**What this leaves owed.** Everything Phase 49 left except the mypy item,
+which is closed. New: the tests are not type-checked, 1,332 of them being
+a tranche of their own; pytest-timeout waits on the slowest test being
+measured so the bound is a number; the five suppressions are listed in
+the design record and each is a reason, not a debt; and `mypy>=2.3,<3` is
+a bound that a 3.0 release will have to be raised past deliberately, with
+the count that release reports written beside it.
+
+## Phase 49 - The structural tranche: one Config, and two shapes the numbers kept (unreleased, 2026-09-21)
+
+**Status.** Suite is 1,326 tests across 73 files: 1,323 passing and 3
+skipped, one added in `tests/test_module_quality.py` and one replaced in
+`tests/test_config_object.py`, with about fifty lines in eight test files
+moved from the module globals to `session.config()` - each red against
+the unchanged package before the change was made. Thirteen rules; no mode
+added; no default, output or exit code moved. The tool remained released
+as 0.27.0, and this work sits above that tag with Phases 47 and 48,
+uncommitted beside them. Mutation campaign is 284 anchors: one written
+here and one retargeted on the line `--search`'s document loop changed,
+each applied to a copy of this tree and watched turning the suite red -
+2 of 2 killed in fourteen minutes with the baseline. The 152 visible
+corpus clones were swept before and after against a stated prediction of
+zero differing: 152 compared, 0 differ. The rest of the pre-push list ran
+against a working-tree extract: smoke green with 45 clean of 47 and the
+two expected flags; scenarios green, 25 scenarios and 213 assertions;
+fuzz at seed 20260824 over 35 repositories, 0 violations; `--self-check`
+22 of 22; `--verify` clean; `--selftest` 7 fired and 0 silent. mypy 2.3.1
+in default mode, run at a 3.10 target because that release no longer
+takes the 3.9 floor: 31 errors before and 17 after, `Module has no
+attribute` 13 before and 0 after.
+
+**What it is.** The three structural items of the internals review in the
+order the previous handoff set - 3.8, 3.4, 3.2 - and 3.6, which it asked to
+have recorded. 3.8: `session.py` built the one `Config` every rule reads
+and then wrote twenty-one module globals from it through `globals()`, a
+second table for the callers that predate `Context`; 2 of the 21 were still
+read, at 13 sites in the CLI and the gate modules, 9 were read by nothing,
+and mypy could see none of them. The globals are gone; the modes read
+`session.config()`, a function returning the one built object, `_ACTIVE`
+is declared and never assigned at module level, and a structural test
+refuses any `globals()` or `vars()` write anywhere in the package. 3.4,
+`contextvars` for the ambient scopes: refused now and gated on 3.5 - the
+package starts no threads, so nothing running today can tell a context
+variable from a module global; a port that changes the attribute's type
+touches 89 test lines in 15 files against the review's own bar of zero,
+and the only route to zero hides the mechanism behind a module-class
+swap; the `finally` stays either way; and the thread pool that would need
+it waits on a free-threaded interpreter the CI matrix does not have. 3.2,
+`Rule` as sites and judge: refused on paper - 11 of 13 rules already count
+`len(sites)`, `dead-path-pointer` would flatten identically, and
+`inconsistent-artifact` yields up to one finding per source plus one per
+group from a single site while counting sources, which the strict contract
+holds only with two relaxations, the second of which re-admits the drift
+the existing AST gate refuses; by the review's own rule the gate stays,
+and the two-rule spike the handoff named could not have produced that
+answer, so it was not spent. 3.6, the result cache: recorded as blocked by
+Phase 43's refusal of the path index, on the 1,022 gitignored-path
+verdicts a cache would freeze. The full record is the section "The
+structural tranche: one Config, and two shapes the numbers kept" in the
+design rationale under the skill's references; the hardening apparatus's
+`m7_variants.py` read one of the globals and reads `config()` now.
+
+**What this leaves owed.** Everything Phase 48 left. New, for the review's
+mypy item: the 17 errors that remain, none a missing attribute - four
+`import-not-found` on the `tomllib`/`tomli` and `tools.extant` fallbacks,
+three `no-redef` beside them, and ten real type disagreements in
+`config.py`, `collect.py`, `sites.py`, `md_anchor.py`, `gate.py` and
+`cli.py`; `Context.config` is still `Any`, left so this tranche's delta
+stays attributable; and mypy 2.3.1 cannot target the 3.9 floor, which CI
+checks and it now cannot. 3.4 comes back with 3.5, when a free-threaded
+build is in the matrix; 3.2's two-rule spike is available if a run is
+wanted behind the paper refusal.
+
+## Phase 48 - The probe tranche: one batch, one scope, one list, and a matcher read against git (unreleased, 2026-09-21)
+
+**Status.** Suite is 1,325 tests across 73 files: 1,322 passing and 3
+skipped, 11 added across `tests/test_deleted_since.py`,
+`tests/test_spawn_budget.py`, `tests/test_curated_behaviour.py` and
+`tests/test_exclude_paths.py`. Thirteen rules; no mode added; no default,
+output or exit code moved. The tool remained released as 0.27.0 - cut on
+2026-09-21 from `main` as it stood after pull request 13, while this and
+Phase 47 sat uncommitted - and this work sits above that tag with Phase
+47, rebased onto the release on the same day, still uncommitted beside
+it. Mutation campaign is 283 anchors: ten written here and five
+retargeted on the lines the batch, the two scopes, the seed and the matcher
+changed, each applied to a copy and watched turning the suite red - 14 of
+14 killed in 69 minutes on the first copy; of the two written after that
+campaign started, one killed on a second copy of the final tree and one
+SURVIVED - a header split that the guard beside it made equivalent -
+retargeted at the guard and run again: killed. 283 anchors, 16 run, 16 killed. The 152
+visible corpus clones were swept before and after against a stated
+prediction of zero differing: 152 compared, 0 differ. The rest of the
+pre-push list ran against a working-tree extract: smoke green with 45
+clean of 47 and the two expected flags; scenarios green, 25 scenarios and
+213 assertions; fuzz at seed 20260824 over 35 repositories, 0 violations;
+`--verify` clean; `--selftest` 7 fired and 0 silent; `--self-check`
+22 of 22, after a first run that refused one of its own breakages -
+an anchor on `gate.py` at eight spaces matching mid-line once the
+documents sat under one scope at twelve - which is the refusal the
+harness exists to make.
+
+**What it is.** The five probes Phase 45 named and nobody took - the
+review's 4.10, 4.5, 5.9, 5.6 and 5.7 - each measured on this machine before
+anything was written, and decided by the number. 4.10: `--deleted-since`
+started ten git processes for this repository's four changed documents, one
+`git show` per document and, unnamed by the review, the ref table and the
+trunk index twice each because the loop opened no run scope; one
+`cat-file --batch` and one scope make it five, 543 ms to about 330, the
+missing-object distinction of a partial copy intact, a directory at the
+configured name now "not a document there" rather than a tree listing
+validated as one; the gap audit then found the batch header parsed from
+the front, which crashed on a spaced name's `missing` echo, and it is
+read from its end with two tests and an anchor. 5.7: `--verify` opened a scope per document, so this
+repository's status document and `tests/harnesses/README.md` each built the
+ref table and the trunk index, 101 ms of a 700 ms run; one scope spans the
+run unless `--sha-map` rewrites documents between reads, in which case the
+scope stays per document, and the spawn budget's invariant moved from twice
+to once with both arms asserted. 5.6: traced with `GIT_TRACE` on ruff's
+clone, the tree was listed five times in one parallel survey, and twice in
+a sequential one because the parent's own listing was taken outside its
+scope; the list is seeded into the parent's scope and handed to every worker
+through `initargs`, once per survey now, while the rename map, the ref
+table and the trunk index are refused as hand-downs on the numbers - 1,361
+ms eagerly for the map on every sweep against three of eight workers paying
+it lazily. 4.5: 793,684 distinct tracked paths from the 152 clones through
+`_exclusion_regex` and `git check-ignore` under 32 shapes, zero
+disagreements on documents for the 23 documented and common ones, five on
+packaging files literally named `docs` or `vendor` that a trailing-slash
+pattern took and git did not - closed on one line; the swap refused because
+`!` and `[a-z]` are used by 0 patterns anyone has written and are reported
+as matching nothing, and because git's answer follows `core.ignorecase`,
+8,508 paths under `**/test/**` differing between a Windows clone and Linux
+CI. 5.9: the four deferrable mode modules cost 3.65 ms of a 181 ms import
+against a bar of 50, the eager registry 60 and the standard library 120;
+refused, nothing moved. The full record is the section "The probe tranche:
+one batch, one scope, one list, and a matcher read against git" in the
+design rationale under the skill's references; the differential's rows are
+under `D:/repo/out-checkignore/` and its apparatus is `m11_checkignore.py`
+in the extant-hardening checkout.
+
+**What this leaves owed.** Everything Phase 47 left except the five probes
+taken here. Still named and untouched: the 165 degraded paths as a list,
+the authoritative-index proposal, 8.2, the born-false split of the replay's
+175 aside findings, and the agent-tier question the replay could not answer.
+New: `!` and `[a-z]` in `exclude_paths`, an afternoon if a user ever writes
+one, which the sweep will name when they do; and `--introduced-since`'s
+workers still list the tree for themselves on the rare range with a hundred
+changed documents, because that parent lists no tree to hand down.
+
+## Phase 47 - The diff-scoped gate replayed, and the debts the shipped items carried (unreleased, 2026-09-20)
+
+**Status.** Suite is 1,314 tests across 73 files: 1,311 passing and 3
+skipped, 14 added across `tests/test_repository_notes.py` (new),
+`tests/test_packaging.py` and `tests/test_added_rules.py`. Thirteen rules;
+no mode added; no default or exit code moved; three notes added to `--sweep`
+and one to every gating mode. Phases 36 to 46 reached `main` in pull
+request 13 on 2026-09-19 and shipped in 0.27.0 on 2026-09-21; the tool
+remained released as 0.27.0 and this work sits above that tag, written
+the day before the release and rebased onto it. Mutation campaign is 273
+anchors: five written
+here and two retargeted on the lines the rename hint's field and the
+survey's tuple changed, each applied to a copy and watched turning the
+suite red - 7 of 7 killed in 51 minutes, none survived, none unapplied.
+The 152 visible corpus clones were swept before and after: 152 compared,
+139 differ, the predicted count and not the predicted composition - 138
+gain the partial-repository note alone and cpython gains the commit-graph
+note beside it, the first time that note has fired anywhere - and the 13
+autopsy outputs byte-identical. A first diff, run against the wrong
+before-side, showed 141 and is recorded with the reason. The rest of the
+pre-push list ran against a working-tree extract: smoke green with 45
+checks; scenarios green, 25 scenarios and 213 assertions; fuzz at seed
+20260824 over 35 repositories, 13 of 13 rules reached, no fault, the new
+`INTRODUCED` oracle standing aside on 11 of the 35 and saying so;
+`--self-check` with 22 of 22 properties going red, after a first run at 21
+of 22 whose reason was the window rather than the breakage; `--verify`
+clean and `--selftest` with 7 fired and 0 silent.
+
+**What it is.** The first tranche after the merge, and none of it a new item
+of the review: each piece is a debt a shipped item left on its own record.
+The largest is 8.1's probe. `--introduced-since` shipped in Phase 40 with
+the review's instruction unmet - "measure it into the policy table before
+you believe me" - so the last 50 first-parent commits of each of the 13
+autopsy clones were replayed through the shipped mode from a worktree at
+each commit, 650 integrated changes, every gated finding judged in the tree
+at its commit with the instruments the precision table was built with.
+Nine changes would have gone red, 36 findings, 33 ordinary, 2 repositories
+of 13 reporting an ordinary finding where `docs3-ord` reaches 9 of the same
+13 at HEAD; the review's bar for replacing the default install policy is
+not met, and the mode stays the pull-request gate beside the document-scoped
+default. What the replay measured instead is why: at the moment each change
+landed its documents held 211 findings, and 36 of them, 17.1 per cent, sat
+on lines the change wrote. Documentation claims go false without being
+edited. The reach the gate has is one repository's - 31 of the 33 in plan
+and spec documents written during agent sessions in `obra/superpowers` - and
+the figure names that as a hypothesis about agent-written documentation with
+one repository behind it. The section "The diff-scoped gate, replayed" in
+`CORPUS.md` is rendered from `CORPUS-figures.json` like everything else
+there; the apparatus is `m10_replay.py` in the extant-hardening checkout,
+rows under `D:/repo/out-replay/`, the figure built by `corpus_report.py`
+from those rows and the recorded policy sweep. With it: `action.yml` takes
+`mode: introduced-since` and a `since` input and refuses the mode without
+it; the fuzzer's `INTRODUCED` property reads `git diff -U0` for itself and
+requires every gated finding to sit on a line that diff added, choosing its
+own range because the self-check's repository ends with a binary. 4.2, the
+commit-graph note Phase 41 measured and did not print, prints now: the
+incomplete-index flag is read inside each run scope, carried out of the
+survey's workers with their results, and OR-ed across the documents a run
+examines; `has_commit_graph` is one stat in both spellings git writes.
+`--sweep` prints the shallow and partial notes it had never printed, once,
+after the `examined:` line. The rename hint moved from `detail` into
+`repair`, where the commit-map hint went in 0.25.0 for the same reason:
+`message()` renders identically and only a hinted finding's fingerprint
+changes. And the three sentences: 6.2's closure in the `line_number_at`
+docstring, the `signal.setitimer` refusal beside the watchdog thread's, the
+stale `_STRIPPED` sentence in `scope.py`. The full record is the section
+"The diff-scoped gate, replayed; and the debts the shipped items carried" in
+the design rationale under the skill's references.
+
+**What this leaves owed.** Everything Phase 46 left except the four items
+taken here (8.1's probe, 4.2's note, the survey's notes, the rename hint's
+field) and 6.2's closure note and the `setitimer` sentence. Still named and
+untouched: 4.10, 4.5, 5.9, 5.6 and 5.7, the 165 degraded paths as a list,
+the authoritative-index proposal, and 8.2. New: the split of the replay's
+175 aside findings into born-false and rotted, which is the review's 4.9
+asked per finding; whether the one-repository reach is a property of
+agent-written documentation, which the agent tier cannot answer without its
+history retrieved; and a baseline recorded with a rename hint inside `detail` re-raises
+that finding once on the first run after this lands, which the changelog
+says.
+
 ## Phase 46 - Five correctness items counted, four changes made (shipped, 2026-09-16)
 
 **Status.** Suite is 1,300 tests across 72 files: 1,297 passing and 3 skipped,

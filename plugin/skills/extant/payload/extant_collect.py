@@ -18,11 +18,16 @@ from __future__ import annotations
 #
 # FIRST, before any other package import. See the note above: an import error
 # from a stale package would otherwise mask this with a worse message.
+#
+# The two `no-redef` suppressions in this file are the fallback arms, which
+# bind a name the first arm already bound - a redefinition, as the checker
+# says, and the one this file exists to make. `tools.extant` itself is found
+# nowhere but an installed repository; `[tool.mypy]` in pyproject.toml says so.
 _SHIM_VERSION = "0.27.0"
 try:
     from extant import __version__ as _PACKAGE_VERSION
 except ImportError:                                  # pragma: no cover
-    from tools.extant import __version__ as _PACKAGE_VERSION
+    from tools.extant import __version__ as _PACKAGE_VERSION  # type: ignore[no-redef]
 if _PACKAGE_VERSION != _SHIM_VERSION:
     raise SystemExit(
         f"extant: version mismatch - tools/extant_collect.py is {_SHIM_VERSION} "
@@ -54,7 +59,7 @@ if _PACKAGE_VERSION != _SHIM_VERSION:
 try:
     from extant.cli import cli, main                 # noqa: F401  (entry point)
 except ModuleNotFoundError:  # pragma: no cover - exercised by the CLI tests
-    from tools.extant.cli import cli, main           # noqa: F401
+    from tools.extant.cli import cli, main  # type: ignore[no-redef]  # noqa: F401
 except ValueError as _config_error:
     if __name__ == "__main__":
         import sys

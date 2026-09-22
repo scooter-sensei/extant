@@ -78,7 +78,9 @@ _HUNK = re.compile(rb"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 # prefixes, `diff.external` replaces the output wholesale, `diff.context`
 # and `diff.interHunkContext` widen the hunks, and a textconv driver would
 # hand back something other than the file. `--find-renames` so an edited
-# document that also moved is read under the name HEAD's tree holds.
+# document that also moved is read under the name the working tree holds -
+# which is HEAD's name once the move is committed, and the `b/` name of a
+# `git mv` that is not yet.
 _DIFF = ("diff", "-U0", "--no-color", "--no-ext-diff", "--no-textconv",
          "--find-renames", "--inter-hunk-context=0", "--src-prefix=a/",
          "--dst-prefix=b/")
@@ -133,11 +135,21 @@ def unquote_path(raw: str) -> str:
 def _new_side(header: bytes, prefix: bytes) -> str | None:
     """The `b/` path a `+++` or `Binary files` line names, or None for
     `/dev/null` - a document the range deleted, which introduced nothing."""
+    return _side(header, prefix, "b/")
+
+
+def _old_side(header: bytes, prefix: bytes) -> str | None:
+    """The `a/` path a `---` line names, or None for `/dev/null` - a document
+    the range added, which `base` never held under any name."""
+    return _side(header, prefix, "a/")
+
+
+def _side(header: bytes, prefix: bytes, mark: str) -> str | None:
     raw = header[len(prefix):].decode("utf-8", "replace")
     if raw == "/dev/null":
         return None
     path = unquote_path(raw)
-    return path[2:] if path.startswith("b/") else path
+    return path[len(mark):] if path.startswith(mark) else path
 
 
 def merge_base(repo: Path, ref: str) -> str | None:
@@ -153,10 +165,25 @@ def merge_base(repo: Path, ref: str) -> str | None:
     return out.strip() or None
 
 
-def introduced_lines(repo: Path, base: str) -> tuple[dict[str, set[int]], list[str]]:
-    """The lines of every tracked document that the working tree holds and
-    `base` does not, keyed by the path HEAD's tree holds; and the changed
-    documents git read as binary, which have no lines to report.
+def introduced_lines(
+    repo: Path, base: str,
+) -> tuple[dict[str, set[int]], list[str], list[str]]:
+    """The lines of every document that the working tree holds and `base`
+    does not, keyed by the path the WORKING TREE holds (the diff's `b/`
+    side); the changed documents git read as binary, which have no lines to
+    report; and the `a/` side - every path `base` held that the range
+    touched, under the name it had then.
+
+    The `b/` side, not "the path HEAD's tree holds", which is what this said
+    until 2026-09-22. The two agree on a pull-request checkout, where HEAD
+    carries every change, and differ at pre-commit time: a document written
+    this session and `git add`ed is on the `b/` side and in no tree yet, and
+    a `git mv` with an edit files its lines under the new name while HEAD
+    still holds the old. The gate listed its documents from HEAD's tree and
+    so dropped both - silently, counting the new document neither as
+    examined nor as unread, and the renamed one as "did not change". The
+    `a/` side is returned for exactly that count: what the range touched is
+    not what it left alone, whichever name HEAD knows it by.
 
     BYTES, split on `\\n` alone, and not read through the seam. `_git` in
     extant/git.py translates every `\\r` in a result to `\\n` - right for the
@@ -185,6 +212,7 @@ def introduced_lines(repo: Path, base: str) -> tuple[dict[str, set[int]], list[s
                                             done.stdout, done.stderr)
     lines: dict[str, set[int]] = {}
     binary: list[str] = []
+    before: list[str] = []
     current: str | None = None
     in_hunk = False
     for raw in done.stdout.split(b"\n"):
@@ -208,11 +236,17 @@ def introduced_lines(repo: Path, base: str) -> tuple[dict[str, set[int]], list[s
             current = _new_side(raw, b"+++ ")
             if current is not None:
                 lines.setdefault(current, set())
+        elif raw.startswith(b"--- "):
+            # The same state rule as `+++`: a document line reading `-- x`
+            # arrives inside a hunk as `--- x`, and is never a header.
+            was = _old_side(raw, b"--- ")
+            if was is not None:
+                before.append(was)
         elif raw.startswith(b"Binary files ") and raw.endswith(b" differ"):
             named = _new_side(raw[:-len(b" differ")].rsplit(b" and ", 1)[-1], b"")
             if named is not None:
                 binary.append(named)
-    return lines, binary
+    return lines, binary, before
 
 
 def _holds_bare_cr(path: Path) -> bool:
@@ -241,7 +275,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
               file=sys.stderr)
         return 2
     try:
-        lines, binary = introduced_lines(repo, base)
+        lines, binary, before = introduced_lines(repo, base)
     except (subprocess.CalledProcessError, OSError) as exc:
         # REPORTS WHAT IT CAUGHT, the one shape a wide-ish handler is allowed
         # here. A partial repository whose base tree the transport left out
@@ -258,14 +292,23 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         # returning [] on error is how a silent all-clear is produced - is
         # the reason this refuses rather than surveying nothing.
         print(f"--introduced-since {ref}: git cannot list HEAD's tree "
-              f"({exc.__class__.__name__}), so the changed documents cannot "
-              f"be named.", file=sys.stderr)
+              f"({exc.__class__.__name__}), so the documents the range left "
+              f"alone cannot be counted.", file=sys.stderr)
         return 2
 
-    read_as_binary = set(binary)
-    changed = [p for p in tracked if lines.get(p.replace("\\", "/"))]
-    binary_documents = [p for p in tracked
-                        if p.replace("\\", "/") in read_as_binary]
+    # The DIFF names the changed documents, under the names the working tree
+    # holds; HEAD's tree only counts what the range left alone. Until
+    # 2026-09-22 this intersected the diff with HEAD's tree, which agrees on
+    # a pull-request checkout and, at pre-commit time, dropped a `git add`ed
+    # new document and a `git mv`ed one - the two documents whose every line
+    # the range wrote - and counted the moved one's old name as unchanged.
+    # The pathspec already restricted the diff to the suffixes
+    # `tracked_markdown` reads, so nothing arrives here that HEAD's tree
+    # would have refused for its name.
+    changed = sorted(path for path, wrote in lines.items() if wrote)
+    binary_documents = sorted(binary)
+    touched = set(changed) | set(binary_documents) | set(before)
+    left_alone = [p for p in tracked if p.replace("\\", "/") not in touched]
     # Over the CHANGED documents, not every tracked one, so the counts describe
     # this range - and so the conflict check fires only when a configured
     # document an exclusion removes is in the range. The sentence it prints is
@@ -292,6 +335,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     # One run scope for the whole gate, and the document put back on the
     # failing path too - the reason is written out in `run_sweep`.
     previous_document = session.document()
+    index_incomplete = False
     with session.run_scope():
         try:
             gathered, workers, fallback = survey(repo, tasks)
@@ -300,7 +344,8 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
                 if outcome is None:
                     unreturned.append(relative)
                     continue
-                findings, unread, doc_examined, errors = outcome
+                findings, unread, doc_examined, errors, incomplete = outcome
+                index_incomplete = index_incomplete or incomplete
                 if workers and errors:
                     RULE_ERRORS.extend(errors)
                 if unread is not None:
@@ -343,8 +388,8 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     print(f"\nexamined {len(kept)} changed document(s) since {ref} (merge "
           f"base {base[:7]}): {introduced} introduced line(s), "
           f"{len(gating)} finding(s) on them", file=out)
-    print(f"  {len(tracked) - len(changed) - len(binary_documents)} tracked "
-          f"document(s) the range did not change were not read", file=out)
+    print(f"  {len(left_alone)} tracked document(s) the range did not change "
+          f"were not read", file=out)
     print("  examined: " + ", ".join(f"{kind} {n}"
                                      for kind, n in examined.items()), file=out)
     session.report_rule_errors(lambda line: print(line, file=out))
@@ -383,7 +428,8 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         print(f"  {len(binary_documents)} changed document(s) git reads as "
               f"binary and were not examined: {', '.join(binary_documents)}",
               file=out)
-    report_repository_notes(lambda line: print(line, file=out), repo)
+    report_repository_notes(lambda line: print(line, file=out), repo,
+                            index_incomplete)
     if workers:
         print(f"  surveyed across {workers} worker process(es)", file=out)
     if fallback is not None:

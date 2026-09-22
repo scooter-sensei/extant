@@ -491,7 +491,6 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
     contains a stale pointer left by the first.
     """
     from extant import session
-    from extant.session import _ARCHIVE_HEADER
     from extant import entries
     repo, commit = git_repo
     run1_doc = (
@@ -533,7 +532,7 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
 
     with open(repo / "docs" / "status-archive.md", encoding="utf-8", newline="") as fh:
         archived = fh.read()
-    assert archived.count(_ARCHIVE_HEADER) == 1
+    assert archived.count(session.config().archive_header) == 1
     assert "## Archive pointer" not in archived
     # Newest-first across runs: what THIS run archived (9.5a) must land
     # above what the FIRST run archived (9.4, then 9.3).
@@ -908,18 +907,18 @@ def test_verify_flags_a_dead_sha_that_lives_only_in_the_archive(git_repo, capsys
     path so a reader can tell which document it refers to. Discriminates:
     under the pre-fix main(), --verify reads only NEXT_SESSION.md (clean
     here), so this would return 0 with no mention of the archive at all."""
-    from extant.session import ARCHIVE_DOC
-    from extant import cli
+    from extant import cli, session
     repo, commit = git_repo
+    archive_doc = session.config().archive_doc
     commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: status - clean")
-    commit(ARCHIVE_DOC, "Archived history: see `deadbee1` for details.\n",
+    commit(archive_doc, "Archived history: see `deadbee1` for details.\n",
            "docs: archive - with a dead sha")
 
     result = cli.main(["--verify", "--repo", str(repo)])
 
     captured = capsys.readouterr()
     assert result == 1
-    assert ARCHIVE_DOC in captured.out
+    assert archive_doc in captured.out
     assert "deadbee1" in captured.out
 
 
@@ -929,11 +928,11 @@ def test_sha_map_translates_a_dead_sha_inside_the_archive_file(git_repo, tmp_pat
     findings it has no way to fix. Discriminates: under the pre-fix main(),
     sha-map translation only ever touched the --validate/--verify target, so
     the archive file on disk would be left with `dead0001` untouched."""
-    from extant.session import ARCHIVE_DOC
-    from extant import cli
+    from extant import cli, session
     repo, commit = git_repo
+    archive_doc = session.config().archive_doc
     commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: status - clean")
-    commit(ARCHIVE_DOC, "Archived history: merged at `dead0001` long ago.\n",
+    commit(archive_doc, "Archived history: merged at `dead0001` long ago.\n",
            "docs: archive - with a dead sha")
     old_sha = "dead0001" + "a" * 32
     new_sha = "f00d0001" + "b" * 32
@@ -942,7 +941,7 @@ def test_sha_map_translates_a_dead_sha_inside_the_archive_file(git_repo, tmp_pat
 
     cli.main(["--verify", "--repo", str(repo), "--sha-map", str(map_file)])
 
-    with open(repo / ARCHIVE_DOC, encoding="utf-8", newline="") as fh:
+    with open(repo / archive_doc, encoding="utf-8", newline="") as fh:
         content = fh.read()
     assert "`f00d0001`" in content
     assert "dead0001" not in content

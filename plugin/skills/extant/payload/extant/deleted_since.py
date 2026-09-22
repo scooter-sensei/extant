@@ -41,20 +41,94 @@ _normalise = normalise_document
 class MissingObject(Exception):
     """A previous version the repository names but does not hold.
 
-    Raised by `_document_at` in a PARTIAL repository when `git show` fails
-    for a path the tree at `ref` lists: the blob is one the transport left
-    out, and `environment()` refuses to go back for it. Not an absence -
-    the document was there - and not a decode failure either, but it lands
-    in the same "could not be read" count, because that is the fact: this
-    mode could not read that version, and saying nothing would hide exactly
-    the deleted claim the mode exists to report. Found by the audit of the
-    guard, on the fixture in tests/test_partial_repository.py: examined 0,
-    unreadable 0, silence.
+    Raised by `_document_at` in a PARTIAL repository when the batch answers
+    `missing` for a path the tree at `ref` lists: the blob is one the
+    transport left out, and `environment()` refuses to go back for it. Not
+    an absence - the document was there - and not a decode failure either,
+    but it lands in the same "could not be read" count, because that is the
+    fact: this mode could not read that version, and saying nothing would
+    hide exactly the deleted claim the mode exists to report. Found by the
+    audit of the guard, on the fixture in tests/test_partial_repository.py:
+    examined 0, unreadable 0, silence.
     """
 
 
-def _document_at(repo: Path, ref: str, relative: str) -> str | None:
-    """A document as it stood at `ref`, or None if it was not there.
+def _documents_at(repo: Path, ref: str,
+                  relatives: list[str]) -> dict[str, bytes | None]:
+    """Every listed document as it stood at `ref`, as BYTES, from ONE process.
+
+    One `cat-file --batch` fed `<ref>:<path>` per line, in place of one
+    `git show` per document - the review's 4.10, and its decider was the
+    spawn count: measured on this repository, `--deleted-since v0.26.1`
+    started ten git processes for four changed documents, four of them
+    these reads. The batch answers in input order, one record per line -
+    `<oid> <type> <size>` then the body, or `<spec> missing` - so the
+    records are paired with the names by position and never by parsing the
+    echoed name back out of the header, which could hold a space.
+
+    None for a name git gave no blob for. That is three facts under one
+    spelling and `_document_at` tells them apart: the path was not there,
+    the object is one this partial copy does not hold (git prints `missing`
+    for both, and only `ls-tree` can say which), or the name is a TREE at
+    `ref` - a directory where the document now is - which `git show` used to
+    print as a listing and this mode then validated as a document.
+
+    Names are fed on lines, so a configured document name holding a newline
+    cannot be asked here where the one-per-process form could ask it; the
+    `-z` batch input that would allow it arrived in git 2.40 and the floor
+    is 2.31. Nobody's configuration names such a file, and it is said here
+    so that the day one does, the missing answer has an explanation.
+
+    BYTES, decoded by the caller per document. `text=True` makes subprocess
+    decode inside a reader THREAD on Windows - so invalid UTF-8 raises where
+    no caller can catch it. The observed result was the worst of both: a
+    UnicodeDecodeError traceback printed from the thread, the process
+    continuing, and the document silently counted as examining nothing.
+    `_git` in extant/git.py captures bytes for the same reason, and decodes
+    with replacement because it returns git's METADATA; this returns the
+    DOCUMENT, where a replaced character would have every rule checking
+    text the file does not contain.
+    """
+    if not relatives:
+        return {}
+    payload = "".join(f"{ref}:{relative}\n" for relative in relatives)
+    try:
+        done = subprocess.run(["git", "cat-file", "--batch"], cwd=repo,
+                              input=payload.encode("utf-8"),
+                              capture_output=True, env=environment())
+    except OSError:
+        return {relative: None for relative in relatives}
+    if done.returncode != 0:
+        return {relative: None for relative in relatives}
+    found: dict[str, bytes | None] = {}
+    out = done.stdout
+    at = 0
+    for relative in relatives:
+        end = out.find(b"\n", at)
+        if end < 0:
+            found[relative] = None          # git stopped answering early
+            continue
+        # Read from the END of the header, where the type and the size are.
+        # A `missing` line echoes the name, and a name may hold a space -
+        # `HEAD~1:docs/my doc.md missing` - so counting fields from the
+        # front read that as a blob record whose size was the word
+        # `missing`. Found by the audit that closed the tranche.
+        header = out[at:end].rsplit(b" ", 2)
+        at = end + 1
+        if len(header) != 3 or not header[2].isdigit():
+            found[relative] = None          # `<spec> missing`, or ambiguous
+            continue
+        size = int(header[2])
+        body = out[at:at + size]
+        at += size + 1                      # the record's trailing newline
+        found[relative] = body if header[1] == b"blob" else None
+    return found
+
+
+def _document_at(repo: Path, ref: str, relative: str,
+                 blob: bytes | None) -> str | None:
+    """A document as it stood at `ref`, from the batch's bytes for it, or
+    None if it was not there.
 
     A previous version that is not valid UTF-8 raises rather than returning
     None, because "absent" and "unreadable" are different facts and the caller
@@ -64,36 +138,22 @@ def _document_at(repo: Path, ref: str, relative: str) -> str | None:
 
     A version whose OBJECT is not here raises `MissingObject` for the same
     reason, and only a partial repository can produce one: anywhere else a
-    failed `git show` is an absent path or a bad ref, and stays None. The
+    `missing` answer is an absent path or a bad ref, and stays None. The
     second question - did the tree at `ref` list this path at all - is
     `ls-tree`, which needs the tree and not the blob, so a `blob:none` copy
     answers it without the transport. A copy that cannot answer it either,
     because its trees are missing too, is reported as unreadable rather
     than absent: "could not be read" is true of it, "was not there" is not
     known to be.
+
+    Decoding strictly, and letting the error reach the caller, is what makes
+    "unreadable" a fact this mode can report instead of a mess it prints.
     """
-    # BYTES, then decoded here. `text=True` makes subprocess decode inside a
-    # reader THREAD on Windows - so invalid UTF-8 raises where no caller can
-    # catch it. The observed result was the worst of both: a
-    # UnicodeDecodeError traceback printed from the thread, the process
-    # continuing, and the document silently counted as examining nothing.
-    # `_git` in extant/git.py captures bytes for the same reason now, and
-    # decodes with replacement because it returns git's METADATA; this
-    # returns the DOCUMENT, where a replaced character would have every rule
-    # checking text the file does not contain.
-    #
-    # Decoding strictly, and letting the error reach the caller, is what makes
-    # "unreadable" a fact this mode can report instead of a mess it prints.
-    try:
-        done = subprocess.run(["git", "show", f"{ref}:{relative}"], cwd=repo,
-                              capture_output=True, env=environment())
-    except OSError:
-        return None
-    if done.returncode != 0:
+    if blob is None:
         if is_partial(repo) and _listed_at(repo, ref, relative) is not False:
             raise MissingObject(f"{ref}:{relative}")
         return None
-    return done.stdout.decode("utf-8")
+    return blob.decode("utf-8")
 
 
 def _listed_at(repo: Path, ref: str, relative: str) -> bool | None:
@@ -183,42 +243,55 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
     haystack = _live_prose(repo, documents)
     found: list[Located] = []
     examined = skipped = undecodable = 0
-    for relative in _changed_between(repo, ref, documents):
-        try:
-            previous = _document_at(repo, ref, relative)
-        except (UnicodeDecodeError, MissingObject):
-            # A previous version that cannot be decoded, or that a partial
-            # repository does not hold, is not a version with no claims.
-            # Counted and reported, never passed over in silence.
-            undecodable += 1
-            continue
-        if previous is None:
-            continue
-        examined += 1
-        # `base` is a parameter; the FORMAT is not, so it is the one piece of
-        # document state this has to set - and it is restored in `finally`,
-        # because a rule raising part-way would otherwise leave the process
-        # reading every later document in the wrong markup language.
-        previous_format = session.document().doc_format
-        session.set_document(doc_format=markup.format_for(relative))
-        try:
-            was = session.validate(
-                repo, previous, base=(repo / relative).parent,
-                has_entries=(relative == _normalise(session.CONFIG.primary_doc)))
-        finally:
-            session.set_document(doc_format=previous_format)
-        for finding in was:
-            if finding.subject is None:
-                skipped += 1
+    changed = _changed_between(repo, ref, documents)
+    previous_versions = _documents_at(repo, ref, changed)
+    # ONE scope across every old document. Each is validated against the
+    # same checkout and nothing here writes to it, which is the promise
+    # `run_scope()` asks for - and this loop never made it, so `validate()`
+    # opened a fresh scope per document and re-asked what the last one had
+    # learned: on this repository's four changed documents the ref table and
+    # the trunk index were each built twice. The same deleted
+    # `with session.run_scope():` that tests/test_spawn_budget.py pins for
+    # `--verify`, pinned here by tests/test_deleted_since.py.
+    with session.run_scope():
+        for relative in changed:
+            try:
+                previous = _document_at(repo, ref, relative,
+                                        previous_versions.get(relative))
+            except (UnicodeDecodeError, MissingObject):
+                # A previous version that cannot be decoded, or that a partial
+                # repository does not hold, is not a version with no claims.
+                # Counted and reported, never passed over in silence.
+                undecodable += 1
                 continue
-            if finding.subject in haystack:
-                continue                    # still written down somewhere
-            # `gating=False`: the docstring below says this mode never gates
-            # and returns 0. Every other format honoured that and the machine
-            # ones did not, publishing a report as an error.
-            found.append(Located(relative, finding, primary=False,
-                                 gating=False,
-                                 stratum=strata.classify(relative)))
+            if previous is None:
+                continue
+            examined += 1
+            # `base` is a parameter; the FORMAT is not, so it is the one piece
+            # of document state this has to set - and it is restored in
+            # `finally`, because a rule raising part-way would otherwise leave
+            # the process reading every later document in the wrong markup
+            # language.
+            previous_format = session.document().doc_format
+            session.set_document(doc_format=markup.format_for(relative))
+            try:
+                was = session.validate(
+                    repo, previous, base=(repo / relative).parent,
+                    has_entries=(relative == _normalise(session.CONFIG.primary_doc)))
+            finally:
+                session.set_document(doc_format=previous_format)
+            for finding in was:
+                if finding.subject is None:
+                    skipped += 1
+                    continue
+                if finding.subject in haystack:
+                    continue                # still written down somewhere
+                # `gating=False`: the docstring below says this mode never
+                # gates and returns 0. Every other format honoured that and
+                # the machine ones did not, publishing a report as an error.
+                found.append(Located(relative, finding, primary=False,
+                                     gating=False,
+                                     stratum=strata.classify(relative)))
     return found, examined, skipped, undecodable
 
 

@@ -31,25 +31,29 @@ own locals.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path, PurePosixPath
+from typing import Callable, TextIO
 
-from extant import session
+from extant import refs, session
 from extant.commits import load_sha_map, translate_shas
 from extant.config import StatusConfig
 from extant.finding import Finding, rel
-from extant.git import is_partial, is_shallow
+from extant.git import has_commit_graph, is_partial, is_shallow
 from extant.refs import renamed_to
 from extant.registry import RULE_ERRORS
 from extant.report import (
     BASELINE_NAME, Collector, load_baseline, render_findings, write_baseline,
 )
+from extant.scope import RunScope
 from extant.sites import reference_path, relative_spelling, resolve_reference
 from extant.links import link_sites
 from extant.text import format_for, prose
 
-__all__ = ["report_denominators", "report_repository_notes",
-           "run_check_text", "run_validate", "suggest_renames"]
+__all__ = ["report_denominators", "report_index_note",
+           "report_repository_notes", "run_check_text", "run_validate",
+           "suggest_renames"]
 
 # What `--check-text` calls the document when `--as-path` was not given.
 # Named rather than blank: every diagnostic line here begins "checked <name>",
@@ -59,7 +63,7 @@ STDIN_NAME = "<stdin>"
 
 
 def suggest_renames(repo: Path, base: Path, text: str, relative: str,
-                    findings: list) -> str:
+                    findings: list[Finding]) -> str:
     """A unified diff repointing references at where git says the file went.
 
     Emitted to stdout as a PATCH, never written. That is not caution for its own
@@ -166,10 +170,20 @@ def suggest_renames(repo: Path, base: Path, text: str, relative: str,
     return "".join(diff)
 
 
-def report_denominators(diag, repo: Path, name: str,
-                        examined: dict[str, int]) -> bool:
-    """The counts, and everything that qualifies them. Returns whether any
-    rule error was reported.
+def report_denominators(diag: Callable[[str], None], repo: Path, name: str,
+                        examined: dict[str, int],
+                        index_incomplete: bool = False) -> int:
+    """The counts, and everything that qualifies them. Returns the mark
+    `session.report_rule_errors` hands back - how many rule errors have been
+    printed so far - for the next call to continue from. It was annotated
+    as a boolean from the split that made this module on 2026-08-31, while
+    every caller passed it on as the mark; the type checker was the first
+    reader to notice.
+
+    `index_incomplete` is the one qualifier the caller has to carry in: it is
+    a fact of the run scope the document was examined under, read there with
+    `session.ancestry_incomplete()` before the scope closed, because this
+    prints after it has.
 
     Split out of `run_validate` when the shallow-repository note took that
     function one line past the ceiling in tests/test_module_quality.py. The
@@ -191,11 +205,12 @@ def report_denominators(diag, repo: Path, name: str,
         diag("  NOTE: these rules matched nothing at all - either this "
              "document makes no such claims, or the pattern is wrong: "
              + ", ".join(blind))
-    report_repository_notes(diag, repo)
+    report_repository_notes(diag, repo, index_incomplete)
     return errors_reported
 
 
-def report_repository_notes(diag, repo: Path) -> None:
+def report_repository_notes(diag: Callable[[str], None], repo: Path,
+                            index_incomplete: bool = False) -> None:
     """What the checkout is, when that changes what a count means.
 
     Split out of `report_denominators` when `--introduced-since` needed the
@@ -203,7 +218,13 @@ def report_repository_notes(diag, repo: Path) -> None:
     limited pull-request checkout has every older SHA dead, and the note is
     what separates that from a document full of invented ones. One
     implementation, so the two modes cannot describe one checkout in two
-    voices.
+    voices - and `--sweep` prints them through it too, since tranche 10 of
+    the internals review; it had printed neither, on the mode most often
+    pointed at a repository nobody here had seen.
+
+    The first two are read from the checkout. The third is handed in: whether
+    an ancestry index reached its bound is a fact of the run scope, and this
+    prints after that scope has closed.
     """
     # Beside the denominators for the same reason they are printed at all: a
     # `dead-sha` count taken from a shallow clone describes the slice that was
@@ -239,9 +260,40 @@ def report_repository_notes(diag, repo: Path) -> None:
              "locally were left missing rather than retrieved over the "
              "network. A rename hint or a blob-reading rule answers from "
              "what is here.")
+    if index_incomplete:
+        report_index_note(diag, repo)
 
 
-def _diagnostic_stream(args: argparse.Namespace):
+def report_index_note(diag: Callable[[str], None], repo: Path) -> None:
+    """The third note, and the only one the run pays for rather than the
+    reader. Called once the caller knows an ancestry index reached
+    `refs.INDEX_BOUND` in some scope of the run.
+
+    An index that reached the bound settles every question past it by
+    walking, and a commit-graph would make each of those walks
+    near-constant-time - measured on rust (extant/git.py, `has_commit_graph`)
+    at 7.5x on the index, 27x on the batch and 77x on `merge-base`. Printed
+    only when BOTH hold - an index that came back incomplete AND no graph -
+    because a bound the history merely exceeds is not a cost anyone paid,
+    and a repository that has the file is already paying nothing. Nothing is
+    written: this tool checks and never authors, a stranger's `.git` least of
+    all, so the note names the command and stops.
+
+    Its own function, unlike the shallow and partial notes, because
+    `run_validate` examines the archive and every extra document in scopes
+    of their own after the primary's notes have printed; an index built only
+    there would otherwise go unmentioned.
+    """
+    if has_commit_graph(repo):
+        return
+    diag("  NOTE: the ancestry index reached its bound of "
+         f"{refs.INDEX_BOUND:,} commits and this repository has no "
+         "commit-graph, so every question past the bound was settled "
+         "by walking the history; `git commit-graph write --reachable` "
+         "would answer those near-instantly. Nothing was written here.")
+
+
+def _diagnostic_stream(args: argparse.Namespace) -> TextIO:
     """Where human output goes, given what stdout has to stay pure for.
 
     A SARIF document with a progress line prepended is not a SARIF document,
@@ -253,7 +305,7 @@ def _diagnostic_stream(args: argparse.Namespace):
             else sys.stdout)
 
 
-def _sha_map(args: argparse.Namespace):
+def _sha_map(args: argparse.Namespace) -> tuple[dict[str, str] | None, bool]:
     """The `--sha-map` mapping: (mapping or None, whether the run may go on).
 
     A TRACEBACK IS A POOR ANSWER TO A COMMON SITUATION. `run_validate` makes
@@ -293,7 +345,9 @@ def _sha_map(args: argparse.Namespace):
         return None, False
 
 
-def _open_baseline(repo: Path, args: argparse.Namespace):
+def _open_baseline(
+    repo: Path, args: argparse.Namespace
+) -> tuple[dict[str, dict[str, str]] | None, Path]:
     """(recorded entries, resolved path), or (None, path) if it would not load.
 
     None means STOP - the caller returns 2 - rather than "no baseline", which
@@ -323,9 +377,9 @@ def _open_baseline(repo: Path, args: argparse.Namespace):
         return None, path
 
 
-def _finish(diag, repo: Path, args: argparse.Namespace, found: Collector,
-            baseline_path: Path, examined: dict[str, int],
-            exit_code: int, errors_reported: bool) -> int:
+def _finish(diag: Callable[[str], None], repo: Path, args: argparse.Namespace,
+            found: Collector, baseline_path: Path, examined: dict[str, int],
+            exit_code: int, errors_reported: int) -> int:
     """Everything after the last document: formats, baseline, rule errors.
 
     Shared by both gating modes rather than written twice, because every one of
@@ -458,99 +512,137 @@ def run_validate(repo: Path, args: argparse.Namespace,
     # beside 0 findings - the exact conflation the denominator exists to
     # prevent. Found by running the gate, not by any test.
     session.set_document(doc_path=rel(repo, target))
-    # ONE run scope across both halves of examining this document. The two
-    # calls below ask the same repository the same questions - the origin
+    # ONE run scope across the whole run, or one per document, and `--sha-map`
+    # is what decides. A stable scope promises the checkout does not change
+    # while it is held, and with a map this mode REWRITES documents between
+    # reads - the archive is translated and written back after the primary
+    # document was examined - so there the scope stays per document, opened
+    # after each rewrite. Without a map nothing here writes until the
+    # baseline, after every scope has closed, and one scope spans every
+    # document. The review's 5.7 measured the difference on this
+    # repository: the ref table and the trunk index were each built twice
+    # per `--verify`, once for the status document and once for the one
+    # extra document carrying a release claim, 101 ms of a 700 ms run.
+    # tests/test_spawn_budget.py asserts both arms - once per run without a
+    # map, once per asking document with one.
+    #
+    # Either way the scope spans both halves of examining a document. The
+    # two calls ask the same repository the same questions - the origin
     # remote, most visibly - and without a scope spanning them the second
     # re-asked everything the first had already learned. Measured on this
     # repository's own document: 7 git processes for one --verify, of which
     # `remote get-url origin` was two.
-    #
-    # Only this pair, not the whole mode. The archive and the extra
-    # documents get their own below, because `--sha-map` REWRITES documents
-    # between them, and a stable scope promises the checkout does not
-    # change while it is held.
-    with session.run_scope():
-        findings = session.validate(repo, text)
-        exit_code = 1 if found.record(rel(repo, target), findings,
-                                      primary=True) else 0
+    def document_scope() -> contextlib.AbstractContextManager[RunScope | None]:
+        if mapping is None:
+            return contextlib.nullcontext()
+        return session.run_scope()
 
-        # The denominator. Without it a clean run and a run that checked
-        # nothing print identically - the failure that recurred five times
-        # in one day. A rule reporting 0 examined is either genuinely
-        # absent from this document or broken, and the reader has to be
-        # able to tell.
-        examined = session.count_examined(repo, text)
-    errors_reported = report_denominators(
-        diag, repo, Path(args.validate).name, examined)
+    whole_run = (session.run_scope() if mapping is None
+                 else contextlib.nullcontext())
+    with whole_run:
+        with document_scope():
+            findings = session.validate(repo, text)
+            exit_code = 1 if found.record(rel(repo, target), findings,
+                                          primary=True) else 0
 
-    # --verify/--validate used to read only their target file, so content
-    # moved into the archive by --archive escaped validation forever: a
-    # dead reference or a stale live-claim could sit there unreported
-    # indefinitely. Validate it too, whenever it exists.
-    archive_path = repo / session.ARCHIVE_DOC
-    if archive_path.exists():
-        with open(archive_path, encoding="utf-8", newline="") as fh:
-            archive_text = fh.read()
-        if mapping is not None:
-            archive_text, archive_changed = translate_shas(archive_text, mapping)
-            if archive_changed:
-                with open(archive_path, "w", encoding="utf-8", newline="") as fh:
-                    fh.write(archive_text)
-                diag(f"translated {archive_changed} stale SHA "
-                     f"reference(s) in {session.ARCHIVE_DOC}")
-        session.set_document(doc_path=session.ARCHIVE_DOC)
-        archive_findings = session.validate(repo, archive_text,
-                                            in_archive=True)
-        if found.record(session.ARCHIVE_DOC, archive_findings, primary=False):
-            exit_code = 1
+            # The denominator. Without it a clean run and a run that checked
+            # nothing print identically - the failure that recurred five
+            # times in one day. A rule reporting 0 examined is either
+            # genuinely absent from this document or broken, and the reader
+            # has to be able to tell.
+            examined = session.count_examined(repo, text)
+            # Read INSIDE the scope, which is the whole reason the note it
+            # feeds took a year to print: the index is a fact of the scope,
+            # and the notes print after the scope has closed.
+            index_incomplete = session.ancestry_incomplete()
+        errors_reported = report_denominators(
+            diag, repo, Path(args.validate).name, examined, index_incomplete)
 
-    # Extra documents: CLAUDE.md, AGENTS.md, a README. They carry the same
-    # kinds of checkable claim and rot the same way, but have no dated
-    # entries, so the entry-scoped rules are skipped exactly as they are for
-    # the archive. A project whose status lives in a tracker rather than a
-    # document still gets these checked, which is most of the reason the
-    # setting exists.
-    for relative in status.extra_docs:
-        extra = repo / relative
-        if not extra.is_file():
-            # A configured document that is absent is itself a finding, not
-            # a log line: a machine consumer has to see it too, or a broken
-            # extra_docs entry disappears from every format but the human
-            # one. Line 1, because there is no file to point into.
-            if found.record(relative, [Finding(
-                1, "missing-document",
-                "listed in extra_docs but does not exist",
-            )], primary=False):
+        # --verify/--validate used to read only their target file, so
+        # content moved into the archive by --archive escaped validation
+        # forever: a dead reference or a stale live-claim could sit there
+        # unreported indefinitely. Validate it too, whenever it exists.
+        # The archive and the extras are examined after the repository notes
+        # have printed beside the primary document. An index that reached its
+        # bound only there is still a cost the run paid, so the flag is
+        # gathered across them and the one note printed once, at the end.
+        extras_incomplete = False
+        archive_doc = session.config().archive_doc
+        archive_path = repo / archive_doc
+        if archive_path.exists():
+            with open(archive_path, encoding="utf-8", newline="") as fh:
+                archive_text = fh.read()
+            if mapping is not None:
+                archive_text, archive_changed = translate_shas(archive_text,
+                                                               mapping)
+                if archive_changed:
+                    with open(archive_path, "w", encoding="utf-8",
+                              newline="") as fh:
+                        fh.write(archive_text)
+                    diag(f"translated {archive_changed} stale SHA "
+                         f"reference(s) in {archive_doc}")
+            session.set_document(doc_path=archive_doc)
+            # Opened after the rewrite above, when it is a scope of its own,
+            # and held so the index flag can be read before it closes.
+            with document_scope():
+                archive_findings = session.validate(repo, archive_text,
+                                                    in_archive=True)
+                extras_incomplete |= session.ancestry_incomplete()
+            if found.record(archive_doc, archive_findings, primary=False):
                 exit_code = 1
-            continue
-        with open(extra, encoding="utf-8", newline="") as fh:
-            extra_text = fh.read()
-        session.set_document(link_base=extra.parent, doc_path=relative)
-        # One scope per document, for the reason given at the primary
-        # document above: findings and denominator are two halves of one
-        # examination and must not re-ask git the same questions.
-        with session.run_scope():
-            extra_findings = session.validate(repo, extra_text,
-                                              has_entries=False)
-            new_extra = found.record(relative, extra_findings, primary=False)
-            examined_extra = session.count_examined(repo, extra_text)
-        # Repository-scoped rules do not run for an extra document, so
-        # reporting their candidate count here claims coverage that was
-        # not provided. A denominator that overstates is worse than none:
-        # it is the reassuring number, not the honest one.
-        skipped = {rule.kind for rule in session.RULES
-                   if rule.scope == "repository"}
-        # Zero counts are REPORTED, not filtered. "examined 0" and "not
-        # applicable here" are different facts, and dropping the zeros
-        # made an extra document look fully covered while a rule sat
-        # blind - the exact conflation the primary summary avoids.
-        checked = ", ".join(f"{kind} {n}" for kind, n in examined_extra.items()
-                            if kind not in skipped)
-        diag(f"checked {relative}: {checked or 'nothing applicable'}")
-        errors_reported = session.report_rule_errors(diag, errors_reported)
-        if new_extra:
-            exit_code = 1
+
+        # Extra documents: CLAUDE.md, AGENTS.md, a README. They carry the
+        # same kinds of checkable claim and rot the same way, but have no
+        # dated entries, so the entry-scoped rules are skipped exactly as
+        # they are for the archive. A project whose status lives in a
+        # tracker rather than a document still gets these checked, which is
+        # most of the reason the setting exists.
+        for relative in status.extra_docs:
+            extra = repo / relative
+            if not extra.is_file():
+                # A configured document that is absent is itself a finding,
+                # not a log line: a machine consumer has to see it too, or a
+                # broken extra_docs entry disappears from every format but
+                # the human one. Line 1, because there is no file to point
+                # into.
+                if found.record(relative, [Finding(
+                    1, "missing-document",
+                    "listed in extra_docs but does not exist",
+                )], primary=False):
+                    exit_code = 1
+                continue
+            with open(extra, encoding="utf-8", newline="") as fh:
+                extra_text = fh.read()
+            session.set_document(link_base=extra.parent, doc_path=relative)
+            # Findings and denominator are two halves of one examination and
+            # must not re-ask git the same questions, whichever scope this is.
+            with document_scope():
+                extra_findings = session.validate(repo, extra_text,
+                                                  has_entries=False)
+                new_extra = found.record(relative, extra_findings,
+                                         primary=False)
+                examined_extra = session.count_examined(repo, extra_text)
+                extras_incomplete |= session.ancestry_incomplete()
+            # Repository-scoped rules do not run for an extra document, so
+            # reporting their candidate count here claims coverage that was
+            # not provided. A denominator that overstates is worse than
+            # none: it is the reassuring number, not the honest one.
+            skipped = {rule.kind for rule in session.RULES
+                       if rule.scope == "repository"}
+            # Zero counts are REPORTED, not filtered. "examined 0" and "not
+            # applicable here" are different facts, and dropping the zeros
+            # made an extra document look fully covered while a rule sat
+            # blind - the exact conflation the primary summary avoids.
+            checked = ", ".join(f"{kind} {n}"
+                                for kind, n in examined_extra.items()
+                                if kind not in skipped)
+            diag(f"checked {relative}: {checked or 'nothing applicable'}")
+            errors_reported = session.report_rule_errors(diag, errors_reported)
+            if new_extra:
+                exit_code = 1
     session.set_document(link_base=None)
+    if extras_incomplete and not index_incomplete:
+        report_index_note(diag, repo)
 
     if args.suggest_fixes:
         # Written to stdout as a patch and never applied. In sarif mode the
@@ -573,7 +665,7 @@ def run_validate(repo: Path, args: argparse.Namespace,
                    exit_code, errors_reported)
 
 
-def _read_stdin(diag) -> str | None:
+def _read_stdin(diag: Callable[[str], None]) -> str | None:
     """The document, or None when stdin did not carry a usable one.
 
     Read as BYTES and decoded here rather than through `sys.stdin`, for two
@@ -637,7 +729,7 @@ def _inside_repo(relative: str) -> bool:
     return ".." not in PurePosixPath(spelled).parts
 
 
-def _note_the_missing_path(diag) -> None:
+def _note_the_missing_path(diag: Callable[[str], None]) -> None:
     """Say which rules cannot answer, when no `--as-path` was given.
 
     This is the one thing `--check-text` could get quietly wrong. A document
@@ -745,7 +837,9 @@ def run_check_text(repo: Path, args: argparse.Namespace,
         findings = session.validate(repo, text)
         exit_code = 1 if found.record(name, findings, primary=True) else 0
         examined = session.count_examined(repo, text)
-    errors_reported = report_denominators(diag, repo, name, examined)
+        index_incomplete = session.ancestry_incomplete()
+    errors_reported = report_denominators(diag, repo, name, examined,
+                                          index_incomplete)
     if not relative:
         _note_the_missing_path(diag)
     session.set_document(link_base=None)

@@ -15,12 +15,21 @@ That is not hypothetical - it fired on the first run of the shim, which reaches
 the arrangement works only while every entry point happens to import in one
 particular order, which is a property nobody can see at the call site.
 
-This file imports nothing from this package, so nothing here can ever be half
-of a cycle.
+At runtime this file imports nothing from this package, so nothing here can
+ever be half of a cycle. The two names under `TYPE_CHECKING` below are read
+by the type checker alone - Python never executes that block - and they are
+what lets `check`, `probe` and `examined` be declared as the callables they
+are rather than as `object`, which said nothing and needed a suppression at
+every call site.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Callable, Literal
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
+    from extant.scope import Context
 
 __all__ = ["Rule"]
 
@@ -64,20 +73,23 @@ class Rule:
     # registry._load_rules sorts by it and asserts every value is distinct, so
     # two rules cannot silently share one and reintroduce an arbitrary order.
     sequence: int
-    check: object      # (ctx, text) -> list[Finding]
-    scope: str         # "whole-file" | "newest-entry"
+    check: Callable[[Context, str], list[Finding]]
+    # A rule that names a fourth scope, or misspells one of these, would
+    # never be selected by the loops that read this and would report nothing
+    # forever - a Literal makes that a type error in the rule module instead.
+    scope: Literal["whole-file", "newest-entry", "repository"]
     in_archive: bool   # does it still hold once an entry is retired?
     falsifiable: str   # the exact git/filesystem question asked. REQUIRED.
     # (ctx, text) -> text with one deliberate falsehood, or None when the
     # document offers nothing to corrupt. REQUIRED, and why --selftest exists:
     # a rule that cannot state how to make itself fire cannot be shown to work.
-    probe: object
+    probe: Callable[[Context, str], str | None]
     # (ctx, text) -> how many candidates this rule LOOKED AT here, findings
     # aside. It lives on the rule because the module that finds a rule's
     # candidates is the only one that can count the same population; the one
     # central table this replaces could, and did, drift from what the rules
     # actually read. See `_no_denominator` for why the default raises.
-    examined: object = _no_denominator
+    examined: Callable[[Context, str], int] = _no_denominator
     # For a REPOSITORY-scoped rule: the repo-relative file that DECLARES
     # the claim being checked. Such a finding is about the repository and
     # belongs to no document, so a sweep has nothing to attribute it to;

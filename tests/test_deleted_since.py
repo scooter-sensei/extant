@@ -222,3 +222,237 @@ def test_a_correction_that_swaps_the_token_is_reported(git_repo) -> None:
     assert [f for f in gone if f.finding.subject == DEAD], (
         "the removed token is still dead, so it is reported"
     )
+
+
+# --- 4.10: every previous version in one batch, one scope across them ------
+#
+# The review's item, and its decider: git processes per run, which was one
+# `git show` per changed document. Measured on this repository before the
+# change, `--deleted-since v0.26.1` started 10 for 4 documents - the four
+# reads, the diff, one SHA batch, and the ref table and trunk index TWICE,
+# because `deleted_claims` opened no run scope and `validate()` opened a
+# fresh one per old document. The tests below pin both halves.
+
+
+def _counted(monkeypatch) -> list[str]:
+    """Every git command line started, recorded at the subprocess boundary -
+    the only vantage that sees the stdin-fed batches as well as the seam."""
+    spawns: list[str] = []
+    real = subprocess.run
+
+    def counted(cmd, *a, **kw):
+        if cmd and str(cmd[0]) == "git":
+            spawns.append(" ".join(str(c) for c in cmd[1:]))
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", counted)
+    return spawns
+
+
+def test_every_changed_document_is_read_in_one_batch(git_repo, monkeypatch) -> None:
+    """Three changed documents, ONE `cat-file --batch`, and no `git show`.
+
+    Fails the moment a read goes back to one process per document, which is
+    the shape this replaced: N documents cost N spawns of about 25 ms each,
+    on a mode whose whole population is one configured status document and
+    its extras.
+    """
+    from extant import session as hc
+    from extant import deleted_since
+    repo, commit = git_repo
+    commit(".extant.toml", 'extra_docs = ["A.md", "B.md"]\n', "chore: config")
+    commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
+    commit("A.md", f"# A\n\nSee `docs/gone-a.md` and `{DEAD}`.\n", "docs: a")
+    commit("B.md", f"# B\n\nSee `docs/gone-b.md` and `{OTHER}`.\n", "docs: b")
+    commit("NEXT_SESSION.md", ENTRY.format("Nothing."), "docs: remove")
+    commit("A.md", "# A\n\nNothing.\n", "docs: a2")
+    commit("B.md", "# B\n\nNothing.\n", "docs: b2")
+    hc.reload_config(repo)
+    spawns = _counted(monkeypatch)
+
+    gone, examined, _skipped, unreadable = deleted_since.deleted_claims(repo, "HEAD~3")
+
+    assert (examined, unreadable) == (3, 0), (examined, unreadable)
+    subjects = {f.finding.subject for f in gone}
+    assert {DEAD, OTHER, "docs/gone-a.md", "docs/gone-b.md"} <= subjects, subjects
+    shows = [c for c in spawns if c.startswith("show ")]
+    batches = [c for c in spawns if c == "cat-file --batch"]
+    print(f"{len(spawns)} git spawns: {spawns}")
+    assert not shows, f"a previous version was read one process at a time: {shows}"
+    assert len(batches) == 1, (
+        f"{len(batches)} `cat-file --batch` for three documents; the previous "
+        f"versions are read in ONE batch, in the order the documents are "
+        f"configured")
+
+
+def test_the_ref_table_is_built_once_across_the_documents_it_reads(
+        git_repo, monkeypatch) -> None:
+    """Two old documents both make a merge claim; the ref table and the
+    trunk index are asked ONCE, not once per document.
+
+    `deleted_claims` validates every changed document against today's git
+    from one static checkout and writes nothing, which is exactly the promise
+    `run_scope()` asks a caller to make - and it never made it, so each
+    `validate()` opened a fresh scope and re-asked what the last one learned.
+    The deleted `with session.run_scope():` this pins is the same regression
+    `test_spawn_budget.py` pins for `--verify`.
+    """
+    from extant import session as hc
+    from extant import deleted_since
+    repo, commit = git_repo
+    # REAL commits, so the rule resolves the SHA and goes on to ask which
+    # branches hold it - a dead SHA is reported before the ref table is
+    # needed, and a fixture built on one would count nothing.
+    first = commit(".extant.toml", 'extra_docs = ["A.md"]\n', "chore: config")[:9]
+    second = commit("NEXT_SESSION.md",
+                    ENTRY.format(f"The work was merged to `main` at `{first}`."),
+                    "docs: claim")[:9]
+    commit("A.md", f"# A\n\nThe fix was merged to `main` at `{second}`.\n", "docs: a")
+    commit("NEXT_SESSION.md", ENTRY.format("Nothing."), "docs: remove")
+    commit("A.md", "# A\n\nNothing.\n", "docs: a2")
+    hc.reload_config(repo)
+    spawns = _counted(monkeypatch)
+
+    _gone, examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~2")
+
+    assert examined == 2, examined
+    tables = [c for c in spawns if c.startswith("for-each-ref ")]
+    trunk = [c for c in spawns if c.startswith("rev-list -n ")]
+    print(f"{len(spawns)} git spawns: {spawns}")
+    assert len(tables) == 1, (
+        f"the ref table was built {len(tables)} times for 2 documents; one "
+        f"run scope spans the loop, so it is built once")
+    assert len(trunk) <= 1, (
+        f"the trunk index was built {len(trunk)} times; it is memoised per "
+        f"run scope, so more than once means the scope is not held")
+
+
+def test_a_missing_object_beside_a_present_one_counts_one_and_examines_the_other(
+        tmp_path) -> None:
+    """In a `blob:none` copy the batch answers `missing` for one document's
+    old version and hands back the other's, and the two are counted apart.
+
+    A batch that stopped at the first `missing`, or read every answer as the
+    first document's, would lose exactly the deleted claim in the document
+    whose old blob IS here. The present one is here because its old content
+    is byte-identical to a live file the checkout fetched - same content,
+    same object - which is the one way an old version's blob reaches a
+    partial copy without the transport.
+    """
+    from conftest import committer, init_repo
+    from extant import session as hc
+    from extant import deleted_since
+
+    old_extra = "# Extra\n\nSee `docs/vanished.md` for the detail.\n"
+    source = tmp_path / "source"
+    init_repo(source)
+    commit = committer(source)
+    commit(".extant.toml", 'extra_docs = ["EXTRA.md"]\n', "chore: config")
+    commit("keep.md", old_extra, "docs: keep")
+    commit("EXTRA.md", old_extra, "docs: extra")
+    commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
+    commit("EXTRA.md", "# Extra\n\nNothing now.\n", "docs: extra2")
+    commit("NEXT_SESSION.md", ENTRY.format("Nothing."), "docs: remove")
+    _run(source, "config", "uploadpack.allowFilter", "true")
+    partial = tmp_path / "partial"
+    subprocess.run(["git", "clone", "-q", "--filter=blob:none",
+                    "file://" + source.as_posix(), str(partial)],
+                   check=True, capture_output=True)
+    hc.reload_config(partial)
+
+    gone, examined, _skipped, unreadable = deleted_since.deleted_claims(
+        partial, "HEAD~2")
+
+    print(f"examined={examined} unreadable={unreadable} "
+          f"gone={[f.finding.subject for f in gone]}")
+    assert (examined, unreadable) == (1, 1), (
+        f"one old version is a missing object and one is held: examined "
+        f"{examined}, unreadable {unreadable}")
+    assert [f for f in gone if f.finding.subject == "docs/vanished.md"], (
+        [f.finding for f in gone])
+
+
+def test_an_undecodable_previous_version_beside_a_valid_one_is_counted_apart(
+        git_repo) -> None:
+    """One old version is latin-1, the other is valid: examined 1, unreadable
+    1, and the valid one's deleted claim is reported. Decoding happens per
+    document AFTER the batch, so one bad document cannot take the others
+    with it - or, worse, be decoded with replacement into text the file
+    never held."""
+    from extant import session as hc
+    from extant import deleted_since
+    repo, commit = git_repo
+    commit(".extant.toml", 'extra_docs = ["A.md"]\n', "chore: config")
+    commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
+    (repo / "A.md").write_bytes(b"# A\n\ncaf\xe9 and `docs/gone.md`\n")
+    _run(repo, "add", "A.md")
+    _run(repo, "commit", "-m", "docs: latin-1")
+    commit("NEXT_SESSION.md", ENTRY.format("Nothing."), "docs: remove")
+    commit("A.md", "# A\n\nNothing.\n", "docs: a2")
+    hc.reload_config(repo)
+
+    gone, examined, _skipped, unreadable = deleted_since.deleted_claims(repo, "HEAD~2")
+
+    assert (examined, unreadable) == (1, 1), (examined, unreadable)
+    assert [f for f in gone if f.finding.subject == DEAD], [f.finding for f in gone]
+
+
+def test_a_directory_at_the_configured_name_is_not_a_document_there(git_repo) -> None:
+    """At the ref the configured name was a DIRECTORY. `git show` printed its
+    listing and the mode validated that as a document; the batch says
+    `tree`, which is not a document, and the name counts as absent then."""
+    from extant import session as hc
+    from extant import deleted_since
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md/inner.md", "# Inner\n", "docs: a directory")
+    _run(repo, "rm", "-q", "-r", "NEXT_SESSION.md")
+    _run(repo, "commit", "-q", "-m", "docs: gone")
+    commit("NEXT_SESSION.md", ENTRY.format("Nothing."), "docs: a file")
+
+    _gone, examined, _skipped, unreadable = deleted_since.deleted_claims(repo, "HEAD~2")
+
+    assert (examined, unreadable) == (0, 0), (
+        f"a tree at the name is not a previous version of the document: "
+        f"examined {examined}, unreadable {unreadable}")
+
+
+def test_a_name_with_a_space_that_was_absent_at_the_ref_is_absent(git_repo) -> None:
+    """The batch echoes a name it could not find - `<spec> missing` - and a
+    name holding a space then has a space in the header line too. A parser
+    that split the header on spaces and counted three fields read
+    `HEAD~1:docs/my doc.md missing` as a blob record whose size was the
+    word `missing`, and crashed. The record is read from its END, where the
+    type and the size are, so the name may hold whatever the filesystem
+    allows short of a newline. Found by the gap audit that closed the
+    tranche, not by the corpus, which configures nothing."""
+    from extant import session as hc
+    from extant import deleted_since
+    repo, commit = git_repo
+    commit(".extant.toml", 'extra_docs = ["docs/my doc.md"]\n', "chore: config")
+    commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
+    commit("NEXT_SESSION.md", ENTRY.format("Nothing."), "docs: remove")
+    commit("docs/my doc.md", "# Mine\n\nNew here.\n", "docs: spaced")
+    hc.reload_config(repo)
+
+    gone, examined, _skipped, unreadable = deleted_since.deleted_claims(repo, "HEAD~2")
+
+    assert (examined, unreadable) == (1, 0), (examined, unreadable)
+    assert [f for f in gone if f.finding.subject == DEAD], [f.finding for f in gone]
+
+
+def test_a_name_with_a_space_that_was_present_at_the_ref_is_read(git_repo) -> None:
+    """The other half: present, the record for a spaced name is an ordinary
+    blob record, and its old claim is read and reported."""
+    from extant import session as hc
+    from extant import deleted_since
+    repo, commit = git_repo
+    commit(".extant.toml", 'extra_docs = ["docs/my doc.md"]\n', "chore: config")
+    commit("docs/my doc.md", f"# Mine\n\nSee `docs/gone.md` and `{DEAD}`.\n", "docs: spaced")
+    commit("docs/my doc.md", "# Mine\n\nNothing.\n", "docs: spaced2")
+    hc.reload_config(repo)
+
+    gone, examined, _skipped, unreadable = deleted_since.deleted_claims(repo, "HEAD~1")
+
+    assert (examined, unreadable) == (1, 0), (examined, unreadable)
+    assert {f.finding.subject for f in gone} >= {DEAD, "docs/gone.md"}, (
+        [f.finding for f in gone])

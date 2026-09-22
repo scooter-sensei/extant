@@ -508,6 +508,15 @@ def line_number_at(text: str, offset: int) -> int:
     `LINE_BREAK` instead changes what BOUNDS a claim, which is a rule
     behaviour, not a numbering one. Either direction needs its own change and
     its own measurement over the corpus.
+
+    MEASURED, AND CLOSED ON THE NUMBER (2026-09-14, the internals review's
+    item 6.2). Across 185 corpus repositories and 108,647 documents read
+    strictly, 15 hold one of the breakers `splitlines()` honours and
+    `LINE_BREAK` does not - 12 a form feed, 2 `U+2028`, 1 `U+2029` - and 13
+    of those sit between backticks on a line. The two numberings can differ
+    on 0.014 per cent of documents, so the eight sites stay as they are and
+    this paragraph is the record; the count lives in the design rationale
+    under "Where a sweep's time goes, measured without the profiler".
     """
     return bisect.bisect_left(_break_starts(text), offset) + 1
 

@@ -206,7 +206,7 @@ def test_a_deleted_block_introduces_no_lines(git_repo) -> None:
                   "docs: more")
     commit("docs/notes.md", "# Notes\n\n\nMerged at `x`.\n\ntail\n", "docs: delete a block")
 
-    lines, _binary = introduced_lines(repo, base)
+    lines, _binary, _before = introduced_lines(repo, base)
 
     assert lines.get("docs/notes.md", set()) == set(), lines
 
@@ -218,10 +218,58 @@ def test_added_and_modified_lines_are_numbered_in_the_new_file(git_repo) -> None
     base = commit("docs/notes.md", "# Notes\n\na\nb\nc\n", "docs")
     commit("docs/notes.md", "# Notes\n\nzero\n\na\nB\nc\nd\ne\n", "docs: edit")
 
-    lines, _binary = introduced_lines(repo, base)
+    lines, _binary, _before = introduced_lines(repo, base)
 
     # `zero` and the blank after it (3, 4), `B` (6), `d` and `e` (8, 9).
     assert lines["docs/notes.md"] == {3, 4, 6, 8, 9}, lines
+
+
+def test_a_staged_new_document_is_gated_before_it_is_committed(git_repo, capsys) -> None:
+    """The pre-commit shape the review's 4.11 asked about (Phase 51): a plan
+    document written this session, `git add`ed, never yet committed. It is in
+    the diff against HEAD (`+++ b/docs/plan.md`, every line a `+`) and NOT in
+    HEAD's tree - and the mode used to list its documents from HEAD's tree,
+    so the one document whose every line the range wrote fell out silently,
+    with the header counting it neither as examined nor as unread. The
+    diff's own `+++` side is the list now; HEAD's tree only counts what the
+    range left alone."""
+    repo, commit = git_repo
+    commit("docs/notes.md", "# Notes\n\nAll true.\n", "docs: a clean page")
+    with open(repo / "docs" / "plan.md", "w", encoding="utf-8", newline="") as fh:
+        fh.write(f"# Plan\n\nShipped at `{DEAD}`.\n")
+    _run(repo, "add", "docs/plan.md")
+
+    code = _gate(repo, "HEAD")
+    out = capsys.readouterr().out
+
+    assert code == 1, out
+    assert "docs/plan.md: line 3: [dead-sha]" in out, out
+    assert "examined 1 changed document(s) since HEAD" in out, out
+    assert "1 tracked document(s) the range did not change were not read" in out, out
+
+
+def test_an_uncommitted_rename_with_an_edit_is_read_under_its_new_name(
+        git_repo, capsys) -> None:
+    """`git mv docs/old.md docs/new.md`, a claim appended, nothing committed.
+    With `--find-renames` the diff files the edit under `b/docs/new.md`; HEAD's
+    tree still holds `docs/old.md`. Listing from HEAD's tree dropped the
+    document AND reported the old name as "the range did not change" - it
+    renamed it. Both names are the range's now: the new one is examined, the
+    old one is not counted among the unread."""
+    repo, commit = git_repo
+    commit("docs/old.md", "# Notes\n\nA line.\nAnother.\nA third.\n", "docs")
+    _run(repo, "mv", "docs/old.md", "docs/new.md")
+    with open(repo / "docs" / "new.md", "a", encoding="utf-8", newline="") as fh:
+        fh.write(f"\nMerged at `{DEAD}`.\n")
+    _run(repo, "add", "docs/new.md")
+
+    code = _gate(repo, "HEAD")
+    out = capsys.readouterr().out
+
+    assert code == 1, out
+    assert "docs/new.md: line 7: [dead-sha]" in out, out
+    assert "examined 1 changed document(s) since HEAD" in out, out
+    assert "0 tracked document(s) the range did not change were not read" in out, out
 
 
 def test_a_renamed_and_edited_document_is_read_under_its_new_name(

@@ -622,7 +622,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        if findings:\n            fired += 1",
          "        if True:\n            fired += 1"),
         ("every probe returns None", session,
-         "        probed = rule.probe(ctx, text)  # type: ignore[operator]",
+         "        probed = rule.probe(ctx, text)",
          "        probed = None"),
 
         # --- output formats ---------------------------------------------------
@@ -710,6 +710,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "def looks_like_bare_sha(token: str) -> bool:",
          "def looks_like_bare_sha(token: str) -> bool:\n"
          "    return bool(SHA_SHAPE.match(token))"),
+        # The one hex-spelled word the corpus holds (7 of 152 clones, Phase
+        # 51) reads as a dead commit again when the list is emptied.
+        ("a hex-spelled word reads as a commit again", commits,
+         '_HEX_WORDS = frozenset({"ed25519"})',
+         "_HEX_WORDS: frozenset[str] = frozenset()"),
 
         # --- config errors -----------------------------------------------------
         ("every TOML error blamed on regex quoting again", collect.parent / "extant/config.py",
@@ -811,8 +816,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    while name.startswith("./"):\n        name = name[2:]',
          '    name = name.lstrip("./")'),
         ("deletion re-reads documents that did not change", deleted_since,
-         "    for relative in _changed_between(repo, ref, documents):",
-         "    for relative in documents:"),
+         "    changed = _changed_between(repo, ref, documents)",
+         "    changed = list(documents)"),
         # The subject a claim is about. A rule that stops recording one is
         # invisible to `--deleted-since`, and the mode reports the skip rather
         # than hiding it - so the loss is quiet rather than silent, which is
@@ -823,8 +828,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a rule stops recording which token its claim is about",
          rules / "md_link.py",
          '        findings.append(Finding(number, "dead-md-link", detail,\n'
-         "                                subject=target))",
-         '        findings.append(Finding(number, "dead-md-link", detail))'),
+         "                                subject=target, repair=repair))",
+         '        findings.append(Finding(number, "dead-md-link", detail,\n'
+         "                                repair=repair))"),
         # SARIF's contract is that stdout is one valid document, always. Zero
         # bytes fails a CI upload rather than reading as "no results", so a
         # clean run looks exactly like a broken one.
@@ -871,9 +877,23 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        match = _HUNK.match(raw)\n        if match and not in_hunk:"),
         # Only changed documents can hold an introduced line, and the count of
         # unread ones is what says the population was narrowed on purpose.
+        # Retargeted 2026-09-22 when the list moved from HEAD's tree to the
+        # diff's own `b/` side (Phase 51).
         ("the diff gate reads every tracked document", introduced_since,
-         '    changed = [p for p in tracked if lines.get(p.replace("\\\\", "/"))]',
-         '    changed = list(tracked)'),
+         "    changed = sorted(path for path, wrote in lines.items() if wrote)",
+         "    changed = sorted(tracked)"),
+        # The shape Phase 51 found: listing from HEAD's tree drops a `git add`ed
+        # new document and a `git mv`ed one at pre-commit time - the two whose
+        # every line the range wrote - and the header counts them nowhere.
+        ("the diff gate lists its documents from HEAD's tree again", introduced_since,
+         "    changed = sorted(path for path, wrote in lines.items() if wrote)",
+         '    changed = [p for p in tracked if lines.get(p.replace("\\\\", "/"))]'),
+        # A renamed-away name is a document the range touched, not one it left
+        # alone; without the `a/` side the header says "did not change" of a
+        # file the range moved.
+        ("a renamed-away document counts as unchanged", introduced_since,
+         "    touched = set(changed) | set(binary_documents) | set(before)",
+         "    touched = set(changed) | set(binary_documents)"),
         # A document this tool numbers differently from git cannot be placed
         # on git's lines; its findings are surveyed and said so, never gated.
         ("a bare carriage return document gates on git's numbering", introduced_since,
@@ -885,15 +905,17 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
 
         # --- search --------------------------------------------------------------
         # Retargeted when the read gained a `try:` for the undecodable case -
-        # the lines are the same, one indent deeper.
+        # the lines are the same, one indent deeper - and again when the
+        # document names moved off the `session.PRIMARY_DOC` module globals
+        # onto the built Config the mode now reads through `session.config()`.
         ("search only looks at the live document", cli,
-         "    for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):\n"
+         "    for relative in (config.primary_doc, config.archive_doc):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
          "        try:\n"
          "            with open(path, encoding=\"utf-8\", newline=\"\") as fh:",
-         "    for relative in (session.PRIMARY_DOC,):\n"
+         "    for relative in (config.primary_doc,):\n"
          "        path = repo / relative\n"
          "        if not path.is_file():\n"
          "            continue\n"
@@ -955,7 +977,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # at import in a subprocess, so they fail here and would not otherwise.
         ("no parser is a hard import error again, not a fallback",
          detect.parent / "payload/extant/config.py",
-         "        tomllib = None                                   # type: ignore[assignment]",
+         "        tomllib = None",
          "        raise"),
         ("a config file with no parser fails without saying how to fix it",
          detect.parent / "payload/extant/config.py",
@@ -1037,7 +1059,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                skipped_why[check] = \", \".join(problems)"),
         ("preset stops switching off the features it disables",
          detect.parent / "install.py",
-         '    for key in preset.get("disable", []):          # type: ignore[union-attr]',
+         '    for key in preset.get("disable", []):',
          "    for key in []:"),
 
         # --- the baseline -------------------------------------------------------
@@ -1271,8 +1293,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # defaults and agreed. The anchor exists so the fix is watched failing
         # rather than trusted.
         ("a survey worker keeps its own configuration, not its parent's", sweep,
-         "    session.install_config(config)         # type: ignore[arg-type]",
-         "    session.CONFIG = config                # type: ignore[assignment]"),
+         "    session.install_config(config)",
+         "    session.CONFIG = config  # type: ignore[assignment]"),
         # --- reference resolution, which must not vary by platform --------
         # The backslash is the whole of it. `Path(x).parts` split on it under
         # Windows and not under POSIX, so a Windows-spelled pointer - which
@@ -1313,8 +1335,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # alone matches the unresolved-case branch as well and --check-only
         # reported it 2x. A mutation that matches twice probes neither site.
         ("an absolute target is answered by the machine's filesystem", sites,
-         "        result = (False, None)\n    else:",
-         "        result = (Path(raw).exists(), None)\n    else:"),
+         "        result: tuple[bool, str | None] = (False, None)\n    else:",
+         "        result: tuple[bool, str | None] = (Path(raw).exists(), None)\n"
+         "    else:"),
         # The anchor rule building its own path again instead of asking the one
         # function that owns the question. `Path(repo) / "C:/x"` is `C:/x`, so
         # this reads a markdown file anywhere on the machine and puts its
@@ -1360,8 +1383,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # is how the sweep would quietly under-report on any repository holding
         # a latin-1 document.
         ("unreadable files are skipped silently rather than counted", sweep,
-         '        return (relative, [], f"{relative} ({exc.__class__.__name__})", {}, [])',
-         "        return (relative, [], None, {}, [])"),
+         '        return (relative, [], f"{relative} ({exc.__class__.__name__})", {}, [],\n'
+         "                False)",
+         "        return (relative, [], None, {}, [],\n"
+         "                False)"),
         ("the sweep denominator counts only what it gated on", sweep,
          '    print(f"\\nswept {len(paths)} markdown file(s): "',
          '    print(f"\\nswept {len(vetted)} markdown file(s): "'),
@@ -1392,11 +1417,17 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '            out.append("[^/]*")',
          '            out.append(".*")'),
         ("a bare pattern anchors at the root instead of any segment", sweep,
-         '        source = rf"^(?:.*/)?{core}(?:/.*)?$"',
-         '        source = rf"^{core}(?:/.*)?$"'),
+         '        source = rf"^(?:.*/)?{core}{beneath}$"',
+         '        source = rf"^{core}{beneath}$"'),
         ("a bare pattern matches half a segment", sweep,
-         '        source = rf"^(?:.*/)?{core}(?:/.*)?$"',
+         '        source = rf"^(?:.*/)?{core}{beneath}$"',
          '        source = rf".*{core}.*"'),
+        # A trailing slash names a directory, as in a .gitignore; taking a
+        # file of that name too is what git's matcher and this one disagreed
+        # on, five paths in 793,684 (2026-09-20).
+        ("a trailing slash matches a file of that name", sweep,
+         '    beneath = r"(?:/.*)" if directory_only else r"(?:/.*)?"',
+         '    beneath = r"(?:/.*)?"'),
         ("an unusable pattern compiles to one that matches everything",
          sweep,
          '    if not pattern or pattern.startswith("#"):\n        return None',
@@ -1446,10 +1477,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "              f\"({exc.__class__.__name__}), so there is no range to gate on.\",\n"
          "              file=sys.stderr)\n"
          "        return 0"),
+        # Retargeted 2026-09-22 with the sentence: HEAD's tree now counts what
+        # the range left alone rather than naming the changed documents.
         ("an unlistable tree passes the gate", introduced_since,
-         "              f\"be named.\", file=sys.stderr)\n"
+         "              f\"alone cannot be counted.\", file=sys.stderr)\n"
          "        return 2",
-         "              f\"be named.\", file=sys.stderr)\n"
+         "              f\"alone cannot be counted.\", file=sys.stderr)\n"
          "        return 0"),
         ("--check-text with no stdin exits clean", gate,
          "    text = _read_stdin(diag)\n"
@@ -1769,6 +1802,19 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # If a future change makes scope identity observable - a field keyed on
         # anything but the repository, or a reader between validate() and the
         # next one - this becomes a real gap and the mutation should come back.
+        # `config()` is the modes' door to the built Config, and the one
+        # defect it can have is handing out a DIFFERENT object from the one
+        # the rules read through `ctx.config`. A fresh build from CONFIG is
+        # that defect in its quietest form: the values agree on every CLI
+        # run and disagree under the `reconfigure` fixture, which replaces
+        # the built object and not the raw settings - so a mode under test
+        # would read the default pattern while the rule beside it read the
+        # configured one, the trap the twenty-one module globals used to
+        # spring. Pinned by the identity assertion in
+        # test_every_reader_is_handed_the_one_built_config.
+        ("config() hands out a second build", session,
+         "    return _ACTIVE\n",
+         "    return Config.build(CONFIG)\n"),
 
         # --- reStructuredText ------------------------------------------------
         # Markdown's link syntax is not a subset of anything. Running those two
@@ -1815,11 +1861,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",',
          '    "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",'),
         # The scrub applied at the seam and nowhere else. The `cat-file`
-        # batches, the attribute query and `git show` call subprocess
-        # directly, and one of them left on the operator's environment is
-        # the SHA rule, the LFS rule or `--deleted-since` answering about the
-        # wrong repository while the rest answer about the right one.
-        ("git show reads the document from the leaked repository", deleted_since,
+        # batches and the attribute query call subprocess directly, and one
+        # of them left on the operator's environment is the SHA rule, the
+        # LFS rule or `--deleted-since` answering about the wrong repository
+        # while the rest answer about the right one.
+        ("the previous versions are read from the leaked repository", deleted_since,
          '                              capture_output=True, env=environment())',
          '                              capture_output=True)'),
         ("the LFS attribute query inherits the operator's environment",
@@ -1880,6 +1926,41 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '        if is_partial(repo) and _listed_at(repo, ref, relative) is not False:\n'
          '            raise MissingObject(f"{ref}:{relative}")',
          '        pass'),
+        # The batch that replaced one `git show` per document (2026-09-20).
+        # Its records are paired with the names by position, so the three
+        # ways to misread one are the three below: a `missing` record read
+        # as an empty document, which is examined and clean where it was
+        # absent or unreadable; a tree read as a document, which `git show`
+        # used to do; and a record's trailing newline left unconsumed, which
+        # puts every later record one byte off and answers None for all of
+        # them. The fourth is the scope the loop now holds, dropped.
+        ("a missing answer in the batch reads as an empty document", deleted_since,
+         '        if len(header) != 3 or not header[2].isdigit():\n'
+         '            found[relative] = None          # `<spec> missing`, or ambiguous',
+         '        if len(header) != 3 or not header[2].isdigit():\n'
+         '            found[relative] = b""'),
+        # A `missing` line echoes a name that may hold a space, so the header
+        # is read from its end AND its size field is checked before it is
+        # trusted; `HEAD~1:docs/my doc.md missing` then reads as an absence
+        # rather than crashing on `int(b"missing")`. The guard is the anchor
+        # because the direction of the split alone is not: with the guard in
+        # place, a front split reaches the same answer for every name and a
+        # mutation of it SURVIVED the campaign of 2026-09-21 - an anchor that
+        # matches without biting, retargeted at the line that bites.
+        ("the batch header's size field is trusted to be a number", deleted_since,
+         '        if len(header) != 3 or not header[2].isdigit():',
+         '        if len(header) != 3:'),
+        ("a tree at the configured name reads as a document", deleted_since,
+         '        found[relative] = body if header[1] == b"blob" else None',
+         '        found[relative] = body'),
+        ("the batch record separator is not consumed", deleted_since,
+         '        at += size + 1                      # the record\'s trailing newline',
+         '        at += size'),
+        ("the scope across the previous versions is dropped", deleted_since,
+         '    with session.run_scope():\n'
+         '        for relative in changed:',
+         '    if True:\n'
+         '        for relative in changed:'),
 
         # --- the pre-filters in front of the configurable scans -------------
         # Each is a way for "cannot match" to become "did not look", which is
@@ -2033,6 +2114,63 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    session.reload_config(repo)\n"
          "    # Read once, here, AFTER the reload, so every reader below wants the SAME",
          "    # Read once, here, AFTER the reload, so every reader below wants the SAME"),
+        # --- tranche 10 of the internals review ---------------------------
+        # The rename hint is a `repair`, outside the baseline's identity;
+        # dropped, the finding is still reported and the reader is no longer
+        # told where the file went.
+        ("the link's rename hint is dropped from the finding", rules / "md_link.py",
+         "                                subject=target, repair=repair))",
+         "                                subject=target))"),
+        # The third repository note. Never printed, an index that reached
+        # its bound in a repository without a commit-graph is a cost nobody
+        # is told about.
+        ("the incomplete-index note is never printed", gate,
+         "    if index_incomplete:\n        report_index_note(diag, repo)",
+         "    if False:\n        report_index_note(diag, repo)"),
+        # Inverted, the note fires on the one repository that is already
+        # paying nothing and stays silent on the one that is.
+        ("the commit-graph note fires on the repository that has one", gate,
+         "    if has_commit_graph(repo):\n        return\n",
+         "    if not has_commit_graph(repo):\n        return\n"),
+        # The survey OR-s the flag across every document's outcome; keeping
+        # the last one loses an index a worker built for an earlier file.
+        ("the survey keeps only the last document's index flag", sweep,
+         "                    index_incomplete = index_incomplete or incomplete",
+         "                    index_incomplete = incomplete"),
+        # The survey's repository notes, on the mode most often pointed at a
+        # repository nobody here had seen. Removed, a depth-limited or
+        # partial copy is swept with no word about what the counts mean.
+        ("the survey prints no repository note", sweep,
+         "    report_repository_notes(lambda line: print(line, file=out), repo,\n"
+         "                            index_incomplete)\n",
+         "    pass\n"),
+        # --- tranche 11 of the internals review ---------------------------
+        # The scope across `--verify`, and the arm that keeps it per document.
+        # Dropped, every document rebuilds the ref table and the trunk index
+        # the last one built - the 101 ms of a 700 ms run 5.7 measured here.
+        ("the scope across --verify is dropped", gate,
+         "    whole_run = (session.run_scope() if mapping is None\n"
+         "                 else contextlib.nullcontext())",
+         "    whole_run = contextlib.nullcontext()"),
+        # Under `--sha-map` the per-document scope is the only one there is;
+        # dropped, a run with a map has no scope at all and every document
+        # asks twice, once per half.
+        ("the per-document scope under --sha-map is dropped", gate,
+         "        if mapping is None:\n"
+         "            return contextlib.nullcontext()\n"
+         "        return session.run_scope()",
+         "        return contextlib.nullcontext()"),
+        # The tracked list the survey was built from, seeded into the scope
+        # the sequential path reads through and into every worker's. Either
+        # seed dropped, that process lists the tree again the first time a
+        # document reaches `sites.py` - 5.6's five listings for one survey.
+        ("the workers are not handed the tracked list", sweep,
+         "    if tracked is not None:\n"
+         "        scope.tracked_markdown[key] = tracked",
+         "    pass"),
+        ("the survey's own scope is not handed the tracked list", sweep,
+         "        scope.tracked_markdown[str(repo)] = tracked",
+         "        pass"),
     ]
 
 

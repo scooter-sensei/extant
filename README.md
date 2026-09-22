@@ -113,6 +113,9 @@ what `--verify` and `--sweep` are for. Measured on nine public repositories:
 every finding sitting on a line their last thirty commits touched was in the
 one agent-tooling project among them, and none of the other eight's 2,786
 findings was on such a line - the rot there was in text nobody had edited.
+It reads the working tree, so it also runs before a commit: a document you
+have only just `git add`ed, or moved with `git mv` and edited, is one the
+range changed and is read under the name it has now.
 
 The full set of modes:
 
@@ -747,8 +750,9 @@ repository does both, and the second half is one line:
           git rev-parse --verify main
 ```
 
-It takes `mode` (`verify`, the default, or `sweep`), `repo`, `format` and `args`
-for anything else. Under it is one command:
+It takes `mode` (`verify`, the default, `sweep`, or `introduced-since` with
+its `since` ref), `repo`, `format` and `args` for anything else. Under it is
+one command:
 
 ```console
 $ python tools/extant_collect.py --verify --format=github
@@ -772,8 +776,18 @@ base itself, so a branch behind `main` is not blamed for what `main` deleted:
 
 A depth-limited checkout whose base lies beyond the depth is a refusal with
 exit 2 and a message, never a gate that examined nothing and passed. The
-action does not carry this mode yet - its `mode` input takes `verify` or
-`sweep` - so it is wired as a plain step for now.
+action carries the same mode: `since` is the ref the range is measured from,
+and on a pull request the workflow already knows it:
+
+```yaml
+      - uses: scooter-sensei/extant@v0.27.0
+        with:
+          mode: introduced-since
+          since: ${{ github.event.pull_request.base.sha }}
+```
+
+Given the mode without `since`, the step fails with a message naming the
+input rather than handing the CLI an empty ref.
 
 **`sarif`** emits the standard format code-scanning tools exchange, as pure JSON
 on stdout, so it pipes straight to a file. To get results into GitHub's Security

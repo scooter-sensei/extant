@@ -11,6 +11,8 @@ import sys
 import tokenize
 from pathlib import Path
 
+import pytest
+
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 
@@ -398,7 +400,8 @@ def test_every_flag_the_action_passes_exists(tmp_path) -> None:
     # answer. Both denominators are asserted non-empty: a pattern that stopped
     # matching would otherwise leave this passing against an action offering
     # anything at all.
-    modes = re.findall(r"^\s*([a-z|]+)\)\s*: ;;", text, re.M)
+    # `[a-z|-]`: a mode name may carry a hyphen (`introduced-since`).
+    modes = re.findall(r"^\s*([a-z|-]+)\)\s*: ;;", text, re.M)
     assert len(modes) == 2, (
         f"expected the mode and format case arms; matched {modes}")
     offered_modes, offered_formats = (set(arm.split("|")) for arm in modes)
@@ -409,6 +412,71 @@ def test_every_flag_the_action_passes_exists(tmp_path) -> None:
     assert offered_formats == set(FORMATS), (
         f"action.yml accepts formats {sorted(offered_formats)} against a CLI "
         f"offering {sorted(FORMATS)}")
+
+
+def _action_script() -> str:
+    """The `run:` block of the action's checking step, as bash sees it."""
+    lines = (PACKAGE_ROOT / "action.yml").read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines)
+                 if line.strip() == "run: |" and "Install" not in "".join(lines[i - 8:i]))
+    body = []
+    for line in lines[start + 1:]:
+        if line.strip() and not line.startswith(" " * 8):
+            break
+        body.append(line[8:])
+    return "\n".join(body) + "\n"
+
+
+def _run_action(tmp_path, **inputs) -> tuple[int, str]:
+    """Run the step's script under bash with a stub `extant` on PATH that
+    prints the arguments it was handed. (exit code, combined output)."""
+    import os
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("no bash on this machine; the action's step needs one")
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    with open(stub / "extant", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write('#!/bin/sh\nprintf "extant %s\\n" "$*"\n')
+    (stub / "extant").chmod(0o755)
+    script = tmp_path / "step.sh"
+    with open(script, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(_action_script())
+    env = dict(os.environ, PATH=f"{stub}{os.pathsep}{os.environ['PATH']}",
+               INPUT_MODE="verify", INPUT_REPO=".", INPUT_FORMAT="github",
+               INPUT_ARGS="", INPUT_SINCE="")
+    env.update({f"INPUT_{k.upper()}": v for k, v in inputs.items()})
+    done = subprocess.run([bash, str(script)], env=env, cwd=tmp_path,
+                          capture_output=True, text=True, encoding="utf-8")
+    return done.returncode, done.stdout + done.stderr
+
+
+def test_the_action_gates_a_range_when_given_its_base(tmp_path) -> None:
+    """`mode: introduced-since` with `since: <ref>` runs the diff-scoped gate
+    - the row CORPUS.md measures pins zero paths, and a pull request's base
+    is what the workflow already knows."""
+    code, out = _run_action(tmp_path, mode="introduced-since", since="origin/main")
+    assert code == 0, out
+    assert "extant --introduced-since origin/main --repo . --format=github" in out, out
+
+
+def test_the_action_refuses_the_range_mode_without_a_base(tmp_path) -> None:
+    """A mode that needs a ref and was given none fails the step with a
+    named reason, rather than pasting an empty argument onto the command line
+    and letting the CLI's own refusal explain a different problem."""
+    code, out = _run_action(tmp_path, mode="introduced-since")
+    assert code == 2, out
+    assert "::error::" in out and "'since' input" in out, out
+    assert "extant --introduced-since" not in out, out
+
+
+def test_the_action_ignores_since_outside_the_range_mode(tmp_path) -> None:
+    code, out = _run_action(tmp_path, mode="verify", since="origin/main")
+    assert code == 0, out
+    assert "extant --verify --repo . --format=github" in out, out
 
 
 def test_command_template_placeholders_are_all_rendered() -> None:
@@ -502,14 +570,16 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
     copied, the second list held only copies, and it went stale on every
     reload. Now `_apply_config` is the only writer and both paths call it.
 
+    The twenty-one derived globals that first replaced those assignments are
+    gone as well - `_apply_config` builds ONE `Config` and every reader is
+    handed that object - so the exemption this scan once carried for their
+    table is gone with them: no module-level assignment anywhere in the
+    package may read CONFIG, full stop.
+
     This guards the SHAPE. `test_reloading_matches_a_fresh_import_of_the_same_project`
     guards the outcome; keeping the shape is what stops anyone needing to.
     """
     import ast
-    import sys
-
-    sys.path.insert(0, str(SKILL_ROOT / "payload"))
-    from extant import session as hc
 
     sources = [SKILL_ROOT / "payload" / "extant_collect.py"]
     sources += sorted((SKILL_ROOT / "payload" / "extant").rglob("*.py"))
@@ -532,12 +602,11 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
             # module global, and an annotated one is exactly as stale-prone
             # as a bare one - `ast.Assign` alone let `_ACTIVE: Config =
             # Config.build(CONFIG)` slip through with zero strays reported.
-            # The shim itself uses the annotated form for two globals
-            # (`_ACTIVE: Config | None = None`, and `_CONSISTENCY_TIMEOUT:
-            # float | None` with no value at all), so this walk must
-            # recognise the shape rather than assume nobody writes it.
-            # AnnAssign.value is None for an annotation with no value,
-            # which ast.walk() cannot take - skipped rather than crashed on.
+            # session.py declares `_ACTIVE: Config` with no value at all and
+            # lets `_apply_config` bind it, so this walk must recognise the
+            # shape rather than assume nobody writes it. AnnAssign.value is
+            # None for an annotation with no value, which ast.walk() cannot
+            # take - skipped rather than crashed on.
             if isinstance(node, ast.Assign):
                 if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
                     continue
@@ -549,8 +618,6 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
             else:
                 continue
             name = target.id
-            if name == "_CONFIG_DERIVED":
-                continue
             if any(isinstance(s, ast.Name) and s.id == "CONFIG"
                    for s in ast.walk(value)):
                 strays.append(f"{source_path.name}:{name} (line {node.lineno})")
@@ -566,17 +633,11 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
         f"read and would fail for the wrong reason")
     tree = ast.parse(settings_module.read_text(encoding="utf-8"))
 
-    assert hc._CONFIG_DERIVED, "the derived table is empty; this proves nothing"
-    assert all(callable(v) for v in hc._CONFIG_DERIVED.values()), (
-        "every entry must be a builder, so a COMPUTED value is expressed the "
-        "same way as a copied one and cannot become the forgotten special case"
-    )
-
     # No module-level assignment, in the shim OR anywhere in the package, may
-    # read CONFIG except the table itself. `strays` was built above by walking
-    # every source in `sources`, not just the shim.
+    # read CONFIG. `strays` was built above by walking every source in
+    # `sources`, not just the shim.
     assert not strays, (
-        "these globals read CONFIG outside _CONFIG_DERIVED, so reload_config "
+        "these globals read CONFIG outside _apply_config, so reload_config "
         "cannot refresh them and they will keep their import-time value: "
         + ", ".join(strays)
     )
@@ -599,7 +660,7 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
     )
 
 
-def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> None:
+def test_reload_config_rebuilds_the_computed_values_at_runtime(tmp_path) -> None:
     """The behaviour, not the source text.
 
     The check above reads the module and asks whether `reload_config` contains
@@ -625,34 +686,30 @@ def test_reload_config_rebuilds_the_computed_globals_at_runtime(tmp_path) -> Non
     (tmp_path / ".extant.toml").write_text(
         '[extant]\nentry_prefix = "### Phase "\n', encoding="utf-8")
 
-    before = hc._SECTION_HEADER.pattern
-    saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
-    # `_ACTIVE` holds the same values in a second shape. Restoring the globals
-    # and leaving it behind would put this module in a state neither the test
-    # nor the fixture ever asked for.
-    saved_config, saved_header, saved_active = (
-        hc.CONFIG, hc._SECTION_HEADER, hc._ACTIVE)
+    before = hc.config().section_header.pattern
+    # Both halves `reload_config` writes, put back together: the raw settings
+    # and the built Config. Restoring one and leaving the other would put
+    # this module in a state neither the test nor the fixture ever asked for.
+    saved_config, saved_active = hc.CONFIG, hc._ACTIVE
     try:
         hc.reload_config(tmp_path)
 
         assert hc.CONFIG.entry_prefix == "### Phase ", "config did not reload"
-        assert hc._SECTION_HEADER.pattern != before, (
-            f"_SECTION_HEADER still {hc._SECTION_HEADER.pattern!r} after a "
-            f"reload that set entry_prefix to '### Phase '"
+        header = hc.config().section_header
+        assert header.pattern != before, (
+            f"section_header still {header.pattern!r} after a reload that "
+            f"set entry_prefix to '### Phase '"
         )
         # It must still WORK, not merely differ: a pattern rebuilt from the
         # wrong part of the prefix would also change, and match nothing.
-        assert hc._SECTION_HEADER.search("### Phase 3 - checkout\n")
-        assert not hc._SECTION_HEADER.search("## Phase 3 - checkout\n")
+        assert header.search("### Phase 3 - checkout\n")
+        assert not header.search("## Phase 3 - checkout\n")
     finally:
-        hc.CONFIG, hc._SECTION_HEADER = saved_config, saved_header
-        hc._ACTIVE = saved_active
-        for name, value in saved.items():
-            setattr(hc, name, value)
+        hc.CONFIG, hc._ACTIVE = saved_config, saved_active
 
 
 def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
-    """Catches a reload that updates CONFIG and leaves the globals behind."""
+    """Catches a reload that updates CONFIG and leaves the built Config behind."""
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
@@ -663,28 +720,22 @@ def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
     # rather than whatever was in place before - so it depended on
     # `.extant.toml` existing here, and it silently defeated the autouse
     # `neutral_config` fixture for every test that ran afterwards.
-    saved_config = hc.CONFIG
-    saved = {name: getattr(hc, name) for name in hc._CONFIG_DERIVED}
-    # Same reason as above: the built Config is state this test changes too.
-    saved_active = hc._ACTIVE
-    before = hc.PRIMARY_DOC
+    saved_config, saved_active = hc.CONFIG, hc._ACTIVE
+    before = hc.config().primary_doc
 
     (tmp_path / ".git").mkdir()
     (tmp_path / ".extant.toml").write_text(
         'primary_doc = "SOMETHING_ELSE.md"\ntrunk = "develop"\n', encoding="utf-8")
     try:
         hc.reload_config(tmp_path)
-        assert hc.PRIMARY_DOC == "SOMETHING_ELSE.md"
-        assert hc.TRUNK == "develop"
-        assert hc._MERGE_CLAIM.search("merged to `develop` at `abc1234`"), (
+        assert hc.config().primary_doc == "SOMETHING_ELSE.md"
+        assert hc.config().trunk == "develop"
+        assert hc.config().merge_claim.search("merged to `develop` at `abc1234`"), (
             "a compiled pattern was not rebuilt"
         )
     finally:
-        hc.CONFIG = saved_config
-        hc._ACTIVE = saved_active
-        for name, value in saved.items():
-            setattr(hc, name, value)
-    assert hc.PRIMARY_DOC == before
+        hc.CONFIG, hc._ACTIVE = saved_config, saved_active
+    assert hc.config().primary_doc == before
 
 
 def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
@@ -935,14 +986,15 @@ def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path) -> None:
 
     This compares behaviour against an oracle, so it needs no naming
     convention, no AST, and no list of what counts as derived. A global added
-    tomorrow is covered without anyone remembering this test exists.
+    tomorrow is covered without anyone remembering this test exists, and the
+    built Config is compared field by field inside its one entry.
     """
     import shutil
 
     payload = SKILL_ROOT / "payload"
 
-    # A project whose configuration differs from this repository's in the
-    # fields that reach a module global.
+    # A project whose configuration differs from this repository's in several
+    # of the fields the built Config carries, computed ones included.
     project = tmp_path / "project"
     (project / ".git").mkdir(parents=True)
     (project / ".extant.toml").write_text(
@@ -963,12 +1015,17 @@ def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path) -> None:
     reloaded = _module_state(payload, SKILL_ROOT, reload_to=project)
 
     compared = sorted(set(fresh) & set(reloaded) - _RELOAD_ORACLE_EXEMPT)
-    assert len(compared) >= 19, (
-        f"only {len(compared)} globals compared; the probe is not reading the "
-        "module properly and a clean result here would mean nothing"
+    # Every configured value lives on the built Config now - the twenty-one
+    # module globals derived from it are gone - so the probe reading the
+    # module properly means it read THAT object. `canon` renders a dataclass
+    # as its fields, so the sentinel is one field of one entry rather than a
+    # global of its own, as `TRUNK` used to be.
+    assert "_ACTIVE" in compared, (
+        f"the probe did not read the built Config; it compared {compared}, "
+        "and a clean result here would mean nothing"
     )
-    assert fresh["TRUNK"] == "'mainline'", (
-        f"the oracle did not pick up the project's config: TRUNK={fresh['TRUNK']}"
+    assert "trunk='mainline'" in fresh["_ACTIVE"], (
+        f"the oracle did not pick up the project's config: {fresh['_ACTIVE']}"
     )
 
     stale = {name: (reloaded[name], fresh[name])

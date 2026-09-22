@@ -115,6 +115,69 @@ the question, which is a different thing from being asked and reporting
 nothing, and folding them in as zeroes would understate the gate while looking
 like a measurement.
 
+## The diff-scoped gate, replayed
+
+`--introduced-since` pins nothing: it reads the documents a change touched and
+fails only on findings sitting on lines the change wrote. Its reach cannot be
+read off a sweep at HEAD, so it was REPLAYED: the last 50 first-parent commits
+of each of 13 autopsy clones - the one tier with the blobs a checkout at an old
+commit needs - each run from a worktree at that commit with the mode as shipped
+at `73f1f22`, asking of its first parent. The tree is the commit's own; the
+refs and object store are today's, so a branch deleted since reads dead and a
+commit merged since reads merged. Measured 2026-09-20.
+
+| population | changes | touching a document | would go red | findings gated | ordinary | paths pinned | repositories reporting |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `diff-scoped`, 13 clones x 50 changes | 650 | 273 | 9 | 36 | 33 | 0 | 2 ordinary, 3 any stratum |
+
+Not a row of the table above, and deliberately not placed in it: that table's
+population is the 50-repository benchmark at HEAD, this one is 13 repositories
+across 650 integrated changes, and the unit differs as well as the count. What
+can be read against it is the ladder on these same 13 repositories at HEAD,
+from the same recorded sweep the table was built from:
+
+| policy, on the same repositories | ordinary findings gated | repositories reporting |
+|:---|---:|---:|
+| `installed` at HEAD | 2 | 2 (2 never asked) |
+| `root+docs-ord` at HEAD | 37 | 5 |
+| `docs3-ord` at HEAD | 123 | 9 |
+| `ordinary` at HEAD | 454 | 11 |
+| `diff-scoped`, last 50 changes | 33 | 2 |
+
+So the diff-scoped gate reaches what `installed` reaches, at zero pinned paths
+against `installed`'s, and not what `docs3-ord` reaches: 2 repositories of 13
+against 9. The review that proposed the mode set that as the bar for replacing
+the default install policy, and the bar is not met.
+
+**What the replay measured instead is why.** At the moment each change landed,
+the documents it touched held 211 findings; 36 of them - **17.1%** - sat on
+lines the change wrote, and 175 sat on lines it did not. A document-scoped gate
+fails on all 211; the diff-scoped one on 36, by design. Documentation claims go
+false without being edited, and the gate that pins nothing is the gate that
+sees the least of it.
+
+**The reach it does have is one repository's.** `obra/superpowers` carries 31
+of the 33 ordinary findings and would have gone red on 6 of its 34
+document-touching changes - every one of them in a plan or spec document
+written during an agent session, dense with commit references, checked in as
+fact. By rule: 23 `bare-dead-sha`, 6 `dead-sha`, 2 `dead-md-anchor`, 2
+`dead-md-link`, 2 `dead-path-pointer`, 1 `manifest-floor-mismatch`. Whether
+that reach is a property of agent-written documentation is a question about the
+agent tier, which is `blob:none` and cannot be replayed without retrieving its
+history.
+
+**Precision of exactly these 36 findings**, judged while the worktree stood at
+each commit, with the readings the table below uses - a link or pointer
+resolved by any spelling in the tree at that commit, an anchor by any slug
+convention, a SHA that is a UUID fragment or names any object today: 0 resolve
+under some reading. 7 carry the `future-tense` annotation - annotated, never a
+veto, as the hand-labelled sample treated the same shapes.
+
+Population, stated: 3 of the 13 - `Aider-AI/aider`, `astral-sh/ruff`,
+`vuejs/vitepress` - are reserved rows in the benchmark manifest, read here
+through their autopsy copies, which every identity run has swept. The
+repository carrying the findings, `obra/superpowers`, is not one of them.
+
 ## Precision
 
 Against a hand-labelled sample of 1,402 findings, pooled precision is

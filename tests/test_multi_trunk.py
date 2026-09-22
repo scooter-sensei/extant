@@ -222,9 +222,9 @@ def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(gitflow) -> Non
     implementation that still asks about one configured trunk fails here.
 
     Set through `reload_config`, not `monkeypatch.setattr(ec, "TRUNK", ...)`.
-    The latter only reaches this module's own globals; `_integration_refs` is a
-    package function reading `ctx.config.trunk` off the built Config, which a
-    monkeypatched module attribute never touches. That is exactly why the old
+    The latter only ever reached this module's own globals, which are gone;
+    `_integration_refs` is a package function reading `ctx.config.trunk` off
+    the built Config, which a monkeypatched module attribute never touches. That is exactly why the old
     form of this test passed even when a review plugin skipped the patch
     entirely - the module-level TRUNK it set was never read on this path.
     Proven by mutation: temporarily reducing `integration_refs` in
@@ -237,17 +237,14 @@ def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(gitflow) -> Non
     repo, _on_main, _on_develop, _unmerged = gitflow
 
     saved_config, saved_active = ec.CONFIG, ec._ACTIVE
-    saved = {name: getattr(ec, name) for name in ec._CONFIG_DERIVED}
     (repo / ".extant.toml").write_text('trunk = "develop"\n', encoding="utf-8")
     try:
         ec.reload_config(repo)
-        assert ec.TRUNK == "develop", "reload_config did not apply trunk"
+        assert ec.config().trunk == "develop", "reload_config did not apply trunk"
 
         assert rule_release_tag.check(ec.context(repo), "Released in v1.0.0 last week.\n") == []
     finally:
         ec.CONFIG, ec._ACTIVE = saved_config, saved_active
-        for name, value in saved.items():
-            setattr(ec, name, value)
 
 
 def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow) -> None:
@@ -270,11 +267,10 @@ def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow) -> None:
     repo, _on_main, _on_develop, _unmerged = gitflow
 
     saved_config, saved_active = ec.CONFIG, ec._ACTIVE
-    saved = {name: getattr(ec, name) for name in ec._CONFIG_DERIVED}
     (repo / ".extant.toml").write_text('trunk = "main"\n', encoding="utf-8")
     try:
         ec.reload_config(repo)
-        assert ec.TRUNK == "main", "reload_config did not apply trunk"
+        assert ec.config().trunk == "main", "reload_config did not apply trunk"
 
         text = ("# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
                 "Work is NOT yet merged on `feature/search`.\n\n## 1. Ref\n")
@@ -285,8 +281,6 @@ def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow) -> None:
         assert "develop" in findings[0].detail
     finally:
         ec.CONFIG, ec._ACTIVE = saved_config, saved_active
-        for name, value in saved.items():
-            setattr(ec, name, value)
 
 
 def test_an_unmerged_feature_is_still_reported_as_open(gitflow) -> None:
@@ -362,8 +356,8 @@ def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow) -> None:
     ...` assignment this used to make no longer reaches it - the rule matched
     nothing and the test reported no findings, which is the exact trap the
     shim's own wrapper block warns would arrive when the rules moved. Writing
-    the pattern into `.extant.toml` reaches the Config and the module global
-    together, which is the only arrangement in which the two cannot disagree.
+    the pattern into `.extant.toml` reaches the built Config, which is now
+    the only place any reader looks.
     The pattern is a LITERAL string (single quotes) because TOML processes
     escapes in basic strings and would reject the backslashes. Proven by
     mutation: temporarily changing that append to a fixed wrong ref instead of
@@ -374,14 +368,13 @@ def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow) -> None:
     repo, on_main, on_develop, _unmerged = gitflow
 
     saved_config, saved_active = ec.CONFIG, ec._ACTIVE
-    saved = {name: getattr(ec, name) for name in ec._CONFIG_DERIVED}
     (repo / ".extant.toml").write_text(
         'trunk = "main"\nmerge_claim = \'landed at `([0-9a-f]{7,40})`\'\n',
         encoding="utf-8")
     try:
         ec.reload_config(repo)
-        assert ec.TRUNK == "main", "reload_config did not apply trunk"
-        assert ec._ACTIVE.merge_claim.groups == 1, (
+        assert ec.config().trunk == "main", "reload_config did not apply trunk"
+        assert ec.config().merge_claim.groups == 1, (
             "the one-group pattern did not reach the built Config, so this "
             "test would exercise the default two-group contract instead")
 
@@ -390,8 +383,6 @@ def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow) -> None:
         assert [f.kind for f in findings] == ["false-merge-claim"], findings
     finally:
         ec.CONFIG, ec._ACTIVE = saved_config, saved_active
-        for name, value in saved.items():
-            setattr(ec, name, value)
 
 
 def test_the_ancestry_cache_does_not_leak_between_repositories(git_repo, tmp_path) -> None:

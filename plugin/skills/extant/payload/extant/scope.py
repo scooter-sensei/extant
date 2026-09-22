@@ -36,8 +36,9 @@ what is module-level now rather than of what was module-level then:
   `examined` each scanned the document for pointers, so one scan per document
   was being bought twice. Its key carries the text, the pattern AND
   `doc.doc_format` - the last because the scan runs over `prose()`, so it is
-  precisely the half of the key `_STRIPPED` above is missing, and copying that
-  omission is the one thing this memo had to avoid. Pure given those three, so
+  precisely the half of the key `_STRIPPED` above went without for months,
+  and copying that omission was the one thing this memo had to avoid; both
+  carry it now. Pure given those three, so
   it is not in `registry.forget_memos` and has no lifetime to state.
 * `_POINTER_SITES` is not pure - it reads the filesystem through `_line_count`
   and so has to be dropped when that is - but its consumer, `count_examined`,
@@ -54,9 +55,30 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
-__all__ = ["Context", "DocScope", "RunScope"]
+from extant.config import Config
+from extant.git import Git
+
+__all__ = ["AncestryIndex", "Context", "DocScope", "RunScope"]
+
+
+class AncestryIndex(Protocol):
+    """The shape of what `ancestors` holds, stated here so the field can say
+    so without importing the class that builds it.
+
+    The one implementation is `refs._Ancestry`, and it stays private to
+    extant/refs.py, which imports this module; naming it here would close a
+    cycle the import-cycle test refuses, `TYPE_CHECKING` or not. What this
+    scope needs is only the shape: the newest `INDEX_BOUND + 1` commits of a
+    ref as full SHAs, whether that was the whole history, and what the batches
+    have since settled about commits past the bound. `index_incomplete` below
+    reads the second of these, and reads it typed.
+    """
+
+    commits: frozenset[str]
+    complete: bool
+    settled: dict[str, bool]
 
 
 @dataclass
@@ -92,16 +114,18 @@ class RunScope:
     # levels deep cost 12,000 listings and 0.88 of 6.4 seconds. Within one
     # validate() the filesystem is assumed stable, which every rule already
     # assumes.
-    dircache: dict[Path, Any] | None = None
+    dircache: dict[Path, set[str]] | None = None
 
     # Ancestry indexes and resolved refs. Git state can change between
     # validations, so an index that outlived the call would answer from a
     # repository that no longer exists in that shape.
     #
-    # An index is a `refs._Ancestry`: the newest `INDEX_BOUND + 1` commits of
-    # the ref as full SHAs, whether that was the whole history, and what the
-    # batches have since settled about commits past the bound. All three on
-    # one object because they share this one lifetime and this one key.
+    # An index is a `refs._Ancestry`, whose shape `AncestryIndex` above
+    # states: the newest `INDEX_BOUND + 1` commits of the ref as full SHAs,
+    # whether that was the whole history, and what the batches have since
+    # settled about commits past the bound. All three on one object because
+    # they share this one lifetime and this one key. None is a ref that did
+    # not resolve.
     #
     # Keyed by (repo, ref), never by ref alone. Keying by name looked sufficient
     # and was not: rules are also called directly, without going through
@@ -109,15 +133,19 @@ class RunScope:
     # have a branch called `main` - and the second one was then answered from
     # the first one's history. The suite caught it as a TRUE merge claim
     # reported false.
-    ancestors: dict[Any, Any] = field(default_factory=dict)
-    refs: dict[Any, Any] = field(default_factory=dict)
+    ancestors: dict[tuple[str, str], AncestryIndex | None] = field(
+        default_factory=dict)
+    # (repo, ref) -> the full commit id, or None for a ref that does not exist.
+    refs: dict[tuple[str, str], str | None] = field(default_factory=dict)
     # The LFS survey walks the whole tree, and BOTH the rule and the denominator
     # need it. Computing it twice doubled the cost of the most expensive rule
-    # here for no benefit.
-    lfs: dict[Any, Any] = field(default_factory=dict)
+    # here for no benefit. repo -> (tracked path, blob id) for every governed
+    # file.
+    lfs: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
     # Another document's headings, read at most once per call and held no longer
-    # than the repository state they were read from.
-    target_anchors: dict[Any, Any] = field(default_factory=dict)
+    # than the repository state they were read from. path -> its anchor set,
+    # or None for a file that could not be read.
+    target_anchors: dict[str, set[str] | None] = field(default_factory=dict)
     # The full commit id a SHA-shaped token resolves to here, or None, keyed
     # (repo, token). Two rules ask - `dead-sha` about the tokens it found and
     # `false-merge-claim` about the commit each claim names - and before this
@@ -133,31 +161,35 @@ class RunScope:
     # had once in the opposite direction. The VALUE is the full id rather than
     # a boolean since 2026-09-15, because the ancestry index answers by
     # full-SHA membership and the batch line already carried it.
-    shas: dict[Any, Any] = field(default_factory=dict)
+    shas: dict[tuple[str, str], str | None] = field(default_factory=dict)
     # The origin. Left uncached at first, then cached with no lifetime at all on
     # the reasoning that a remote cannot change while a process runs - true of
     # the CLI, false of a library caller and of the tests, and the failure it
     # produced was the silent kind. A repository whose origin was added between
     # two validate() calls kept answering None, so `dead-pinned-ref` examined
-    # nothing and reported clean.
-    own_remote: dict[Any, Any] = field(default_factory=dict)
+    # nothing and reported clean. repo -> the normalised origin, or None.
+    own_remote: dict[str, str | None] = field(default_factory=dict)
     # The prefix convention the repository puts before a version number, derived
     # from its tags. A tag created between two calls would otherwise keep
-    # resolving to nothing.
-    tag_prefixes: dict[Any, Any] = field(default_factory=dict)
+    # resolving to nothing. repo -> the distinct prefixes, sorted.
+    tag_prefixes: dict[str, list[str]] = field(default_factory=dict)
     # Which branches this repository integrates into. Consulted once per claim,
     # and each miss was a `for-each-ref` SUBPROCESS: measured on a document with
     # 200 release claims and 30 tags, 11.6 seconds before and 1.2 after.
-    integration: dict[Any, Any] = field(default_factory=dict)
+    integration: dict[str, list[str]] = field(default_factory=dict)
     # Branches and tags, from one ref scan per call. This is what actually
     # carries the tag-lifetime property now that `_tags()` reads it.
-    ref_table: dict[Any, Any] = field(default_factory=dict)
+    # repo -> (heads, tags), each mapping a short name to its commit.
+    ref_table: dict[str, tuple[dict[str, str], dict[str, str]]] = field(
+        default_factory=dict)
     # Line counts, so a sweep does not re-count the lines of a file once per
-    # document that cites it.
-    linecount: dict[Any, Any] = field(default_factory=dict)
+    # document that cites it. Keyed "repo\0relative path"; None is a file that
+    # could not be read.
+    linecount: dict[str, int | None] = field(default_factory=dict)
     # Declared version floors, so a sweep does not re-read every manifest once
-    # per document.
-    manifest_floors: dict[Any, Any] = field(default_factory=dict)
+    # per document. repo -> language -> (floor, manifest path, enforcement).
+    manifest_floors: dict[str, dict[str, tuple[str, str, str]]] = field(
+        default_factory=dict)
     # The commit-map a `git filter-repo` run left behind, parsed once, with the
     # reason it could not be read if it could not. Keyed by repository, read
     # only when a document already has a dead SHA to explain - a map carries one
@@ -166,8 +198,11 @@ class RunScope:
     # Run-scoped for the reason every field here is, and the reason bites
     # harder than usual: a rewrite is exactly the event that changes this
     # answer, so a map held past the call that read it would keep explaining
-    # dead SHAs with the previous rewrite's mapping.
-    rewrite_map: dict[Any, Any] = field(default_factory=dict)
+    # dead SHAs with the previous rewrite's mapping. repo -> (old id -> new id,
+    # the bucket index `_mapped_values` searches it through, and the reason the
+    # map could not be read, or None).
+    rewrite_map: dict[str, tuple[dict[str, str], dict[str, list[tuple[str, str]]],
+                                 str | None]] = field(default_factory=dict)
 
     # The eleven below are the ones no `global` statement ever named. All were
     # keyed on `str(repo)` and never invalidated, so a process that validated
@@ -175,26 +210,38 @@ class RunScope:
     # forever. Making them run-scoped is a behaviour change only for such a
     # process, which no shipped mode is: `--sweep` holds one scope for the whole
     # survey, and `--verify` reads a handful of documents from one checkout.
-    site: dict[Any, Any] = field(default_factory=dict)
-    renames: dict[Any, Any] = field(default_factory=dict)
-    numbered: dict[Any, Any] = field(default_factory=dict)
-    changesets: dict[Any, Any] = field(default_factory=dict)
-    basenames: dict[Any, Any] = field(default_factory=dict)
-    routes: dict[Any, Any] = field(default_factory=dict)
-    project_anchors: dict[Any, Any] = field(default_factory=dict)
-    partial_ns: dict[Any, Any] = field(default_factory=dict)
-    partial_anchors: dict[Any, Any] = field(default_factory=dict)
-    global_ns: dict[Any, Any] = field(default_factory=dict)
-    language_siblings: dict[Any, Any] = field(default_factory=dict)
+    #
+    # Each is keyed by `str(repo)` unless its annotation says otherwise, and
+    # the value is what the one function that fills it returns: the site
+    # scopes and the two anchor namespaces are sets of strings, the numbered
+    # docs trees and the routes are counts by name, the rename map is old path
+    # -> new path, the basename census is tree -> leaf -> count, and the three
+    # booleans are answers to "does this repository declare one".
+    site: dict[str, set[str]] = field(default_factory=dict)
+    renames: dict[str, dict[str, str]] = field(default_factory=dict)
+    numbered: dict[str, dict[str, int]] = field(default_factory=dict)
+    changesets: dict[str, bool] = field(default_factory=dict)
+    basenames: dict[str, dict[str, dict[str, int]]] = field(default_factory=dict)
+    routes: dict[str, dict[str, int]] = field(default_factory=dict)
+    project_anchors: dict[str, set[str]] = field(default_factory=dict)
+    partial_ns: dict[str, bool] = field(default_factory=dict)
+    partial_anchors: dict[str, set[str]] = field(default_factory=dict)
+    global_ns: dict[str, bool] = field(default_factory=dict)
+    # (repo, directory) -> how many language-coded siblings that directory has.
+    language_siblings: dict[tuple[str, str], int] = field(default_factory=dict)
 
     # Three more of the same kind, added after profiling a sweep: the tracked
     # file list, the site directories, and reference resolution. Each is a
     # question about the CHECKOUT rather than about any document, so a survey
     # asks it once instead of once per file. Scoped exactly as the eleven
     # above are, and read only while `dircache` says the checkout is static.
-    tracked_markdown: dict[Any, Any] = field(default_factory=dict)
-    site_dirs: dict[Any, Any] = field(default_factory=dict)
-    reference_resolutions: dict[Any, Any] = field(default_factory=dict)
+    tracked_markdown: dict[str, list[str]] = field(default_factory=dict)
+    site_dirs: dict[str, list[Path]] = field(default_factory=dict)
+    # (base directory, the link as written) -> (resolves, the actual spelling
+    # when it differs only in case), which is `sites.resolve_reference`'s
+    # answer verbatim.
+    reference_resolutions: dict[tuple[str, str], tuple[bool, str | None]] = field(
+        default_factory=dict)
 
     # Whether a `.rs` file beside a document pulls it into rustdoc, keyed by
     # the document's path. A question about the CHECKOUT again - it reads
@@ -202,8 +249,8 @@ class RunScope:
     # link in that document has the shape of a Rust path and resolved to no
     # file, which is rare. Same lifetime as the three above and for the same
     # reason: the source files it reads are part of the checkout `dircache`
-    # says is static.
-    rustdoc_includes: dict[Any, Any] = field(default_factory=dict)
+    # says is static. directory -> the documents its `.rs` files include.
+    rustdoc_includes: dict[str, set[str]] = field(default_factory=dict)
 
     # NOT a cache, and the one field a fresh scope is asked about rather than
     # read from. True only while a caller reads many documents from one static
@@ -223,6 +270,18 @@ class RunScope:
     # could, which is what makes the promise safe to suspend there and nowhere
     # else.
     stable: bool = False
+
+    def index_incomplete(self) -> bool:
+        """Did any ancestry index built in this scope reach its bound?
+
+        A fact OF the scope, which is why it is answered here and why the
+        note that reports it could not be printed for a year: the modes print
+        their repository notes after the scope has closed, and the index is
+        gone with it. A None in `ancestors` is a ref that did not resolve,
+        which is not an incomplete index.
+        """
+        return any(index is not None and not index.complete
+                   for index in self.ancestors.values())
 
 
 @dataclass(frozen=True)
@@ -277,7 +336,7 @@ class Context:
     module-level installs it feeds disappear.
     """
 
-    config: Any
+    config: Config
     run: RunScope
     doc: DocScope
     repo: Path
@@ -289,5 +348,9 @@ class Context:
     #
     # Still defaulting to None, and deliberately: a Context built without one
     # must fail where git is used rather than quietly spawn a real process
-    # against a caller's checkout.
-    git: Any = None
+    # against a caller's checkout. The declared type is what every reader may
+    # assume and what the fifteen `ctx.git.run` sites are checked against; the
+    # default violates it on purpose, and the suppression is the sentence
+    # above written where the checker reads. tests/test_scope.py pins the
+    # None.
+    git: Git = None  # type: ignore[assignment]
