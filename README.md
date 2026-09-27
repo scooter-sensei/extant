@@ -272,7 +272,7 @@ setup. Add to `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/scooter-sensei/extant
-    rev: v0.27.0
+    rev: v0.28.0
     hooks:
       - id: extant
 ```
@@ -716,7 +716,7 @@ If you have no step to add a flag to yet, there is an action:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: scooter-sensei/extant@v0.27.0
+      - uses: scooter-sensei/extant@v0.28.0
 ```
 
 **`fetch-depth: 0` is not optional.** `actions/checkout` defaults to a
@@ -780,7 +780,7 @@ action carries the same mode: `since` is the ref the range is measured from,
 and on a pull request the workflow already knows it:
 
 ```yaml
-      - uses: scooter-sensei/extant@v0.27.0
+      - uses: scooter-sensei/extant@v0.28.0
         with:
           mode: introduced-since
           since: ${{ github.event.pull_request.base.sha }}

@@ -23,7 +23,7 @@ from __future__ import annotations
 # bind a name the first arm already bound - a redefinition, as the checker
 # says, and the one this file exists to make. `tools.extant` itself is found
 # nowhere but an installed repository; `[tool.mypy]` in pyproject.toml says so.
-_SHIM_VERSION = "0.27.0"
+_SHIM_VERSION = "0.28.0"
 try:
     from extant import __version__ as _PACKAGE_VERSION
 except ImportError:                                  # pragma: no cover

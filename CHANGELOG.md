@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.28.0 (2026-09-27)
 
-Above 0.27.0, unreleased: the seven tranches of the internals review that
-followed the release - the diff-scoped gate replayed against its own bar, the
-debts the shipped items carried, the five probes Phase 45 named, the
+The seven tranches of the internals review that followed 0.27.0 - the
+diff-scoped gate replayed against its own bar, the debts the shipped items
+carried, the five probes Phase 45 named, the
 structural three, the type checker, the four measurements that change
 what the skill tells an author, the first of the two shapes those
 measurements found, and the second of them - CommonMark's other code block,
