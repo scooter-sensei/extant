@@ -250,9 +250,12 @@ BREAKAGES = (
         why="a memo whose key is incomplete, so the second document in one "
             "process is answered from the first document's stripped text",
         # The hit condition grew a format comparison on 2026-09-16 and the
-        # anchor followed it; the breakage is still an incomplete key.
+        # document's path beside it on 2026-09-23 (`.mdx` has no indented
+        # code block, so the suffix is an input), and the anchor followed it
+        # both times; the breakage is still an incomplete key.
         edits=(("extant/text.py",
-                "    if cached is not None and cached[0] is text and cached[1] == doc.doc_format:",
+                "    if (cached is not None and cached[0] is text and cached[1] == doc.doc_format\n"
+                "            and cached[2] == doc.doc_path):",
                 "    if cached is not None:"),),
     ),
 

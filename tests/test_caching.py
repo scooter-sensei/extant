@@ -790,7 +790,11 @@ def test_a_changed_path_pointer_pattern_is_not_answered_from_the_previous_one(
     # the rst reading - so BOTH answers came out at 1 whatever this rule's
     # key was. The blanking memo carries the format since 2026-09-16, and
     # the clears are gone: this assertion now discriminates on its own.
-    both = "Example::\n\n    see `docs/plan.md` for it\n"
+    # A doctest line, for the reason the link test below gives: the
+    # four-space-indented line this used until 2026-09-22 is code in both
+    # readings now, and only a shape rst blanks and markdown does not can
+    # still tell one reading's answer from the other's.
+    both = ">>> see `docs/plan.md` for it\n"
     hc.set_document(doc_format="markdown")
     as_markdown = rule_path_pointer.examined(hc.context(repo), both)
     hc.set_document(doc_format="rst")
@@ -950,7 +954,11 @@ def test_the_link_scan_is_not_answered_across_a_format_change() -> None:
     from extant import links
     from extant.scope import DocScope
 
-    both = "Example::\n\n    [the plan](docs/plan.md)\n"
+    # A DOCTEST line rather than an indented one, which is code in both
+    # readings since 2026-09-22: reStructuredText blanks `>>> ` and markdown
+    # does not, so one text object still yields a different link set under
+    # each format, which is the property this pins.
+    both = ">>> [the plan](docs/plan.md)\n"
     as_markdown = links.link_sites(DocScope(doc_format="markdown"), both)
     as_rst = links.link_sites(DocScope(doc_format="rst"), both)
     assert ([t for _n, _r, t, _h in as_markdown], as_rst) == (["docs/plan.md"], []), (
@@ -1010,11 +1018,16 @@ def test_the_blanking_memo_is_not_answered_across_a_format_change() -> None:
     from extant import text as text_mod
     from extant.scope import DocScope
 
-    both = "Example::\n\n    `abc1234` is code in one reading and prose in the other\n"
+    # A FENCE, which markdown blanks and reStructuredText does not. The
+    # four-space-indented line this compared on until 2026-09-22 is code in
+    # BOTH readings now, and a fixture that cannot tell the two apart cannot
+    # catch a memo answering across them - which is the whole property here.
+    both = ("A fence:\n\n```\n"
+            "`abc1234` is code in one reading and prose in the other\n```\n")
     as_markdown = text_mod.prose(DocScope(doc_format="markdown"), both)
     as_rst = text_mod.prose(DocScope(doc_format="rst"), both)
-    assert "abc1234" in as_markdown, "markdown keeps the indented line as prose"
-    assert "abc1234" not in as_rst, (
+    assert "abc1234" not in as_markdown, "markdown blanks a fenced line"
+    assert "abc1234" in as_rst, (
         "the same text object blanked as markdown was handed back for the rst "
         "reading: the blanking memo's key does not carry the format")
     assert len(as_rst) == len(both), "the blanking stopped preserving offsets"

@@ -2,17 +2,21 @@
 
 ## Unreleased
 
-Above 0.27.0, unreleased: the six tranches of the internals review that
+Above 0.27.0, unreleased: the seven tranches of the internals review that
 followed the release - the diff-scoped gate replayed against its own bar, the
 debts the shipped items carried, the five probes Phase 45 named, the
 structural three, the type checker, the four measurements that change
-what the skill tells an author, and the first of the two shapes those
-measurements found. No rule added or removed, thirteen as before; no mode
-added; no default or exit code moved; on the 152 visible corpus clones the
-findings on the word `ed25519`, read as a commit, disappeared from seven of
-them, the findings on a SHA that is the link text of another repository's
-commit URL disappeared from fifteen, and nothing else moved; 139 outputs
-gained the one line that says the checkout is partial. The record is in
+what the skill tells an author, the first of the two shapes those
+measurements found, and the second of them - CommonMark's other code block,
+measured against a reference parser before a line of it was written, and the
+fence reading corrected beside it. No rule added or removed, thirteen as
+before; no mode added; no default or exit code moved; on the 152 visible
+corpus clones the findings on the word `ed25519`, read as a commit,
+disappeared from seven of them, the findings on a SHA that is the link text
+of another repository's commit URL disappeared from fifteen, the findings
+inside code blocks the tool had read as prose moved in twenty-eight, and
+nothing else moved; 139 outputs gained the one line that says the checkout
+is partial. The record is in
 `plugin/skills/extant/references/design.md` under "The diff-scoped gate,
 replayed; and the debts the shipped items carried", "The probe tranche: one
 batch, one scope, one list, and a matcher read against git", "The
@@ -20,8 +24,9 @@ structural tranche: one Config, and two shapes the numbers kept", "The
 type checker: four measured, the floor none can see, and a gate on the one
 that enforces the most", "The four probes: a split only the network can
 make, a rebase that reaches nothing, a rescue with no population, and the
-gate's missing listing" and "The bare commit-link text: whose commit it is,
-and a number re-derived".
+gate's missing listing", "The bare commit-link text: whose commit it is,
+and a number re-derived" and "The other code block: four spaces, and the
+renderers that disagree about them".
 
 **The diff-scoped gate was replayed, and it does not replace the default
 install policy.** `--introduced-since` pins no path, and the review that
@@ -267,6 +272,40 @@ was never persisted and read its own spelling literally; the re-derivation
 is a script now, and the number in the record is corrected in the design
 rationale under "The bare commit-link text: whose commit it is, and a
 number re-derived".
+
+**A four-space-indented block is code, unless the renderer says otherwise.**
+CommonMark has two kinds of code block and this tool only ever blanked one, so
+every claim inside a transcript, a generated HTTP example or a markdown syntax
+sample was checked as prose. It blanks both now - measured first against
+markdown-it-py's `commonmark` preset over 64,640 documents of the corpus,
+because the naive version is worse than the defect: three constructs indent a
+body by four spaces and render it as TEXT, and blanking them silences real
+claims. mkdocs-material's admonitions and content tabs, MDX and JSX elements,
+and definition lists are therefore exempt, and `.mdx` has no indented code
+block at all. Hand-read on the corpus: the exemptions keep all 31 findings
+that sit in rendered prose - bazel's versioned command-line reference alone
+holds 21,384 lines of them - and the rule still silences the 70 that sit in
+genuine code, moby's vagrant walkthrough and its generated API documents
+among them.
+
+**A fence ends where CommonMark says it ends.** The stripper matched any run
+of three backticks or tildes and toggled, so a four-backtick block quoting a
+three-backtick one went out of phase and the rest of it was read as prose -
+every agent transcript of a session that shows code is that shape - and a
+fence inside a block quote, `> ```', was never seen at all. A fence now closes
+only on the same character, at least as long, at the same quote depth, with no
+info string, and less than four columns deeper than its opener; it ends when
+the block quote it opened in ends; and three backticks with a backtick later
+on the line are inline code, not a fence. Measured: 1,498 documents held a
+line inside a fence that the tool read as prose, and 41 findings sat on them.
+Over every line the stripper empties that a reference parser calls prose,
+98,579 are read again and 1,474 that the toggle read are now silenced - not
+one recorded finding among them, in eleven outputs of the 152 corpus clones.
+They are recorded as a known exposure: this stripper has no container model
+at the fence level, so a fence inside an HTML comment or a JSX element can
+still put it out of phase, and the fix is to move fences into the module that
+has one. On the corpus the two halves together remove 2,338 findings, every
+one in code by the reference parser, and restore 423, every one in prose.
 
 ## 0.27.0 (2026-09-21)
 

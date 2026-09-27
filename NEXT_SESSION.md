@@ -6,6 +6,85 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 53 - The other code block, and fences read the way CommonMark closes them (unreleased, 2026-09-27)
+
+**Status.** Suite is 1,377 tests across 74 files: 1,374 passing and 3
+skipped - twenty-two pairs in the new `tests/test_indented_code.py`, nine
+fence tests in `tests/test_code_stripping.py`, and four fixtures in the
+caching and added-rules tests moved onto shapes that still differ by
+format now that four spaces is code in both readings. Thirteen rules; no
+mode added; no default or exit code moved; no setting added. The tool
+remained released as 0.27.0, and this work sits above that tag with
+Phases 47 to 52 in pull request #16. `python -m mypy`: no issues in 42
+files, the new module the forty-second. Mutation campaign is 298 anchors:
+eight written here and one retargeted (the blanking memo's key), all nine
+applied to a copy of this tree and watched turning the suite red - 9 of 9
+killed in fifty-two minutes with the baseline, none survived, none
+unapplied. The 152 visible corpus clones were swept before and after
+against a prediction computed from the survey's own validator: 28
+predicted to differ, 28 differ, the predicted set exactly, none missing and
+none unpredicted, and the per-clone finding totals reproduce the
+prediction's. The rest of the pre-push list ran against a working-tree
+extract: smoke green with 45 clean of 47 and the two expected flags;
+scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824
+over 35 repositories, 0 violations; `--self-check` 22 of 22; `--verify`
+clean; `--selftest` 7 fired and 0 silent.
+
+**What it is.** The second of the two shapes Phase 51 measured and did not
+build. CommonMark has two kinds of code block and this tool blanked one;
+a claim inside a four-space-indented transcript, a generated HTTP example
+or a markdown syntax sample was checked as prose. It was measured against
+a reference parser - markdown-it-py's `commonmark` preset, offline, an
+instrument that cannot ship - over 64,640 documents of the corpus before a
+line was written, and the faithful rule was refused on what that showed:
+mkdocs-material's admonitions and content tabs, MDX and JSX elements, and
+definition lists all indent a body by four spaces and render it as text,
+and blanking them silenced 31 findings read by hand as real prose -
+bazel's versioned command-line reference alone writes 21,384 lines that
+way. The rule that shipped is CommonMark minus those three, with the
+container model kept, in `plugin/skills/extant/payload/extant/blocks.py`;
+`.mdx` has no indented code block at all. It was then measured against the
+reference line by line, and the lines it called code that the reference
+did not went from 109,293 to 12 over five causes no unit test could see -
+the 12 are whitespace in one fixture. Beside it, the fence reading: the
+stripper toggled on any run of three backticks or tildes, so a
+four-backtick block quoting a three-backtick one went out of phase and a
+fence inside a block quote was never seen. A fence now closes on the same
+character, at least as long, at the same quote depth, with no info string
+and less than four columns deeper than its opener; it ends with the quote
+it opened in; and a backtick run followed by a backtick on the same line
+is inline code. On the corpus the two halves together remove 2,338
+findings and restore 423. Every one of the 2,338 sits in code by the
+reference parser - moby's generated API documents and vagrant walkthrough
+1,140 in each of its two tiers - and every one of the 423 in prose, aider's
+posts 204 in each tier among them. The full record is the section "The
+other code block: four spaces, and the renderers that disagree about them"
+in the design rationale under the skill's references.
+
+**What it silences that it should not, with its number.** The fence half
+has no container model, so it cannot tell a fence inside an HTML comment, a
+JSX element or a list item from one at the margin, and every condition
+added to it moved its errors rather than removing them. Measured old
+against new over every line the stripper empties that the reference calls
+prose: 98,579 read again, 76,934 silenced before and after, and 1,474 that
+the old toggle read and this one silences, in eleven outputs - crewAI 740,
+aider 206 in each tier, mem0 189, haystack 88, the rest under twenty. Not
+one recorded finding sits on them. The user took it on those numbers on
+2026-09-27 - 67 lines repaired for each one regressed, and nothing a
+suppression firing wrongly would delete - on the condition, met above,
+that no finding the gate moved sits in reference prose. What stays latent
+is stated: a claim written into one of those lines later is silenced, and
+at most ten examined link sites, in PX4 and AdguardTeam, can sit on them.
+
+**What comes next.** The unified scanner: fences moved into the module that
+has the container model, gated by the old-against-new measurement until the
+regressed column is zero or each line of it is explained. The nine fence
+tests are its specification. Still owed from this one: a fuzzer property
+for the indented block - the harnesses generate no four-space shape, so
+nothing there breaks and nothing there watches it - and the 2,692 lines
+the reference calls code that this module leaves as prose, dominated by a
+list marker followed by five or more spaces, recorded rather than built.
+
 ## Phase 52 - Whose commit a linked SHA is, in either spelling (unreleased, 2026-09-22)
 
 **Status.** Suite is 1,346 tests across 73 files: 1,343 passing and 3

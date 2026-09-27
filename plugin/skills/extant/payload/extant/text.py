@@ -61,6 +61,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from extant.blocks import indented_code_lines
 from extant.refs import tracked_markdown
 from extant.scope import Context, DocScope
 
@@ -99,7 +100,7 @@ from extant.scope import Context, DocScope
 __all__ = [
     "LINE_BREAK", "ORDER_PREFIX",
     "_BREAKS", "_BREAKS_KEPT", "_break_starts",
-    "_FENCE", "_INLINE_CODE",
+    "_FENCE", "_INLINE_CODE", "_QUOTE_PREFIX", "_closes", "_columns", "_opens", "_quote_depth",
     "_LANGUAGE_DIR",
     "_line_and_terminator",
     "_ROUTE_DEPTH", "_RST_DIRECTIVE", "_RST_DOCTEST", "_RST_INLINE",
@@ -115,7 +116,35 @@ __all__ = [
 ]
 
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
-_FENCE = re.compile(r"^\s*(```|~~~)")
+# A fence, with everything needed to tell its CLOSER from another opener:
+# the block-quote markers in front of it, the character, how many of them,
+# and whatever follows on the line.
+#
+# The old pattern was `^\s*(```|~~~)` and the loop TOGGLED on every match,
+# which gets three things wrong and each one was measured on 2026-09-22
+# against markdown-it-py's `commonmark` preset over the 152 visible corpus
+# clones - 1,498 documents hold a line the reference calls fence content and
+# this stripper did not blank, with 41 findings on those lines:
+#
+# * a longer fence is closed by a shorter one, so a four-backtick block
+#   quoting a three-backtick one goes out of phase and the rest of it is read
+#   as prose. Every agent transcript of a session that itself shows code is
+#   this shape - 16 of the 41 are aider's posts and superpowers' plans;
+# * a tilde block is closed by backticks and the other way about;
+# * a fence inside a block quote was never seen at all, because `\s*` does
+#   not match `> `. fxamacker/cbor's README quotes a hex dump that way and
+#   both moby and kubernetes vendor it.
+#
+# What is deliberately NOT implemented is CommonMark's rule that an opening
+# fence may be indented at most three spaces. This stripper has no container
+# model, so it cannot tell four spaces of list indentation from four spaces
+# of code, and applying the rule absolutely would stop it blanking every
+# fence written under a list item - claims read out of code, which is the
+# direction that matters most.
+_FENCE = re.compile(r"^(?P<quote>(?:\s*>)*)(?P<indent>\s*)(?P<run>(?P<char>`|~)(?P=char){2,})(?P<rest>.*)$")
+# The same block-quote prefix on ANY line, so a fence opened inside a quote
+# can tell when the quote has ended - see `_quote_depth`.
+_QUOTE_PREFIX = re.compile(r"^(?:\s*>)*")
 
 
 # The three per-document values - the directory a relative link resolves
@@ -185,7 +214,12 @@ def strip_code(doc: DocScope, text: str) -> str:
 # different object simply misses. No hashing of a 5 MB string, and at most two
 # entries retained. The format sits in the entry beside the text, so the one
 # other input the blanking reads is part of the key.
-_STRIPPED: dict[bool, tuple[str, str, str]] = {}
+# The KEY carries the document's PATH as well since 2026-09-22: `.mdx` has no
+# indented code block, so two documents with identical text and different
+# suffixes blank differently. A key missing one of its inputs is this memo's
+# one recorded defect - the format was added to it on 2026-09-16 for exactly
+# that reason - and the third input arrived with the lesson already written.
+_STRIPPED: dict[bool, tuple[str, str, str | None, str]] = {}
 
 
 # A bare carriage return, rewritten to a newline WITHOUT changing the length.
@@ -224,10 +258,11 @@ def _blank(doc: DocScope, text: str, *, inline: bool) -> str:
     # from a silent zero to `ValueError: substring not found`.
     text = lone_cr_to_lf(text)
     cached = _STRIPPED.get(inline)
-    if cached is not None and cached[0] is text and cached[1] == doc.doc_format:
-        return cached[2]
+    if (cached is not None and cached[0] is text and cached[1] == doc.doc_format
+            and cached[2] == doc.doc_path):
+        return cached[3]
     result = _blank_uncached(doc, text, inline=inline)
-    _STRIPPED[inline] = (text, doc.doc_format, result)
+    _STRIPPED[inline] = (text, doc.doc_format, doc.doc_path, result)
     return result
 
 
@@ -555,14 +590,44 @@ def _blank_uncached(doc: DocScope, text: str, *, inline: bool) -> str:
     if doc.doc_format == "rst":
         return _blank_rst(text, inline=inline)
     out: list[str] = []
-    inside = False
-    for raw in text.splitlines(keepends=True):
+    # CommonMark's OTHER code block, decided before the loop because a fence
+    # inside one is content rather than a fence - `extant/blocks.py` carries
+    # the measurement that says which indented runs count and which three
+    # constructs are exempt. `.mdx` has none by construction, and the suffix
+    # is the document's own: a caller that named no path gets today's
+    # behaviour, since nothing then says whether the document is MDX.
+    indented = indented_code_lines(
+        text, mdx=(doc.doc_path or "").lower().endswith(".mdx"))
+    # The fence this loop is inside, as (character, length, quote depth,
+    # indentation), or None. A tuple rather than a boolean since 2026-09-22:
+    # what closes a fence is a run of the SAME character, at least as long,
+    # under the same block-quote markers and less than four columns deeper
+    # than the opener - see `_FENCE` and `_closes` for the ways a toggle got
+    # each of those wrong and the corpus count behind each.
+    opened: tuple[str, int, int, int] | None = None
+    for number, raw in enumerate(text.splitlines(keepends=True), start=1):
         line, end = _line_and_terminator(raw)
-        if _FENCE.match(line):
-            inside = not inside
+        fence = _FENCE.match(line)
+        if opened is not None and opened[2] and _quote_depth(line) < opened[2]:
+            # The block quote this fence opened inside has ENDED, and a
+            # container's end closes every block inside it. A pasted message
+            # cut off mid-block is the common case: aider's chat-history
+            # fixture lost 129 findings in prose after one, found by the
+            # identity gate on 2026-09-26. This line is read as it would be
+            # anywhere else.
+            opened = None
+        if opened is not None:
+            out.append(" " * len(line) + end)
+            if fence is not None and _closes(fence, opened):
+                opened = None
+            continue
+        if number in indented:
             out.append(" " * len(line) + end)
             continue
-        if inside:
+        if fence is not None and _opens(fence):
+            opened = (fence.group("char"), len(fence.group("run")),
+                      fence.group("quote").count(">"),
+                      _columns(fence.group("indent")))
             out.append(" " * len(line) + end)
         elif inline and "`" in line:
             out.append(_INLINE_CODE.sub(
@@ -570,6 +635,52 @@ def _blank_uncached(doc: DocScope, text: str, *, inline: bool) -> str:
         else:
             out.append(line + end)
     return "".join(out)
+
+
+def _quote_depth(line: str) -> int:
+    """How many block-quote markers open this line, counted the way `_FENCE`
+    counts them for the fence that opened, so the two compare like for like."""
+    found = _QUOTE_PREFIX.match(line)
+    return found.group(0).count(">") if found else 0
+
+
+def _columns(indent: str) -> int:
+    """How wide a run of indentation is, a tab reaching the next stop of four."""
+    return len(indent.expandtabs(4))
+
+
+def _opens(fence: "re.Match[str]") -> bool:
+    """Is this a fence at all, rather than a line that starts like one?
+
+    CommonMark: a backtick fence's info string may not contain a backtick. A
+    line that opens with three and closes them later is an inline code span -
+    kubernetes' changelogs write `` ```$ kubectl get secret ...``` `` that way -
+    and reading it as a fence blanked every entry below it until a closer
+    happened along. Measured on 2026-09-26 among the 1,042 prose lines the
+    first version of this stripper silenced that the old toggle had read.
+    """
+    return not (fence.group("char") == "`" and "`" in fence.group("rest"))
+
+
+def _closes(fence: "re.Match[str]", opened: tuple[str, int, int, int]) -> bool:
+    """Does this fence line end the block `opened` started?
+
+    Five conditions. The same character, a run at least as long, and the same
+    block-quote depth were measured when the toggle was replaced. A closing
+    fence carries no info string, so ```` ```python ```` inside a fenced block
+    is content. And a closer may sit at most three columns deeper than its
+    opener - four or more is the block's CONTENT, a fence shown inside a
+    fence. Closing on that put the stripper out of phase and the real closer
+    then opened a fence that ran to the end of the document: mini-swe-agent's
+    admonition example and superpowers' reviewer template, found by the
+    old-against-new measurement on 2026-09-26.
+    """
+    char, length, quote, indent = opened
+    return (fence.group("char") == char
+            and len(fence.group("run")) >= length
+            and fence.group("quote").count(">") == quote
+            and not fence.group("rest").strip()
+            and _columns(fence.group("indent")) < indent + 4)
 
 
 # reStructuredText marks code three ways, and none of them is a fence.

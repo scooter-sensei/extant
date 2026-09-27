@@ -3865,6 +3865,194 @@ same comparison would settle it; it is a wider verdict change - every own
 commit URL in every document becomes a site - and gets its own count
 before it is a change.
 
+## The other code block: four spaces, and the renderers that disagree about them
+
+CommonMark has two kinds of code block and this project only ever recognised
+one. A fence is unmistakable; four spaces is not, because four spaces means
+something different inside a list item, inside a block quote, and inside three
+constructs CommonMark has never heard of and most documentation is written
+with. Phase 51 counted the findings sitting in an indented block and REFUSED to
+act on the count, because a count cannot answer the question that decides the
+change: what would it BLANK. This is that measurement, and then the build.
+
+**The oracle, since a pattern cannot be its own judge.** markdown-it-py 4.0.0's
+`commonmark` preset is CommonMark 0.31.2, the specification cmark-gfm follows
+for indented code. It cannot ship - a third-party runtime dependency is
+refused, and the package has none - so it was used the way a corpus is used:
+over the 152 visible clones, 81,429 markdown documents, 64,640 of them holding
+a fence or an indented line, with the apparatus in `m16_indented.py`,
+`m16_variants.py`, `m16_agreement.py` and `m16_predict.py` in the
+extant-hardening checkout and the rows under `D:/repo/out-indented`.
+
+**Three designs, priced against each other on the same corpus.** A, the
+FAITHFUL rule: blank every block the reference calls indented code. B, the
+same minus the constructs whose renderers redefine four spaces. C, a
+whitelist: blank only where nothing at all is open above. Counted in lines
+carrying findings:
+
+| | lines silenced | ordinary stratum | hand-read as code | hand-read as PROSE |
+|:--|--:|--:|--:|--:|
+| A faithful | 23,540 | 101 | 70 | **31** |
+| B minus the extensions | 2,128 | 70 | 70 | **0** |
+| C top level only | 2,128 | 70 | 70 | **0** |
+
+**A is refused, and the 31 are why.** Every ordinary-stratum finding was read
+by hand, document by document. The 70 that are genuine code: moby's
+`vagrant@net-1` transcript (28), OWASP's `docker pull` transcript (6),
+openfoodfacts' notebook output table (6), go's markdown-syntax examples (2),
+restic's `restic init` transcript (2), vscode's fixture captioned
+`// Indented code` (1), qmk (1), and moby's generated API documents' HTTP
+request and response examples (2,202 outside the ordinary stratum). The 31
+that are prose: mkdocs-material's admonitions and content tabs, whose body is
+the widget's text (uv 6, ruff 1, dosbox-staging 4); MDX and JSX elements,
+whose children are indented by convention (bun 21, goose 2); and definition
+lists, `:   text`, whose body is the definition - bazel's versioned
+command-line reference writes 21,384 lines of them, every one holding anchor
+links its site renders, and the faithful rule would have silenced the lot.
+That last number is worth stating plainly because the previous record counted
+it as the prize.
+
+**B and C select the same findings, and B is what shipped.** The population
+where they differ - an indented block inside an ordinary list item or block
+quote, holding a finding - is EMPTY on this corpus. So the choice was not
+about yield but about which principle to state, and B says the true one:
+CommonMark, minus the constructs whose renderers redefine indentation. C would
+miss a genuine command under a list bullet the day one appears; B blanks it,
+because it keeps the container model. The residual risk B carries is the next
+extension nobody has met, and it is stated here so that adding one is a
+decision with a number rather than a patch.
+
+**What the corpus corrected in the implementation, five times.** The state
+machine in `extant/blocks.py` is hand-written stdlib, so it was measured
+against the reference line by line over all 64,640 documents, asking the one
+question that decides safety: how many lines do WE call code that the
+reference does not - prose blanked on our own authority. It began at 109,293
+and ended at 12:
+
+1. an HTML block ends at a BLANK LINE, not at a dedent - a card grid's
+   `</div>` dedented past its opener, released the suppression, and was read
+   as the start of a block (109,293 lines; SWE-agent's index alone thirty);
+2. the measurement itself counted fence content as disagreement, which
+   measured the instrument rather than the module (92,867);
+3. an HTML comment is a block that ends at `-->`, and its body is indented as
+   often as not - a pull-request template is the common case (1,216);
+4. a paragraph inside a list item may wrap onto a line indented LESS than the
+   item's content, and CommonMark keeps the item open; treating that as a
+   dedent closed the item and the bullets below it measured from the margin
+   (1,058, kubernetes' `staging/README.md` and moby's API documents);
+5. `<pre>`, `<script>`, `<style>` and `<textarea>` run to their OWN closing
+   tag, through blank lines and through lines at the margin - bazel's
+   output-directory tree has both, so every other state had been released
+   (994).
+
+The 12 that remain are whitespace-only lines in one test fixture, counted
+twice because that clone sits in two tiers; blanking a line that holds only
+spaces changes no character and no finding. NONE of the five was visible to
+the twenty-two unit tests; each was visible only against real documents, which
+is the argument for the corpus and the reason this is a module with a
+measurement rather than a pattern with an opinion.
+
+**What is left unread in the other direction, with its number.** 2,692 lines
+the reference calls code and this module leaves as prose, outside the four
+exclusions - a false positive left standing rather than prose silenced, which
+is the safe direction. Sampled across eight clones: 314 hold content and 59
+are blank, and the content is dominated by one shape, a list marker followed
+by five or more spaces, which CommonMark turns into an indented code block
+INSIDE the item. Recorded rather than built, because closing it means a line
+that is both a list item and a code block, and the gain is a false positive
+this tool already lives with.
+
+**The fence toggle was wrong about fences, and that is fixed beside it.**
+`_FENCE` matched any run of three or more backticks or tildes and TOGGLED.
+CommonMark closes a fence only with the same character, at least as long as
+the opener; a closing fence carries no info string; and a fence inside a block
+quote is still a fence. Measured against the same oracle: 1,498 documents hold
+a line the reference calls fence content that the toggle did not blank, and 41
+findings sit on those lines - 38 in ordinary documents. Two shapes: a
+four-backtick block quoting a three-backtick one, which is how every agent
+transcript writes a fenced example inside a fenced example (aider's posts and
+superpowers' plans, 16 of the 41), and `> ```' - which `^\s*` never matched at
+all, so fxamacker/cbor's quoted hex dump was read as prose in both moby's and
+kubernetes' vendored copies. What is deliberately NOT implemented is
+CommonMark's rule that an opening fence may be indented at most three spaces:
+this stripper has no container model at the fence level, so it cannot tell
+four spaces of list indentation from four of code, and applying the rule
+absolutely would stop it blanking every fence written under a list item -
+claims read out of code, the direction that matters most.
+
+**The first fence fix was not the last, and the gate is what said so.** Its
+identity run (2026-09-23) moved 30 outputs, and in one of them the direction
+was wrong: aider lost 139 findings, 129 of them in reference PROSE, because a
+fence opened inside a block quote stayed open after the quote ended - a pasted
+message cut off mid-block. So the measurement changed instrument. Instead of
+counting findings, it compared the old stripper with the new over every line
+`prose()` empties that the reference calls prose, in three columns: prose the
+old toggle silenced and the new code reads (repaired), prose both silence
+(pre-existing), and prose the new code silences that the old one read
+(regressed). Three more conditions came out of that column, each with the
+document that showed it: a fence ends when the block quote it opened in ends
+(aider's chat-history fixture); a closer may sit at most three columns deeper
+than its opener, since four or more is a fence SHOWN inside a fence
+(mini-swe-agent's admonition example, superpowers' reviewer template); and a
+backtick run with a backtick later on the line is an inline span, not a fence
+(kubernetes' changelogs). Five conditions in all, and the columns after the
+last of them:
+
+| | prose lines |
+|:--|--:|
+| repaired - silenced by the toggle, read now | 98,579 |
+| pre-existing - silenced before and after | 76,934 |
+| regressed - read by the toggle, silenced now | 1,474 |
+| recorded findings on the regressed lines | **0** |
+
+**What is shipped with it, and why it is not a suppression firing wrongly.**
+Every rule added to the fence loop moved its errors rather than removing them
+- the regressed column went from 1,042 to 1,474 while the repaired one grew -
+and the diagnosis is structural: the loop has no container model, so it
+cannot tell a fence inside an HTML comment, a JSX element, a list item or a
+`<pre>` from one at the margin (deno's regressed document is a test fixture
+about exactly that, a fence inside an HTML comment). The indented half
+converged because `extant/blocks.py` HAS that model. The house rule weighs a
+suppression that fires wrongly above a false positive because it deletes a
+real FINDING silently; measured, it deletes none here. The 1,474 regressed
+lines sit in eleven outputs - crewAI 740, aider 206 in each of its two tiers,
+mem0 189, haystack 88, AdguardTeam 19, bun 15, qmk 4, deno 3, PX4 3, goose 1
+- and not one finding of the recorded sweep sits on them. What is left against
+them is latent and stated: a claim written into one of those lines later
+would be silenced, and denominators can move where they held a passing
+claim. The gate bounds that last one. crewAI, mem0 and haystack, three
+quarters of the regressed lines, move no output at all, so their regressed
+lines hold no examined site; the only sites that could sit on regressed lines
+are PX4's 8 and AdguardTeam's 2 link sites, in the two clones whose
+denominators fell and which also regressed. The unified scanner - fences
+moved into `extant/blocks.py` under the same container model, gated by the
+old-against-new measurement until the regressed column is zero or explained -
+is the next tranche, and the reason this one does not wait for it is 67 lines
+repaired for every line regressed.
+
+**The gate, held to a number rather than a bound.** The first run's
+prediction (87 outputs) was an upper bound - a readable-line test,
+deliberately wide - and 30 moved. This time the prediction ran the survey's
+own per-document validator over every document holding a fence or an
+indented line, once with the old payload and once with the new, and counted
+an output as moving when its findings or its summed denominators did: 28
+predicted, with 2,338 findings lost and 423 gained. The gate: 28 of 152
+differ, the predicted set exactly, none missing and none unpredicted, and the
+per-clone totals reproduce the prediction's figures. Every lost finding was
+then checked against the reference: all 2,338 sit in reference CODE - moby's
+generated API documents and vagrant walkthrough 1,140 in each of its two
+tiers, the other 58 in eleven outputs, superpowers' plans, aider's posts and
+the transcripts read by hand above among them - and all 423 gained sit in
+reference PROSE: aider 204 in each tier (the old toggle's desync had silenced
+them), bazel 6, zed 5, uv 4. The apparatus is `m16_prose_delta.py`,
+`m16_predict_sites.py` and `m16_composition.py` beside the others.
+
+**The memo key took the lesson it had already learned.** `_STRIPPED` is keyed
+on the text's identity, and carried the document format since 2026-09-16
+because a key missing an input is answerable from the wrong reading. The
+suffix is now an input too - `.mdx` has no indented code block - so the key
+carries the document's path beside its format.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

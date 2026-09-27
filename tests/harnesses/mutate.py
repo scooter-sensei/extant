@@ -55,6 +55,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     commits = collect.parent / "extant/commits.py"
     rules = collect.parent / "extant/rules"
     text = collect.parent / "extant/text.py"
+    # CommonMark's other code block left text.py for its own module on
+    # 2026-09-23, when the container model and the three generator
+    # exclusions arrived: a line state machine with four suppressions is
+    # not a pattern, and text.py had 132 lines left.
+    blocks = collect.parent / "extant/blocks.py"
     # The link scanner left text.py for links.py on 2026-09-13, when the
     # CommonMark title and bracket arms took text.py to nine lines under
     # its ceiling. Eighteen anchors below moved with it, path only: the
@@ -696,6 +701,55 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("sarif over-encodes a path that is already a uri", report,
          '    segments = [quote(segment, safe=_PCHAR_SAFE) for segment in path.split("/")]',
          '    segments = [quote(segment, safe="") for segment in path.split("/")]'),
+
+        # --- code blocks -----------------------------------------------------
+        # The indented block goes unread again, so every claim inside a
+        # transcript is checked: 2,573 findings on the recorded corpus sweep.
+        ("indented code is read as prose again", blocks,
+         "    if mdx:\n        return frozenset()",
+         "    if True:\n        return frozenset()"),
+        # The container model forgotten, so four spaces under a list item -
+        # a continuation paragraph, which is PROSE - is blanked as code.
+        ("indentation is measured from the margin, not from the container", blocks,
+         "        margin = columns[-1] if columns else 0",
+         "        margin = 0"),
+        # The three constructs whose renderers redefine four spaces: without
+        # the exclusion, 31 hand-read findings in mkdocs admonitions, MDX
+        # elements and definition lists go silent.
+        ("a generator's indented body reads as code again", blocks,
+         "        if _ADMONITION.match(rest) or _DEFINITION.match(rest) or _HTML_OPEN.match(rest):",
+         "        if False:"),
+        # A fence closed by any run of three, which is the toggle this
+        # replaced: a four-backtick block quoting a three-backtick one goes
+        # out of phase and its contents are read as prose.
+        ("a shorter fence closes a longer one again", text,
+         "    return (fence.group(\"char\") == char\n"
+         "            and len(fence.group(\"run\")) >= length",
+         "    return (fence.group(\"char\") == char\n"
+         "            and len(fence.group(\"run\")) >= 0"),
+        # A fence opened inside a block quote left open after the quote
+        # ends: aider's chat-history fixture lost 129 findings in prose to
+        # it on the first identity run of 2026-09-26.
+        ("a fence outlives the block quote it opened in", text,
+         "        if opened is not None and opened[2] and _quote_depth(line) < opened[2]:",
+         "        if False:"),
+        # A closer with an info string accepted, so ```` ```python ```` shown
+        # inside a fenced block ends it and the rest is read as prose.
+        ("a fence line with an info string closes a fence again", text,
+         "            and not fence.group(\"rest\").strip()\n",
+         "            and True\n"),
+        # A closer four or more columns deeper than its opener accepted: a
+        # fence shown inside a fence ends it, and the real closer then opens
+        # one that runs to the end of the document.
+        ("a fence shown inside a fence closes it again", text,
+         "            and _columns(fence.group(\"indent\")) < indent + 4)",
+         "            and True)"),
+        # Three backticks with a backtick later on the line read as a fence
+        # rather than an inline span, blanking everything below it until a
+        # closer happens along - kubernetes' changelogs.
+        ("an inline code span opens a fence again", text,
+         "    return not (fence.group(\"char\") == \"`\" and \"`\" in fence.group(\"rest\"))",
+         "    return True"),
 
         # --- shas ----------------------------------------------------------
         # "secret scan misses openai keys" lived here until 0.14.0 removed the
@@ -2111,8 +2165,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The blanking memo's key carries the format; without the comparison
         # it is the latent bug again, and one text object read under two
         # formats gets the first blanking twice.
+        # Retargeted on 2026-09-23, when the key gained the document's PATH
+        # beside its format: `.mdx` has no indented code block, so two
+        # documents with identical text and different suffixes blank
+        # differently and the third input had to join the key.
         ("the blanking memo ignores the document format", text,
-         "    if cached is not None and cached[0] is text and cached[1] == doc.doc_format:",
+         "    if (cached is not None and cached[0] is text and cached[1] == doc.doc_format\n"
+         "            and cached[2] == doc.doc_path):",
          "    if cached is not None and cached[0] is text:"),
         # The rename hint is looked up under the path a link resolves to;
         # asked as written, a link inside a subdirectory finds nothing.

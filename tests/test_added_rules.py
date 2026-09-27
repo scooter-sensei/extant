@@ -993,7 +993,7 @@ def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
 
     first = text.prose(hc.document(), original)
     text.prose(hc.document(), duplicate)
-    cached_for, _cached_format, _cached_value = text._STRIPPED[False]
+    cached_for, _cached_format, _cached_path, _cached_value = text._STRIPPED[False]
 
     assert cached_for is duplicate, "the later call should own the cache entry"
     assert text.prose(hc.document(), original) == first, "content must round-trip either way"
