@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _install_into
+from conftest import _abbrev, _install_into
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -418,7 +418,7 @@ def test_a_real_rebase_journals_its_pairs_and_the_finding_names_the_new_id(
     trunk = git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
     git(repo, "checkout", "-q", "-b", "feature")
     cited = commit("a.py", "a = 1\n", "feat: a").strip()
-    doc = f"# Status\n\nShipped in `{cited[:7]}`.\n"
+    doc = f"# Status\n\nShipped in `{_abbrev(cited)}`.\n"
     git(repo, "checkout", "-q", trunk)
     commit("b.py", "b = 1\n", "feat: b")
     git(repo, "checkout", "-q", "feature")

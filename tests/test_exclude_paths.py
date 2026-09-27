@@ -96,6 +96,30 @@ def test_an_anchored_pattern_is_rooted_at_the_repository() -> None:
     assert "docs/sub/deep.md" in kept
 
 
+def test_a_trailing_slash_means_a_directory_and_not_a_file_of_that_name() -> None:
+    """`docs/` is gitignore's spelling for "the directory docs", and a FILE
+    named `docs` is not it. The matcher took both, and git's own matcher
+    does not: fed every tracked path of the 152 visible corpus clones, the
+    two disagreed on exactly five paths, all of them Debian packaging files
+    called `docs` or `vendor` (`pkg/debian/docs`, `hack/validate/vendor`).
+    None was a document - a document carries a suffix - so
+    `excluded_documents` could never have reached the difference; it is
+    closed anyway, so the matcher agrees with git on every shape it claims.
+    Everything under the directory is still taken."""
+    from extant import sweep
+    directory = sweep._exclusion_regex("docs/")
+    assert directory is not None
+    assert directory.match("docs/guide.md")
+    assert directory.match("a/docs/guide.md")
+    assert not directory.match("docs"), "a file named docs is not the directory"
+    assert not directory.match("pkg/debian/docs")
+    # Without the slash the name is a segment, file or directory, as before.
+    segment = sweep._exclusion_regex("docs")
+    assert segment is not None
+    assert segment.match("pkg/debian/docs")
+    assert segment.match("docs/guide.md")
+
+
 def test_nothing_is_excluded_by_default() -> None:
     """A skip-list that ships with entries is a skip-list nobody audits, and
     this project already shipped a lint whose defaults excluded every file it

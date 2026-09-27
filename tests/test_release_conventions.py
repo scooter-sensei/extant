@@ -22,27 +22,26 @@ def git(repo, *args):
 
 
 def _configure(**changes):
-    """Change a configured value so that BOTH readers see it.
+    """Change a configured value so that every reader sees it.
 
     The same job conftest's `reconfigure` fixture does, as a plain function,
     because `_tags` below is an ordinary helper called from twenty tests and
     threading a fixture through it would touch every one.
 
     Why it is needed at all: these rules read `ctx.config` since they became
-    extant/rules/*.py, so setting the module global alone reaches the shim's
-    leftovers and NOT the rule under test. The rule then matches on the default
-    pattern, finds nothing, and the "not reported" half of each test below
-    passes for the wrong reason - which is exactly why each of them also
-    asserts the reported half. `neutral_config` in conftest restores `_ACTIVE`
-    and every derived global at teardown.
+    extant/rules/*.py, so setting a module global alone reached the shim's
+    leftovers and NOT the rule under test. The rule then matched on the default
+    pattern, found nothing, and the "not reported" half of each test below
+    passed for the wrong reason - which is exactly why each of them also
+    asserts the reported half. Those globals are gone; the built Config on
+    `_ACTIVE` is the one object every reader shares, and `neutral_config` in
+    conftest restores it at teardown.
     """
     import dataclasses
 
     from extant import session as hc
 
     hc._ACTIVE = dataclasses.replace(hc._ACTIVE, **changes)
-    for name, build in hc._CONFIG_DERIVED.items():
-        setattr(hc, name, build(hc._ACTIVE))
 
 
 def _reset():
@@ -313,7 +312,7 @@ def test_a_longer_hex_run_is_not_truncated_into_a_commit(git_repo) -> None:
     commit("a.py", "a = 1\n", "feat: a")
 
     long_hex = "0" * 46
-    assert not hc._MERGE_CLAIM.findall(f"merged to main at {long_hex}\n")
+    assert not hc.config().merge_claim.findall(f"merged to main at {long_hex}\n")
 
 
 # --- whose release is it, anyway ---------------------------------------------

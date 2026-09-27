@@ -139,7 +139,7 @@ def test_the_sweep_does_not_count_a_denominator_it_discards(
     monkeypatch.setattr(hc, "RULES", registry.RULES)
 
     with hc.run_scope():
-        relative, _findings, unreadable, examined, errors = sweep._validate_one(
+        relative, _findings, unreadable, examined, errors, _index = sweep._validate_one(
             repo, "docs/notes.md", False)
     assert unreadable is None and errors == []
     assert "fake-entry-rule" not in examined, (

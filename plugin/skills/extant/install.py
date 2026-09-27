@@ -23,6 +23,7 @@ import argparse
 import re
 import shutil
 from pathlib import Path
+from typing import TypedDict
 
 import detect
 from detect import DEFAULT, DERIVED, GUESSED, UNKNOWN, Observation
@@ -32,6 +33,27 @@ from detect import DEFAULT, DERIVED, GUESSED, UNKNOWN, Observation
 from detect import _tracked_paths
 
 SKILL_ROOT = Path(__file__).resolve().parent
+
+
+# An Observation carries `object`, because the settings it records take
+# five shapes. The two readers that need a specific one say so here, and
+# refuse rather than iterate whatever arrived: a string where a list was
+# recorded would otherwise render as one document per character, which is
+# the exact coercion the loader in the payload stopped accepting.
+def _listed(value: object) -> list[str]:
+    """An observation recorded as a list of strings, as that list."""
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    raise TypeError(f"expected a list of documents, found {type(value).__name__}")
+
+
+def _table(value: object) -> dict[str, dict[str, str]]:
+    """A consistency observation, as check -> file -> pattern."""
+    if isinstance(value, dict):
+        return {str(check): {str(file): str(pattern)
+                             for file, pattern in sources.items()}
+                for check, sources in value.items()}
+    raise TypeError(f"expected a table of checks, found {type(value).__name__}")
 
 PAYLOAD = [
     ("payload/extant_collect.py", "tools/extant_collect.py"),
@@ -126,7 +148,19 @@ def verify_hooks(repo: Path) -> list[str]:
 #
 # `readme` deliberately needs nothing else: it is the shape of a project that
 # keeps no status document at all, which is most of them.
-PRESETS: dict[str, dict[str, object]] = {
+class Preset(TypedDict, total=False):
+    """What a preset may say. `summary` is always present; the rest are
+    the settings it overrides, in the shapes `.extant.toml` takes them."""
+
+    summary: str
+    primary_doc: str | None    # None: detect it
+    extra_docs: list[str]
+    disable: list[str]
+    suite_command: list[str]
+    consistency: dict[str, dict[str, str]]
+
+
+PRESETS: dict[str, Preset] = {
     "readme": {
         "summary": "check the docs you already have (no status file needed)",
         "primary_doc": "README.md",
@@ -501,12 +535,12 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
                                f"present in this repo, added by preset '{name}'"))
         notes.append(f"  extra_docs -> {', '.join(extras)}")
 
-    for key in preset.get("disable", []):          # type: ignore[union-attr]
+    for key in preset.get("disable", []):
         out = [o for o in out if o.key != key]
         out.append(Observation(key, "", DERIVED,
                                f"switched off by preset '{name}'"))
     if preset.get("disable"):
-        notes.append(f"  disabled: {', '.join(preset['disable'])}")  # type: ignore[arg-type]
+        notes.append(f"  disabled: {', '.join(preset['disable'])}")
 
     if "suite_command" in preset:
         out.append(Observation("suite_command", preset["suite_command"], DERIVED,
@@ -532,7 +566,7 @@ def apply_preset(name: str, obs: list[Observation], repo: Path) -> tuple[list[Ob
         tracked = _tracked_paths(repo)
         usable: dict[str, dict[str, str]] = {}
         skipped_why: dict[str, str] = {}
-        for check, sources in consistency.items():                      # type: ignore[union-attr]
+        for check, sources in consistency.items():
             mapped: dict[str, str] = {}
             problems: list[str] = []
             moved: list[str] = []
@@ -585,8 +619,7 @@ def _fold_wide_docs(obs: list[Observation],
     settled = {str(o.value) for o in obs
                if o.key in ("primary_doc", "archive_doc") and o.value}
     existing = next((o for o in obs if o.key == "extra_docs"), None)
-    merged = ([str(e) for e in existing.value]                  # type: ignore[union-attr]
-              if existing is not None else [])
+    merged = _listed(existing.value) if existing is not None else []
     added = [p for p in wide if p not in settled and p not in merged]
     if not added:
         return obs, ["  --wide-docs: adds nothing that is not already configured"]
@@ -787,7 +820,7 @@ def choose_document(
     return found[0], notes
 
 
-def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]]:
+def observe(repo: Path, doc: Path) -> tuple[list[Observation], detect.DocumentInfo]:
     """Everything derivable, each with its confidence."""
     info = detect.inspect_document(doc)
     rel = str(doc.relative_to(repo)).replace("\\", "/")
@@ -822,7 +855,7 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
     ))
 
     # Entry header: repeated AND date-bearing headers score above reference ones.
-    scores = info["header_scores"]  # type: ignore[index]
+    scores = info["header_scores"]
     if scores and scores[0][1] > 1:
         obs.append(Observation(
             "entry_prefix", scores[0][0] + " ", GUESSED,
@@ -833,7 +866,7 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], dict[str, object]
         obs.append(Observation("entry_prefix", None, UNKNOWN, "no repeated dated header found"))
 
     # Merge claim, built from the verbs actually used here.
-    verbs = info["merge_verbs"]  # type: ignore[index]
+    verbs = info["merge_verbs"]
     if verbs:
         alt = "|".join(sorted(verbs))
         # Emitted into a TOML *literal* string, so backslashes are written once
@@ -966,7 +999,7 @@ def render_config(obs: list[Observation]) -> str:
 
     for o in deferred:
         lines.append(f"# [{o.confidence}] {o.evidence}")
-        for check, sources in o.value.items():          # type: ignore[union-attr]
+        for check, sources in _table(o.value).items():
             lines.append(f"[extant.consistency.{check}]")
             for file_path, pattern in sources.items():
                 # A literal apostrophe inside a single-quoted TOML string ends
@@ -1092,10 +1125,10 @@ def main(argv: list[str] | None = None) -> int:
     # choice anybody made. An explicit --doc that does not exist is the one None
     # that must stay one: answering a typo with a different file is worse than
     # refusing.
-    nominated = (doc is None and wide is not None and not args.doc
-                 and readme is not None)
-    if nominated:
+    nominated = False
+    if doc is None and wide is not None and not args.doc and readme is not None:
         doc = readme
+        nominated = True
         # LOUD, because this is the single place the feature chooses something
         # the user did not - and it names the file it CHOSE rather than a fixed
         # string, because a reader told "README.md" on a repository whose

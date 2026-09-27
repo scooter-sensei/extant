@@ -17,9 +17,9 @@ from pathlib import Path
 # implementation, called by SubprocessGit and named nowhere outside this file.
 __all__ = ["Git", "SubprocessGit", "CountingGit",
            "_PLAIN_VALUE", "_UNSETTLED_BY", "_names_remote", "_own_git_dir",
-           "common_git_dir", "environment", "is_partial", "is_shallow",
-           "remote_url", "repository_root", "rewrite_journal_path",
-           "rewrite_map_path"]
+           "common_git_dir", "environment", "has_commit_graph", "is_partial",
+           "is_shallow", "remote_url", "repository_root",
+           "rewrite_journal_path", "rewrite_map_path"]
 
 
 class Git:
@@ -70,9 +70,10 @@ class CountingGit(Git):
     batches fed on stdin (two in extant/rules/lfs.py, one in extant/refs.py's
     `_batch_shas`), the `rev-list --stdin` batch beside it in `_settle` that
     places the commits a bounded ancestry index could not, a `-z` listing
-    paired with `check-attr --stdin` (both in extant/rules/lfs.py), a `git
-    show` that must return bytes (extant/deleted_since.py's `_document_at`),
-    and a `git diff -U0` that must return bytes too
+    paired with `check-attr --stdin` (both in extant/rules/lfs.py), a
+    `cat-file --batch` of every previous version that must return bytes
+    (extant/deleted_since.py's `_documents_at`), and a `git diff -U0` that
+    must return bytes too
     (extant/introduced_since.py's `introduced_lines`, because `_git` below
     translates a bare carriage return and a patch is written in git's line
     discipline) - so they call subprocess directly and are invisible here. tests/test_spawn_budget.py counts at the subprocess
@@ -175,6 +176,32 @@ def is_partial(repo: Path) -> bool:
         if key.startswith("partial"):
             return True
     return False
+
+
+def has_commit_graph(repo: Path) -> bool:
+    """True when git keeps a commit-graph for this repository.
+
+    Generation numbers make an ancestry question near-constant-time: measured
+    on rust, the ancestry index build went from 10.6 s to 1.4 s, the batch
+    that settles what lies past the bound from 7.9 s to 0.29 s, and one
+    `merge-base --is-ancestor` from 2.8 s to 36 ms. Git writes the file only
+    after a `gc` or on request, so most checkouts have none, and this tool
+    writes nothing to anybody's repository - it notices, beside the
+    denominators, when the index came back incomplete and the file that
+    would have made the walk cheap is absent.
+
+    Two spellings, both under the SHARED git directory so a linked worktree
+    answers the same as the checkout it belongs to: `write` leaves one file
+    at `objects/info/commit-graph`; `write --split` leaves a chain under
+    `objects/info/commit-graphs/`. A stat each, for the reasons `is_shallow`
+    gives, and because the spawn budget has no spare margin.
+    """
+    shared = common_git_dir(repo)
+    if shared is None:
+        return False
+    info = shared / "objects" / "info"
+    return ((info / "commit-graph").is_file()
+            or (info / "commit-graphs" / "commit-graph-chain").is_file())
 
 
 def common_git_dir(repo: Path) -> Path | None:

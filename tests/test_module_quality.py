@@ -293,6 +293,47 @@ def test_no_module_reaches_past_another_modules_surface() -> None:
     print(f"checked {len(_modules())} modules for cross-boundary private imports")
     assert not violations, violations
 
+
+def test_no_module_binds_a_global_through_globals() -> None:
+    """A name bound by `globals()[name] = ...` exists at runtime and nowhere else.
+
+    extant/session.py bound twenty-one configuration-derived globals that way
+    for eight weeks, from 0.12.2. Every one of them was invisible to mypy -
+    thirteen of its thirty-one default-mode errors were `Module has no
+    attribute "PRIMARY_DOC"` at the two modules that read them - and equally
+    invisible to an IDE's rename, to a reader looking for the assignment, and
+    to this file's own AST gates, none of which can see a binding that is a
+    dictionary write. The globals went; the modes read the built `Config`
+    through `session.config()`, the way every rule reads `ctx.config`.
+
+    This is what keeps the shape from coming back. Subscript-assignment to
+    `globals()` or `vars()` is the whole pattern: a dynamic binding written
+    any other way (`setattr(sys.modules[__name__], ...)`) reaches for a
+    module object by hand, and a reviewer sees it for what it is.
+    """
+    dynamic = []
+    for path in _modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            targets: list[ast.expr]
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+                targets = [node.target]
+            else:
+                continue
+            for target in targets:
+                if (isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Call)
+                        and isinstance(target.value.func, ast.Name)
+                        and target.value.func.id in ("globals", "vars")):
+                    dynamic.append(
+                        f"{path.name}:{node.lineno} binds a global through "
+                        f"{target.value.func.id}()")
+    print(f"checked {len(_modules())} modules for globals()/vars() writes")
+    assert not dynamic, dynamic
+
+
 def test_rules_are_leaves() -> None:
     """Only the registry may import a rule.
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 
 from extant.contract import Rule
+from extant.files import inside
 from extant.finding import Finding
 from extant.scope import Context
 from extant.text import HEADING, current_document, prose
@@ -158,7 +159,9 @@ def _manifest_floors(ctx: Context) -> dict[str, tuple[str, str, str]]:
             ctx.repo.glob(f"*/{filename}"))
         for path in candidates:
             try:
-                content = path.read_text(encoding="utf-8")
+                # A manifest linked out of the checkout would have its floor
+                # quoted in a finding; `inside` refuses it as unreadable.
+                content = inside(ctx.repo, path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError, ValueError):
                 continue
             match = re.search(pattern, content, re.M)

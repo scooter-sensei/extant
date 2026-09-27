@@ -16,7 +16,7 @@ file buys the same five spawns and changes no lifetime at all.
 
 WHAT MAKES IT MORE THAN A ONE-LINE CHANGE is that `configparser` is not a git
 config parser. It disagrees with git on three real syntaxes, and each
-disagreement survives `_normalise_remote` into a wrong `owner/name`:
+disagreement survives `normalise_remote` into a wrong `owner/name`:
 
     quoted value      git=owner/name   configparser="https://.../name.git"
     inline ; comment  git=owner/name   configparser=https://... ; c
@@ -261,6 +261,7 @@ def test_the_rule_answers_the_same_thing_without_spawning(
         clean_config_scopes, monkeypatch, git_repo) -> None:
     """`dead-pinned-ref`'s own question, and the five spawns it stops costing."""
     from extant import session as hc
+    from extant import refs
     from extant.rules import pinned_ref
 
     repo, commit = git_repo
@@ -277,7 +278,7 @@ def test_the_rule_answers_the_same_thing_without_spawning(
 
     monkeypatch.setattr(subprocess, "run", record)
     with hc.run_scope():
-        assert pinned_ref._own_remote(hc.context(repo)) == "acme/widget"
+        assert refs.own_remote(hc.context(repo)) == "acme/widget"
 
     print(f"spawns while answering the remote: {spawns}")
     assert spawns == [], "the remote was still answered by a git process"
@@ -292,6 +293,7 @@ def test_the_rule_still_falls_back_when_the_file_cannot_settle_it(
     nothing and report clean - the exact silent shape `scope.py` records.
     """
     from extant import session as hc
+    from extant import refs
     from extant.rules import pinned_ref
 
     repo, commit = git_repo
@@ -308,7 +310,7 @@ def test_the_rule_still_falls_back_when_the_file_cannot_settle_it(
 
     monkeypatch.setattr(subprocess, "run", record)
     with hc.run_scope():
-        assert pinned_ref._own_remote(hc.context(repo)) == "acme/widget"
+        assert refs.own_remote(hc.context(repo)) == "acme/widget"
 
     print(f"spawns while falling back: {spawns}")
     assert any("remote get-url origin" in c for c in spawns), (
@@ -318,13 +320,14 @@ def test_the_rule_still_falls_back_when_the_file_cannot_settle_it(
 def test_a_repository_with_no_origin_still_reports_none(git_repo) -> None:
     """The other direction, so the tests above cannot pass by always answering."""
     from extant import session as hc
+    from extant import refs
     from extant.rules import pinned_ref
 
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "chore: init")
 
     with hc.run_scope():
-        assert pinned_ref._own_remote(hc.context(repo)) is None
+        assert refs.own_remote(hc.context(repo)) is None
 
 
 def test_an_included_file_that_wins_the_lookup_is_declined(git_repo) -> None:
@@ -347,7 +350,7 @@ def test_an_included_file_that_wins_the_lookup_is_declined(git_repo) -> None:
         file:.git/config      remote.origin.url=https://github.com/outer/...
         git remote get-url -> inner        a naive read -> outer
 
-    That reaches `_normalise_remote` as a wrong `owner/name`, which is
+    That reaches `normalise_remote` as a wrong `owner/name`, which is
     `dead-pinned-ref` checking somebody else's repository. Declining is the
     only answer available short of becoming git.
     """
@@ -385,7 +388,7 @@ def test_an_included_file_that_wins_the_lookup_is_declined(git_repo) -> None:
 #
 # A rewrite that changes only the HOST lands on the same `owner/name` and
 # costs nothing - and so does one that keeps `owner/name` under a longer
-# prefix, because `_normalise_remote` compares the LAST TWO path segments.
+# prefix, because `normalise_remote` compares the LAST TWO path segments.
 # The audit found the obvious mirror, `https://internal/mirror/acme/widget`,
 # was exactly that: git said the mirror, the rule still said `acme/widget`.
 # This one moves the repository under a different owner, which is the shape
@@ -536,6 +539,7 @@ def test_the_rule_answers_the_mirror_through_git_when_a_scope_rewrites_it(
     the fast path declines, the spawn answers with the mirror, and the rule
     does not proceed as if the repository were `acme/widget`."""
     from extant import session as hc
+    from extant import refs
     from extant.rules import pinned_ref
 
     repo, commit = git_repo
@@ -554,7 +558,7 @@ def test_the_rule_answers_the_mirror_through_git_when_a_scope_rewrites_it(
 
     monkeypatch.setattr(subprocess, "run", record)
     with hc.run_scope():
-        answered = pinned_ref._own_remote(hc.context(repo))
+        answered = refs.own_remote(hc.context(repo))
     print(f"own remote under the mirror rewrite: {answered!r}; spawns {spawns}")
     assert any("remote get-url origin" in c for c in spawns), (
         "the fast path answered instead of falling back to git")

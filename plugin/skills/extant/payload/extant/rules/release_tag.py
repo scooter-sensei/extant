@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
+from extant.config import Config
 from extant.contract import Rule
 from extant.finding import Finding
 from extant.probes import sub_group
@@ -132,10 +132,10 @@ def _release_sites(ctx: Context, text: str
 # both build a fresh Config, so a changed `release_tag` arrives as a
 # different object and misses. Complete, so it is not in
 # `registry.forget_memos`.
-_RELEASE_CLAIMS: "tuple[str, Any, list[tuple[int, str]]] | None" = None
+_RELEASE_CLAIMS: "tuple[str, re.Pattern[str], list[tuple[int, str]]] | None" = None
 
 
-def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
+def _release_claims(config: Config, prose_text: str) -> list[tuple[int, str]]:
     """(line, tag) for every release claim, read ONCE for check and examined.
 
     Three readers of one pattern used to run two different scans: `examined`
@@ -153,7 +153,7 @@ def _release_claims(config, prose_text: str) -> list[tuple[int, str]]:
     return claims
 
 
-def _release_claims_uncached(config, prose_text: str) -> list[tuple[int, str]]:
+def _release_claims_uncached(config: Config, prose_text: str) -> list[tuple[int, str]]:
     """The scan itself. Separate only so the memo above stays readable."""
     claims: list[tuple[int, str]] = []
     # Skipped outright when no match is possible - the pattern opens with

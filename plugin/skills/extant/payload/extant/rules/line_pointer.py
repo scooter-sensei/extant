@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from extant.contract import Rule
+from extant.files import inside
 from extant.finding import Finding
 from extant.scope import Context
 from extant.sites import resolve_reference
@@ -112,7 +113,10 @@ def _line_count(ctx: Context, relative: str) -> int | None:
     count: int | None = None
     target = ctx.repo / relative
     try:
-        if target.is_file() and target.stat().st_size <= _LINE_COUNT_LIMIT:
+        # `inside` raises for a link out of the checkout, which is counted
+        # like any file this could not read: no count, so no verdict.
+        if (inside(ctx.repo, target).is_file()
+                and target.stat().st_size <= _LINE_COUNT_LIMIT):
             with open(target, "rb") as handle:
                 count = sum(1 for _ in handle)
     except (OSError, ValueError):

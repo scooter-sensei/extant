@@ -133,3 +133,162 @@ def test_rst_stripping_preserves_the_length_too(newline) -> None:
             "Prose with ``inline`` after it.\r\n").replace("\r\n", newline)
 
     assert len(strip_code(_doc_scope("rst"), text)) == len(text)
+
+
+# --------------------------------------------------------------------------
+# What closes a fence, and what opens one. Measured 2026-09-22 against
+# markdown-it-py's `commonmark` preset over the 152 visible corpus clones:
+# 1,498 documents hold a line the reference parser calls fence content and
+# this stripper does not blank, and 41 findings sit on those lines - claims
+# the tool checked out of a code block.
+# --------------------------------------------------------------------------
+
+def _prose(text: str, fmt: str = "markdown") -> str:
+    from extant.text import prose
+    return prose(_doc_scope(fmt), text)
+
+
+def test_a_longer_fence_is_not_closed_by_a_shorter_one() -> None:
+    """CommonMark closes a fence only with the same character, at least as
+    long as the opener. The toggle closed on any run of three, so a
+    four-backtick block quoting a three-backtick one went OUT OF PHASE and
+    everything after the inner fence was read as prose.
+
+    aider's posts and superpowers' plan documents are full of it - a
+    transcript of a session that itself shows fenced code - and that is where
+    16 of the 41 findings measured on the corpus come from.
+    """
+    text = ("````\n"
+            "Here is what the assistant wrote:\n"
+            "```python\n"
+            "x = 1\n"
+            "```\n"
+            "Merged at a1b2c3d, it says.\n"
+            "````\n"
+            "\n"
+            "Real prose, merged at d4e5f6a.\n")
+    blanked = _prose(text)
+    assert "a1b2c3d" not in blanked, "a claim inside the outer fence was read as prose"
+    assert "d4e5f6a" in blanked, "prose after the block was blanked"
+
+
+def test_a_fence_inside_a_block_quote_is_still_a_fence() -> None:
+    """`_FENCE` anchored on optional whitespace only, so `> ```' never matched
+    and the quoted block was read as prose from its first line to its last.
+    fxamacker/cbor's README quotes a hex dump that way, and moby and
+    kubernetes each vendor it.
+    """
+    text = ("> Output:\n"
+            "> ```\n"
+            "> hex(JSON): 7b22466f6f223a7b22517578223a7b7d7d7d\n"
+            "> ```\n"
+            "\n"
+            "Prose after, merged at d4e5f6a.\n")
+    blanked = _prose(text)
+    assert "7b22466f6f223a7b22517578223a7b7d7d7d" not in blanked
+    assert "d4e5f6a" in blanked
+
+
+def test_a_fence_with_an_info_string_does_not_close_one() -> None:
+    """A closing fence carries no info string, so ```` ```python ```` inside a
+    fenced block is content rather than the end of it."""
+    text = ("```\n"
+            "$ cat example.md\n"
+            "```python\n"
+            "merged at a1b2c3d\n"
+            "```\n")
+    blanked = _prose(text)
+    assert "a1b2c3d" not in blanked
+
+
+def test_an_ordinary_fence_still_closes(git_repo) -> None:
+    """The other half: the common case must be untouched, and a claim after a
+    plain fence is still read."""
+    text = ("Before, merged at a1b2c3d.\n"
+            "```\n"
+            "inside b2c3d4e\n"
+            "```\n"
+            "After, merged at d4e5f6a.\n")
+    blanked = _prose(text)
+    assert "b2c3d4e" not in blanked
+    assert "a1b2c3d" in blanked and "d4e5f6a" in blanked
+
+
+def test_a_tilde_fence_is_not_closed_by_backticks() -> None:
+    """The character has to match too: a backtick run inside a tilde block is
+    content, and the tilde block runs to its own closer."""
+    text = ("~~~\n"
+            "```\n"
+            "merged at a1b2c3d\n"
+            "```\n"
+            "~~~\n"
+            "After, merged at d4e5f6a.\n")
+    blanked = _prose(text)
+    assert "a1b2c3d" not in blanked
+    assert "d4e5f6a" in blanked
+
+
+def test_a_fence_inside_a_block_quote_ends_when_the_quote_does() -> None:
+    """A container's end closes every block inside it, a fence included.
+
+    Recognising `> ```' as a fence was half the repair; the other half is
+    that the quote can end before any closer arrives - a pasted message cut
+    off mid-block - and CommonMark closes the fence with it. Without that
+    the fence stayed open and blanked the prose after the quote. Found by the
+    identity gate on 2026-09-26 rather than by a test: aider's chat-history
+    fixture lost 129 findings the reference parser calls prose, all after one
+    quoted fence that its message never closed.
+    """
+    text = ("> ```\n"
+            "> code the message never closed\n"
+            "\n"
+            "Prose after the quote, merged at d4e5f6a.\n")
+    blanked = _prose(text)
+    assert "d4e5f6a" in blanked, "the quote ended and the fence did not"
+    assert "never closed" not in blanked, "the quoted fence's content was read"
+
+
+def test_a_line_that_leaves_the_quote_ends_its_fence_too() -> None:
+    """The same without a blank line between: the first line without the
+    quote marker is outside the quote, whatever it says."""
+    text = ("> ```\n"
+            "> quoted code\n"
+            "Unquoted prose, merged at d4e5f6a.\n")
+    assert "d4e5f6a" in _prose(text)
+
+
+def test_a_fence_indented_four_past_its_opener_is_content() -> None:
+    """CommonMark's closer may be indented at most three columns, measured
+    from where the block's content starts - so a fence line four or more
+    columns deeper than its opener is the block's CONTENT, an example of a
+    fence shown inside a fence. Closing on it put the stripper out of phase,
+    and the real closer then opened a fence that ran to the end of the
+    document: mini-swe-agent's admonition example and superpowers' reviewer
+    template both, found by the old-against-new measurement on 2026-09-26.
+    """
+    text = ("```markdown\n"
+            "Show this to the reader:\n"
+            "\n"
+            "    ```\n"
+            "    an example fence, merged at a1b2c3d\n"
+            "    ```\n"
+            "```\n"
+            "\n"
+            "Prose after, merged at d4e5f6a.\n")
+    blanked = _prose(text)
+    assert "a1b2c3d" not in blanked, "the example inside the fence was read"
+    assert "d4e5f6a" in blanked, "the prose after the fence was blanked"
+
+
+def test_a_backtick_run_with_a_backtick_after_it_is_inline_code() -> None:
+    """A backtick fence's info string may not contain a backtick, so a line
+    that opens with three backticks and closes them later is an inline code
+    span, not a fence. kubernetes' changelogs write commands that way, and
+    reading one as a fence blanked every entry below it.
+    """
+    # The backticks START the line, as they do in kubernetes' changelog -
+    # which is what makes the line look like a fence at all.
+    text = ("* Federation secret, if upgrading:\n"
+            "    ```$ kubectl get secret federation-apiserver-secret```\n"
+            "* Fixed in the release merged at d4e5f6a.\n")
+    assert "d4e5f6a" in _prose(text)

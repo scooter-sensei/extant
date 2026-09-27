@@ -271,7 +271,7 @@ def test_a_pin_that_names_a_real_tag_asks_no_process_of_its_own(
     with hc.run_scope():
         ctx = hc.context(repo)
         refs.ref_table(ctx)
-        pinned_ref._own_remote(ctx)
+        refs.own_remote(ctx)
         counted(monkeypatch, spawns)
         assert pinned_ref.check(ctx, text) == []
 

@@ -42,6 +42,7 @@ from extant import session
 from extant.collect import collect
 from extant.config import StatusConfig
 from extant.entries import archive, split_entries
+from extant.files import OutsideRepository, inside
 from extant.gate import run_check_text, run_validate
 from extant.git import repository_root
 from extant.registry import RULE_ERRORS
@@ -90,8 +91,8 @@ def search_entries(repo: Path, query: str) -> list[tuple[str, str, str]]:
     """
     needle = query.lower()
     results: list[tuple[str, str, str]] = []
-    config = session.context(repo).config
-    for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):
+    config = session.config()
+    for relative in (config.primary_doc, config.archive_doc):
         path = repo / relative
         if not path.is_file():
             continue
@@ -253,15 +254,22 @@ def _survivable_output() -> None:
     """
     sarif = "--format=sarif" in sys.argv or "sarif" in sys.argv
     for stream in (sys.stdout, sys.stderr):
+        # A replaced stream (pytest's capture, a StringIO) may not offer
+        # reconfigure at all - `TextIO` promises nothing of the kind, only
+        # `TextIOWrapper` has it - and nothing there needs hardening. Asked
+        # for by name rather than tried, so the absence is a branch rather
+        # than an exception read as one.
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
         try:
             if sarif and stream is sys.stdout:
-                stream.reconfigure(encoding="utf-8", errors="replace")
+                reconfigure(encoding="utf-8", errors="replace")
             else:
-                stream.reconfigure(errors="replace")
-        except (AttributeError, ValueError, OSError):
-            # A replaced stream (pytest's capture, a StringIO) may not support
-            # reconfigure. Nothing to harden there, and failing here would be
-            # worse than the problem.
+                reconfigure(errors="replace")
+        except (ValueError, OSError):
+            # A stream that has the method but is closed or detached. Failing
+            # here would be worse than the problem.
             pass
 
 
@@ -301,26 +309,23 @@ def run_search(repo: Path, parser: argparse.ArgumentParser,
             for line in excerpt:
                 print(f"    {line.strip()[:96]}")
         print()
+    # split_entries needs the BUILT Config (section_header, phase_prefix),
+    # the same object search_entries() above read - not `status`, the raw
+    # StatusConfig `main()` reads before dispatching here. Passing `status`
+    # here is the exact mistake that used to crash this mode.
+    config = session.config()
     # The denominator again: "no matches" and "searched nothing" print the
     # same blank otherwise, and the second happens whenever a document is
     # missing or its entry header does not match the configured prefix.
-    searched = sum(1 for relative in (session.PRIMARY_DOC,
-                                      session.ARCHIVE_DOC)
+    searched = sum(1 for relative in (config.primary_doc, config.archive_doc)
                    if (repo / relative).is_file())
-    # split_entries needs the DERIVED Config (section_header, phase_prefix),
-    # the same object search_entries() above already built for itself -
-    # not `status`, the raw StatusConfig `main()` reads before dispatching
-    # here. Passing `status` here is the exact mistake that used to crash
-    # this mode.
-    built_config = session.context(repo).config
     total = 0
-    for relative in (session.PRIMARY_DOC, session.ARCHIVE_DOC):
+    for relative in (config.primary_doc, config.archive_doc):
         path = repo / relative
         if path.is_file():
             with open(path, encoding="utf-8", newline="") as fh:
                 total += sum(
-                    1 for kind, _ in split_entries(fh.read(),
-                                                   built_config)[1]
+                    1 for kind, _ in split_entries(fh.read(), config)[1]
                     if kind == "phase")
     print(f"{len(results)} match(es) in {total} entries "
           f"across {searched} document(s)")
@@ -333,7 +338,8 @@ def run_search(repo: Path, parser: argparse.ArgumentParser,
 
 def run_selftest(repo: Path, status: StatusConfig) -> int:
     """`--selftest`: corrupt one real claim per rule and confirm each fires."""
-    target = repo / session.PRIMARY_DOC
+    primary = session.config().primary_doc
+    target = repo / primary
     if not target.is_file():
         # stderr directly, NOT `diag`: that helper is local to run_validate
         # now, a different function, so calling it here raises NameError.
@@ -347,8 +353,13 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
               f"{status.source}", file=sys.stderr)
         return 1
     try:
-        with open(target, encoding="utf-8", newline="") as fh:
+        # The name is configured, and the document is printed from below;
+        # see extant/files.py for where a configured name may lead.
+        with open(inside(repo, target), encoding="utf-8", newline="") as fh:
             text = fh.read()
+    except OutsideRepository as exc:
+        print(f"not reading {target}: {exc}", file=sys.stderr)
+        return 1
     except UnicodeDecodeError as exc:
         # A document that is not valid UTF-8 is a situation to report, not
         # to crash on. Reading it with errors="replace" instead would let
@@ -361,7 +372,7 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
     session.set_document(link_base=target.parent)
     lines, fired, unprobeable, errored = session.selftest(repo, text)
     print(f"selftest: probing {len(session.RULES)} rules against "
-          f"{session.PRIMARY_DOC}\n")
+          f"{primary}\n")
     for line in lines:
         print(line)
     silent = len(session.RULES) - fired - unprobeable - errored
@@ -629,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         return run_sweep(repo, args.format)
     if args.verify:
-        args.validate = str(repo / session.PRIMARY_DOC)
+        args.validate = str(repo / session.config().primary_doc)
     if args.validate == "":
         # M-a: argparse still counts --validate as "provided" (satisfying
         # the required mutually-exclusive group) even when its value is the

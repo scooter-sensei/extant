@@ -25,3 +25,14 @@ tomli>=2; python_version < "3.11"
 # on 2026-09-15. Dev-side only, like pytest-xdist above; the TOOL still has no
 # dependencies and nothing under `plugin/skills/extant/payload/` imports this.
 coverage>=7
+# The type checker, and the one entry here that IS a gate: the self-check job
+# runs `python -m mypy` against `[tool.mypy]` in pyproject.toml and fails on
+# one error. Bounded above because a checker's verdicts change at a major -
+# 2.0 moved three defaults - and a gate that reddens `main` on a release
+# nobody committed is the failure `mutate.py --check-only` exists to catch
+# for the anchors; the bump is a deliberate commit with the new count in it.
+# Marked for 3.10 and up because mypy 2 does not run on 3.9, which the test
+# matrix still installs this file on; the 3.9 leg runs the suite, and the
+# check runs once, on the self-check runner. Dev-side only, like everything
+# above: the TOOL still has no dependencies.
+mypy>=2.3,<3; python_version >= "3.10"

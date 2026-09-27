@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from extant.contract import Rule
+from extant.files import inside
 from extant.finding import Finding, rel
 from extant.anchors import anchors
 from extant.scope import Context
@@ -22,7 +23,10 @@ def _target_anchors(ctx: Context, path: Path) -> set[str] | None:
     key = str(path)
     if key not in ctx.run.target_anchors:
         try:
-            with open(path, encoding="utf-8", newline="") as fh:
+            # `resolve_reference` settles the spelling; `inside` where the
+            # bytes are - an in-repo `x.md` linked to /dev/zero read forever.
+            with open(inside(ctx.repo, path), encoding="utf-8",
+                      newline="") as fh:
                 ctx.run.target_anchors[key] = anchors(fh.read())
         except (OSError, UnicodeDecodeError):
             ctx.run.target_anchors[key] = None
@@ -31,7 +35,7 @@ def _target_anchors(ctx: Context, path: Path) -> set[str] | None:
 
 def _fragment_sites(
     ctx: Context, text: str
-) -> list[tuple[int, str, str, Path | None, set[str] | None]]:
+) -> list[tuple[int, str, str, tuple[Path, set[str]] | None]]:
     """Every fragment link this rule can DECIDE, and what decides it.
 
     THE scanner. `check` reports the sites that fail and `examined` counts
@@ -45,10 +49,13 @@ def _fragment_sites(
     than no denominator: it prints as coverage that was never provided, about
     the one rule that had just spoken.
 
-    Each entry is (line number, the raw link, its lowercased fragment, the
-    markdown file that must offer it, the anchors that file offers). The last
-    two are None TOGETHER, and mean the fragment names a heading in this
-    document.
+    Each entry is (line number, the raw link, its lowercased fragment, and
+    either None or the pair (the markdown file that must offer it, the
+    anchors that file offers)). None means the fragment names a heading in
+    this document. The file and its anchors travel as ONE element rather
+    than two that are "None together", because that is a promise a reader
+    had to take on trust and the type checker could not: unpacked into two
+    names, a test on one narrows nothing about the other.
 
     A site the rule cannot decide is not returned at all, and so is neither
     judged nor counted: an external URL, an empty fragment, a target that is
@@ -57,7 +64,7 @@ def _fragment_sites(
     """
     repo = ctx.repo
     base = ctx.doc.link_base or repo
-    sites: list[tuple[int, str, str, Path | None, set[str] | None]] = []
+    sites: list[tuple[int, str, str, tuple[Path, set[str]] | None]] = []
     for number, line in enumerate(strip_code(ctx.doc, text).splitlines(),
                                   start=1):
         if "#" not in line or "[" not in line:
@@ -77,7 +84,7 @@ def _fragment_sites(
             if not fragment:
                 continue
             if not target:
-                sites.append((number, raw, fragment, None, None))
+                sites.append((number, raw, fragment, None))
                 continue
             if target.startswith("/"):
                 root, relative = repo, target.lstrip("/")
@@ -110,7 +117,7 @@ def _fragment_sites(
             offered = _target_anchors(ctx, resolved)
             if offered is None:
                 continue
-            sites.append((number, raw, fragment, resolved, offered))
+            sites.append((number, raw, fragment, (resolved, offered)))
     return sites
 
 
@@ -189,8 +196,8 @@ def check(ctx: Context, text: str) -> list[Finding]:
         return ambient
 
     findings: list[Finding] = []
-    for number, raw, fragment, resolved, offered in _fragment_sites(ctx, text):
-        if resolved is None:
+    for number, raw, fragment, target in _fragment_sites(ctx, text):
+        if target is None:
             if fragment in own_anchors() or fragment in ambient_anchors():
                 continue
             findings.append(Finding(
@@ -199,6 +206,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
                 subject=raw,
             ))
             continue
+        resolved, offered = target
         if fragment in offered:
             continue
         findings.append(Finding(

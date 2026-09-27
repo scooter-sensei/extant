@@ -190,9 +190,11 @@ PACKAGE_ROUTED_FLOOR = 20
 #   1  `ls-tree -r -z HEAD` in the same file, whose NUL-separated output pairs
 #      with the next one
 #   1  `check-attr -z --stdin filter`, also stdin-fed
-#   1  `git show <ref>:<path>` in extant/deleted_since.py, which wants BYTES so that a
-#      previous version that is not valid UTF-8 is a fact `--deleted-since` can
-#      report rather than a traceback out of a subprocess reader thread
+#   1  `cat-file --batch` in extant/deleted_since.py, fed `<ref>:<path>` per
+#      changed document on stdin - one `git show` per document until
+#      2026-09-20 - and wanting BYTES so that a previous version that is not
+#      valid UTF-8 is a fact `--deleted-since` can report rather than a
+#      traceback out of a subprocess reader thread
 #   1  `git diff -U0` in extant/introduced_since.py, which wants BYTES for the
 #      opposite reason: the seam translates every `\r` in a result to `\n`,
 #      and a patch is written in git's line discipline - a document line
@@ -336,10 +338,13 @@ def test_context_carries_one_run_and_one_document() -> None:
     handed anything. Asserting the shape now is what keeps Task 9 from having
     to invent it.
     """
+    from extant import session
     from extant.scope import Context, DocScope, RunScope
 
+    # A real Config, because the field is declared as one since Phase 50 and
+    # a test handing it None would be asserting a shape the checker refuses.
     run, doc = RunScope(), DocScope(doc_path="a.md")
-    ctx = Context(config=None, run=run, doc=doc, repo=Path("/repo"))
+    ctx = Context(config=session.config(), run=run, doc=doc, repo=Path("/repo"))
     assert ctx.run is run and ctx.doc is doc
     assert ctx.repo == Path("/repo")
     assert ctx.git is None, (
@@ -356,11 +361,12 @@ def test_context_carries_the_git_it_was_given() -> None:
     only route, and a Context that dropped what it was handed would then send
     every rule to whatever the module happened to be holding.
     """
+    from extant import session
     from extant.git import CountingGit, SubprocessGit
     from extant.scope import Context, DocScope, RunScope
 
     fake = CountingGit(SubprocessGit())
-    ctx = Context(config=None, run=RunScope(), doc=DocScope(),
+    ctx = Context(config=session.config(), run=RunScope(), doc=DocScope(),
                   repo=Path("/repo"), git=fake)
     assert ctx.git is fake
 
@@ -386,8 +392,8 @@ def test_the_rules_reach_git_only_through_the_seam() -> None:
     run git through subprocess directly, because they need something
     `run(repo, *args)` cannot express - stdin for the three `cat-file`
     batches and the ancestry batch, a `-z` listing paired with `check-attr
-    --stdin`, and bytes rather than decoded text for `git show` and the two
-    range reads. Those are counted here rather than glossed, so the gap is a
+    --stdin`, and bytes rather than decoded text for the previous-version
+    batch and the two range reads. Those are counted here rather than glossed, so the gap is a
     number somebody chose and can watch, and so a ninth cannot appear
     unnoticed. It was six-and-none until Task 8 moved
     `_batch_shas` into extant/refs.py; the split is where the code is, not a

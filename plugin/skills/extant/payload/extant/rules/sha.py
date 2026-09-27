@@ -22,6 +22,7 @@ from extant.commits import (
 from extant.contract import Rule
 from extant.finding import Finding
 from extant.probes import sub_group
+from extant.refs import own_remote
 from extant.scope import Context
 from extant.text import prose
 
@@ -69,9 +70,15 @@ def _sha_sites(ctx: Context, text: str) -> list[tuple[int, str, bool]]:
     """
     # Claims inside code are examples, not promises. See prose.
     text = prose(ctx.doc, text)
+    # Asked only when a line links a commit by URL - see `_linked_spans` in
+    # extant/commits.py - so a document without one costs no question.
+
+    def own() -> str | None:
+        return own_remote(ctx)
+
     sites: list[tuple[int, str, bool]] = [
-        (number, token, False) for number, token in find_sha_candidates(text)]
-    bare = find_bare_sha_candidates(text)
+        (number, token, False) for number, token in find_sha_candidates(text, own)]
+    bare = find_bare_sha_candidates(text, own)
     if bare:
         lines = text.splitlines()
         changesets = _uses_changesets(ctx)

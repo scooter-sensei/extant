@@ -23,6 +23,16 @@ Measured on one real project: 49 tracked markdown files, 43 findings, of which
 spec directories rather than in the README or CONTRIBUTING. The human-facing
 docs were fine. The machine-facing ones had rotted where nobody looks.
 
+**Most of them had not rotted; they were never this repository's to begin
+with.** Measured on 2026-09-22 over the agent-written documents of nine
+public projects: of 172 distinct dead commit ids, 6 had once existed in the
+project's own history and were squashed or rebased away, and 166 had never
+existed there at all - a session transcript's local auto-commits, a grader's
+quoted output about another workspace, another project's changelog. A commit
+id is a fact about one object store. Written into a plan from anywhere else,
+it is a claim this repository can never check, and the validator reads it as
+one: say where an id came from, or leave it out.
+
 **It needs no special document,** and works on any markdown: a README, a
 CONTRIBUTING file, an architecture note. Requiring a dedicated status file was
 the largest barrier to using this and was never a real requirement.

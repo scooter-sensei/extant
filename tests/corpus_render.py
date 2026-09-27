@@ -314,6 +314,123 @@ def render(fig: dict) -> str:
                 "",
             ]
 
+    rp = fig.get("replay") or {}
+    if rp and not rp.get("unavailable"):
+        lad = rp["ladder_on_these"]
+        top = rp["concentration"]
+        # Sorted HERE, by count then name: the figures file is written with
+        # sorted keys, so any order the builder chose is gone by the time CI
+        # re-renders, and a rendering that depended on it would fail the
+        # round trip on the first re-run.
+        kinds = ", ".join(f"{_n(n)} `{k}`" for k, n in
+                          sorted(rp["by_kind"].items(), key=lambda kv: (-kv[1], kv[0])))
+        L += [
+            "## The diff-scoped gate, replayed",
+            "",
+            f"`--introduced-since` pins nothing: it reads the documents a change "
+            f"touched and fails only on findings sitting on lines the change wrote. "
+            f"Its reach cannot be read off a sweep at HEAD, so it was REPLAYED: the "
+            f"last {_n(rp['changes_each'])} first-parent commits of each of "
+            f"{_n(rp['clones'])} autopsy clones - the one tier with the blobs a "
+            f"checkout at an old commit needs - each run from a worktree at that "
+            f"commit with the mode as shipped at `{rp['payload']}`, asking of its "
+            f"first parent. The tree is the commit's own; the refs and object "
+            f"store are today's, so a branch deleted since reads dead and a "
+            f"commit merged since reads merged. Measured {rp['measured']}.",
+            "",
+            "| population | changes | touching a document | would go red | "
+            "findings gated | ordinary | paths pinned | repositories reporting |",
+            "|:---|---:|---:|---:|---:|---:|---:|---:|",
+            f"| `diff-scoped`, {_n(rp['clones'])} clones x "
+            f"{_n(rp['changes_each'])} changes | {_n(rp['changes'])} | "
+            f"{_n(rp['changes_with_documents'])} | {_n(rp['changes_red'])} | "
+            f"{_n(rp['gated'])} | {_n(rp['ordinary'])} | 0 | "
+            f"{_n(rp['repositories_reporting_ordinary'])} ordinary, "
+            f"{_n(rp['repositories_reporting'])} any stratum |",
+            "",
+            f"Not a row of the table above, and deliberately not placed in it: "
+            f"that table's population is the {_n(bench['repositories'])}-repository "
+            f"benchmark at HEAD, this one is {_n(rp['clones'])} repositories "
+            f"across {_n(rp['changes'])} integrated changes, and the unit differs "
+            f"as well as the count. What can be read against it is the ladder on "
+            f"these same {_n(rp['clones'])} repositories at HEAD, from the same "
+            f"recorded sweep the table was built from:",
+            "",
+            "| policy, on the same repositories | ordinary findings gated | "
+            "repositories reporting |",
+            "|:---|---:|---:|",
+        ]
+        for name in ("installed", "root+docs-ord", "docs3-ord", "ordinary"):
+            v = lad.get(name)
+            if not v:
+                continue
+            note = (f" ({_n(v['no_answer'])} never asked)"
+                    if v.get("no_answer") else "")
+            L.append(f"| `{name}` at HEAD | {_n(v['ordinary'])} | "
+                     f"{_n(v['repos'])}{note} |")
+        L.append(f"| `diff-scoped`, last {_n(rp['changes_each'])} changes | "
+                 f"{_n(rp['ordinary'])} | "
+                 f"{_n(rp['repositories_reporting_ordinary'])} |")
+        L += [
+            "",
+            f"So the diff-scoped gate reaches what `installed` reaches, at zero "
+            f"pinned paths against `installed`'s, and not what `docs3-ord` "
+            f"reaches: {_n(rp['repositories_reporting_ordinary'])} repositories "
+            f"of {_n(rp['clones'])} against {_n(lad['docs3-ord']['repos'])}. The "
+            f"review that proposed the mode set that as the bar for replacing "
+            f"the default install policy, and the bar is not met.",
+            "",
+            f"**What the replay measured instead is why.** At the moment each "
+            f"change landed, the documents it touched held "
+            f"{_n(rp['present_at_edit'])} findings; {_n(rp['gated'])} of them - "
+            f"**{rp['written_by_edit_pct']}%** - sat on lines the change wrote, "
+            f"and {_n(rp['aside'])} sat on lines it did not. A document-scoped "
+            f"gate fails on all {_n(rp['present_at_edit'])}; the diff-scoped one "
+            f"on {_n(rp['gated'])}, by design. Documentation claims go false "
+            f"without being edited, and the gate that pins nothing is the gate "
+            f"that sees the least of it.",
+            "",
+            f"**The reach it does have is one repository's.** "
+            f"`{top['repository']}` carries {_n(top['ordinary'])} of the "
+            f"{_n(rp['ordinary'])} ordinary findings and would have gone red on "
+            f"{_n(top['changes_red'])} of its {_n(top['changes_with_documents'])} "
+            f"document-touching changes - every one of them in a plan or spec "
+            f"document written during an agent session, dense with commit "
+            f"references, checked in as fact. "
+            f"By rule: {kinds}. Whether that reach is a property of agent-written "
+            f"documentation is a question about the agent tier, which is "
+            f"`blob:none` and cannot be replayed without retrieving its history.",
+            "",
+            f"**Precision of exactly these {_n(rp['judged'])} findings**, judged "
+            f"while the worktree stood at each commit, with the readings the "
+            f"table below uses - a link or pointer resolved by any spelling in "
+            f"the tree at that commit, an anchor by any slug convention, a SHA "
+            f"that is a UUID fragment or names any object today: "
+            f"{_n(rp['resolve_under_some_reading'])} resolve under some reading. "
+            + (", ".join(f"{_n(n)} carry the `{k}` annotation"
+                         for k, n in sorted(rp["context"].items()))
+               + " - annotated, never a veto, as the hand-labelled sample "
+                 "treated the same shapes."
+               if rp["context"] else
+               "No finding carries a context annotation."),
+            "",
+        ]
+        if rp.get("reserved_elsewhere"):
+            L += [
+                f"Population, stated: {_n(len(rp['reserved_elsewhere']))} of the "
+                f"{_n(rp['clones'])} - "
+                + ", ".join(f"`{s}`" for s in rp["reserved_elsewhere"])
+                + " - are reserved rows in the benchmark manifest, read here "
+                "through their autopsy copies, which every identity run has "
+                "swept. "
+                + (f"The repository carrying the findings, `{top['repository']}`, "
+                   f"is not one of them."
+                   if top["repository"] not in rp["reserved_elsewhere"] else
+                   f"The repository carrying the findings, `{top['repository']}`, "
+                   f"IS one of them, so the reach above rests on a reserved row."),
+                "",
+            ]
+
     L += ["## Precision", ""]
     bp = fig["precision"].get("bench", {}).get("pooled")
     if bp and bp.get("raw_pct") is not None:

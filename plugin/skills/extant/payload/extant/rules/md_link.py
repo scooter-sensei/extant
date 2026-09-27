@@ -215,6 +215,7 @@ def check(ctx: Context, text: str) -> list[Finding]:
         # held-out corpus, all of them working links.
         if numbered_document(ctx, target):
             continue
+        repair = None
         if actual_case:
             detail = (f"links to `{target}`, but the file on disk is "
                       f"`{actual_case}`; the case differs, which fails on a "
@@ -228,9 +229,14 @@ def check(ctx: Context, text: str) -> list[Finding]:
                      else reference_path(repo, base, target) or target)
             moved = renamed_to(ctx, named)
             if moved:
-                detail += f"; git shows it renamed to `{moved}`"
+                # A `repair`, not part of `detail`: the hint varies with the
+                # checkout (shallow, partial, a move older than the rename
+                # walk's window) while the dead link does not, and `detail`
+                # is the baseline's identity. Inside it, a walk that started
+                # reaching an older rename re-raised every forgiven link.
+                repair = f"git shows it renamed to `{moved}`"
         findings.append(Finding(number, "dead-md-link", detail,
-                                subject=target))
+                                subject=target, repair=repair))
     return findings
 
 

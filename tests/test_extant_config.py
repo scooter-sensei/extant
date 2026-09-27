@@ -21,12 +21,13 @@ def test_defaults_reproduce_this_projects_behaviour(tmp_path):
     (tmp_path / ".git").mkdir()
     cfg = load_config(tmp_path)
     assert cfg.source == "defaults"
-    assert cfg.primary_doc == h.PRIMARY_DOC
-    assert cfg.archive_doc == h.ARCHIVE_DOC
-    assert cfg.retain_entries == h.RETAIN_ENTRIES
-    assert cfg.archive_header == h._ARCHIVE_HEADER
-    assert cfg.entry_prefix == h._PHASE_PREFIX
-    assert cfg.pointer_prefix == h._POINTER_PREFIX
+    built = h.config()
+    assert cfg.primary_doc == built.primary_doc
+    assert cfg.archive_doc == built.archive_doc
+    assert cfg.retain_entries == built.retain_entries
+    assert cfg.archive_header == built.archive_header
+    assert cfg.entry_prefix == built.phase_prefix
+    assert cfg.pointer_prefix == built.pointer_prefix
 
 
 def test_every_pattern_compiles_and_matches_something_real():
@@ -434,3 +435,117 @@ def test_every_configured_pattern_reports_its_own_name(tmp_path) -> None:
             load_config(tmp_path)
 
         assert name in str(caught.value), name
+
+
+# --- the SHAPE of a setting, not only its content ----------------------------
+#
+# Every setting is documented with a TOML type, and until Phase 50 the loader
+# coerced whatever arrived into the shape it wanted: `tuple("pytest")` is
+# ('p', 'y', 't', 'e', 's', 't'), `int("3")` is 3, `str(["main"])` is the
+# five-character branch name "['main']", and `bool("false")` is True. Three
+# of those four look like a working configuration and are not, which is the
+# failure this module names in its own docstring. Found by mypy, which
+# refused `int(object)` and `tuple(object)` where the loader had been
+# refusing nothing.
+
+_LIST_SETTINGS = ["suite_command", "code_suffixes", "todo_exclude_files",
+                  "todo_exclude_dirs", "exclude_paths", "extra_docs"]
+_STRING_SETTINGS = ["primary_doc", "archive_doc", "trunk", "plans_dir",
+                    "archive_header", "entry_prefix", "pointer_prefix",
+                    "venv_python", "suite_passed", "suite_failed",
+                    "suite_duration", "release_tag", "base_header",
+                    "phase_task", "phase_bare", "branch_token",
+                    "live_phrases", "merge_claim", "path_pointer",
+                    "todo_markers"]
+
+
+def _refused(tmp_path: Path, line: str) -> str:
+    """Load a one-line config and return the ValueError's message."""
+    import pytest
+
+    from extant.config import load_config
+
+    (tmp_path / ".git").mkdir(exist_ok=True)
+    (tmp_path / ".extant.toml").write_text(
+        chr(10).join(["[extant]", line]), encoding="utf-8")
+    with pytest.raises(ValueError) as caught:
+        load_config(tmp_path)
+    return str(caught.value)
+
+
+def test_a_string_where_an_array_is_documented_is_refused(tmp_path) -> None:
+    """`suite_command = "pytest"` used to become six one-letter arguments.
+
+    Each of the six array settings, not just the first, and the message names
+    the setting, the file and the shape asked for - the reader is holding a
+    TOML file, so the vocabulary is TOML's.
+    """
+    for name in _LIST_SETTINGS:
+        message = _refused(tmp_path, name + ' = "pytest"')
+        assert name in message, message
+        assert ".extant.toml" in message, message
+        assert "array of strings" in message, message
+
+
+def test_an_array_holding_a_non_string_is_refused(tmp_path) -> None:
+    """`["docs/a.md", 3]` would have become the document "3"."""
+    message = _refused(tmp_path, 'extra_docs = ["docs/a.md", 3]')
+    assert "extra_docs" in message and "array of strings" in message, message
+
+
+def test_an_array_where_a_string_is_documented_is_refused(tmp_path) -> None:
+    """`trunk = ["main"]` used to become the branch "['main']", and a pattern
+    given as an array compiled to one that matches nothing - the exact silent
+    shape `compiled` exists to refuse. All twenty, including the two optional
+    patterns, which may be empty but may not be an array."""
+    for name in _STRING_SETTINGS:
+        message = _refused(tmp_path, name + ' = ["x"]')
+        assert name in message, message
+        assert "a string" in message, message
+
+
+def test_a_quoted_number_where_an_integer_is_documented_is_refused(tmp_path) -> None:
+    """`int("3")` accepted the quotes; `int(True)` accepted a boolean; both
+    are documented as an integer and TOML has one."""
+    for line in ['retain_entries = "3"', "retain_entries = true",
+                 "retain_entries = 3.0"]:
+        message = _refused(tmp_path, line)
+        assert "retain_entries" in message, message
+        assert "an integer" in message, message
+
+
+def test_a_quoted_boolean_is_refused(tmp_path) -> None:
+    """`bool("false")` is True. A setting written to switch a rule OFF
+    switched it on, and nothing said so."""
+    message = _refused(tmp_path, 'release_claims_name_our_tags = "false"')
+    assert "release_claims_name_our_tags" in message, message
+    assert "a boolean" in message, message
+
+
+def test_every_documented_shape_still_loads(tmp_path) -> None:
+    """The refusals above must not have narrowed what a correct file may say:
+    every shape as documented, the two optional patterns switched off with an
+    empty string, and the timeout absent."""
+    from extant.config import load_config
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".extant.toml").write_text(chr(10).join([
+        "[extant]",
+        'primary_doc = "STATUS.md"',
+        "retain_entries = 5",
+        "release_claims_name_our_tags = false",
+        'suite_command = ["npm", "test"]',
+        'extra_docs = ["README.md"]',
+        'phase_task = ""',
+        'phase_bare = ""',
+        'release_tag = "v(\\\\d+)"',
+    ]), encoding="utf-8")
+
+    config = load_config(tmp_path)
+    assert config.primary_doc == "STATUS.md"
+    assert config.retain_entries == 5
+    assert config.release_claims_name_our_tags is False
+    assert config.suite_command == ("npm", "test")
+    assert config.extra_docs == ("README.md",)
+    assert config.phase_task is None and config.phase_bare is None
+    assert config.release_tag.pattern == r"v(\d+)"

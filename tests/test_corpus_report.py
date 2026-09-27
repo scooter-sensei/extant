@@ -116,6 +116,9 @@ def test_every_committed_figure_is_reachable_from_the_report() -> None:
         ("bench ordinary findings", bench["ordinary_findings"]),
         ("never-swept reserve", figures["holdout"]["never_swept_total"]),
         ("SHA citations", figures["sha_census"]["citations"]),
+        ("replayed changes", figures["replay"]["changes"]),
+        ("replayed findings present at edit time",
+         figures["replay"]["present_at_edit"]),
     ):
         assert f"{value:,}" in body, (
             f"{label} ({value:,}) is in the figures but does not appear in the "

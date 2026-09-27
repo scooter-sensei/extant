@@ -16,9 +16,10 @@ analogue, because `strip_code` blanks a fenced block WITH SPACES so that every
 character offset survives - a contract this project's own notes record as
 having broken once on CRLF and cost 1627 characters on one document.
 
-So the mutable regions here are: the inside of a code fence, the end of the
-document, the line terminator, the file's name, and the presence of unrelated
-documents. None of them may move a finding.
+So the mutable regions here are: the inside of a code fence, the inside of an
+indented code block, the end of the document, the line terminator, the file's
+name, and the presence of unrelated documents. None of them may move a
+finding.
 
 WHAT A SKIPPED ORACLE MEANS
 
@@ -48,7 +49,8 @@ __all__ = [
     "DidNotRun", "ORACLES", "Result", "finding_count", "findings_in",
     "run_all",
     "oracle_baseline", "oracle_crlf", "oracle_denominator_agrees",
-    "oracle_fence", "oracle_github", "oracle_mode_agrees",
+    "oracle_fence", "oracle_github", "oracle_indented", "oracle_introduced",
+    "oracle_mode_agrees",
     "oracle_monotone", "oracle_process", "oracle_relocate", "oracle_shift",
 ]
 
@@ -269,6 +271,54 @@ def oracle_fence(run, repo: Path) -> Result:
     if before != after:
         return Result([("FENCE", f"fenced junk changed the findings: "
                                  f"{_describe(before, after)}")])
+    return Result()
+
+
+def oracle_indented(run, repo: Path) -> Result:
+    """Junk inside an INDENTED code block changes nothing.
+
+    CommonMark's other code block, blanked since Phase 53 by
+    `extant/blocks.py`. `FENCE` never reached it - the generator writes no
+    four-space shape anywhere, so no oracle and no noise shape watched the
+    scanner, and a change that stopped it blanking would have passed every
+    fuzz run. This appends one at the END of the document, so no earlier line
+    moves, and requires every finding to survive unchanged.
+
+    A PARAGRAPH AT THE MARGIN GOES FIRST, and it is what makes the block a
+    block. Four spaces after a blank line is code only at the top level: under
+    an open list item it is a continuation paragraph, and under an admonition
+    or an HTML element it is that construct's body - prose both times, where a
+    finding would be honest. A non-indented paragraph after a blank line closes
+    all of those, so the indented line below it is code whatever the document
+    ended in.
+
+    SKIPPED where no paragraph can close what is open: an unclosed fence (the
+    junk would be fence content, testing `FENCE` again), and an HTML comment or
+    a `<pre>`, `<script>`, `<style>` or `<textarea>` left open, which run to
+    their own terminator through anything.
+    """
+    path, original = _readable(repo)
+    if original is None:
+        return Result(skipped="no primary document")
+    text = original.decode("utf-8", "replace")
+    if text.count("```") % 2:
+        return Result(skipped="document has an unclosed fence")
+    if text.rfind("<!--") > text.rfind("-->"):
+        return Result(skipped="document has an unclosed HTML comment")
+    lowered = text.lower()
+    for tag in ("pre", "script", "style", "textarea"):
+        if lowered.rfind("<" + tag) > lowered.rfind("</" + tag):
+            return Result(skipped=f"document has an unclosed <{tag}>")
+    before = _own(findings_in(_text(_validate(run, repo))))
+    try:
+        path.write_bytes(original + b"\n\nEnd of the indented probe.\n\n"
+                                    b"    junk `src/gone.py` and [x](nowhere.md)\n")
+        after = _own(findings_in(_text(_validate(run, repo))))
+    finally:
+        path.write_bytes(original)
+    if before != after:
+        return Result([("INDENTED", f"indented junk changed the findings: "
+                                    f"{_describe(before, after)}")])
     return Result()
 
 
@@ -584,10 +634,95 @@ def oracle_github(run, repo: Path) -> Result:
     return Result()
 
 
+# `@@ -a[,b] +c[,d] @@`: the `+` side of one hunk starts at line c and runs
+# for d lines, one when d is absent, none when it is 0 (a pure deletion).
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@",
+                   re.M)
+_NEW_FILE = re.compile(r"^\+\+\+ b/(?P<path>.+)$", re.M)
+
+
+def _lines_the_range_wrote(repo: Path, ref: str) -> set[tuple[str, int]]:
+    """Every (path, line) the working tree holds that `ref`'s merge base with
+    HEAD did not, read from `git diff -U0` and parsed HERE. The tool parses
+    the same diff in `introduced_since.introduced_lines`; an oracle that
+    imported it would agree with it by construction, and agreeing is not
+    what an oracle is for."""
+    base = subprocess.run(["git", "merge-base", ref, "HEAD"], cwd=repo,
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace").stdout.strip()
+    if not base:
+        raise DidNotRun(f"git finds no merge base between {ref} and HEAD")
+    diff = subprocess.run(
+        ["git", "-c", "core.quotePath=false", "diff", "-U0", "--no-color",
+         "--no-ext-diff", "--no-renames", base],
+        cwd=repo, capture_output=True).stdout.decode("utf-8", "replace")
+    wrote: set[tuple[str, int]] = set()
+    path = None
+    for line in diff.split("\n"):
+        named = _NEW_FILE.match(line)
+        if named:
+            path = named["path"].strip('"')
+            continue
+        hunk = _HUNK.match(line)
+        if hunk and path is not None:
+            start = int(hunk["start"])
+            count = 1 if hunk["count"] is None else int(hunk["count"])
+            wrote.update((path, n) for n in range(start, start + count))
+    return wrote
+
+
+def oracle_introduced(run, repo: Path) -> Result:
+    """Every finding `--introduced-since` GATES sits on a line the range wrote.
+
+    The mode's whole promise is that a pull request fails only on the claims
+    it wrote, and the promise has two halves that can disagree: the tool's
+    reading of `git diff -U0` and the line numbers its rules report. The
+    CRLF and encoding axes are what stress the seam - the diff is read as
+    bytes and a bare carriage return is a line break to the rules and not to
+    git, which is why a document holding one is surveyed and never gated.
+    A gated finding at a line git did not add is therefore a defect on one
+    side or the other, and this reads the diff independently to notice.
+
+    The range starts at the parent of the last commit that changed a tracked
+    document, chosen HERE rather than inherited from the mode list's
+    `HEAD~1`: the generated history ends with whatever axis was drawn last -
+    the self-check's ends with a binary under an LFS filter - and a range
+    holding no document examines nothing, which no breakage of the gate can
+    be seen through. A repository whose only document-writing commit is the
+    root has no such parent, and this steps aside there and says so.
+    """
+    last = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", "*.md", "*.markdown", "*.rst"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+        errors="replace").stdout.strip()
+    if not last:
+        return Result(skipped="no commit changes a document")
+    parent = subprocess.run(["git", "rev-parse", "--verify", "--quiet", last + "^"],
+                            cwd=repo, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace").stdout.strip()
+    if not parent:
+        return Result(skipped="the only document-writing commit is the root")
+    done = run(repo, ["--introduced-since", parent])
+    out = _text(done)
+    if done.returncode == 2 or "examined " not in out:
+        return Result(skipped="--introduced-since declined: "
+                              + (out.strip().splitlines() or ["no output"])[0][:80])
+    wrote = _lines_the_range_wrote(repo, parent)
+    faults = []
+    for path, line, kind, detail in sorted(findings_in(out)):
+        where = (path or PRIMARY).replace("\\", "/")
+        if (where, line) not in wrote:
+            faults.append(("INTRODUCED",
+                           f"{where}:{line} [{kind}] was gated, but the "
+                           f"range wrote no line {line} of that document"))
+    return Result(faults)
+
+
 # Order matters only for reading the output. The mutating oracles come first
 # so that a failure in one is reported before the read-only ones spend spawns.
 ORACLES = (
     ("FENCE", oracle_fence),
+    ("INDENTED", oracle_indented),
     ("SHIFT", oracle_shift),
     ("CRLF", oracle_crlf),
     ("RELOCATE", oracle_relocate),
@@ -597,6 +732,7 @@ ORACLES = (
     ("MODE-AGREE", oracle_mode_agrees),
     ("DENOM-AGREE", oracle_denominator_agrees),
     ("GITHUB", oracle_github),
+    ("INTRODUCED", oracle_introduced),
 )
 
 

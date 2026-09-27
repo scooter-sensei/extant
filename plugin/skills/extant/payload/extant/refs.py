@@ -46,8 +46,8 @@ from __future__ import annotations
 import re
 import subprocess
 
-from extant.git import environment
-from extant.scope import Context
+from extant.git import environment, remote_url
+from extant.scope import AncestryIndex, Context
 
 # Eight of these names lost their underscore in Task 9, when the rules became
 # modules of this package and their calls into here became SIBLING calls. That
@@ -64,7 +64,8 @@ __all__ = [
     "_rename_map", "_settle", "_sha_of", "branch_exists", "commit_id",
     "integrated_by",
     "integration_refs",
-    "named_in_merge_history", "settle_ancestry", "reachable_from",
+    "named_in_merge_history", "normalise_remote", "own_remote",
+    "settle_ancestry", "reachable_from",
     "ref_table", "renamed_to",
     "resolve_ref", "resolve_shas", "tracked_markdown",
 ]
@@ -251,13 +252,13 @@ class _Ancestry:
     """
     __slots__ = ("commits", "complete", "settled")
 
-    def __init__(self, commits: frozenset, complete: bool) -> None:
+    def __init__(self, commits: frozenset[str], complete: bool) -> None:
         self.commits = commits
         self.complete = complete
         self.settled: dict[str, bool] = {}
 
 
-def _ancestor_index(ctx: Context, ref: str) -> _Ancestry | None:
+def _ancestor_index(ctx: Context, ref: str) -> AncestryIndex | None:
     """The newest `INDEX_BOUND + 1` commits reachable from `ref`, as full SHAs.
 
     ONE `git rev-list` answers what would otherwise be one
@@ -356,7 +357,10 @@ def settle_ancestry(ctx: Context, questions: list[tuple[str, str]]) -> None:
     ref per rule - and on the 92 per cent of histories the bound covers, to
     none at all beyond the index itself.
     """
-    pending: dict[str, list[str]] = {}
+    # The index travels with its misses rather than being looked up again
+    # below: the loop has just proved it exists and is incomplete, and a
+    # second read of the memo would have to prove that twice.
+    pending: dict[str, tuple[AncestryIndex, list[str]]] = {}
     for rev, ref in questions:
         index = _ancestor_index(ctx, ref)
         if index is None or index.complete:
@@ -364,14 +368,14 @@ def settle_ancestry(ctx: Context, questions: list[tuple[str, str]]) -> None:
         commit = commit_id(ctx, rev)
         if commit is None or commit in index.commits or commit in index.settled:
             continue
-        misses = pending.setdefault(ref, [])
+        misses = pending.setdefault(ref, (index, []))[1]
         if commit not in misses:
             misses.append(commit)
-    for ref, misses in pending.items():
-        _settle(ctx, ctx.run.ancestors[(str(ctx.repo), ref)], misses, ref)
+    for ref, (index, misses) in pending.items():
+        _settle(ctx, index, misses, ref)
 
 
-def _settle(ctx: Context, index: _Ancestry, commits: list[str], ref: str) -> None:
+def _settle(ctx: Context, index: AncestryIndex, commits: list[str], ref: str) -> None:
     """One `rev-list --stdin --not REF` for every commit the bounded index
     could not place, recorded on `index.settled`.
 
@@ -752,3 +756,59 @@ def tracked_markdown(ctx: Context) -> list[str]:
     if ctx.run.dircache is not None:
         ctx.run.tracked_markdown[key] = files
     return files
+
+
+def normalise_remote(url: str) -> str | None:
+    """A remote URL reduced to `owner/name`, lowercased.
+
+    Both spellings of the same repository must compare equal: an SSH remote
+    reads `git@github.com:owner/name.git` and the URL a README tells people to
+    use reads `https://github.com/owner/name`. The same reduction serves a
+    commit URL's head, `https://www.github.com/owner/name`, which is how the
+    SHA rule asks whether a linked commit is this repository's.
+    """
+    url = url.strip().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    parts = [p for p in url.replace(":", "/").split("/") if p]
+    return "/".join(parts[-2:]).lower() if len(parts) >= 2 else None
+
+
+def own_remote(ctx: Context) -> str | None:
+    """This repository as `owner/name`, or None when it has no origin.
+
+    Memoised, because the answer is a property of the REPOSITORY and this is
+    asked once per DOCUMENT. `--sweep` therefore spawned one `git remote
+    get-url` per file to receive the same string every time: profiled over 400
+    documents, that was 11.3 seconds of a 16.2 second run - 70 percent of the
+    work, for one answer.
+
+    A remote cannot change while a process runs, and every mode here is a
+    single short-lived process. `None` is a real answer, meaning no origin, so
+    membership decides rather than truthiness.
+
+    THE MEMO IS NOT THE WHOLE ANSWER, because its lifetime is one RunScope and
+    `--verify` opened one per DOCUMENT until 2026-09-20 - so this
+    repository-level fact was asked five times per run here, at 28.92 ms each
+    (median of 20). `remote_url` reads it out of the config file in 0.19 ms
+    instead, and falls back for any syntax it declines to parse. That is
+    deliberately not the same thing as widening the scope to share one answer
+    across documents: every field on RunScope states that a repository change
+    between calls must be visible, and an `own_remote` cached without a
+    lifetime is precisely the wrong answer this one already produced once.
+    Reading the file buys the same five spawns and changes no lifetime at all.
+
+    Lived in `rules/pinned_ref.py` until 2026-09-22, when the SHA rule began
+    asking the same question of a linked commit's URL; two rules with one
+    notion of "ours" read one function.
+    """
+    key = str(ctx.repo)
+    if key not in ctx.run.own_remote:
+        # `or`, because `remote_url` returning None means IT could not settle
+        # the question - not that there is no origin. Every one of those falls
+        # through to git, which is the only thing here that can tell a
+        # repository with no origin from a config this refuses to guess at.
+        ctx.run.own_remote[key] = normalise_remote(
+            remote_url(ctx.repo, "origin")
+            or ctx.git.soft(ctx.repo, "remote", "get-url", "origin"))
+    return ctx.run.own_remote[key]

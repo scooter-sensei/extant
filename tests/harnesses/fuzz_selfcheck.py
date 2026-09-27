@@ -81,9 +81,9 @@ from pathlib import Path
 CORE_PROPERTIES = ("CRASH", "HANG", "EXIT", "ERRORED", "DENOMINATOR",
                    "UNSTABLE", "SARIF", "FORMATS", "HARNESS", "AXIS",
                    "CONCURRENT")
-ORACLE_PROPERTIES = ("FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
-                     "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE",
-                     "GITHUB")
+ORACLE_PROPERTIES = ("FENCE", "INDENTED", "SHIFT", "CRLF", "RELOCATE",
+                     "MONOTONE", "BASELINE", "PROCESS", "MODE-AGREE",
+                     "DENOM-AGREE", "GITHUB", "INTRODUCED")
 ALL_PROPERTIES = CORE_PROPERTIES + ORACLE_PROPERTIES
 
 # Names this list is NOT required to carry, each with the reason, so the
@@ -246,14 +246,47 @@ BREAKAGES = (
                 "    return text"),),
     ),
     Breakage(
+        prop="INDENTED",
+        why="indented code blocks no longer recognised, so a claim in a "
+            "four-space transcript is judged as a promise again",
+        # The scanner's own early return, widened from `.mdx` to every
+        # document: `indented_code_lines` then answers the empty set, which is
+        # exactly the behaviour before Phase 53. Not contrived - it is the
+        # state this tool shipped in for fifty-two phases. The same site as
+        # `mutate.py`'s "indented code is read as prose again", which asks the
+        # suite the question this asks the fuzzer.
+        edits=(("extant/blocks.py",
+                "    if mdx:\n        return frozenset()",
+                "    if True:\n        return frozenset()"),),
+    ),
+    Breakage(
         prop="PROCESS",
         why="a memo whose key is incomplete, so the second document in one "
             "process is answered from the first document's stripped text",
         # The hit condition grew a format comparison on 2026-09-16 and the
-        # anchor followed it; the breakage is still an incomplete key.
+        # document's path beside it on 2026-09-23 (`.mdx` has no indented
+        # code block, so the suffix is an input), and the anchor followed it
+        # both times; the breakage is still an incomplete key.
         edits=(("extant/text.py",
-                "    if cached is not None and cached[0] is text and cached[1] == doc.doc_format:",
+                "    if (cached is not None and cached[0] is text and cached[1] == doc.doc_format\n"
+                "            and cached[2] == doc.doc_path):",
                 "    if cached is not None:"),),
+    ),
+
+    # --- the diff-scoped gate -----------------------------------------
+    Breakage(
+        prop="INTRODUCED",
+        why="the gate keeps every finding in a changed document, not only "
+            "those on lines the range wrote, so a pull request fails on "
+            "claims it never touched",
+        # The membership test is the whole mode. Dropping it gates the
+        # `aside` findings too - the ones the mode reports as sitting on
+        # lines the range did not touch - and the oracle, reading the diff
+        # for itself, sees a gated finding at a line git did not add.
+        edits=(("extant/introduced_since.py",
+                "                    elif finding.line in wrote:",
+                "                    elif True:"),),
+        mode=("--introduced-since", "HEAD~1"),
     ),
 
     # --- the output formats -------------------------------------------
@@ -424,9 +457,12 @@ BREAKAGES = (
         edits=(("extant/gate.py",
                 '    diag(f"checked {name}: {summary}")',
                 '    pass  # denominator line dropped'),
+               # Twelve spaces since 2026-09-21, when `run_validate` put its
+               # documents under one run scope; the anchor at eight matched
+               # mid-line and `--self-check` refused it, as it is meant to.
                ("extant/gate.py",
-                """        diag(f"checked {relative}: {checked or 'nothing applicable'}")""",
-                '        pass  # the extra-document denominator, dropped too'),),
+                """            diag(f"checked {relative}: {checked or 'nothing applicable'}")""",
+                '            pass  # the extra-document denominator, dropped too'),),
     ),
 
     # --- the two the Stage 3 audit predicted would need contriving -----

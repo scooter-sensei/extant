@@ -10,13 +10,14 @@ from pathlib import Path
 
 from extant.config import load_config
 from extant.contract import Rule
+from extant.files import OutsideRepository, inside
 from extant.finding import Finding
 from extant.scope import Context
 
 __all__ = ["RULE", "check", "examined", "probe"]
 
 
-def _consistency_for(ctx: Context) -> dict:
+def _consistency_for(ctx: Context) -> dict[str, tuple[tuple[str, re.Pattern[str]], ...]]:
     """The consistency block belonging to the repository being checked."""
     try:
         return load_config(ctx.repo).consistency
@@ -43,7 +44,7 @@ class _Captured:
 
 
 def _search_with_limit(pattern: "re.Pattern[str]", content: str,
-                       timeout: float | None):
+                       timeout: float | None) -> re.Match[str] | _Captured | None:
     """`pattern.search(content)`, optionally under a wall-clock bound.
 
     Unbounded by default, and that is deliberate rather than neglected. Python's
@@ -83,7 +84,7 @@ def _search_with_limit(pattern: "re.Pattern[str]", content: str,
     return None if captured is None else _Captured(captured)
 
 
-def _file_identity(path: Path) -> tuple:
+def _file_identity(path: Path) -> tuple[object, ...]:
     """A value equal for two paths that reach the same file.
 
     `(st_dev, st_ino)` is the filesystem's own answer, and it handles symlinks,
@@ -175,6 +176,19 @@ def check(ctx: Context, text: str) -> list[Finding]:
                     1, "inconsistent-artifact",
                     f"consistency check `{name}` reads `{relative}`, "
                     f"which does not exist",
+                ))
+                continue
+            # This rule PRINTS what its pattern captured, and the source
+            # names come from `.extant.toml` - on a fork's pull request, the
+            # fork's. `/etc/...`, `../x` or `.git/config` joined onto the root
+            # made that a way to copy any readable file into a CI log.
+            try:
+                inside(repo, target)
+            except OutsideRepository as exc:
+                findings.append(Finding(
+                    1, "inconsistent-artifact",
+                    f"consistency check `{name}` reads `{relative}`, which "
+                    f"is not read: {exc}",
                 ))
                 continue
             content = target.read_text(encoding="utf-8", errors="replace")

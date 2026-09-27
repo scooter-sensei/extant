@@ -26,6 +26,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 from extant.anchors import anchors
+from extant.files import inside
 from extant.refs import tracked_markdown
 from extant.scope import Context
 from extant.text import ORDER_PREFIX, current_document
@@ -312,7 +313,7 @@ def resolve_reference(ctx: Context, base: Path,
         # about the repository first, and only a target that failed that probe
         # falls through. So refusing here reports dead root-relative links, as
         # before, and stops inventing an answer for the rest.
-        result = (False, None)
+        result: tuple[bool, str | None] = (False, None)
     else:
         actual = _actual_case(ctx, base, raw)
         if actual is None:
@@ -491,7 +492,8 @@ def partial_anchors(ctx: Context) -> set[str]:
                 if not any(part.startswith("_") for part in rel.split("/")[:-1]):
                     continue
                 try:
-                    with open(ctx.repo / rel, encoding="utf-8", newline="") as fh:
+                    with open(inside(ctx.repo, ctx.repo / rel), encoding="utf-8",
+                              newline="") as fh:
                         found |= anchors(fh.read())
                 except (OSError, UnicodeDecodeError):
                     continue
@@ -510,7 +512,10 @@ def project_anchors(ctx: Context) -> set[str]:
             for rel in tracked_markdown(ctx):
                 path = ctx.repo / rel
                 try:
-                    with open(path, encoding="utf-8", newline="") as fh:
+                    # Every tracked document, whole: a linked one is read
+                    # only where extant/files.py says it may be.
+                    with open(inside(ctx.repo, path), encoding="utf-8",
+                              newline="") as fh:
                         found |= anchors(fh.read())
                 except (OSError, UnicodeDecodeError):
                     continue
@@ -706,7 +711,8 @@ def _rustdoc_includes_of(ctx: Context, directory: PurePosixPath) -> set[str]:
         if not name.endswith(".rs"):
             continue
         try:
-            source = (probe / name).read_text(encoding="utf-8", errors="replace")
+            source = inside(ctx.repo, probe / name).read_text(
+                encoding="utf-8", errors="replace")
         except OSError:
             continue
         if not _DOC_INCLUDE.search(source):

@@ -381,6 +381,6 @@ def test_the_backticked_sha_scan_skips_a_line_without_a_backtick(monkeypatch) ->
     recording = _Recording(commits.BACKTICKED)
     monkeypatch.setattr(commits, "BACKTICKED", recording)
     text = "no code here\nfixed in `abc1234` yesterday\n1234567 bare and unread\n"
-    assert commits._find_sha_candidates(text) == [(2, "abc1234")]
+    assert commits._find_sha_candidates(text, lambda: None)[0] == [(2, "abc1234")]
     assert recording.scans == 1, (
         f"the backtick scan ran on {recording.scans} lines; one carries a backtick")

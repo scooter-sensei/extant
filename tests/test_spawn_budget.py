@@ -9,9 +9,11 @@ Counted at the subprocess boundary, not at the wrapper. `_git_soft` delegates
 to `_git`, so counting wrapper entries double-counts every soft call, and that
 mistake was made while measuring for this plan. It is also the only vantage
 point that sees BOTH populations: the calls routed through `ctx.git` and the
-six that run git through subprocess directly because a stdin-fed batch does not
-fit `run(repo, *args)`. A budget that counted only the seam would be a budget
-with a hole in exactly the most expensive place - the `cat-file` batches.
+eight that run git through subprocess directly because a stdin-fed batch does
+not fit `run(repo, *args)` - six when this was written, and the ledger in
+tests/test_scope.py is where the count is kept. A budget that counted only the
+seam would be a budget with a hole in exactly the most expensive place - the
+`cat-file` batches.
 
 The document below is not a minimal one, deliberately. A fixture that reaches
 one rule spawns one process and passes any ceiling it is given, so this one is
@@ -26,6 +28,8 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -281,8 +285,22 @@ def _explain_the_remote(spawns: list[str]) -> None:
           f"{sorted({l.split('=')[0].strip() for l in text.splitlines() if '=' in l})}")
 
 
-def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
+@pytest.mark.parametrize("config_declines", [False, True],
+                         ids=["as-checked-out", "config-declined"])
+def test_the_verify_cli_stays_within_its_own_spawn_budget(
+        monkeypatch, config_declines: bool) -> None:
     """`main()`'s OWN use of run_scope(), not the fixture's.
+
+    Run twice: once against the checkout as it is, and once with the remote
+    config fast path forced to decline, which is what a GitHub runner's
+    checkout does (its `.git/config` carries `includeIf` sections) and no
+    developer checkout here ever did. The second arm exists because the
+    first ran green on every machine that ever ran it while the runner was
+    red: the arm the runner takes was asserted from memory - one remote
+    spawn per pinned document, the shape of a scope per document - and had
+    not been run anywhere since `--verify` took one scope across the run on
+    2026-09-20. Ten legs of the first CI run after that change failed on it,
+    on 2026-09-22, with `1` where the test allowed `0` or `3`.
 
     The two tests above open `hc.run_scope()` themselves and call `validate()`
     and `count_examined()` directly, so they pin the CONTEXT MANAGER working
@@ -319,8 +337,14 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     """
     from extant import session as hc
     from extant import cli
+    from extant import refs
 
     hc.reload_config(hc.REPO_ROOT)
+    if config_declines:
+        # refs.py's own binding, since it imports the name. `None` is the
+        # fast path saying it could not settle the question, which is what
+        # sends `own_remote` to git.
+        monkeypatch.setattr(refs, "remote_url", lambda repo, name: None)
 
     spawns: list[str] = []
     real = subprocess.run
@@ -415,18 +439,32 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # conditional on the CHECKOUT rather than on the code:
     #
     #   `remote get-url origin`   0 where `remote_url` can read the config,
-    #                             and where it declines one per document that
-    #                             HOLDS A PIN - three of the five here, the
-    #                             ones with a `rev:` line - since `_pinned_refs`
-    #                             stopped asking for the remote on a document
-    #                             with nothing to govern. It was one per
-    #                             document before that. A GitHub Actions runner
-    #                             declines: measured, its `.git/config` carries
-    #                             four `[includeIf "gitdir:..."]` sections and a
+    #                             and where it declines ONCE PER RUN since
+    #                             2026-09-20 - `own_remote` memoises the
+    #                             answer on the RunScope, and the scope spans
+    #                             every document when no --sha-map is given.
+    #                             It was one per document that HOLDS A PIN
+    #                             before that (three of the five here, the
+    #                             ones with a `rev:` line), and one per
+    #                             document before `_pinned_refs` stopped
+    #                             asking on a document with nothing to govern.
+    #                             A GitHub Actions runner declines: measured,
+    #                             its `.git/config` carries four
+    #                             `[includeIf "gitdir:..."]` sections and a
     #                             `config.worktree` beside it, and either alone
     #                             is a reason this cannot know whether the
     #                             remote is redefined elsewhere. The guard is
     #                             working; the count simply is not a constant.
+    #                             The declining arm is forced by the second
+    #                             parametrization above, because this
+    #                             paragraph asserted "one per pinned document"
+    #                             for two days after the scope change and no
+    #                             developer checkout could have shown it wrong.
+    #                             Since Phase 52 the SHA rule asks the same
+    #                             question, LAZILY - only on a line linking a
+    #                             commit by URL, through the same memo - so a
+    #                             document without one adds nothing here, and
+    #                             this repository's five hold none.
     #   the trunk lookup          `rev-list main` where a local `main` exists,
     #                             `rev-parse --verify --quiet main^{commit}`
     #                             where it does not, and NEITHER on a checkout
@@ -491,28 +529,52 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
     # The invariants. Neither varies by checkout, and both are the regression
     # this test exists to catch: a deleted `with run_scope():` rebuilds the ref
     # table per document, and two rules resolving their own SHAs re-batch.
-    assert len(kinds["ref table"]) == 2, (
-        f"the ref table was built {len(kinds['ref table'])} times, not twice - "
-        f"once per validate() + count_examined() pair. More than two means a "
-        f"`with run_scope():` was removed from main() and every document is "
-        f"rebuilding it; this is the regression this test exists to catch.")
+    #
+    # ONCE, not twice, since 2026-09-20. It was twice for as long as
+    # `run_validate` opened a scope per document - the primary's two halves
+    # in one, each extra document in its own - and this repository has two
+    # documents that ask about refs: the status document and
+    # tests/harnesses/README.md, which carries one release claim. The
+    # review's 5.7 measured that as the ref table and the trunk index each
+    # built twice per `--verify`, 101 ms of a 700 ms run here, and the mode
+    # holds ONE scope across the run now whenever `--sha-map` is absent,
+    # because nothing then rewrites a document between two reads. With a
+    # map it keeps the scope per document, and the test after this one
+    # asserts both arms. So a deleted outer `with run_scope():` now shows as
+    # TWO or more here - one per document that asks - and a deleted inner
+    # one, in the arm this checkout does not take, as two in that test.
+    assert len(kinds["ref table"]) == 1, (
+        f"the ref table was built {len(kinds['ref table'])} times, not once - "
+        f"once per RUN, since the scope spans every document when no --sha-map "
+        f"is given. More than one means the outer `with run_scope():` was "
+        f"removed from run_validate() and each document is rebuilding it; "
+        f"this is the regression this test exists to catch.")
     assert len(kinds["sha batch"]) == 1, (
         f"{len(kinds['sha batch'])} `cat-file --batch-check` calls; the "
         f"document's SHA union is resolved in one batch, and a second means "
         f"two rules are each spawning their own again.")
 
     # The two the CHECKOUT decides, bounded rather than allowed. Zero on a
-    # checkout that answers them for free, and never more than one per document
-    # or one per validate/count_examined pair.
-    assert len(kinds["remote"]) in (0, pinned), (
-        f"{len(kinds['remote'])} `remote get-url origin` for {pinned} "
-        f"documents holding a pin: it is one per such document where the "
-        f"config cannot be read and none where it can, so any other number "
-        f"is a new shape.")
-    assert len(kinds["trunk"]) <= 2, (
-        f"{len(kinds['trunk'])} trunk lookups; it is memoised per run scope, "
-        f"so more than one per validate() + count_examined() pair means the "
-        f"memo stopped working.")
+    # checkout that answers them for free, and never more than one per run.
+    # `pinned` is the precondition rather than the bound: with no document
+    # holding a pin the remote is never asked and this arm asserts nothing.
+    if config_declines:
+        assert len(kinds["remote"]) == 1, (
+            f"{len(kinds['remote'])} `remote get-url origin` with the config "
+            f"fast path declining and {pinned} documents holding a pin: it is "
+            f"asked once and memoised on the run scope, so zero means the "
+            f"decline no longer reaches git and more than one means the memo "
+            f"or the scope stopped spanning the run.")
+    else:
+        assert len(kinds["remote"]) in (0, 1), (
+            f"{len(kinds['remote'])} `remote get-url origin` for {pinned} "
+            f"documents holding a pin: it is none where the config can be "
+            f"read and once per run where it cannot, so any other number is "
+            f"a new shape.")
+    assert len(kinds["trunk"]) <= 1, (
+        f"{len(kinds['trunk'])} trunk lookups; it is memoised per run scope "
+        f"and the run holds one, so more than one means the memo stopped "
+        f"working or the scope stopped spanning the run.")
 
     unexpected = [c for c in spawns if c not in accounted]
     assert not unexpected, (
@@ -521,3 +583,58 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(monkeypatch) -> None:
         f"including the fourteen `rev-parse --verify --quiet refs/tags/...` "
         f"lookups, which is what this catches if the ref table stops being "
         f"read for qualified refs.")
+
+
+def _two_documents_asking_about_refs(git_repo):
+    """A status document and one extra document, each with a claim that makes
+    the ref table and the trunk index a question - and REAL commits in them,
+    because a dead SHA is reported before either is needed."""
+    repo, commit = git_repo
+    first = commit("a.py", "a = 1\n", "feat: a").strip()[:9]
+    second = commit("b.py", "b = 2\n", "feat: b").strip()[:9]
+    commit(".extant.toml", 'extra_docs = ["EXTRA.md"]\n', "chore: config")
+    commit("NEXT_SESSION.md",
+           f"## Phase 1 - the seam (complete, 2026-01-01)\n\n"
+           f"- The work was merged to `main` at `{first}`.\n", "docs: status")
+    commit("EXTRA.md",
+           f"# Extra\n\nThe fix was merged to `main` at `{second}`.\n", "docs: extra")
+    return repo
+
+
+def _ref_tables_built_by(monkeypatch, repo, *flags) -> int:
+    from extant import cli
+
+    spawns: list[str] = []
+    _counted_run(monkeypatch, spawns)
+    exit_code = cli.main(["--verify", "--repo", str(repo), *flags])
+    tables = [c for c in spawns if c.startswith("for-each-ref ")]
+    print(f"--verify {' '.join(flags)}: exit {exit_code}, {len(spawns)} spawns, "
+          f"ref table x{len(tables)}")
+    return len(tables)
+
+
+def test_verify_holds_one_scope_unless_a_sha_map_rewrites_between_documents(
+        monkeypatch, git_repo, tmp_path) -> None:
+    """Both arms of the review's 5.7, asserted on the same fixture.
+
+    Without `--sha-map` nothing rewrites a document between two reads, so
+    one scope spans the run and the ref table is built ONCE for two documents
+    that each ask. With `--sha-map` the mode translates each document's SHAs
+    and writes the file back before reading the next, and a scope that
+    outlived that write would answer the second document from the checkout
+    the first one changed - so the scope stays per document there, and the
+    table is built TWICE. The map here names a SHA no document holds, so
+    nothing is rewritten and only the flag's presence decides the shape; the
+    review asked for exactly this assertion when it proposed the change.
+    """
+    repo = _two_documents_asking_about_refs(git_repo)
+    mapping = tmp_path / "commit-map"
+    mapping.write_text("old new\n" + "c" * 40 + " " + "d" * 40 + "\n",
+                       encoding="utf-8")
+
+    assert _ref_tables_built_by(monkeypatch, repo) == 1, (
+        "without --sha-map one scope spans --verify, so two documents asking "
+        "about refs build the ref table once")
+    assert _ref_tables_built_by(monkeypatch, repo, "--sha-map", str(mapping)) == 2, (
+        "with --sha-map a document may be rewritten between reads, so the "
+        "scope is per document and each asking document builds the table")

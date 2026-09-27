@@ -27,14 +27,14 @@ sys.path.insert(0, str(PAYLOAD))
 
 def test_the_remote_is_asked_for_once_rather_than_once_per_document(
         git_repo, monkeypatch) -> None:
-    """`_own_remote` answers a question about the REPOSITORY.
+    """`own_remote` answers a question about the REPOSITORY.
 
     It was being called once per document by the pinned-ref rule. Profiled over
     400 documents, that was 11.3 seconds of a 16.2 second sweep - 70 percent of
     the run spent spawning `git remote get-url` to receive the same string.
     """
     from extant import session as hc
-    from extant.rules import pinned_ref as rule_pinned_ref
+    from extant import refs
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -49,13 +49,13 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     monkeypatch.setattr(hc, "_GIT", counter)
     calls = counter.calls
     # A fresh ambient scope, rather than clearing the one cache this test
-    # knows the name of. `_own_remote` is called DIRECTLY here, so what it
+    # knows the name of. `own_remote` is called DIRECTLY here, so what it
     # memoises into is whatever scope the module is holding.
     hc._SCOPE = hc.RunScope()
     try:
-        first = rule_pinned_ref._own_remote(hc.context(repo))
+        first = refs.own_remote(hc.context(repo))
         for _ in range(20):
-            rule_pinned_ref._own_remote(hc.context(repo))
+            refs.own_remote(hc.context(repo))
     finally:
         hc._SCOPE = hc.RunScope()
 
@@ -67,7 +67,7 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     # A second repository must still be asked about separately, or the cache is
     # answering for the wrong project - which would be a correctness bug and
     # the reason this is keyed by path rather than being a single value.
-    assert first == rule_pinned_ref._own_remote(hc.context(repo))
+    assert first == refs.own_remote(hc.context(repo))
 
 
 def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) -> None:
@@ -78,7 +78,7 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     rule does the least useful work.
     """
     from extant import session as hc
-    from extant.rules import pinned_ref as rule_pinned_ref
+    from extant import refs
     repo, commit = git_repo
     commit("README.md", "# R\n", "chore: init")
 
@@ -87,9 +87,9 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     calls = counter.calls
     hc._SCOPE = hc.RunScope()
     try:
-        assert rule_pinned_ref._own_remote(hc.context(repo)) is None, "the fixture has no origin"
+        assert refs.own_remote(hc.context(repo)) is None, "the fixture has no origin"
         for _ in range(10):
-            rule_pinned_ref._own_remote(hc.context(repo))
+            refs.own_remote(hc.context(repo))
     finally:
         hc._SCOPE = hc.RunScope()
 
@@ -665,9 +665,9 @@ def test_the_candidate_scans_run_once_per_document_not_once_per_caller(
     real_sha = commits._find_sha_candidates
     real_claims = commits._merge_claims
 
-    def counted_sha(text):
+    def counted_sha(text, own):
         sha_scans.append(text)
-        return real_sha(text)
+        return real_sha(text, own)
 
     def counted_claims(config, prose):
         claim_scans.append(prose)
@@ -790,7 +790,11 @@ def test_a_changed_path_pointer_pattern_is_not_answered_from_the_previous_one(
     # the rst reading - so BOTH answers came out at 1 whatever this rule's
     # key was. The blanking memo carries the format since 2026-09-16, and
     # the clears are gone: this assertion now discriminates on its own.
-    both = "Example::\n\n    see `docs/plan.md` for it\n"
+    # A doctest line, for the reason the link test below gives: the
+    # four-space-indented line this used until 2026-09-22 is code in both
+    # readings now, and only a shape rst blanks and markdown does not can
+    # still tell one reading's answer from the other's.
+    both = ">>> see `docs/plan.md` for it\n"
     hc.set_document(doc_format="markdown")
     as_markdown = rule_path_pointer.examined(hc.context(repo), both)
     hc.set_document(doc_format="rst")
@@ -950,7 +954,11 @@ def test_the_link_scan_is_not_answered_across_a_format_change() -> None:
     from extant import links
     from extant.scope import DocScope
 
-    both = "Example::\n\n    [the plan](docs/plan.md)\n"
+    # A DOCTEST line rather than an indented one, which is code in both
+    # readings since 2026-09-22: reStructuredText blanks `>>> ` and markdown
+    # does not, so one text object still yields a different link set under
+    # each format, which is the property this pins.
+    both = ">>> [the plan](docs/plan.md)\n"
     as_markdown = links.link_sites(DocScope(doc_format="markdown"), both)
     as_rst = links.link_sites(DocScope(doc_format="rst"), both)
     assert ([t for _n, _r, t, _h in as_markdown], as_rst) == (["docs/plan.md"], []), (
@@ -1010,11 +1018,16 @@ def test_the_blanking_memo_is_not_answered_across_a_format_change() -> None:
     from extant import text as text_mod
     from extant.scope import DocScope
 
-    both = "Example::\n\n    `abc1234` is code in one reading and prose in the other\n"
+    # A FENCE, which markdown blanks and reStructuredText does not. The
+    # four-space-indented line this compared on until 2026-09-22 is code in
+    # BOTH readings now, and a fixture that cannot tell the two apart cannot
+    # catch a memo answering across them - which is the whole property here.
+    both = ("A fence:\n\n```\n"
+            "`abc1234` is code in one reading and prose in the other\n```\n")
     as_markdown = text_mod.prose(DocScope(doc_format="markdown"), both)
     as_rst = text_mod.prose(DocScope(doc_format="rst"), both)
-    assert "abc1234" in as_markdown, "markdown keeps the indented line as prose"
-    assert "abc1234" not in as_rst, (
+    assert "abc1234" not in as_markdown, "markdown blanks a fenced line"
+    assert "abc1234" in as_rst, (
         "the same text object blanked as markdown was handed back for the rst "
         "reading: the blanking memo's key does not carry the format")
     assert len(as_rst) == len(both), "the blanking stopped preserving offsets"

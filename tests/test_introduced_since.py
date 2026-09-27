@@ -206,7 +206,7 @@ def test_a_deleted_block_introduces_no_lines(git_repo) -> None:
                   "docs: more")
     commit("docs/notes.md", "# Notes\n\n\nMerged at `x`.\n\ntail\n", "docs: delete a block")
 
-    lines, _binary = introduced_lines(repo, base)
+    lines, _binary, _before = introduced_lines(repo, base)
 
     assert lines.get("docs/notes.md", set()) == set(), lines
 
@@ -218,10 +218,58 @@ def test_added_and_modified_lines_are_numbered_in_the_new_file(git_repo) -> None
     base = commit("docs/notes.md", "# Notes\n\na\nb\nc\n", "docs")
     commit("docs/notes.md", "# Notes\n\nzero\n\na\nB\nc\nd\ne\n", "docs: edit")
 
-    lines, _binary = introduced_lines(repo, base)
+    lines, _binary, _before = introduced_lines(repo, base)
 
     # `zero` and the blank after it (3, 4), `B` (6), `d` and `e` (8, 9).
     assert lines["docs/notes.md"] == {3, 4, 6, 8, 9}, lines
+
+
+def test_a_staged_new_document_is_gated_before_it_is_committed(git_repo, capsys) -> None:
+    """The pre-commit shape the review's 4.11 asked about (Phase 51): a plan
+    document written this session, `git add`ed, never yet committed. It is in
+    the diff against HEAD (`+++ b/docs/plan.md`, every line a `+`) and NOT in
+    HEAD's tree - and the mode used to list its documents from HEAD's tree,
+    so the one document whose every line the range wrote fell out silently,
+    with the header counting it neither as examined nor as unread. The
+    diff's own `+++` side is the list now; HEAD's tree only counts what the
+    range left alone."""
+    repo, commit = git_repo
+    commit("docs/notes.md", "# Notes\n\nAll true.\n", "docs: a clean page")
+    with open(repo / "docs" / "plan.md", "w", encoding="utf-8", newline="") as fh:
+        fh.write(f"# Plan\n\nShipped at `{DEAD}`.\n")
+    _run(repo, "add", "docs/plan.md")
+
+    code = _gate(repo, "HEAD")
+    out = capsys.readouterr().out
+
+    assert code == 1, out
+    assert "docs/plan.md: line 3: [dead-sha]" in out, out
+    assert "examined 1 changed document(s) since HEAD" in out, out
+    assert "1 tracked document(s) the range did not change were not read" in out, out
+
+
+def test_an_uncommitted_rename_with_an_edit_is_read_under_its_new_name(
+        git_repo, capsys) -> None:
+    """`git mv docs/old.md docs/new.md`, a claim appended, nothing committed.
+    With `--find-renames` the diff files the edit under `b/docs/new.md`; HEAD's
+    tree still holds `docs/old.md`. Listing from HEAD's tree dropped the
+    document AND reported the old name as "the range did not change" - it
+    renamed it. Both names are the range's now: the new one is examined, the
+    old one is not counted among the unread."""
+    repo, commit = git_repo
+    commit("docs/old.md", "# Notes\n\nA line.\nAnother.\nA third.\n", "docs")
+    _run(repo, "mv", "docs/old.md", "docs/new.md")
+    with open(repo / "docs" / "new.md", "a", encoding="utf-8", newline="") as fh:
+        fh.write(f"\nMerged at `{DEAD}`.\n")
+    _run(repo, "add", "docs/new.md")
+
+    code = _gate(repo, "HEAD")
+    out = capsys.readouterr().out
+
+    assert code == 1, out
+    assert "docs/new.md: line 7: [dead-sha]" in out, out
+    assert "examined 1 changed document(s) since HEAD" in out, out
+    assert "0 tracked document(s) the range did not change were not read" in out, out
 
 
 def test_a_renamed_and_edited_document_is_read_under_its_new_name(
@@ -569,3 +617,40 @@ def test_the_mode_stays_within_its_spawn_budget(git_repo, monkeypatch) -> None:
     _gate(repo, "HEAD~1")
 
     assert len(spawns) == 4, "\n".join(" ".join(s[:4]) for s in spawns)
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_the_gate_lists_the_tree_once(git_repo, capsys, monkeypatch, tmp_path,
+                                      parallel) -> None:
+    """The gate lists HEAD's tree to count what the range left alone, and
+    then neither seeded its scope with the list nor handed it to `survey`,
+    so a document reaching `sites.py` had it listed again - in this process,
+    and once per worker. The sweep's twin of this was closed by Phase 48;
+    this one was found by the review of pull request #16, beside a
+    docstring saying the gate's parent lists no tree. `GIT_TRACE` to a
+    file, because a worker is another process. `docs/conf.py` makes the
+    repository a Sphinx site, which sends an unresolved fragment to the
+    project-wide anchor set, the reader that lists the tree."""
+    from extant import sweep
+    repo, commit = git_repo
+    commit("docs/conf.py", "project = 'x'\n", "docs: sphinx")
+    base = _run(repo, "rev-parse", "HEAD").strip()
+    for i in range(3):
+        commit(f"docs/d{i}.md", f"# Doc {i}\n\nSee [the part](#nowhere-{i}).\n",
+               f"docs: {i}")
+    trace = tmp_path / "git-trace.log"
+    monkeypatch.setenv("GIT_TRACE", str(trace))
+    if parallel:
+        monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 1)
+
+    _gate(repo, base)
+    out = capsys.readouterr().out
+
+    # This test's own denominator: the anchors were reported, so the reader
+    # that lists the tree was reached.
+    assert out.count("[dead-md-anchor]") == 3, out
+    assert ("worker process(es)" in out) == parallel, out
+    lines = trace.read_text(encoding="utf-8", errors="replace").splitlines()
+    listings = [ln for ln in lines if "ls-tree -r -z --name-only HEAD" in ln]
+    assert len(listings) == 1, (
+        f"the tree was listed {len(listings)} times for one gate run")
