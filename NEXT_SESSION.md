@@ -6,7 +6,7 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 54 - The review of pull request #16: nothing read from outside the checkout (unreleased, 2026-09-27)
+## Phase 54 - The review of pull request #16: nothing read from outside the checkout (shipped, 2026-09-27)
 
 **Status.** Suite is 1,390 tests across 75 files. On this machine 1,383
 pass and 7 skip, the symlink tests among the skips; on Linux, through WSL,
@@ -14,9 +14,8 @@ pass and 7 skip, the symlink tests among the skips; on Linux, through WSL,
 cannot run - so every symlink test ran there and passed. Thirteen added: seven
 in the new `tests/test_outside_repository.py`, two each in the indented-code
 and diff-gate files, one each in the packaging and held-out narrowing files.
-Thirteen rules; no mode added; no default or exit code moved. The tool
-remained released as 0.27.0, and this work sits above that tag with Phases 47
-to 53 in pull request #16. `python -m mypy`: no issues in 43 files, the new
+Thirteen rules; no mode added; no default or exit code moved. This work
+shipped in 0.28.0, with Phases 47 to 53, all of them in pull request #16. `python -m mypy`: no issues in 43 files, the new
 module the forty-third. Mutation campaign is 306 anchors: eight written here,
 each applied to a copy of this tree and watched turning the suite red - 8 of
 8 killed in eighty-three minutes with the baseline, none survived, none
@@ -60,16 +59,15 @@ rule reads. What they change is what an input can do, which a corpus of
 repositories nobody wrote to attack this tool does not exercise; that is why
 the review read the code and not the outputs.
 
-## Phase 53 - The other code block, and fences read the way CommonMark closes them (unreleased, 2026-09-27)
+## Phase 53 - The other code block, and fences read the way CommonMark closes them (shipped, 2026-09-27)
 
 **Status.** Suite is 1,377 tests across 74 files: 1,374 passing and 3
 skipped - twenty-two pairs in the new `tests/test_indented_code.py`, nine
 fence tests in `tests/test_code_stripping.py`, and four fixtures in the
 caching and added-rules tests moved onto shapes that still differ by
 format now that four spaces is code in both readings. Thirteen rules; no
-mode added; no default or exit code moved; no setting added. The tool
-remained released as 0.27.0, and this work sits above that tag with
-Phases 47 to 52 in pull request #16. `python -m mypy`: no issues in 42
+mode added; no default or exit code moved; no setting added. This work
+shipped in 0.28.0, with Phases 47 to 52 and 54, all in pull request #16. `python -m mypy`: no issues in 42
 files, the new module the forty-second. Mutation campaign is 298 anchors:
 eight written here and one retargeted (the blanking memo's key), all nine
 applied to a copy of this tree and watched turning the suite red - 9 of 9
@@ -155,7 +153,7 @@ The fuzz run at seed 20260824 over 35 repositories held it with 0
 violations, running on 29 and standing aside on the same 6 as `FENCE` -
 the ones whose noise leaves a fence unclosed.
 
-## Phase 52 - Whose commit a linked SHA is, in either spelling (unreleased, 2026-09-22)
+## Phase 52 - Whose commit a linked SHA is, in either spelling (shipped, 2026-09-22)
 
 **Status.** Suite is 1,346 tests across 73 files: 1,343 passing and 3
 skipped, nine added to section 3 of `tests/test_held_out_narrowings.py` -
@@ -163,9 +161,8 @@ each arm of the owner comparison with its control, in both spellings, plus
 the reduction that makes an SSH origin and a `www.` URL one repository and
 the arm where no origin can settle it. Thirteen rules; no mode added; no
 default or exit code moved; one question added to the SHA rule, asked only
-on a line that links a commit by URL. The tool remained released as
-0.27.0, and this work sits above that tag with Phases 47 to 51, which
-pull request #16 carries with it. `python -m mypy`: no issues in 41
+on a line that links a commit by URL. This work shipped in 0.28.0,
+with Phases 47 to 51, 53 and 54, which pull request #16 carried with it. `python -m mypy`: no issues in 41
 files. Mutation campaign is 290 anchors: three written here
 and four retargeted with the helpers that moved, each applied to a copy of
 this tree and watched turning the suite red - 7 of 7 killed in fifty-three
@@ -247,7 +244,7 @@ rule correctly found nothing and the test read a missing finding - the
 flake that had reddened CI legs since pull request #15, 1 run in 40
 locally and 60 of 60 green after the fix.
 
-## Phase 51 - The four probes: a split only the network can make, a rebase that reaches nothing, a rescue with no population, and the gate's missing listing (unreleased, 2026-09-22)
+## Phase 51 - The four probes: a split only the network can make, a rebase that reaches nothing, a rescue with no population, and the gate's missing listing (shipped, 2026-09-22)
 
 **Status.** Suite is 1,337 tests across 73 files: 1,334 passing and 3
 skipped, four added - two in `tests/test_introduced_since.py` (a staged new
@@ -264,8 +261,8 @@ once per run now, and the declining arm is forced by a parametrization so
 it runs on every checkout rather than only where nobody had run it.
 Thirteen rules; no mode added; no default or exit code moved; one document
 listing moved from HEAD's tree to the diff, and one word refused by name.
-The tool remained released as 0.27.0, and this work sits above that tag
-with Phases 47 to 50, carried together by pull request #16.
+This work shipped in 0.28.0, with Phases 47 to 50 and 52 to 54, carried
+together by pull request #16.
 `python -m mypy`: no issues in 41 files. Mutation campaign is 287
 anchors: two retargeted on the lines the listing and its refusal changed
 and three written here, each applied to a copy of this tree and watched
@@ -331,7 +328,7 @@ before it is a change, because a four-space-indented continuation
 paragraph under a list item is prose. `--at <ref>` stays unbuilt, since
 the question it would answer is settled by the network or not at all.
 
-## Phase 50 - The type checker: four measured, one gated, and a floor none can see (unreleased, 2026-09-21)
+## Phase 50 - The type checker: four measured, one gated, and a floor none can see (shipped, 2026-09-21)
 
 **Status.** Suite is 1,332 tests across 73 files: 1,329 passing and 3
 skipped, six added in `tests/test_extant_config.py` - five refusals, each
@@ -339,9 +336,8 @@ red against the loader before it refused anything, and one control that
 every documented shape still loads, green before and after - and two in
 `tests/test_scope.py` given a real `Config` where they had handed the
 field None. Thirteen rules; no
-mode added; no default, output or exit code moved. The tool remained
-released as 0.27.0, and this work sits above that tag with Phases 47, 48
-and 49, uncommitted beside them. `python -m mypy` at `--strict` over the
+mode added; no default, output or exit code moved. This work
+shipped in 0.28.0, with Phases 47 to 49 and 51 to 54, in pull request #16. `python -m mypy` at `--strict` over the
 package, the shim, `install.py` and `detect.py`: 0 errors in 41 files,
 from 29 in default mode and 97 under `--strict` before the work - 17 and
 79 of those on the package and shim, 12 and 18 on `install.py`; 5
@@ -402,16 +398,15 @@ the design record and each is a reason, not a debt; and `mypy>=2.3,<3` is
 a bound that a 3.0 release will have to be raised past deliberately, with
 the count that release reports written beside it.
 
-## Phase 49 - The structural tranche: one Config, and two shapes the numbers kept (unreleased, 2026-09-21)
+## Phase 49 - The structural tranche: one Config, and two shapes the numbers kept (shipped, 2026-09-21)
 
 **Status.** Suite is 1,326 tests across 73 files: 1,323 passing and 3
 skipped, one added in `tests/test_module_quality.py` and one replaced in
 `tests/test_config_object.py`, with about fifty lines in eight test files
 moved from the module globals to `session.config()` - each red against
 the unchanged package before the change was made. Thirteen rules; no mode
-added; no default, output or exit code moved. The tool remained released
-as 0.27.0, and this work sits above that tag with Phases 47 and 48,
-uncommitted beside them. Mutation campaign is 284 anchors: one written
+added; no default, output or exit code moved. This work
+shipped in 0.28.0, with Phases 47, 48 and 50 to 54, in pull request #16. Mutation campaign is 284 anchors: one written
 here and one retargeted on the line `--search`'s document loop changed,
 each applied to a copy of this tree and watched turning the suite red -
 2 of 2 killed in fourteen minutes with the baseline. The 152 visible
@@ -467,17 +462,16 @@ checks and it now cannot. 3.4 comes back with 3.5, when a free-threaded
 build is in the matrix; 3.2's two-rule spike is available if a run is
 wanted behind the paper refusal.
 
-## Phase 48 - The probe tranche: one batch, one scope, one list, and a matcher read against git (unreleased, 2026-09-21)
+## Phase 48 - The probe tranche: one batch, one scope, one list, and a matcher read against git (shipped, 2026-09-21)
 
 **Status.** Suite is 1,325 tests across 73 files: 1,322 passing and 3
 skipped, 11 added across `tests/test_deleted_since.py`,
 `tests/test_spawn_budget.py`, `tests/test_curated_behaviour.py` and
 `tests/test_exclude_paths.py`. Thirteen rules; no mode added; no default,
-output or exit code moved. The tool remained released as 0.27.0 - cut on
-2026-09-21 from `main` as it stood after pull request 13, while this and
-Phase 47 sat uncommitted - and this work sits above that tag with Phase
-47, rebased onto the release on the same day, still uncommitted beside
-it. Mutation campaign is 283 anchors: ten written here and five
+output or exit code moved. This work missed
+0.27.0 - cut on 2026-09-21 from `main` as it stood after pull request 13,
+while this and Phase 47 sat uncommitted - and shipped in 0.28.0, with
+Phase 47 and Phases 49 to 54, in pull request #16. Mutation campaign is 283 anchors: ten written here and five
 retargeted on the lines the batch, the two scopes, the seed and the matcher
 changed, each applied to a copy and watched turning the suite red - 14 of
 14 killed in 69 minutes on the first copy; of the two written after that
@@ -543,16 +537,16 @@ one, which the sweep will name when they do; and `--introduced-since`'s
 workers still list the tree for themselves on the rare range with a hundred
 changed documents, because that parent lists no tree to hand down.
 
-## Phase 47 - The diff-scoped gate replayed, and the debts the shipped items carried (unreleased, 2026-09-20)
+## Phase 47 - The diff-scoped gate replayed, and the debts the shipped items carried (shipped, 2026-09-20)
 
 **Status.** Suite is 1,314 tests across 73 files: 1,311 passing and 3
 skipped, 14 added across `tests/test_repository_notes.py` (new),
 `tests/test_packaging.py` and `tests/test_added_rules.py`. Thirteen rules;
 no mode added; no default or exit code moved; three notes added to `--sweep`
 and one to every gating mode. Phases 36 to 46 reached `main` in pull
-request 13 on 2026-09-19 and shipped in 0.27.0 on 2026-09-21; the tool
-remained released as 0.27.0 and this work sits above that tag, written
-the day before the release and rebased onto it. Mutation campaign is 273
+request 13 on 2026-09-19 and shipped in 0.27.0 on 2026-09-21; this work,
+written the day before that release and rebased onto it, shipped in 0.28.0
+with Phases 48 to 54, in pull request #16. Mutation campaign is 273
 anchors: five written
 here and two retargeted on the lines the rename hint's field and the
 survey's tuple changed, each applied to a copy and watched turning the
