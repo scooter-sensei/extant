@@ -16,9 +16,10 @@ analogue, because `strip_code` blanks a fenced block WITH SPACES so that every
 character offset survives - a contract this project's own notes record as
 having broken once on CRLF and cost 1627 characters on one document.
 
-So the mutable regions here are: the inside of a code fence, the end of the
-document, the line terminator, the file's name, and the presence of unrelated
-documents. None of them may move a finding.
+So the mutable regions here are: the inside of a code fence, the inside of an
+indented code block, the end of the document, the line terminator, the file's
+name, and the presence of unrelated documents. None of them may move a
+finding.
 
 WHAT A SKIPPED ORACLE MEANS
 
@@ -48,7 +49,8 @@ __all__ = [
     "DidNotRun", "ORACLES", "Result", "finding_count", "findings_in",
     "run_all",
     "oracle_baseline", "oracle_crlf", "oracle_denominator_agrees",
-    "oracle_fence", "oracle_github", "oracle_introduced", "oracle_mode_agrees",
+    "oracle_fence", "oracle_github", "oracle_indented", "oracle_introduced",
+    "oracle_mode_agrees",
     "oracle_monotone", "oracle_process", "oracle_relocate", "oracle_shift",
 ]
 
@@ -269,6 +271,54 @@ def oracle_fence(run, repo: Path) -> Result:
     if before != after:
         return Result([("FENCE", f"fenced junk changed the findings: "
                                  f"{_describe(before, after)}")])
+    return Result()
+
+
+def oracle_indented(run, repo: Path) -> Result:
+    """Junk inside an INDENTED code block changes nothing.
+
+    CommonMark's other code block, blanked since Phase 53 by
+    `extant/blocks.py`. `FENCE` never reached it - the generator writes no
+    four-space shape anywhere, so no oracle and no noise shape watched the
+    scanner, and a change that stopped it blanking would have passed every
+    fuzz run. This appends one at the END of the document, so no earlier line
+    moves, and requires every finding to survive unchanged.
+
+    A PARAGRAPH AT THE MARGIN GOES FIRST, and it is what makes the block a
+    block. Four spaces after a blank line is code only at the top level: under
+    an open list item it is a continuation paragraph, and under an admonition
+    or an HTML element it is that construct's body - prose both times, where a
+    finding would be honest. A non-indented paragraph after a blank line closes
+    all of those, so the indented line below it is code whatever the document
+    ended in.
+
+    SKIPPED where no paragraph can close what is open: an unclosed fence (the
+    junk would be fence content, testing `FENCE` again), and an HTML comment or
+    a `<pre>`, `<script>`, `<style>` or `<textarea>` left open, which run to
+    their own terminator through anything.
+    """
+    path, original = _readable(repo)
+    if original is None:
+        return Result(skipped="no primary document")
+    text = original.decode("utf-8", "replace")
+    if text.count("```") % 2:
+        return Result(skipped="document has an unclosed fence")
+    if text.rfind("<!--") > text.rfind("-->"):
+        return Result(skipped="document has an unclosed HTML comment")
+    lowered = text.lower()
+    for tag in ("pre", "script", "style", "textarea"):
+        if lowered.rfind("<" + tag) > lowered.rfind("</" + tag):
+            return Result(skipped=f"document has an unclosed <{tag}>")
+    before = _own(findings_in(_text(_validate(run, repo))))
+    try:
+        path.write_bytes(original + b"\n\nEnd of the indented probe.\n\n"
+                                    b"    junk `src/gone.py` and [x](nowhere.md)\n")
+        after = _own(findings_in(_text(_validate(run, repo))))
+    finally:
+        path.write_bytes(original)
+    if before != after:
+        return Result([("INDENTED", f"indented junk changed the findings: "
+                                    f"{_describe(before, after)}")])
     return Result()
 
 
@@ -672,6 +722,7 @@ def oracle_introduced(run, repo: Path) -> Result:
 # so that a failure in one is reported before the read-only ones spend spawns.
 ORACLES = (
     ("FENCE", oracle_fence),
+    ("INDENTED", oracle_indented),
     ("SHIFT", oracle_shift),
     ("CRLF", oracle_crlf),
     ("RELOCATE", oracle_relocate),

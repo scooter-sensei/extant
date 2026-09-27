@@ -4053,6 +4053,24 @@ because a key missing an input is answerable from the wrong reading. The
 suffix is now an input too - `.mdx` has no indented code block - so the key
 carries the document's path beside its format.
 
+**A scanner nothing in the fuzzer could reach, until a property did.** The
+plan for this tranche said the harnesses generate no four-space shape, so
+nothing there would break - and the same fact meant nothing there WATCHED
+the new module either. A change that stopped it blanking would have passed
+every fuzz run, the property-that-cannot-fire shape the self-check exists
+to catch, arriving through an absence rather than a stale anchor. So the
+fuzzer gained `INDENTED`, a sibling of `FENCE`: a paragraph at the margin
+and then an indented line holding a dead pointer and a dead link, appended
+to the primary document, must move no finding. The paragraph is load-bearing
+- four spaces after a blank line is code only at the top level, and a list
+item, an admonition or an HTML element left open at the end of a document
+would make the line prose, where a finding is honest - and where nothing can
+close what is open (a fence, a comment or a verbatim tag) the oracle steps
+aside and says so. Its breakage is the scanner's own early return widened
+from `.mdx` to every document, the state the tool shipped in for fifty-two
+phases; watched silent on the clean payload and red on the broken one, the
+twenty-third of twenty-three.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

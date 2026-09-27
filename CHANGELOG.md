@@ -286,7 +286,8 @@ block at all. Hand-read on the corpus: the exemptions keep all 31 findings
 that sit in rendered prose - bazel's versioned command-line reference alone
 holds 21,384 lines of them - and the rule still silences the 70 that sit in
 genuine code, moby's vagrant walkthrough and its generated API documents
-among them.
+among them. The fuzzer gained a twenty-third property, `INDENTED`, because it
+generated no four-space shape and so nothing in it watched the new scanner.
 
 **A fence ends where CommonMark says it ends.** The stripper matched any run
 of three backticks or tildes and toggled, so a four-backtick block quoting a

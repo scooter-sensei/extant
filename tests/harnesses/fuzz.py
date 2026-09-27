@@ -1980,9 +1980,9 @@ def all_faults(repo: Path, mode, recipe: "Recipe" = None):
 #
 # A violation of either is reported at full size, and says so.
 SHRINKABLE = ("CRASH", "DENOMINATOR", "EXIT", "FORMATS", "SARIF", "HARNESS",
-              "ERRORED", "FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
-              "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE", "GITHUB",
-              "INTRODUCED",
+              "ERRORED", "FENCE", "INDENTED", "SHIFT", "CRLF", "RELOCATE",
+              "MONOTONE", "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE",
+              "GITHUB", "INTRODUCED",
               # AXIS bisects over FEATURES while the axes are held fixed -
               # `RepoPlan.without` carries them through untouched, and that
               # file says why. So the reduction answers "which claims, given

@@ -717,7 +717,7 @@ which is how a breakage that fails to apply reads as a success. An anchor that
 does not match is a HARNESS FAULT rather than a skip, the same rule `mutate.py`
 states for the same reason.
 
-**22 of 22 properties are observed going red**, including the four the Stage 3
+**23 of 23 properties are observed going red**, including the four the Stage 3
 audit recorded as never watched, and `HARNESS`, which an audit of this stage
 found had been left out of the list entirely. `AXIS` was the last holdout and
 was reported NOT OBSERVED for four days: its breakage was aimed at a fallback
@@ -725,8 +725,11 @@ in `resolve_ref` that stopped being reached when the ref table started
 answering, so the anchor went on matching a line nothing executed.
 `INTRODUCED`, the twenty-second, was NOT OBSERVED on its first run for the
 mirror-image reason: the breakage was sound and the range it was watched
-through held no document. **4 of the
-22 need contrived breakages** and are marked as such in the output, because
+through held no document. `INDENTED`, the twenty-third, arrived with Phase 53
+because nothing here generated a four-space shape: the scanner that blanks
+CommonMark's other code block had no property watching it, so a change that
+stopped it would have passed every fuzz run. **4 of the
+23 need contrived breakages** and are marked as such in the output, because
 "this property can be made to fire" and "this property guards something
 somebody might really write" are different claims and only the first is being
 made. `MONOTONE`'s is tautological - it keys on the

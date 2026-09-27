@@ -81,9 +81,9 @@ from pathlib import Path
 CORE_PROPERTIES = ("CRASH", "HANG", "EXIT", "ERRORED", "DENOMINATOR",
                    "UNSTABLE", "SARIF", "FORMATS", "HARNESS", "AXIS",
                    "CONCURRENT")
-ORACLE_PROPERTIES = ("FENCE", "SHIFT", "CRLF", "RELOCATE", "MONOTONE",
-                     "BASELINE", "PROCESS", "MODE-AGREE", "DENOM-AGREE",
-                     "GITHUB", "INTRODUCED")
+ORACLE_PROPERTIES = ("FENCE", "INDENTED", "SHIFT", "CRLF", "RELOCATE",
+                     "MONOTONE", "BASELINE", "PROCESS", "MODE-AGREE",
+                     "DENOM-AGREE", "GITHUB", "INTRODUCED")
 ALL_PROPERTIES = CORE_PROPERTIES + ORACLE_PROPERTIES
 
 # Names this list is NOT required to carry, each with the reason, so the
@@ -244,6 +244,20 @@ BREAKAGES = (
         edits=(("extant/text.py",
                 "    return _blank(doc, text, inline=True)",
                 "    return text"),),
+    ),
+    Breakage(
+        prop="INDENTED",
+        why="indented code blocks no longer recognised, so a claim in a "
+            "four-space transcript is judged as a promise again",
+        # The scanner's own early return, widened from `.mdx` to every
+        # document: `indented_code_lines` then answers the empty set, which is
+        # exactly the behaviour before Phase 53. Not contrived - it is the
+        # state this tool shipped in for fifty-two phases. The same site as
+        # `mutate.py`'s "indented code is read as prose again", which asks the
+        # suite the question this asks the fuzzer.
+        edits=(("extant/blocks.py",
+                "    if mdx:\n        return frozenset()",
+                "    if True:\n        return frozenset()"),),
     ),
     Breakage(
         prop="PROCESS",

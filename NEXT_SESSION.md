@@ -27,8 +27,9 @@ none unpredicted, and the per-clone finding totals reproduce the
 prediction's. The rest of the pre-push list ran against a working-tree
 extract: smoke green with 45 clean of 47 and the two expected flags;
 scenarios green, 25 scenarios and 213 assertions; fuzz at seed 20260824
-over 35 repositories, 0 violations; `--self-check` 22 of 22; `--verify`
-clean; `--selftest` 7 fired and 0 silent.
+over 35 repositories, 0 violations; `--self-check` 22 of 22, and 23 of 23
+once the fuzzer property below joined it; `--verify` clean; `--selftest` 7
+fired and 0 silent.
 
 **What it is.** The second of the two shapes Phase 51 measured and did not
 build. CommonMark has two kinds of code block and this tool blanked one;
@@ -79,11 +80,26 @@ at most ten examined link sites, in PX4 and AdguardTeam, can sit on them.
 **What comes next.** The unified scanner: fences moved into the module that
 has the container model, gated by the old-against-new measurement until the
 regressed column is zero or each line of it is explained. The nine fence
-tests are its specification. Still owed from this one: a fuzzer property
-for the indented block - the harnesses generate no four-space shape, so
-nothing there breaks and nothing there watches it - and the 2,692 lines
+tests are its specification. Still owed from this one: the 2,692 lines
 the reference calls code that this module leaves as prose, dominated by a
 list marker followed by five or more spaces, recorded rather than built.
+
+**The fuzzer watches it now, added before merge (2026-09-27).** The
+harnesses generated no four-space shape, so no oracle and no noise shape
+reached the new scanner, and a change that stopped it blanking would have
+passed every fuzz run. `INDENTED` is the twenty-third property: it appends
+a margin paragraph and then an indented line holding a dead pointer and a
+dead link to the primary document, and requires every finding to survive
+unchanged. The paragraph is what makes the line a block whatever the
+document ended in, since a list item, an admonition or an HTML element
+still open would make it prose. It steps aside where nothing can close
+what is open: an unclosed fence, comment, or verbatim tag. Its self-check
+breakage widens the scanner's early return from `.mdx` to every document,
+which is the state the tool shipped in before this phase. Watched silent
+on the clean payload and red on the broken one: `--self-check` 23 of 23.
+The fuzz run at seed 20260824 over 35 repositories held it with 0
+violations, running on 29 and standing aside on the same 6 as `FENCE` -
+the ones whose noise leaves a fence unclosed.
 
 ## Phase 52 - Whose commit a linked SHA is, in either spelling (unreleased, 2026-09-22)
 
