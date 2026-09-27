@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from extant.contract import Rule
+from extant.files import inside
 from extant.finding import Finding, rel
 from extant.anchors import anchors
 from extant.scope import Context
@@ -22,7 +23,10 @@ def _target_anchors(ctx: Context, path: Path) -> set[str] | None:
     key = str(path)
     if key not in ctx.run.target_anchors:
         try:
-            with open(path, encoding="utf-8", newline="") as fh:
+            # `resolve_reference` settles the spelling; `inside` where the
+            # bytes are - an in-repo `x.md` linked to /dev/zero read forever.
+            with open(inside(ctx.repo, path), encoding="utf-8",
+                      newline="") as fh:
                 ctx.run.target_anchors[key] = anchors(fh.read())
         except (OSError, UnicodeDecodeError):
             ctx.run.target_anchors[key] = None

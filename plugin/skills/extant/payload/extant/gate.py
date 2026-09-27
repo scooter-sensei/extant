@@ -39,6 +39,7 @@ from typing import Callable, TextIO
 from extant import refs, session
 from extant.commits import load_sha_map, translate_shas
 from extant.config import StatusConfig
+from extant.files import refusal
 from extant.finding import Finding, rel
 from extant.git import has_commit_graph, is_partial, is_shallow
 from extant.refs import renamed_to
@@ -474,6 +475,12 @@ def run_validate(repo: Path, args: argparse.Namespace,
              f"{status.source}")
         diag("  set primary_doc in .extant.toml, or pass --validate <path>")
         return 1
+    # Only for `--verify`, whose name came from the repository's own
+    # configuration; a path typed after `--validate` is the operator's.
+    why = refusal(repo, target) if args.verify else None
+    if why is not None:
+        diag(f"not reading {target}: {why}")
+        return 1
     try:
         with open(target, encoding="utf-8", newline="") as fh:
             text = fh.read()
@@ -569,7 +576,15 @@ def run_validate(repo: Path, args: argparse.Namespace,
         extras_incomplete = False
         archive_doc = session.config().archive_doc
         archive_path = repo / archive_doc
-        if archive_path.exists():
+        why = refusal(repo, archive_path) if archive_path.exists() else None
+        if why is not None:
+            # Named, and gating: a configured document this will not read is
+            # the same fact as one that is missing, and says why.
+            if found.record(archive_doc, [Finding(
+                    1, "missing-document",
+                    f"archive_doc is not read: {why}")], primary=False):
+                exit_code = 1
+        elif archive_path.exists():
             with open(archive_path, encoding="utf-8", newline="") as fh:
                 archive_text = fh.read()
             if mapping is not None:
@@ -609,6 +624,14 @@ def run_validate(repo: Path, args: argparse.Namespace,
                     1, "missing-document",
                     "listed in extra_docs but does not exist",
                 )], primary=False):
+                    exit_code = 1
+                continue
+            why = refusal(repo, extra)
+            if why is not None:
+                if found.record(relative, [Finding(
+                        1, "missing-document",
+                        f"listed in extra_docs and not read: {why}")],
+                        primary=False):
                     exit_code = 1
                 continue
             with open(extra, encoding="utf-8", newline="") as fh:

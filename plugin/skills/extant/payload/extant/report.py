@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 from extant import registry as _registry
 from extant import strata
+from extant.files import inside
 from extant.finding import Finding, Located
 
 __all__ = [
@@ -472,8 +473,10 @@ def _sarif_snippet(repo: Path | None, item: Located) -> str | None:
     if repo is None or item.finding.line < 1:
         return None
     try:
-        with open(repo / item.path, encoding="utf-8", errors="replace",
-                  newline="") as fh:
+        # A snippet is quoted into the SARIF document, so it is read only
+        # from where extant/files.py allows.
+        with open(inside(repo, repo / item.path), encoding="utf-8",
+                  errors="replace", newline="") as fh:
             for number, line in enumerate(fh, start=1):
                 if number == item.finding.line:
                     return line.rstrip("\r\n")

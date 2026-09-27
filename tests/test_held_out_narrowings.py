@@ -476,6 +476,25 @@ def test_a_linked_sha_is_not_examined_when_the_repository_has_no_origin(git_repo
     assert _examined_shas(repo, text) == 0
 
 
+def test_a_relative_commit_link_is_this_repositorys_and_checked_once(git_repo) -> None:
+    """`[8ea71e5](../../commit/8ea71e5)` is how a hand-written changelog
+    links its own commit, and GitHub renders it as one. Its head names no
+    owner, so the comparison read it as foreign and the bare spelling
+    skipped the whole link, text and URL alike - found by the review of
+    pull request #16. It is examined now, at ONE site: the text is set
+    aside and the URL's hex read, which is what the backticked spelling of
+    the same link was already doing - and with no origin at all, since a
+    relative link needs none to be ours."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    text = "* fix ([8ea71e5](../../commit/8ea71e5))\n"
+    assert _shas(repo, text) == ["8ea71e5"]
+    assert _examined_shas(repo, text) == 1
+    backticked = "* fix ([`8ea71e5`](../../commit/8ea71e5))\n"
+    assert _shas(repo, backticked) == ["8ea71e5"]
+    assert _examined_shas(repo, backticked) == 1
+
+
 def test_a_bare_sha_as_link_text_of_a_non_commit_url_still_fires(git_repo) -> None:
     """A link is only a qualification when it names a commit, blob, tree,
     pull or compare page. Link text pointing anywhere else is a bare token
@@ -880,8 +899,12 @@ def _bare_scan_as_it_stood(text: str, own: str | None) -> list[tuple[int, str]]:
         skip_spans += [m.span() for m in commits._UUID.finditer(line)]
         skip_spans += [m.span() for m in commits._ASSET_PATH.finditer(line)]
         skip_spans += [m.span() for m in commits._PINNED_REF.finditer(line)]
-        skip_spans += [m.span() for m in commits._LINKED_BARE_SHA.finditer(line)
-                       if own is None or normalise_remote(m.group("head")) != own]
+        for m in commits._LINKED_BARE_SHA.finditer(line):
+            head = m.group("head")
+            if head.startswith(".") or not head:
+                skip_spans.append(m.span(1))    # relative: text only
+            elif own is None or normalise_remote(head) != own:
+                skip_spans.append(m.span())
         for match in commits.BARE_SHA_TOKEN.finditer(line):
             if commits.spans_overlap(match.span(), skip_spans):
                 continue
@@ -917,6 +940,9 @@ def _adversarial_corpus() -> str:
         "[`{h}`](https://github.com/o/r/commit/{h})",
         "* fix the thing ([#12](https://github.com/o/r/issues/12)) ([{s}](https://github.com/o/r/commit/{h}))",
         "* vendored fix ([{s}](https://www.github.com/other/repo/commit/{h}))",
+        # Relative, which GitHub renders as this repository's own commit:
+        # the text is set aside and the URL's hex read (2026-09-27).
+        "* relative ([{s}](../../commit/{h}))",
         "conversation_{u} in a debug log",
         "identifier{h}zz embedded in a longer word",
         "The number {d} is INT64-ish.",

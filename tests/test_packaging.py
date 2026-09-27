@@ -439,8 +439,11 @@ def _run_action(tmp_path, **inputs) -> tuple[int, str]:
         pytest.skip("no bash on this machine; the action's step needs one")
     stub = tmp_path / "bin"
     stub.mkdir()
+    # Each argument in brackets, not `"$*"`: joined with spaces, one
+    # argument holding a space and two arguments printed the same, which is
+    # how a word-split `since` passed this test.
     with open(stub / "extant", "w", encoding="utf-8", newline="\n") as fh:
-        fh.write('#!/bin/sh\nprintf "extant %s\\n" "$*"\n')
+        fh.write('#!/bin/sh\nprintf "extant"\nprintf " [%s]" "$@"\nprintf "\\n"\n')
     (stub / "extant").chmod(0o755)
     script = tmp_path / "step.sh"
     with open(script, "w", encoding="utf-8", newline="\n") as fh:
@@ -460,7 +463,24 @@ def test_the_action_gates_a_range_when_given_its_base(tmp_path) -> None:
     is what the workflow already knows."""
     code, out = _run_action(tmp_path, mode="introduced-since", since="origin/main")
     assert code == 0, out
-    assert "extant --introduced-since origin/main --repo . --format=github" in out, out
+    assert ("extant [--introduced-since=origin/main] [--repo] [.] "
+            "[--format=github]") in out, out
+
+
+def test_the_actions_base_reaches_the_cli_as_one_argument(tmp_path) -> None:
+    """`since` is one argument whatever it holds. It was spliced into a
+    string the step then word-split, so a value with a space became extra
+    flags - `--sha-map` among them, the one mode that rewrites documents -
+    and a value opening with `-` was read by argparse as an option."""
+    spaced, dashed = tmp_path / "spaced", tmp_path / "dashed"
+    spaced.mkdir()
+    dashed.mkdir()
+    code, out = _run_action(spaced, mode="introduced-since",
+                            since="HEAD~1 --sha-map=map.txt")
+    assert code == 0, out
+    assert "[--introduced-since=HEAD~1 --sha-map=map.txt] [--repo]" in out, out
+    code, out = _run_action(dashed, mode="introduced-since", since="-x")
+    assert "[--introduced-since=-x] [--repo]" in out, out
 
 
 def test_the_action_refuses_the_range_mode_without_a_base(tmp_path) -> None:
@@ -470,13 +490,13 @@ def test_the_action_refuses_the_range_mode_without_a_base(tmp_path) -> None:
     code, out = _run_action(tmp_path, mode="introduced-since")
     assert code == 2, out
     assert "::error::" in out and "'since' input" in out, out
-    assert "extant --introduced-since" not in out, out
+    assert "extant [" not in out, out
 
 
 def test_the_action_ignores_since_outside_the_range_mode(tmp_path) -> None:
     code, out = _run_action(tmp_path, mode="verify", since="origin/main")
     assert code == 0, out
-    assert "extant --verify --repo . --format=github" in out, out
+    assert "extant [--verify] [--repo] [.] [--format=github]" in out, out
 
 
 def test_command_template_placeholders_are_all_rendered() -> None:

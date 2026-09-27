@@ -118,20 +118,26 @@ runs:
         # empty ref would reach the CLI as `--introduced-since ''` and be
         # refused there with a sentence about merge bases; the missing input
         # is the actual problem, so it is named here.
-        MODE_FLAGS="--$INPUT_MODE"
+        #
+        # ONE argument, `--introduced-since=<ref>`, quoted. It was spliced
+        # into a string that was then word-split, so a `since` holding a
+        # space became extra flags and one opening with `-` read as an
+        # option - found by the review of pull request #16. `set --` keeps
+        # the mode as the positional arguments, never re-split.
+        set -- "--$INPUT_MODE"
         if [ "$INPUT_MODE" = introduced-since ]; then
           if [ -z "$INPUT_SINCE" ]; then
             echo "::error::mode 'introduced-since' needs the 'since' input: the ref the range is measured from, such as the pull request's base sha" >&2
             exit 2
           fi
-          MODE_FLAGS="--introduced-since $INPUT_SINCE"
+          set -- "--introduced-since=$INPUT_SINCE"
         fi
         case "$INPUT_FORMAT" in
           text|github|sarif) : ;;
           *) echo "::error::format must be 'text', 'github' or 'sarif', not '$INPUT_FORMAT'" >&2
              exit 2 ;;
         esac
-        # Word-split deliberately and only here: `args` is a flag list, and
-        # `MODE_FLAGS` is the mode with, for the range mode, its ref.
+        # Word-split deliberately and only here: `args` is a flag list. The
+        # mode, and for the range mode its ref, arrive whole as "$@".
         # shellcheck disable=SC2086
-        extant $MODE_FLAGS --repo "$INPUT_REPO" "--format=$INPUT_FORMAT" $INPUT_ARGS
+        extant "$@" --repo "$INPUT_REPO" "--format=$INPUT_FORMAT" $INPUT_ARGS

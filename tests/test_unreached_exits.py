@@ -141,7 +141,7 @@ def test_a_rule_error_reported_by_an_introduced_since_worker_fails_the_run(
     repo, commit = git_repo
     commit("docs/a.md", "# A\n", "docs: a")
     commit("docs/a.md", "# A\n\nMore.\n", "docs: more")
-    monkeypatch.setattr(introduced_since, "survey", lambda repo, tasks: _worker_outcome(
+    monkeypatch.setattr(introduced_since, "survey", lambda repo, tasks, tracked=None: _worker_outcome(
         tasks, [("dead-sha", "RuntimeError: boom")]))
     before = len(RULE_ERRORS)
     try:

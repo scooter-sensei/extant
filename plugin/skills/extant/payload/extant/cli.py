@@ -42,6 +42,7 @@ from extant import session
 from extant.collect import collect
 from extant.config import StatusConfig
 from extant.entries import archive, split_entries
+from extant.files import OutsideRepository, inside
 from extant.gate import run_check_text, run_validate
 from extant.git import repository_root
 from extant.registry import RULE_ERRORS
@@ -352,8 +353,13 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
               f"{status.source}", file=sys.stderr)
         return 1
     try:
-        with open(target, encoding="utf-8", newline="") as fh:
+        # The name is configured, and the document is printed from below;
+        # see extant/files.py for where a configured name may lead.
+        with open(inside(repo, target), encoding="utf-8", newline="") as fh:
             text = fh.read()
+    except OutsideRepository as exc:
+        print(f"not reading {target}: {exc}", file=sys.stderr)
+        return 1
     except UnicodeDecodeError as exc:
         # A document that is not valid UTF-8 is a situation to report, not
         # to crash on. Reading it with errors="replace" instead would let

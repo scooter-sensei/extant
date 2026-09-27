@@ -57,6 +57,7 @@ from pathlib import Path
 
 from extant import refs, session, strata
 from extant.config import normalise_document
+from extant.files import inside
 from extant.finding import Located
 from extant.gate import report_repository_notes
 from extant.git import environment
@@ -249,9 +250,11 @@ def introduced_lines(
     return lines, binary, before
 
 
-def _holds_bare_cr(path: Path) -> bool:
+def _holds_bare_cr(repo: Path, relative: str) -> bool:
+    # A refused name answers False here and is counted as unreadable by the
+    # survey, which refuses it through the same `inside`.
     try:
-        return _BARE_CR.search(path.read_bytes()) is not None
+        return _BARE_CR.search(inside(repo, repo / relative).read_bytes()) is not None
     except OSError:
         return False
 
@@ -320,7 +323,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     primary = normalise_document(session.CONFIG.primary_doc)
     # Numbered differently from git, so their findings cannot be placed on
     # git's lines. Surveyed and counted; never gated, never dropped.
-    unmapped = [p for p in kept if _holds_bare_cr(repo / p)]
+    unmapped = [p for p in kept if _holds_bare_cr(repo, p)]
     tasks = [(relative, relative == primary) for relative in kept]
 
     gating: list[Located] = []
@@ -336,9 +339,14 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     # failing path too - the reason is written out in `run_sweep`.
     previous_document = session.document()
     index_incomplete = False
-    with session.run_scope():
+    with session.run_scope() as scope:
+        # The listing taken above, seeded and handed on as `run_sweep` does
+        # with its own, so neither this scope nor a worker lists the tree
+        # again. The gate had been listing it once more per worker - 46 ms
+        # each on ruff - since the listing moved into this mode's parent.
+        scope.tracked_markdown[str(repo)] = tracked
         try:
-            gathered, workers, fallback = survey(repo, tasks)
+            gathered, workers, fallback = survey(repo, tasks, tracked=tracked)
             for relative, _is_primary in tasks:
                 outcome = gathered.get(relative)
                 if outcome is None:

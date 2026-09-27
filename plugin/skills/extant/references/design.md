@@ -4071,6 +4071,104 @@ from `.mdx` to every document, the state the tool shipped in for fifty-two
 phases; watched silent on the clean payload and red on the broken one, the
 twenty-third of twenty-three.
 
+## The review of pull request #16: a configured source that could read anything
+
+Pull request #16 carried seven tranches, and before it merged the whole of it
+was reviewed as a diff - every payload hunk, every function around one, every
+caller of a changed signature - with the question a tranche's own gate does not
+ask: what does this let an input it did not choose do. Seven findings, all
+fixed, and the largest was older than the pull request it was found in.
+
+**A consistency source was a way to copy any readable file into a log.**
+`inconsistent-artifact` joins each configured source onto the repository root
+and reads it, and when two sources disagree it PRINTS what each pattern
+captured - that is the finding. The names come from `.extant.toml`, which is
+the repository's own file, and on a pull request from a fork the repository is
+the fork's. So a fork could add a check reading `.git/config`, where
+actions/checkout persists the job's credential, or `/etc/anything` - an
+absolute name simply replaces the root it is joined onto - and the run printed
+the capture into its log and, in the github format, onto the pull request.
+Reproduced by the test that now pins it: a secret written with `git config`,
+a two-source check, and the old rule printed it in the finding's text. No
+symbolic link is needed for that one, which is why it reproduces on every
+platform. The pull request is where it became reachable rather than where it
+began: the rule arrived with Phase 4 on 2026-07-26, and what this release
+adds is the gate for pull requests, which runs whatever configuration the
+pull request brings.
+
+**And every other read followed symbolic links wherever they led.** A tracked
+`notes.md` that is a link to `/dev/zero` read forever in the survey, in
+`md_anchor`'s read of a fragment link's target, in the project-anchor sets of
+`sites.py` and in the `.rs` probe beside them; the same link to an outside
+regular file was judged as a document, its tokens quoted into findings. The
+corpus could not have shown it: this machine checks symlinks out as plain
+files (`core.symlinks` is false), and the fuzzer's escaping links are
+directories and non-documents. On Linux, where the action runs, they are
+real.
+
+**One check, in one module, at every reader.** `extant/files.py` holds
+`inside(repo, path)`: the name must resolve to a regular file inside the
+resolved checkout and outside `.git` - the git directory sits inside the
+checkout's directory, so "under the root" alone would have passed the one
+file that mattered most. It raises `OutsideRepository`, an `OSError`, so each
+of the twelve readers that already counted a file it could not read counts
+this one the same way, by class name, with no second except clause for one of
+them to forget. What each reader does with a refusal is what it already did
+with an unreadable file: a swept document is named unreadable; a configured
+document - the archive, an extra, the primary under `--verify` - is a
+`missing-document` finding that says why, and gates, as a missing one does;
+a consistency source reports that it was not read; a link target or a
+manifest is not judged. A link that stays inside - `CLAUDE.md -> AGENTS.md`,
+moby's own - is followed exactly as before. `--validate PATH` is left alone,
+because that path is the operator's, and `.extant.toml` itself is found with
+`is_file()` already, so a device cannot be one and a parse error quotes no
+content. Four tests need a real link and run on Linux - through WSL here,
+where all four passed, `/dev/zero` among them - and the three that reproduce
+the configured-source leak and the non-link names run everywhere; the
+mutation anchors aim at those, because the campaign runs where links cannot
+be made.
+
+**The action split `since` on whitespace.** The ref was spliced into a
+string the step then expanded unquoted, so `since: "HEAD~1 --sha-map=m"`
+reached the CLI as three arguments - watched, by a stub that now prints each
+argument in brackets: the old one joined them with spaces, which is why the
+existing tests passed - and a ref opening with `-` read as an option. It
+travels as one `--introduced-since=<ref>`.
+
+**Four smaller ones.** `blocks.py` split the whole document again at the end
+of every indented block, O(lines x blocks): 1.22 s on moby's 5,345-line
+v1.24 API document, paid twice per document; split once now, pinned by a
+count rather than a timing. An indented `<!--` or `<pre>` - the first line of
+an HTML example - was taken as an HTML block opening, so the example left its
+code block and, unterminated, swallowed the lines after it; CommonMark opens
+an HTML block only below four columns past the container, and the module now
+asks that, leaving governed bodies as they were. The gate listed HEAD's tree
+and handed the list to nobody, so its scope and each worker listed it again -
+the sweep's defect Phase 48 closed, reintroduced beside a docstring saying
+the gate lists no tree. And a relative commit link, `../../commit/<sha>`,
+normalised to no owner, compared unequal to `origin` and was skipped whole
+in the bare spelling; it is this repository's by construction, and it is
+read now at one site, its URL's hex - which is how the backticked spelling
+was already reading it.
+
+**What the corpus says about all of it: nothing, and that was the
+prediction.** `m16_predict_sites.py`, widened to documents holding a relative
+link, ran the survey's validator under both payloads and predicted 0 of 152
+outputs moving; the identity gate found 0. The guard is inert where links are
+text, relative commit links in the bare spelling do not occur in the visible
+corpus, and the indented-HTML shape sits on no line a rule reads. The fixes
+are to what an input CAN do, which a corpus of repositories nobody wrote to
+attack this tool does not exercise - the reason the review read the code
+rather than the outputs.
+
+**What the review got wrong and corrected before recording.** It first named
+`line_pointer`'s read as a way to hang on `/dev/zero`; that read checks
+`is_file()` and a size limit first and cannot. The hang was `md_anchor`'s,
+which checks neither. And its first fix for the relative link examined the
+link text AND the URL, two sites for one citation; the corpus-agreement
+mirror of the bare scan caught the shape once a relative template was added
+to its corpus.
+
 ## Authoring constraints these rules impose
 
 - **Paraphrase past statuses in the newest entry; never quote or strike them

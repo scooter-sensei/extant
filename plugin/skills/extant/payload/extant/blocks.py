@@ -141,7 +141,11 @@ def indented_code_lines(text: str, *, mdx: bool = False) -> frozenset[int]:
     paragraph = False          # is a paragraph open on the line above?
     block: list[int] | None = None   # the run being collected, if any
     start = 0                  # the column a run has to beat to continue
-    for number, raw in enumerate(text.splitlines(), start=1):
+    # Split ONCE and handed to `_last_nonblank`, which split the whole
+    # document again at the end of every block: O(lines x blocks), 1.22 s on
+    # moby's 5,345-line v1.24 API document, found by the review of PR #16.
+    lines = text.splitlines()
+    for number, raw in enumerate(lines, start=1):
         line = raw
         while True:
             quoted = _QUOTE.match(line)
@@ -165,11 +169,20 @@ def indented_code_lines(text: str, *, mdx: bool = False) -> frozenset[int]:
             if "-->" in line:
                 comment = False
             continue
-        if _COMMENT_OPEN.match(rest):
+        # CommonMark starts an HTML block only on a line indented less than
+        # four past its container; four or more is indented code, so an
+        # HTML example's `<!--` or `<pre>` is code. Read as an opener it
+        # left its block and, unterminated, swallowed every later line, so
+        # the next real block read as prose - found by the review of pull
+        # request #16. Inside a governed body - a JSX element, an
+        # admonition - indented tags are that body's markup, as always.
+        container_column = columns[-1] if columns else 0
+        may_open_html = indent < container_column + 4 or governed is not None
+        if may_open_html and _COMMENT_OPEN.match(rest):
             comment = "-->" not in line[line.index("<!--"):]
             paragraph = False
             continue
-        opener = _VERBATIM_OPEN.match(rest)
+        opener = _VERBATIM_OPEN.match(rest) if may_open_html else None
         if opener is not None:
             tag = opener.group("tag").lower()
             verbatim = None if _closing(tag, rest) else tag
@@ -181,7 +194,7 @@ def indented_code_lines(text: str, *, mdx: bool = False) -> frozenset[int]:
             if blank or indent >= start:
                 block.append(number)
                 continue
-            code.update(n for n in block if n <= _last_nonblank(text, block))
+            code.update(n for n in block if n <= _last_nonblank(lines, block))
             block = None
         if blank:
             paragraph = False
@@ -221,11 +234,11 @@ def indented_code_lines(text: str, *, mdx: bool = False) -> frozenset[int]:
             continue
         paragraph = True
     if block is not None:
-        code.update(n for n in block if n <= _last_nonblank(text, block))
+        code.update(n for n in block if n <= _last_nonblank(lines, block))
     return frozenset(code)
 
 
-def _last_nonblank(text: str, block: list[int]) -> int:
+def _last_nonblank(lines: list[str], block: list[int]) -> int:
     """The last line of `block` that holds anything.
 
     Trailing blank lines sit between the block and whatever follows, and
@@ -234,7 +247,6 @@ def _last_nonblank(text: str, block: list[int]) -> int:
     than it is, which matters to the test that compares this with the
     reference parser line for line.
     """
-    lines = text.splitlines()
     for number in reversed(block):
         # `strip(" 	")` rather than `strip()`: CommonMark's blank line is
         # spaces and tabs, and Python's default also removes U+00A0 and the

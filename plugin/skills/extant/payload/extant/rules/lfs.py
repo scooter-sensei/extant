@@ -12,6 +12,7 @@ from __future__ import annotations
 import subprocess
 
 from extant.contract import Rule
+from extant.files import inside
 from extant.finding import Finding
 from extant.git import environment
 from extant.scope import Context
@@ -35,7 +36,9 @@ def _lfs_is_configured(ctx: Context) -> bool:
     them - pays nothing for this rule beyond that.
     """
     try:
-        text = (ctx.repo / ".gitattributes").read_text(encoding="utf-8", errors="replace")
+        # Through `inside`: a `.gitattributes` linked to /dev/zero read forever.
+        text = inside(ctx.repo, ctx.repo / ".gitattributes").read_text(
+            encoding="utf-8", errors="replace")
     except OSError:
         return False
     return any("filter=lfs" in line and not line.lstrip().startswith("#")

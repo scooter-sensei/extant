@@ -50,6 +50,7 @@ from extant import refs, session
 from extant import text as markup
 from extant import strata
 from extant.config import StatusConfig, normalise_document
+from extant.files import inside
 from extant.finding import Finding, Located
 from extant.gate import report_repository_notes
 from extant.registry import RULE_ERRORS
@@ -153,7 +154,9 @@ def _validate_one(repo: Path, relative: str, is_primary: bool) -> _Result:
     """
     path = repo / relative
     try:
-        with open(path, encoding="utf-8", newline="") as fh:
+        # Through `inside`: a tracked `*.md` may be a link to anything on the
+        # machine, and on a fork's pull request the repository is not ours.
+        with open(inside(repo, path), encoding="utf-8", newline="") as fh:
             text = fh.read()
     except (OSError, UnicodeDecodeError) as exc:
         # Counted and named, never skipped quietly. A file that could not be
@@ -245,7 +248,7 @@ def survey(repo: Path,
     `tracked` is the tracked-document list the caller already took from
     `refs.tracked_markdown`, handed to every worker so none re-lists the tree
     for itself; `--sweep` passes the one it built the survey from, and
-    `--introduced-since` passes nothing, because its parent lists no tree.
+    `--introduced-since` the one it counts the untouched documents by.
     """
     cpus = os.cpu_count() or 1
     if len(tasks) < _PARALLEL_FLOOR or cpus < 2:

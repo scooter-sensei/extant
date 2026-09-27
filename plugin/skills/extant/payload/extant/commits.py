@@ -299,6 +299,11 @@ def _linked_spans(pattern: "re.Pattern[str]", line: str,
     the memo above each scanner can key on the value the scan used."""
     spans: list[tuple[int, int]] = []
     for match in pattern.finditer(line):
+        if match.group("head").startswith(".") or not match.group("head"):
+            # `../../commit/<sha>` is this repository's, and its URL half is
+            # read as a bare token already; the text alone is set aside.
+            spans.append(match.span(1))
+            continue
         if not asked:
             asked.append(own())
         ours = asked[0]

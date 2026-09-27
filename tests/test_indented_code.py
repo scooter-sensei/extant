@@ -323,3 +323,40 @@ def test_a_no_break_space_is_content_not_blankness() -> None:
             "\n"
             "-   **all** - show all containers\n")
     assert _lines(text) == {3}
+
+
+def test_an_html_opener_inside_an_indented_block_is_code() -> None:
+    """A line indented into an open block is its content whatever it holds.
+    The comment and verbatim-tag checks ran BEFORE the block was continued,
+    so an indented `<!--` in an HTML example left the block - and, never
+    terminated in the sample, turned every later line into comment, so the
+    next real block was read as prose. Found by the review of pull request
+    #16; CommonMark and markdown-it-py agree the whole run is code."""
+    text = ("An HTML template:\n"
+            "\n"
+            "    <!-- start of the template\n"
+            "    <pre>\n"
+            "    <div>body</div>\n"
+            "\n"
+            "Then run:\n"
+            "\n"
+            "    $ make docs\n")
+    assert _lines(text) == {3, 4, 5, 9}
+
+
+def test_the_document_is_split_once_however_many_blocks_it_holds() -> None:
+    """`_last_nonblank` split the whole document again at the end of every
+    block: O(lines x blocks), 1.22 s on moby's 5,345-line v1.24 API document
+    and paid twice per document, once for each stripped copy. Counted
+    rather than timed, so the test cannot flake: the text is a `str` that
+    counts its own `splitlines` calls."""
+    class Counting(str):
+        calls = 0
+
+        def splitlines(self, keepends: bool = False) -> list[str]:
+            Counting.calls += 1
+            return super().splitlines(keepends)
+
+    text = Counting("".join(f"Step {n}:\n\n    $ run {n}\n\n" for n in range(50)))
+    assert len(_lines(text)) == 50
+    assert Counting.calls == 1, f"split {Counting.calls} times for 50 blocks"

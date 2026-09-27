@@ -617,3 +617,40 @@ def test_the_mode_stays_within_its_spawn_budget(git_repo, monkeypatch) -> None:
     _gate(repo, "HEAD~1")
 
     assert len(spawns) == 4, "\n".join(" ".join(s[:4]) for s in spawns)
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_the_gate_lists_the_tree_once(git_repo, capsys, monkeypatch, tmp_path,
+                                      parallel) -> None:
+    """The gate lists HEAD's tree to count what the range left alone, and
+    then neither seeded its scope with the list nor handed it to `survey`,
+    so a document reaching `sites.py` had it listed again - in this process,
+    and once per worker. The sweep's twin of this was closed by Phase 48;
+    this one was found by the review of pull request #16, beside a
+    docstring saying the gate's parent lists no tree. `GIT_TRACE` to a
+    file, because a worker is another process. `docs/conf.py` makes the
+    repository a Sphinx site, which sends an unresolved fragment to the
+    project-wide anchor set, the reader that lists the tree."""
+    from extant import sweep
+    repo, commit = git_repo
+    commit("docs/conf.py", "project = 'x'\n", "docs: sphinx")
+    base = _run(repo, "rev-parse", "HEAD").strip()
+    for i in range(3):
+        commit(f"docs/d{i}.md", f"# Doc {i}\n\nSee [the part](#nowhere-{i}).\n",
+               f"docs: {i}")
+    trace = tmp_path / "git-trace.log"
+    monkeypatch.setenv("GIT_TRACE", str(trace))
+    if parallel:
+        monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 1)
+
+    _gate(repo, base)
+    out = capsys.readouterr().out
+
+    # This test's own denominator: the anchors were reported, so the reader
+    # that lists the tree was reached.
+    assert out.count("[dead-md-anchor]") == 3, out
+    assert ("worker process(es)" in out) == parallel, out
+    lines = trace.read_text(encoding="utf-8", errors="replace").splitlines()
+    listings = [ln for ln in lines if "ls-tree -r -z --name-only HEAD" in ln]
+    assert len(listings) == 1, (
+        f"the tree was listed {len(listings)} times for one gate run")

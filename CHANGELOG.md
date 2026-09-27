@@ -9,7 +9,9 @@ structural three, the type checker, the four measurements that change
 what the skill tells an author, the first of the two shapes those
 measurements found, and the second of them - CommonMark's other code block,
 measured against a reference parser before a line of it was written, and the
-fence reading corrected beside it. No rule added or removed, thirteen as
+fence reading corrected beside it - and then a review of the whole, which
+found that a consistency source named in `.extant.toml` could copy any
+readable file into a log, and closed it. No rule added or removed, thirteen as
 before; no mode added; no default or exit code moved; on the 152 visible
 corpus clones the findings on the word `ed25519`, read as a commit,
 disappeared from seven of them, the findings on a SHA that is the link text
@@ -25,8 +27,9 @@ type checker: four measured, the floor none can see, and a gate on the one
 that enforces the most", "The four probes: a split only the network can
 make, a rebase that reaches nothing, a rescue with no population, and the
 gate's missing listing", "The bare commit-link text: whose commit it is,
-and a number re-derived" and "The other code block: four spaces, and the
-renderers that disagree about them".
+and a number re-derived", "The other code block: four spaces, and the
+renderers that disagree about them" and "The review of pull request #16: a
+configured source that could read anything".
 
 **The diff-scoped gate was replayed, and it does not replace the default
 install policy.** `--introduced-since` pins no path, and the review that
@@ -307,6 +310,28 @@ at the fence level, so a fence inside an HTML comment or a JSX element can
 still put it out of phase, and the fix is to move fences into the module that
 has one. On the corpus the two halves together remove 2,338 findings, every
 one in code by the reference parser, and restore 423, every one in prose.
+
+**Nothing is read from outside the checkout, whatever the repository names.**
+A consistency source was joined onto the repository root and read, so
+`.git/config` - where actions/checkout keeps the job's credential - or any
+absolute path could be named in `.extant.toml`, and the rule prints the value
+its pattern captured: on a pull request from a fork, whose `.extant.toml` is
+the fork's, that copied part of any readable file into the log and the
+annotations. And every document, link target, `path:line` target, manifest
+and `.gitattributes` was opened through whatever symbolic link the checkout
+held, so a tracked `notes.md` linked to `/dev/zero` read until the job was
+killed. One check now stands between a name and its bytes: the file must
+resolve to a regular file inside the checkout and outside `.git`. A link that
+stays inside - `CLAUDE.md -> AGENTS.md` - is followed as before; a document
+that fails the check is counted as unreadable, a configured one is a
+`missing-document` finding that says why, and a consistency source reports
+that it was not read. Found by reviewing this release's own pull request; the
+bug is older than it, and the gate the release adds for pull requests is what
+made a fork's configuration a reachable input.
+
+**The action passes `since` as one argument.** It was spliced into a string
+the step then split on whitespace, so a `since` holding a space became extra
+flags and one opening with `-` read as an option.
 
 ## 0.27.0 (2026-09-21)
 

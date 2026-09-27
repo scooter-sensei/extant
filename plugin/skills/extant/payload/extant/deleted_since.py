@@ -25,6 +25,7 @@ from pathlib import Path
 from extant import session, strata
 from extant import text as markup
 from extant.config import normalise_document
+from extant.files import inside
 from extant.finding import Located
 from extant.git import environment, is_partial
 from extant.report import render_findings
@@ -214,7 +215,8 @@ def _live_prose(repo: Path, documents: list[str]) -> str:
     parts = []
     for relative in documents:
         try:
-            with open(repo / relative, encoding="utf-8", newline="") as handle:
+            with open(inside(repo, repo / relative), encoding="utf-8",
+                      newline="") as handle:
                 parts.append(markup.prose(session.document(), handle.read()))
         except (OSError, UnicodeDecodeError):
             continue

@@ -91,6 +91,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # range wrote. Eight anchors below, each watched turning the suite red
     # on a copy before it was recorded here.
     introduced_since = collect.parent / "extant/introduced_since.py"
+    # The one check between a name the repository gives and the bytes it
+    # leads to, written 2026-09-27 by the review of pull request #16. Its
+    # symlink tests run on Linux only, so these anchors aim at the arms the
+    # tests on every platform reach: a configured source, a directory, an
+    # absolute path - the campaign runs where links cannot be made.
+    files_mod = collect.parent / "extant/files.py"
     # The only irreversible write in the system, and it had no anchor here at
     # all until 2026-09-09 - so neither the conservation guard that stands
     # between a splitter bug and a truncated status document, nor the
@@ -750,8 +756,49 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("an inline code span opens a fence again", text,
          "    return not (fence.group(\"char\") == \"`\" and \"`\" in fence.group(\"rest\"))",
          "    return True"),
+        # An indented `<!--` taken as an HTML block again, so an HTML
+        # example leaves its code block and swallows the lines after it.
+        ("an indented HTML example opens a comment again", blocks,
+         "        may_open_html = indent < container_column + 4 or governed is not None",
+         "        may_open_html = True"),
+
+        # --- reading inside the checkout --------------------------------
+        # `.git/config` sits inside the checkout's directory and holds the
+        # job's credential; the consistency rule prints what it captures.
+        ("a configured source may read the git directory", files_mod,
+         "    if \".git\" in resolved.relative_to(root).parts:",
+         "    if False:"),
+        # An absolute or `..` name replaces the root it is joined onto.
+        ("a name may lead out of the checkout", files_mod,
+         "    if resolved != root and root not in resolved.parents:",
+         "    if False:"),
+        # A directory - or, on Linux, a device - read as a document.
+        ("a name that is not a regular file is read", files_mod,
+         "    if not resolved.is_file():\n"
+         "        raise OutsideRepository(f\"{path} is not a regular file\")",
+         "    if False:\n"
+         "        raise OutsideRepository(f\"{path} is not a regular file\")"),
+        # The rule's own call, so a source outside is joined and read again.
+        ("the consistency rule reads wherever its source leads", rules / "consistency.py",
+         "            try:\n"
+         "                inside(repo, target)\n",
+         "            try:\n"
+         "                pass\n"),
+        # The gate's one listing, seeded into its scope and handed to its
+        # workers; without either the tree is listed again (2026-09-27).
+        ("the gate lists the tree again inside its scope", introduced_since,
+         "        scope.tracked_markdown[str(repo)] = tracked",
+         "        pass"),
+        ("the gate's workers list the tree again", introduced_since,
+         "survey(repo, tasks, tracked=tracked)",
+         "survey(repo, tasks)"),
 
         # --- shas ----------------------------------------------------------
+        # A relative commit link read as another repository's, so its bare
+        # spelling is skipped whole, text and URL alike (2026-09-27).
+        ("a relative commit link is read as another repository's", commits,
+         "        if match.group(\"head\").startswith(\".\") or not match.group(\"head\"):",
+         "        if False:"),
         # "secret scan misses openai keys" lived here until 0.14.0 removed the
         # rule. Deleted rather than retargeted: there is no code left for it to
         # name, and a mutation kept alive by pointing it at something else

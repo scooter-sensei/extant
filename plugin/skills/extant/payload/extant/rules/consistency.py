@@ -10,6 +10,7 @@ from pathlib import Path
 
 from extant.config import load_config
 from extant.contract import Rule
+from extant.files import OutsideRepository, inside
 from extant.finding import Finding
 from extant.scope import Context
 
@@ -175,6 +176,19 @@ def check(ctx: Context, text: str) -> list[Finding]:
                     1, "inconsistent-artifact",
                     f"consistency check `{name}` reads `{relative}`, "
                     f"which does not exist",
+                ))
+                continue
+            # This rule PRINTS what its pattern captured, and the source
+            # names come from `.extant.toml` - on a fork's pull request, the
+            # fork's. `/etc/...`, `../x` or `.git/config` joined onto the root
+            # made that a way to copy any readable file into a CI log.
+            try:
+                inside(repo, target)
+            except OutsideRepository as exc:
+                findings.append(Finding(
+                    1, "inconsistent-artifact",
+                    f"consistency check `{name}` reads `{relative}`, which "
+                    f"is not read: {exc}",
                 ))
                 continue
             content = target.read_text(encoding="utf-8", errors="replace")

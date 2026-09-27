@@ -6,6 +6,60 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 54 - The review of pull request #16: nothing read from outside the checkout (unreleased, 2026-09-27)
+
+**Status.** Suite is 1,390 tests across 75 files. On this machine 1,383
+pass and 7 skip, the symlink tests among the skips; on Linux, through WSL,
+1,389 pass and 1 skips - the case-insensitive filesystem test, which Linux
+cannot run - so every symlink test ran there and passed. Thirteen added: seven
+in the new `tests/test_outside_repository.py`, two each in the indented-code
+and diff-gate files, one each in the packaging and held-out narrowing files.
+Thirteen rules; no mode added; no default or exit code moved. The tool
+remained released as 0.27.0, and this work sits above that tag with Phases 47
+to 53 in pull request #16. `python -m mypy`: no issues in 43 files, the new
+module the forty-third. Mutation campaign is 306 anchors: eight written here,
+each applied to a copy of this tree and watched turning the suite red - 8 of
+8 killed in eighty-three minutes with the baseline, none survived, none
+unapplied. The 152 visible corpus clones were swept before and after against
+a prediction of 0 differing, computed from the survey's own validator: 0
+differ. The rest of the pre-push list ran against a working-tree extract:
+smoke 45 clean of 47 with the two expected flags; scenarios 25 and 213
+assertions; fuzz at seed 20260824 over 35 repositories, 0 violations;
+`--self-check` 23 of 23; `--verify` clean; `--selftest` 7 fired and 0 silent.
+
+**What it is.** Pull request #16 was reviewed whole before it merged -
+every payload hunk, every function around one, every caller of a changed
+signature - asking what each change lets an input it did not choose do.
+Seven findings, all fixed. The largest is older than the pull request: the
+consistency rule joined each source `.extant.toml` names onto the root and
+read it, and prints what its pattern captured when two sources disagree.
+On a pull request from a fork, whose `.extant.toml` is the fork's, a source
+spelled `.git/config` - where actions/checkout keeps the job's credential -
+or any absolute path copied its capture into the log and the annotations.
+Reproduced first, on every platform, by a test that writes a secret with
+`git config` and watched the old rule print it. And every other read
+followed symbolic links wherever they led, so a tracked document linked to
+`/dev/zero` read until the job was killed. One check now stands between a
+name and its bytes, `inside` in the new files module beside the rules: a
+regular file, inside the resolved checkout, outside `.git`, raised as an
+`OSError` so each of the twelve readers counts a refusal the way it already
+counted a file it could not read. A link that stays inside is followed as
+before. Beside it: the action passes `since` as one argument, where it had
+been split on whitespace into extra flags; the indented-code scanner splits
+a document once rather than once per block, 1.22 s to milliseconds on moby's
+largest API document; an indented HTML example stays code; the diff gate's
+one tree listing is handed to its scope and its workers; and a relative
+commit link is read as this repository's, at one site. The full record is
+the section "The review of pull request #16: a configured source that could
+read anything" in the design rationale under the skill's references.
+
+**What the corpus says: nothing, as predicted.** None of the fixes moves an
+output of the 152 visible clones - the guard is inert where links are
+checked out as text, as they are here, and the other shapes sit on no line a
+rule reads. What they change is what an input can do, which a corpus of
+repositories nobody wrote to attack this tool does not exercise; that is why
+the review read the code and not the outputs.
+
 ## Phase 53 - The other code block, and fences read the way CommonMark closes them (unreleased, 2026-09-27)
 
 **Status.** Suite is 1,377 tests across 74 files: 1,374 passing and 3

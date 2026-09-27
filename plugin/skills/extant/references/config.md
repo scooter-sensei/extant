@@ -278,6 +278,14 @@ two files disagree has a definite answer needing only the filesystem.
 Off unless configured, deliberately: the files and patterns are per-project, and
 a guessed default would accuse an innocent repository.
 
+**Every file named must be a regular file inside the checkout, outside `.git`.**
+An absolute path, a `..` that climbs out, a symbolic link leading elsewhere, or
+anything under `.git` is not read, and the check reports that instead. The rule
+prints the values it captured, and on a pull request from a fork this file is
+the fork's: a source spelled `.git/config`, where actions/checkout keeps the
+job's credential, would otherwise copy whatever the pattern captured into the
+log.
+
 Four shapes are refused at load rather than passing quietly, because each one
 would produce a check that can never fail:
 
