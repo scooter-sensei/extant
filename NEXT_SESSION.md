@@ -8,10 +8,10 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 55 - One scanner for both code blocks: a fence ends where its container does (unreleased, 2026-09-28)
 
-**Status.** Suite is 1,414 tests across 75 files. On this machine 1,407
-pass and 7 skip; on Linux, through WSL, 1,413 pass and 1 skips. Twenty-four
-added: eighteen in the code-stripping file, five in the indented-code file
-and one in the diff-gate file. Thirteen rules; no mode added; no default or
+**Status.** Suite is 1,419 tests across 75 files. On this machine 1,412
+pass and 7 skip; on Linux, through WSL, 1,418 pass and 1 skips. Twenty-nine
+added: eighteen in the code-stripping file, five each in the indented-code and
+fixture-template files, and one in the diff-gate file. Thirteen rules; no mode added; no default or
 exit code moved. The tool remained released as 0.28.0, and this work sits
 above that tag in its own pull request. `python -m mypy`: no issues in 43
 files. Mutation campaign is 312 anchors: the five fence anchors followed the
@@ -65,6 +65,21 @@ mode directly - test isolation, since every shipped caller runs `main()` once
 per process. Repaired in the tests: one helper takes back by mark what a
 raising rule recorded, and an autouse guard fails whichever test leaves an
 entry behind, which found a third.
+
+**Beside it: the test infrastructure, measured and tightened.** Merged into
+this pull request from its own, green on all ten legs. `pytest.ini` now names
+every test that did not run, refuses a mistyped mark or setting, fails a
+parametrised test whose list came up empty rather than skipping it, and makes
+a warning an error - zero on every leg when it was switched on. The commit
+helper in `tests/conftest.py` reads the SHA it just wrote from disk instead of
+asking git, one spawn in three of every commit the suite makes, and asks git
+wherever the layout is anything but plain: the serial suite went from 551 to
+504 seconds. CI runs the Windows legs in parallel and keeps Linux serial, the
+definition of correctness: the Windows legs went from 5.5-9.4 minutes to
+3.1-5.2, and the run from 61 job-minutes to 41. And the mutation harness
+gained an opt-in parallel mode that confirms every kill serially before it
+counts: on the twelve fence anchors it agreed with the serial verdicts twelve
+of twelve, none overturned, in 26 minutes against about 68.
 
 ## Phase 54 - The review of pull request #16: nothing read from outside the checkout (shipped, 2026-09-27)
 
