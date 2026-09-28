@@ -6,6 +6,57 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 56 - CI honesty: the version the maintainer runs, the surfaces adopters run, and a third order (unreleased, 2026-09-28)
+
+**Status.** Suite is 1,424 tests across 76 files. On this machine 1,417
+pass and 7 skip; on Linux, through WSL, 1,423 pass and 1 skips. Five added:
+three for the new order option in their own file, one in the file that
+checks the documentation against the code, and one in the packaging file
+for the defect below. Thirteen rules; no mode added; no default or exit
+code moved; the one shipped file that changed is the action's metadata. The tool
+remained released as 0.28.0, and this work sits above that tag in its own
+pull request. `python -m mypy`: no issues in 43 files. Mutation campaign is 312
+anchors, all matching, none moved, and no campaign was run: there is no
+shipped code for a mutation to break. Nor was the corpus identity gate. What
+proves this tranche is the CI run it triggers, read job by job.
+
+**What it is.** CI now tests the Python the maintainer runs. 3.14 joined the
+matrix on both platforms and the package's classifiers, and a new test fails
+when those two lists disagree - nothing joined the top of the range before,
+only the floor. A free-threaded 3.14 job fails unless the GIL is really
+off; it ran once allowed to fail, passed, and is required. The action and
+the pre-commit hooks, the two ways adopters run the tool, had never run in
+CI; each has a job now, written the way the README tells an adopter to
+write it. Measured first: the hooks passed through pre-commit 4.6.2 here,
+and the range mode the action runs, run from the command line, reported
+nothing on the lines the previous pull request wrote. Every job has a
+timeout, sized from its last five runs, where none had one. Every leg prints its fifteen slowest tests, for the timeout the next
+tranche puts on each test. And the suite gained a seeded shuffle,
+`--order-seed`, which one Linux leg now runs as a second pass: before it was
+built, the suite passed four shuffled orders and both interleaved ones, so
+it is an instrument for dependencies not yet written, not a repair. Six of
+the plan's premises had moved by the day it was built, each named in the
+section "CI honesty: the version the maintainer runs, the surfaces adopters
+run, and a third order" in the design rationale under the skill's
+references.
+
+**What the first CI run found: 0.28.0's action does not load.** Twenty of
+twenty-one checks were green - both 3.14 legs, both hooks, the shuffled
+pass, and the free-threaded job, which ran with the GIL off and passed and
+is now required. The one red was the action's first run in CI: the runner
+refused to load it, because the `since` input's description quoted the
+pull-request base in expression braces, and the runner evaluates those in
+a description too, where there is nothing to evaluate them against. Every
+caller of the 0.28.0 action gets that refusal, in every mode; 0.27.0's
+action is unaffected. The description now names the value without braces,
+and a packaging test, watched red on the one line, keeps expressions out of
+everything above the action's steps. Nothing local could have seen it: the
+suite runs the action's script under bash and no harness loads the
+manifest the way the runner does. The second run, after the repair, was
+green on all twenty-one checks: the action loaded, installed on the
+runner's own Python in 3.4 seconds, and found nothing on the 245 lines this
+work wrote - the same count as here.
+
 ## Phase 55 - One scanner for both code blocks: a fence ends where its container does (unreleased, 2026-09-28)
 
 **Status.** Suite is 1,419 tests across 75 files. On this machine 1,412

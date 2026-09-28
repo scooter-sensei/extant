@@ -69,13 +69,29 @@ has not been stable across runs - `load` won the measurement above and
 `loadfile` won an earlier one - so `loadfile` is the recommendation for its
 isolation, not for its speed.
 
+For an order no one chose, shuffle the whole suite with a seed:
+
+```sh
+python -m pytest --order-seed 20260928
+```
+
+A pytest option `tests/conftest.py` adds, not a plugin, so nothing is
+installed for it and nothing shuffles unless asked. The same seed collects
+the same order - every xdist worker agrees, which xdist requires - so a red
+serial run is replayed exactly by copying its command; under `-n` the
+workers still split the tests by timing. Measured before it existed, on
+2026-09-28: three seeds
+serially on Linux and one under `-n auto --dist load` on Windows all passed,
+each moving at least 1,416 of 1,419 tests. One Linux CI leg runs the suite a
+second time with the seed above.
+
 **It is an invocation, not a default, and `pytest.ini` is deliberately left
 alone.** Putting `-n auto` in `addopts` makes it unconditional, which breaks
 `--pdb` and takes the choice away from CI. The serial run stays the definition
 of correctness.
 
 CI makes that choice per platform. The Linux legs run serially, so every pull
-request is still judged by the serial run on five Pythons. The Windows legs run
+request is still judged by the serial run on six Pythons. The Windows legs run
 `-n auto --dist loadfile`, because there a process start costs several times
 what it costs on Linux and the suite starts thousands: serially they took 5.5 to
 9.4 minutes against about 1.5 on Linux, measured on 2026-09-28, and every pull

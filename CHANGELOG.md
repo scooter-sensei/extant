@@ -11,6 +11,19 @@ prose and the old fence loop had blanked, none lost - and nothing else moved.
 The record is in `plugin/skills/extant/references/design.md` under "One
 scanner for both code blocks: a fence ends where its container does".
 
+**The GitHub Action loads again.** 0.28.0's action cannot be used in any
+mode: GitHub's runner refuses to load it, with "Unrecognized named-value:
+'github'", because the description of its new `since` input quoted the
+pull-request base in expression braces - and the runner evaluates those in
+a description too, where there is nothing to evaluate them against. 0.27.0
+and earlier are unaffected. The description now names the value without
+braces, a packaging test keeps expressions out of everything above the
+action's steps, and a CI job now runs the action from the commit under test
+on every pull request, which is how this was found - on its first run. Its
+second, after the repair, loaded the action and installed it on the
+runner's own Python, the way the README's snippet has it, with no
+`setup-python`.
+
 **A list item's end closes a fence opened inside it.** kubernetes' changelogs
 paste terminal output into an entry and never close the fence; the next
 entry's marker, back at the margin, ends the item and - on GitHub, and in MDX -
@@ -50,6 +63,16 @@ prose read and 12 silenced lines repaired, against 539 more lines of code read
 as prose and 19 more lines of prose silenced on MDX sites. MDX judged its own side of that: the
 @mdx-js/mdx parser was run offline over the corpus's MDX-rendered documents
 while the change was measured, and never ships.
+
+**Python 3.14 is tested and declared.** CI runs the suite on 3.14 on Linux
+and Windows, and the package's classifiers name it; a test now fails when the
+tested versions and the classifiers disagree. Nothing in the tool changed for
+it - the suite already passed on 3.14 locally and under Linux's new default
+`forkserver` start method. CI also runs the GitHub Action and both pre-commit
+hooks, built from the commit under test, the way the README tells an adopter
+to, and every job has a timeout. The record is in the design rationale under
+"CI honesty: the version the maintainer runs, the surfaces adopters run, and
+a third order".
 
 ## 0.28.0 (2026-09-27)
 

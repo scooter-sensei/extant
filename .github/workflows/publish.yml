@@ -34,6 +34,14 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Forty minutes, sized from the WAIT rather than the work. The job took
+    # 0.3 to 0.4 minutes on each of the last four releases, because the tests
+    # were already green when the tag went up; but the step below waits for
+    # them for up to 1800 seconds when a tag is pushed promptly, and a job
+    # timeout that cut that short would fail the release it was protecting.
+    # Thirty minutes of wait, the build, and headroom - where GitHub's default
+    # was six hours.
+    timeout-minutes: 40
     permissions:
       contents: read
       actions: read          # to read the tests workflow's conclusion
@@ -156,6 +164,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    # 0.3 to 0.4 minutes on each of the last four releases.
+    timeout-minutes: 5
     # A GitHub Environment, so a required-reviewer rule can be added to make
     # publishing a deliberate act rather than a consequence of pushing a tag.
     # PyPI does not allow replacing a released version, so the step after this

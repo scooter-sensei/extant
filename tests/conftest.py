@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import random
 import re
 import shutil
 import subprocess
@@ -192,6 +193,34 @@ def no_rule_error_left_behind():
         pytest.fail(f"this test left {left!r} in RULE_ERRORS; the next "
                     f"in-process run would report it as its own. Take back "
                     f"what the run recorded - see `raising_rule`.", pytrace=False)
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--order-seed", type=int, default=None, metavar="N",
+        help="run the collected tests in an order shuffled by seed N "
+             "(tests/test_suite_order.py says why)")
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config: pytest.Config,
+                                  items: list[pytest.Item]) -> None:
+    """Shuffle the whole suite when `--order-seed` is given, and only then.
+
+    The guard above covers the ONE kind of leaked state that has been found.
+    A shuffled order is how the next kind shows itself: on 2026-09-28 the
+    suite passed three seeds serially on Linux and one under
+    `-n auto --dist load` on Windows, every seed moving at least 1,416 of
+    1,419 tests, so today's suite has no order dependency any of those four
+    orders could see. One Linux CI leg runs one more in every run, with
+    the seed written in the workflow so that a red run is reproduced here
+    by copying its command line. Last among the collection hooks, so it shuffles whatever
+    order the others produced, and seeded, so every xdist worker collects
+    the same order - which xdist requires.
+    """
+    seed = config.getoption("order_seed")
+    if seed is not None:
+        random.Random(seed).shuffle(items)
 
 
 @pytest.fixture
