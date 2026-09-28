@@ -11,6 +11,16 @@ prose and the old fence loop had blanked, none lost - and nothing else moved.
 The record is in `plugin/skills/extant/references/design.md` under "One
 scanner for both code blocks: a fence ends where its container does".
 
+**The GitHub Action loads again.** 0.28.0's action cannot be used in any
+mode: GitHub's runner refuses to load it, with "Unrecognized named-value:
+'github'", because the description of its new `since` input quoted the
+pull-request base in expression braces - and the runner evaluates those in
+a description too, where there is nothing to evaluate them against. 0.27.0
+and earlier are unaffected. The description now names the value without
+braces, a packaging test keeps expressions out of everything above the
+action's steps, and a CI job now runs the action from the commit under test
+on every pull request, which is how this was found - on its first run.
+
 **A list item's end closes a fence opened inside it.** kubernetes' changelogs
 paste terminal output into an entry and never close the fence; the next
 entry's marker, back at the margin, ends the item and - on GitHub, and in MDX -

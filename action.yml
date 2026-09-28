@@ -55,10 +55,15 @@ inputs:
       range wrote; it needs no configuration at all.
     required: false
     default: verify
+  # The pull-request base is NAMED below, never written in expression braces:
+  # the runner evaluates `${{ }}` in a description too, finds no `github`
+  # there, and refuses to load the action at all. 0.28.0 shipped that way;
+  # the usage example at the top, a comment, shows the braces a workflow
+  # writes. tests/test_packaging.py pins it.
   since:
     description: >
-      The ref `introduced-since` measures from - on a pull request,
-      `${{ github.event.pull_request.base.sha }}`. Required by that mode and
+      The ref `introduced-since` measures from - on a pull request, the
+      event's `github.event.pull_request.base.sha`. Required by that mode and
       ignored by the others. The merge base must be present in the checkout,
       which is one more reason `fetch-depth: 0` is not optional.
     required: false

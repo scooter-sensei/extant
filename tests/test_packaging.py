@@ -353,6 +353,33 @@ def test_the_action_never_interpolates_an_input_into_its_script() -> None:
         f"pass it through env: instead. {offenders}")
 
 
+def test_the_action_writes_no_expression_above_its_steps() -> None:
+    """The runner evaluates `${{ }}` in the METADATA too, and refuses to load.
+
+    The test above keeps expressions out of `run:`; nothing looked above
+    `runs:`. The `since` input's description quoted the pull-request base
+    in its braces, as an example to copy - and a description has no
+    context to evaluate `github` in, so the runner refused the whole
+    action: "Unrecognized named-value: 'github'", at the description's
+    line, before a single step ran. Every mode, every caller: it shipped
+    in 0.28.0, and the first CI run of the action - the dogfood job, Phase
+    56 - is what read it. No local test loads a manifest the way the runner
+    does, so this pins the text instead.
+
+    Comments are fine - YAML never hands them to the runner, and the usage
+    example there has to show the expression a workflow writes.
+    """
+    lines = (PACKAGE_ROOT / "action.yml").read_text(encoding="utf-8").splitlines()
+    runs = next(i for i, line in enumerate(lines) if line.startswith("runs:"))
+    offenders = [f"{number}: {line.strip()}"
+                 for number, line in enumerate(lines[:runs], 1)
+                 if "${{" in line and not line.lstrip().startswith("#")]
+    assert not offenders, (
+        "action.yml writes an Actions expression outside `runs:`, where the "
+        "runner evaluates it without a context and refuses to load the "
+        f"action. Name the value without the braces: {offenders}")
+
+
 def test_the_action_carries_no_version_of_its_own() -> None:
     """Seven files carry the version and `.extant.toml` cross-checks all seven.
 

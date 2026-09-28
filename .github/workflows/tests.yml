@@ -399,16 +399,15 @@ jobs:
     # 2026-09-28 the manifest it installs from held 3.14.7 x64-freethreaded
     # for ubuntu 22.04, 24.04 and 26.04.
     #
-    # continue-on-error FOR ONE RUN, then that line goes: the job becomes
-    # required if the run is green, or is removed with the reason recorded in
-    # design.md if it is red. Not a leg allowed to stay red - this file once
-    # opened with a note saying one test failed on purpose, and the note was
-    # removed rather than teach anyone to expect red.
+    # REQUIRED since its first run, which was allowed to fail and did not:
+    # CPython 3.14.7t, Py_GIL_DISABLED=1, the GIL off, and the suite 1,422
+    # passed and 1 skipped in 69 seconds (pull request #21). It ran once with
+    # continue-on-error and that line went - a leg allowed to stay red is the
+    # note this file once opened with, saying one test failed on purpose.
     runs-on: ubuntu-latest
-    # Unmeasured; the Linux legs take 1.1 to 1.9 minutes. The tests job
-    # states the rule, and the first run re-sizes this.
+    # 1.5 minutes on its first run; sized as the serial Linux legs it
+    # mirrors, 1.1 to 1.9. The tests job states the rule.
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
 
@@ -447,6 +446,13 @@ jobs:
     # redundant with the self-check job's --verify; what it tests is the
     # ACTION - its install, its input checks, the command it assembles.
     #
+    # Its first run found the action unloadable. 0.28.0's `since` input
+    # quoted the pull-request base in expression braces in its description;
+    # the runner evaluates those there too, finds no `github`, and refused
+    # the whole action before a step ran - every mode, every caller of
+    # `@v0.28.0`. Nothing else here loads a manifest the way the runner
+    # does, which is the whole case for this job.
+    #
     # Written the way the README tells an adopter to write it, and no better:
     # `fetch-depth: 0`, the trunk-ref step, and `uses:`. NO setup-python,
     # because the README's snippet has none and `action.yml` relies on every
@@ -467,8 +473,8 @@ jobs:
     # `--introduced-since` over PR #19's content, 5 documents and 384
     # introduced lines, reported 0 findings on them.
     runs-on: ubuntu-latest
-    # Unmeasured; the tests job states the rule, and the first run re-sizes
-    # this.
+    # Unmeasured: its first run failed loading the action in 0.1 minutes and
+    # timed nothing. The tests job states the rule; a green run re-sizes this.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -510,9 +516,9 @@ jobs:
     # committed is a gate that cries wolf - and pinned here rather than in
     # that file, because only this job needs it.
     runs-on: ubuntu-latest
-    # Unmeasured in CI; the tests job states the rule, and the first run
-    # re-sizes this.
-    timeout-minutes: 10
+    # 0.3 minutes on its first run, both hooks passing; the tests job states
+    # the rule.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:

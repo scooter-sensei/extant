@@ -4447,7 +4447,10 @@ serially, where `filterwarnings = error` turns the RuntimeWarning an import
 raises when it re-enables the GIL into a failure. `continue-on-error` for
 exactly one run: then required if green, removed with the reason recorded
 here if red. A leg allowed to stay red is the "one test fails on purpose"
-note this workflow removed.
+note this workflow removed. The run was green - CPython 3.14.7t,
+`Py_GIL_DISABLED=1`, the GIL off, 1,422 passed and 1 skipped in 69
+seconds - so the job is required and `continue-on-error` is gone, and the
+thread-pool question in the paragraph on 3.4 above has an interpreter.
 
 **`--durations=15` on every leg**, for the pytest-timeout bound the next
 tranche sets. That bound takes the slowest test on any leg - likely a
@@ -4467,7 +4470,7 @@ checked document names another project's directory. Measured before the job
 existed: `--introduced-since` over the Phase 55 pull request's content, 5
 documents and 384 introduced lines, reported 0 findings on them; over this
 tranche's, measured from the Phase 55 head once these records were written,
-4 documents and 186 introduced lines, 0.
+4 documents and 245 introduced lines, 0.
 
 **The hooks, through pre-commit.** A `pre-commit` job runs `pre-commit
 try-repo . extant --all-files` and the same for `extant-annotate`, which
@@ -4486,8 +4489,11 @@ minutes, never under five - three because one leg varied from 5.4 to 9.3
 minutes between runs. Measured: Linux tests 1.1-1.9 (10), Windows tests
 3.0-5.1 since they went parallel (20, which also covers the 9.8 of the
 serial legs twice), Windows fuzz 6.1-7.4 (25), Linux fuzz 1.4-2.0 (10),
-self-check 3.6-4.3 (15), smoke 0.9-1.0 (5), scenarios 0.3-0.4 (5); the
-three new jobs 10 each until their first run sizes them. `publish.yml`'s
+self-check 3.6-4.3 (15), smoke 0.9-1.0 (5), scenarios 0.3-0.4 (5). The
+three new jobs from their first run: free-threaded 1.5, sized as the
+serial Linux legs it mirrors (10); pre-commit 0.3 (5); dogfood 10 until a
+green run, since its first failed loading the action in 0.1 minutes and
+timed nothing. `publish.yml`'s
 `build` took 0.3-0.4 minutes on each of the last four releases but waits up
 to 1800 seconds for `tests.yml`, so it is sized from the wait (40);
 `publish` 0.3-0.4 (5).
@@ -4517,12 +4523,40 @@ commit can surface on it; the pair of tests it names is real either way.
 Refused: making the Windows legs `--dist load`, which gives up the
 per-file isolation `AGENTS.md` chose `loadfile` for.
 
-**What the CI run must show**, read from the logs: both 3.14 legs green;
-the `3.14t` probe's printed flags and the suite's verdict; the dogfood
-job's install from the checkout and its exit on the pull request's
-introduced lines; both hook ids run and passed; a durations table on every
-leg; the shuffled step run on exactly one leg; and every job finished well
-inside its timeout.
+**What the first run showed**, on pull request #21, read job by job:
+twenty of twenty-one checks green. Both 3.14 legs ran 3.14.7, Linux 1,422
+passed and 1 skipped, Windows 1,420 and 3. The `3.14t` verdict is above.
+Both hook ids passed, installed from the merge commit, with trunk
+denominators that were not zero (`false-merge-claim` 9, `dead-release-tag`
+47), so the trunk-ref step did its work. Every leg printed its durations;
+the slowest test anywhere was 17.01 seconds,
+`test_a_repository_rule_reports_its_one_fault_once` in
+`tests/test_fuzz_findings.py` on Windows 3.10 - the next tranche's
+pytest-timeout number - against about 4 seconds, the consistency-timeout
+test, on every Linux leg. The shuffled step ran on the ubuntu 3.13 leg
+alone, 1,422 and 1. Every job finished inside its timeout, the nearest the
+Windows 3.9 tests leg at 5.9 of 20. The jobs this tranche left alone said
+what they said before: 312 anchors, mypy clean, `--selftest` 7 fired and 0
+silent, 23 of 23 fuzz properties, smoke 0 new and 0 missing, scenarios 213
+of 213, fuzz 0 violations on both legs.
+
+**And the dogfood job failed, on a defect in the shipped action.** The
+runner refused to load `action.yml` - "Unrecognized named-value:
+'github'" - at the `since` input's description, which quoted the
+pull-request base in expression braces as an example to copy. The runner
+evaluates `${{ }}` in the metadata too, a description has no context to
+evaluate `github` in, and the whole action was refused before a step ran:
+every mode, every caller. `since` arrived with Phase 47 and 0.28.0 is the
+release that carries it; 0.26.1's and 0.27.0's actions write no expression
+above their steps. Nothing local could see it - the suite reads the
+action's script out of the file and runs it under bash, and no harness
+loads a manifest the way the runner does - which is the case for the job,
+made by its first run. Repaired by naming the value without the braces,
+and pinned by `test_the_action_writes_no_expression_above_its_steps` in
+`tests/test_packaging.py`, watched red on the one line: no `${{` outside a
+comment above `runs:`. The second run is the proof, and it answers what
+the first could not reach - whether the runner's own Python accepts the
+action's `pip install`.
 
 ## Authoring constraints these rules impose
 
