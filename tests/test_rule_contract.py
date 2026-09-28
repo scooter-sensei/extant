@@ -38,8 +38,7 @@ def test_every_rule_module_is_complete() -> None:
     assert {r.kind for r in registry.RULES} == set(kinds.values())
 
 
-def test_a_rule_that_raises_is_reported_and_fails_the_run(git_repo, capsys,
-                                                          monkeypatch) -> None:
+def test_a_rule_that_raises_is_reported_and_fails_the_run(git_repo, capsys) -> None:
     """The dangerous half of per-rule isolation.
 
     A rule that crashes and is skipped quietly reports no findings, which reads
@@ -53,21 +52,14 @@ def test_a_rule_that_raises_is_reported_and_fails_the_run(git_repo, capsys,
     still claims success, are decisions the mode makes - and those are the two
     that turn isolation from a safety feature into a silent one.
     """
-    from extant import session as hc
+    from conftest import raising_rule
     from extant import cli
 
     repo, commit = git_repo
     commit("a.md", "nothing here\n", "feat: a")
 
-    def explode(ctx, text):
-        raise RuntimeError("deliberate")
-
-    import dataclasses
-
-    broken = dataclasses.replace(hc.RULES[0], check=explode)
-    monkeypatch.setattr(hc, "RULES", (broken,) + hc.RULES[1:])
-
-    code = cli.main(["--validate", str(repo / "a.md"), "--repo", str(repo)])
+    with raising_rule() as broken:
+        code = cli.main(["--validate", str(repo / "a.md"), "--repo", str(repo)])
     printed = capsys.readouterr()
     combined = printed.out + printed.err
 

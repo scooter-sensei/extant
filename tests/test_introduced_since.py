@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import raising_rule
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -437,26 +438,39 @@ def test_a_configured_document_the_exclusions_remove_is_a_conflict(
     assert "CONFLICT" in printed.err, printed.err
 
 
-def test_a_rule_that_raised_fails_the_run(git_repo, monkeypatch, capsys) -> None:
-    import dataclasses
-
-    from extant import session as hc
-
+def test_a_rule_that_raised_fails_the_run(git_repo, capsys) -> None:
     repo, commit = git_repo
     commit("docs/notes.md", "# Notes\n", "docs")
     commit("docs/notes.md", "# Notes\n\nMore.\n", "docs: edit")
 
-    def explode(ctx, text):
-        raise RuntimeError("deliberate")
-
-    broken = dataclasses.replace(hc.RULES[0], check=explode)
-    monkeypatch.setattr(hc, "RULES", (broken,) + hc.RULES[1:])
-
-    code = _gate(repo, "HEAD~1")
+    with raising_rule() as broken:
+        code = _gate(repo, "HEAD~1")
     out = capsys.readouterr().out
 
     assert code == 1, out
     assert "ERRORED" in out and broken.kind in out, out
+
+
+def test_the_next_run_does_not_inherit_a_rule_that_raised(git_repo, capsys) -> None:
+    """The order the test above ran in when the suite was reordered: a gate run
+    with a raising rule, then an ordinary one in the same process. The second
+    exited 1 naming `dead-sha raised RuntimeError: deliberate` - not the rule,
+    which the monkeypatch had put back, but the run's error list, which only
+    `main()` clears and which a mode function called directly never passes
+    through. Found on 2026-09-27 under `-n auto`, reproducible on main by
+    naming the three tests in that order."""
+    repo, commit = git_repo
+    commit("docs/notes.md", "# Notes\n", "docs")
+    commit("docs/notes.md", "# Notes\n\nMore.\n", "docs: edit")
+
+    with raising_rule():
+        assert _gate(repo, "HEAD~1") == 1
+    capsys.readouterr()
+
+    code = _gate(repo, "HEAD~1")
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "ERRORED" not in out, out
 
 
 def test_github_annotations_are_errors_on_gated_lines_only(git_repo, capsys) -> None:
