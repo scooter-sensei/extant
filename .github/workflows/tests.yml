@@ -12,11 +12,28 @@ jobs:
     # those hooks only appear on one platform at a time, which is how one of
     # them survived undetected on POSIX for its entire existence.
     runs-on: ${{ matrix.os }}
+    # EVERY job in this file has a timeout, sized by one rule: three times the
+    # slowest time the job took in the last five runs (2026-09-27 and -28),
+    # rounded up to a multiple of five minutes, never under five. Three,
+    # because one job varies by nearly two between runs on GitHub's runners -
+    # the Windows 3.13 leg took 5.4 minutes in one run and 9.3 in another -
+    # and a healthy slow runner must not be cancelled. A timeout at all,
+    # because none was set, so a hung job would have held the pull request's
+    # verdict for GitHub's default of six hours. Here: 1.1 to 1.9 minutes on
+    # Linux, and 3.0 to 5.1 on Windows since it went parallel - 9.8 serially
+    # before that, which twenty still covers twice. The one Linux leg that
+    # also runs the shuffled suite below takes about one run longer.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 20 || 10 }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        # 3.14 since Phase 56, and the classifiers in pyproject.toml say the
+        # same - tests/test_docs_match_code.py fails when the two lists differ.
+        # On Linux 3.14 the sweep's pool starts with `forkserver`, a method no
+        # earlier leg used; WSL's 3.14.4 ran the suite under it before this
+        # leg existed.
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
@@ -45,8 +62,32 @@ jobs:
       # minutes, and every pull request waited on the slowest of them. The
       # autouse guard in tests/conftest.py fails any test that leaves the kind of
       # process state a different order would turn into another test's failure.
+      #
+      # --durations=15 prints each leg's fifteen slowest tests, for the
+      # pytest-timeout bound the next tranche sets. That bound takes the
+      # slowest test on ANY leg, likely a Windows one measured under -n auto,
+      # where the workers contend for the runner's cores - an overstatement,
+      # which is the safe side for a timeout.
       - name: Run the suite
-        run: python -m pytest ${{ matrix.os == 'windows-latest' && '-n auto --dist loadfile' || '' }}
+        run: python -m pytest --durations=15 ${{ matrix.os == 'windows-latest' && '-n auto --dist loadfile' || '' }}
+
+      # A THIRD ORDER, on one leg. Linux runs file order and Windows each
+      # file's own order, and on 2026-09-28 a test leaking a rule's error into
+      # the next was invisible to both; the autouse guard in tests/conftest.py
+      # now catches that one kind. This is for the kinds nobody has found:
+      # `--order-seed` shuffles the whole suite (tests/test_suite_order.py).
+      # Before it was added the suite passed four shuffled orders, three
+      # serially on Linux and one in parallel on Windows.
+      #
+      # On 3.13 rather than 3.14, so a red here cannot be the new Python's.
+      # A FIXED seed, for the fuzz job's reason: re-running a commit runs the
+      # same order, and a red run is reproduced locally by copying its
+      # command. The order still moves, since adding one test reshuffles all
+      # of them, so a dependency older than a commit can surface on it; the
+      # pair of tests the failure names is real either way.
+      - name: Run the suite again, shuffled
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: python -m pytest --order-seed=20260928
 
   scenarios:
     # The end-to-end matrix: a fresh repository per scenario, the tool
@@ -61,6 +102,8 @@ jobs:
     # Linux also removes the local trap that hid it: `sh` is always present, so
     # the ten hook tests that SKIP on a machine without one all actually run.
     runs-on: ubuntu-latest
+    # 0.3 to 0.4 minutes; the tests job states the rule.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
@@ -98,6 +141,8 @@ jobs:
     # Roughly 70 seconds, measured on Windows, where process spawning is
     # dearer than it is here.
     runs-on: ubuntu-latest
+    # 0.9 to 1.0 minutes here; the tests job states the rule.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
@@ -176,6 +221,10 @@ jobs:
             arena: C:/fzarena
             fail: C:/fzfail
     runs-on: ${{ matrix.os }}
+    # 6.1 to 7.4 minutes on Windows - the slowest job in the file since the
+    # Windows tests went parallel, and so the length of a run - and 1.4 to
+    # 2.0 on Linux; the tests job states the rule.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 25 || 10 }}
     defaults:
       run:
         # git bash on the Windows leg, so one set of steps serves both. The
@@ -223,6 +272,9 @@ jobs:
     # annotations appear on the offending line of a PR diff, and no PR was ever
     # annotated. A document broken by a PR was only caught after merging it.
     runs-on: ubuntu-latest
+    # 3.6 to 4.3 minutes, most of it `fuzz.py --self-check`; the tests job
+    # states the rule.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -336,3 +388,150 @@ jobs:
           mkdir -p /tmp/scpkg
           git archive HEAD | tar -x -C /tmp/scpkg
           python tests/harnesses/fuzz.py /tmp/scpkg /tmp/scarena --self-check
+
+  free-threaded:
+    # The free-threaded build of 3.14, for ONE run and then a verdict.
+    #
+    # It is the instrument a thread-pooled sweep waits on (design.md's
+    # paragraph on 3.4 and `contextvars`): threads only pay without a GIL, and
+    # neither the development machine nor its WSL has such an interpreter.
+    # `setup-python` takes the `t` suffix (its docs/advanced-usage.md), and on
+    # 2026-09-28 the manifest it installs from held 3.14.7 x64-freethreaded
+    # for ubuntu 22.04, 24.04 and 26.04.
+    #
+    # continue-on-error FOR ONE RUN, then that line goes: the job becomes
+    # required if the run is green, or is removed with the reason recorded in
+    # design.md if it is red. Not a leg allowed to stay red - this file once
+    # opened with a note saying one test failed on purpose, and the note was
+    # removed rather than teach anyone to expect red.
+    runs-on: ubuntu-latest
+    # Unmeasured; the Linux legs take 1.1 to 1.9 minutes. The tests job
+    # states the rule, and the first run re-sizes this.
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14t"
+
+      # FAILS unless the build is free-threaded AND the GIL is off. A setup
+      # that quietly handed over the ordinary build would make this a second
+      # copy of the 3.14 leg, reporting itself as the free-threaded one.
+      - name: Is this the free-threaded build, with the GIL off?
+        run: |
+          python - <<'PY'
+          import sys, sysconfig
+          built = sysconfig.get_config_var("Py_GIL_DISABLED")
+          enabled = sys._is_gil_enabled()
+          print(sys.version)
+          print(f"Py_GIL_DISABLED={built} GIL enabled={enabled}")
+          if built != 1 or enabled:
+              print("::error::not a free-threaded interpreter with the GIL off")
+              sys.exit(1)
+          PY
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      # Serially, as on the other Linux legs. An import in the test process
+      # that turns the GIL back on raises a RuntimeWarning, and
+      # `filterwarnings = error` in pytest.ini makes that warning a failure.
+      - name: Run the suite
+        run: python -m pytest --durations=15
+
+  dogfood:
+    # The action, run on this repository's own pull requests: the first run
+    # of `action.yml` in this repository's CI. For the documents it is
+    # redundant with the self-check job's --verify; what it tests is the
+    # ACTION - its install, its input checks, the command it assembles.
+    #
+    # Written the way the README tells an adopter to write it, and no better:
+    # `fetch-depth: 0`, the trunk-ref step, and `uses:`. NO setup-python,
+    # because the README's snippet has none and `action.yml` relies on every
+    # GitHub-hosted runner shipping a python. A job that set one up would
+    # test a workflow no adopter was told to write.
+    #
+    # `uses: ./` installs from `github.action_path`, which here is the
+    # checkout itself, so the pull request's own action.yml and package are
+    # what run. One difference from an adopter's run follows from that: pip
+    # builds in the source tree, leaving `build/` and
+    # `plugin/skills/extant/payload/extant.egg-info/` in the tree being
+    # checked (measured 2026-09-28). Git ignores both, and a directory that
+    # exists can only make a path pointer resolve, never break one.
+    #
+    # On a pull request, the gate the README offers: only the claims the
+    # change WROTE, measured from the base the event names. On a push to
+    # main, `verify`, the action's default. Measured before this job existed:
+    # `--introduced-since` over PR #19's content, 5 documents and 384
+    # introduced lines, reported 0 findings on them.
+    runs-on: ubuntu-latest
+    # Unmeasured; the tests job states the rule, and the first run re-sizes
+    # this.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The README's line, for the self-check job's reason: on a pull request
+      # `main` is only a remote-tracking branch.
+      - name: Make the trunk ref resolvable
+        run: |
+          git show-ref --verify --quiet refs/heads/main             || git branch main origin/main
+          git rev-parse --verify main
+
+      - name: Check the claims this pull request wrote
+        if: github.event_name == 'pull_request'
+        uses: ./
+        with:
+          mode: introduced-since
+          since: ${{ github.event.pull_request.base.sha }}
+
+      - name: Check the documents .extant.toml names
+        if: github.event_name == 'push'
+        uses: ./
+
+  pre-commit:
+    # The other adoption surface, `.pre-commit-hooks.yaml`, which nothing had
+    # ever run. `try-repo` installs the hooks from this checkout's HEAD into
+    # an environment of pre-commit's own - the path an adopter's `rev:` pin
+    # takes - and runs each id here. `extant` is --verify, `extant-annotate`
+    # the same with --format=github. Measured on the development machine
+    # before this job existed, pre-commit 4.6.2: both passed, 27 and 26
+    # seconds, about 25 of each building the environment.
+    #
+    # The trunk-ref step for the self-check job's reason: the hook is
+    # --verify, and on a pull request `main` is only a remote-tracking branch.
+    #
+    # Bounded above for mypy's reason in requirements-dev.txt - a major can
+    # change what the tool does, and a job that reddens on a release nobody
+    # committed is a gate that cries wolf - and pinned here rather than in
+    # that file, because only this job needs it.
+    runs-on: ubuntu-latest
+    # Unmeasured in CI; the tests job states the rule, and the first run
+    # re-sizes this.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Make the trunk ref resolvable
+        run: |
+          git show-ref --verify --quiet refs/heads/main             || git branch main origin/main
+          git rev-parse --verify main
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install pre-commit
+        run: python -m pip install --disable-pip-version-check "pre-commit>=4.6,<5"
+
+      - name: Run the extant hook
+        run: pre-commit try-repo . extant --all-files --verbose
+
+      - name: Run the extant-annotate hook
+        run: pre-commit try-repo . extant-annotate --all-files --verbose

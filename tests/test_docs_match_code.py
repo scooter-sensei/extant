@@ -196,6 +196,40 @@ def test_the_python_floor_is_stated_consistently() -> None:
     )
 
 
+def test_the_classifiers_name_exactly_the_pythons_ci_tests() -> None:
+    """The test above joins the BOTTOM of the range; nothing joined the top.
+
+    A version in the `tests` job's matrix and a `Programming Language ::
+    Python :: 3.X` classifier are the same claim made twice - "this runs on
+    3.X" - once to CI and once to everyone reading the PyPI page. Adding
+    3.14 to one and not the other passed every check here, which is the
+    shape the test above was written for, one end of the range later. Found
+    while planning Phase 56, which adds 3.14 to both.
+
+    The free-threaded job names `3.14t` as a scalar, not in the matrix list,
+    and is not a claim the classifiers make; only the list is read, and it
+    must be the only list.
+    """
+    workflow = (PACKAGE_ROOT / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8")
+    pyproject = (PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    lists = re.findall(r"^\s*python-version:\s*\[([^\]]*)\]", workflow, re.M)
+    assert len(lists) == 1, f"expected one python-version matrix list, found {lists}"
+    tested = set(re.findall(r'"(3\.\d+)"', lists[0]))
+    classified = set(re.findall(r'"Programming Language :: Python :: (3\.\d+)"',
+                                pyproject))
+    assert tested, f"read no versions from the matrix list {lists[0]!r}"
+
+    def ordered(versions: set[str]) -> list[str]:
+        return sorted(versions, key=lambda v: int(v.split(".")[1]))
+
+    assert tested == classified, (
+        f"CI tests {ordered(tested)} but the classifiers claim {ordered(classified)}: "
+        f"untested claims {ordered(classified - tested)}, "
+        f"unclaimed legs {ordered(tested - classified)}")
+
+
 def test_every_setting_is_documented_where_users_look() -> None:
     """A config key nobody wrote down is a feature nobody can find.
 
