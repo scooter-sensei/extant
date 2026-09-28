@@ -113,6 +113,18 @@ leaves the code correct, the suite green, and reports SURVIVED - a false alarm
 indistinguishable from a real gap. Those are reported as HARNESS FAULTS and
 must be repaired, never read as results.
 
+**`--parallel` runs each suite across every core, and confirms every kill
+serially.** The serial run is the definition of correctness, so parallelism may
+only make a campaign faster, never move a verdict. A survivor stands as found -
+the whole suite passed - but a kill is rerun: the failing tests alone,
+serially, and if they now pass, the whole serial suite decides. That is the
+direction that matters: a kill caused by load rather than by the mutation would
+hide a real gap behind the healthiest-looking verdict the harness prints, where
+a false survivor only asks somebody to look. Only pytest's "tests failed" exit
+code confirms a kill - a malformed node id is a usage error, not a failure - and
+every parallel campaign prints how many kills the serial check overturned, zero
+included.
+
 Write the indentation out in full when adding one. A shorter string is a
 substring of the real line once a block moves inward, so it keeps matching and
 mutates something adjacent. That happened when `validate()` gained a
