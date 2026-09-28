@@ -37,8 +37,16 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
 
+      # Serially on Linux, which stays the definition of correctness (AGENTS.md,
+      # "It is an invocation, not a default"); in parallel on Windows, where a
+      # process start costs several times what it costs on Linux and the suite
+      # spawns thousands. Measured on 2026-09-28: the serial Windows legs took
+      # 5.5 to 9.4 minutes against about 1.5 on Linux, 39 of the run's 61 job-
+      # minutes, and every pull request waited on the slowest of them. The
+      # autouse guard in tests/conftest.py fails any test that leaves the kind of
+      # process state a different order would turn into another test's failure.
       - name: Run the suite
-        run: python -m pytest
+        run: python -m pytest ${{ matrix.os == 'windows-latest' && '-n auto --dist loadfile' || '' }}
 
   scenarios:
     # The end-to-end matrix: a fresh repository per scenario, the tool

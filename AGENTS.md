@@ -74,6 +74,13 @@ alone.** Putting `-n auto` in `addopts` makes it unconditional, which breaks
 `--pdb` and takes the choice away from CI. The serial run stays the definition
 of correctness.
 
+CI makes that choice per platform. The Linux legs run serially, so every pull
+request is still judged by the serial run on five Pythons. The Windows legs run
+`-n auto --dist loadfile`, because there a process start costs several times
+what it costs on Linux and the suite starts thousands: serially they took 5.5 to
+9.4 minutes against about 1.5 on Linux, measured on 2026-09-28, and every pull
+request waited on the slowest.
+
 One test deserves naming: `tests/test_consistency_timeout.py` asserts a
 wall-clock bound, which is the kind of assertion most likely to go intermittent
 under twelve workers competing for CPU. It has been soaked rather than trusted -
