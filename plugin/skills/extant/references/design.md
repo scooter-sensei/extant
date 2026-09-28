@@ -3181,8 +3181,10 @@ context variable while reading as an assignment - the "looks like it
 works" shape this project keeps paying for. The `finally` stays: a token
 still has to be reset on the failing path, and what the API removes is the
 `previous_scope = _SCOPE` line, one of two in `run_scope()`. And the one
-consumer, 3.5, has no interpreter: CI runs 3.9 through 3.13 with the GIL
-and this machine runs 3.14.3 with it; a thread pool also needs each thread
+consumer, 3.5, had no interpreter when this was measured: CI ran 3.9
+through 3.13 with the GIL and this machine runs 3.14.3 with it (Phase 56
+added 3.14 to the matrix and a free-threaded job beside it - see "CI
+honesty" below); a thread pool also needs each thread
 to ENTER its own scope, which is the same initializer the process pool
 runs, so 3.4 and 3.5 are one change and are measured together when a
 free-threaded build is in the matrix. For whoever ports it then: a
@@ -4399,6 +4401,128 @@ line is itself indented code - a marker, five spaces, then a fence - is not
 blanked; the marker-line check correctly declines the fence, and the indented
 half of that line was a gap before this tranche, on the plan's list of
 CommonMark facts not yet needed.
+
+## CI honesty: the version the maintainer runs, the surfaces adopters run, and a third order
+
+Phase 56. Nothing under `payload/` moved, so the corpus identity gate and the
+mutation campaign were not run - there is no tool behaviour for either to
+see - and the proof of this tranche is the CI run its changes trigger, read
+job by job rather than by colour. Seven items: five from the plan written on
+2026-09-22 and two its audits found. Every premise was re-measured on
+2026-09-28 before anything was built, and six had moved - five below, and
+the `forkserver` corner under 3.14.
+
+**What had moved.** The plan's action pin (`@v0.24.1`) was already bumped by
+0.28.0. Its dogfood design exempted release pull requests, which bump
+README's pins ahead of the tag; 0.27.0 and 0.28.0 did go through such pull
+requests, but releases have been cut straight on `main` since 2026-09-27,
+where the dogfood job runs `verify`, which does not read README - so the
+exemption has nothing to exempt. The thirty-minute wait for `tests.yml` that
+the plan put in `publish.yml`'s `publish` job lives in `build`. The plan's
+dogfood job set up a Python first; the README's snippet does not, and
+`action.yml` relies on the runner's own, so a job that set one up would test
+a workflow no adopter was told to write - and the same snippet needs the
+trunk-ref step, because on a pull request `main` is only a remote-tracking
+branch, which the plan's shape also left out. And nothing joined the top of
+the Python range: the floor test ties `requires-python` to the badge, the
+prose, the matrix and the classifiers, but only at 3.9, so 3.14 in the
+matrix without its classifier - or the reverse - passed everything.
+
+**3.14 on both platforms.** The matrix gains it, twelve legs; the
+classifiers gain it; and a new test in `tests/test_docs_match_code.py`
+fails when the matrix list and the classifiers name different versions,
+watched red with 3.14 in the matrix alone. The Linux corner the plan named -
+the sweep's pool starting under `forkserver`, a method no earlier leg used -
+was already exercised: WSL's 3.14.4 runs the suite under it, 1,418 passed
+in each of five runs on 2026-09-28. CI's 3.14 is 3.14.7, the newest the setup action's
+manifest held on the day, against 3.14.3 here and 3.14.4 in WSL.
+
+**`3.14t`, one run and then a verdict.** `setup-python` accepts the `t`
+suffix (its `docs/advanced-usage.md`), and its manifest held 3.14.7
+`x64-freethreaded` for ubuntu 22.04, 24.04 and 26.04. The job's first step
+FAILS unless `Py_GIL_DISABLED` is 1 and `sys._is_gil_enabled()` is False -
+a setup that handed over the ordinary build would otherwise be a second 3.14
+leg reporting itself as the free-threaded one - and then runs the suite
+serially, where `filterwarnings = error` turns the RuntimeWarning an import
+raises when it re-enables the GIL into a failure. `continue-on-error` for
+exactly one run: then required if green, removed with the reason recorded
+here if red. A leg allowed to stay red is the "one test fails on purpose"
+note this workflow removed.
+
+**`--durations=15` on every leg**, for the pytest-timeout bound the next
+tranche sets. That bound takes the slowest test on any leg - likely a
+Windows leg under `-n auto`, where workers contend for the cores, an
+overstatement on the safe side.
+
+**The action, on this repository's pull requests.** A `dogfood` job:
+`fetch-depth: 0`, the README's trunk-ref step, then `uses: ./` - no
+`setup-python`. On a pull request `mode: introduced-since` from the event's
+base; on a push to `main` the default, `verify`. `uses: ./` installs from
+the checkout, so a pull request's own `action.yml` and package run, with one
+measured difference from an adopter's run: pip builds in the source tree
+and leaves `build/` and `plugin/skills/extant/payload/extant.egg-info/` in
+the tree being checked, both ignored by git; a directory that exists can
+only make a path pointer resolve, and the one mention of a `build/` in a
+checked document names another project's directory. Measured before the job
+existed: `--introduced-since` over the Phase 55 pull request's content, 5
+documents and 384 introduced lines, reported 0 findings on them; over this
+tranche's, measured from the Phase 55 head once these records were written,
+4 documents and 186 introduced lines, 0.
+
+**The hooks, through pre-commit.** A `pre-commit` job runs `pre-commit
+try-repo . extant --all-files` and the same for `extant-annotate`, which
+install the hooks from the checkout's HEAD into pre-commit's own
+environment - the path an adopter's `rev:` pin takes. Measured here first,
+pre-commit 4.6.2 in a scratch environment: both passed, 27 and 26 seconds,
+about 25 of each building the environment. The trunk-ref step again, since
+the hook is `--verify`. Pinned `>=4.6,<5` in the job, on mypy's reasoning
+for an upper bound, and in the job rather than `requirements-dev.txt`
+because nothing else needs it.
+
+**A timeout on every job.** None was set, so a hung job held a pull
+request's verdict for GitHub's six-hour default. One rule: three times the
+slowest time in the last five runs, rounded up to a multiple of five
+minutes, never under five - three because one leg varied from 5.4 to 9.3
+minutes between runs. Measured: Linux tests 1.1-1.9 (10), Windows tests
+3.0-5.1 since they went parallel (20, which also covers the 9.8 of the
+serial legs twice), Windows fuzz 6.1-7.4 (25), Linux fuzz 1.4-2.0 (10),
+self-check 3.6-4.3 (15), smoke 0.9-1.0 (5), scenarios 0.3-0.4 (5); the
+three new jobs 10 each until their first run sizes them. `publish.yml`'s
+`build` took 0.3-0.4 minutes on each of the last four releases but waits up
+to 1800 seconds for `tests.yml`, so it is sized from the wait (40);
+`publish` 0.3-0.4 (5).
+
+**A third order, on one leg.** Linux runs the suite in file order and
+Windows in each file's order, and the `RULE_ERRORS` leak Phase 55 found was
+invisible to both. Measured first, on the Phase 55 tree: `-n auto --dist
+load`, which interleaves a file's tests across workers, passed on Windows
+(1,412 and 7 skipped, 209 seconds) and on Linux (1,418 and 1, 38 seconds);
+three fully shuffled serial runs on Linux passed (1,418 and 1 each, 165-170
+seconds against 213 in file order), and one shuffled run under `--dist
+load` on Windows (1,412 and 7, 200 seconds). Each seed was checked to have
+shuffled: at least 1,416 of the 1,419 tests moved, and consecutive tests
+changed file 1,374 to 1,382 times against 74 in file order. So the suite
+has no dependency any of those orders can see, and what was built is the
+instrument rather than a fix: `--order-seed N` in `tests/conftest.py`,
+under thirty lines with its docstring and no dependency, shuffling the collected tests last
+among the collection hooks, and `tests/test_suite_order.py` pinning that a
+seed moves tests and loses none, that one seed gives one order - xdist
+refuses workers that disagree - and that no seed changes nothing. The
+ubuntu 3.13 leg runs the suite a second time with a seed written in the
+workflow: 3.13 rather than 3.14 so a red there cannot be the new Python's,
+and a fixed seed for the fuzz job's reason, so a re-run reproduces and a
+red is reproduced locally from its command line. The order still moves -
+adding one test reshuffles all of them - so a dependency older than a
+commit can surface on it; the pair of tests it names is real either way.
+Refused: making the Windows legs `--dist load`, which gives up the
+per-file isolation `AGENTS.md` chose `loadfile` for.
+
+**What the CI run must show**, read from the logs: both 3.14 legs green;
+the `3.14t` probe's printed flags and the suite's verdict; the dogfood
+job's install from the checkout and its exit on the pull request's
+introduced lines; both hook ids run and passed; a durations table on every
+leg; the shuffled step run on exactly one leg; and every job finished well
+inside its timeout.
 
 ## Authoring constraints these rules impose
 

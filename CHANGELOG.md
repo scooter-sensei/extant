@@ -51,6 +51,16 @@ as prose and 19 more lines of prose silenced on MDX sites. MDX judged its own si
 @mdx-js/mdx parser was run offline over the corpus's MDX-rendered documents
 while the change was measured, and never ships.
 
+**Python 3.14 is tested and declared.** CI runs the suite on 3.14 on Linux
+and Windows, and the package's classifiers name it; a test now fails when the
+tested versions and the classifiers disagree. Nothing in the tool changed for
+it - the suite already passed on 3.14 locally and under Linux's new default
+`forkserver` start method. CI also runs the GitHub Action and both pre-commit
+hooks, built from the commit under test, the way the README tells an adopter
+to, and every job has a timeout. The record is in the design rationale under
+"CI honesty: the version the maintainer runs, the surfaces adopters run, and
+a third order".
+
 ## 0.28.0 (2026-09-27)
 
 The seven tranches of the internals review that followed 0.27.0 - the
