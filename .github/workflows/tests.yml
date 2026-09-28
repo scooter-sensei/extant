@@ -473,9 +473,9 @@ jobs:
     # `--introduced-since` over PR #19's content, 5 documents and 384
     # introduced lines, reported 0 findings on them.
     runs-on: ubuntu-latest
-    # Unmeasured: its first run failed loading the action in 0.1 minutes and
-    # timed nothing. The tests job states the rule; a green run re-sizes this.
-    timeout-minutes: 10
+    # 0.1 minutes on its first green run, the action's install 3.4 seconds of
+    # it; the tests job states the rule.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:

@@ -19,7 +19,10 @@ a description too, where there is nothing to evaluate them against. 0.27.0
 and earlier are unaffected. The description now names the value without
 braces, a packaging test keeps expressions out of everything above the
 action's steps, and a CI job now runs the action from the commit under test
-on every pull request, which is how this was found - on its first run.
+on every pull request, which is how this was found - on its first run. Its
+second, after the repair, loaded the action and installed it on the
+runner's own Python, the way the README's snippet has it, with no
+`setup-python`.
 
 **A list item's end closes a fence opened inside it.** kubernetes' changelogs
 paste terminal output into an entry and never close the fence; the next

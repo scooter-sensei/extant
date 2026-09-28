@@ -52,7 +52,10 @@ action is unaffected. The description now names the value without braces,
 and a packaging test, watched red on the one line, keeps expressions out of
 everything above the action's steps. Nothing local could have seen it: the
 suite runs the action's script under bash and no harness loads the
-manifest the way the runner does.
+manifest the way the runner does. The second run, after the repair, was
+green on all twenty-one checks: the action loaded, installed on the
+runner's own Python in 3.4 seconds, and found nothing on the 245 lines this
+work wrote - the same count as here.
 
 ## Phase 55 - One scanner for both code blocks: a fence ends where its container does (unreleased, 2026-09-28)
 

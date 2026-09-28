@@ -4469,8 +4469,9 @@ only make a path pointer resolve, and the one mention of a `build/` in a
 checked document names another project's directory. Measured before the job
 existed: `--introduced-since` over the Phase 55 pull request's content, 5
 documents and 384 introduced lines, reported 0 findings on them; over this
-tranche's, measured from the Phase 55 head once these records were written,
-4 documents and 245 introduced lines, 0.
+tranche's, measured from the Phase 55 head, 4 documents and 186 introduced
+lines at its first push and 245 at its second - the second counted by the
+dogfood job itself - with 0 findings each time.
 
 **The hooks, through pre-commit.** A `pre-commit` job runs `pre-commit
 try-repo . extant --all-files` and the same for `extant-annotate`, which
@@ -4491,9 +4492,9 @@ minutes between runs. Measured: Linux tests 1.1-1.9 (10), Windows tests
 serial legs twice), Windows fuzz 6.1-7.4 (25), Linux fuzz 1.4-2.0 (10),
 self-check 3.6-4.3 (15), smoke 0.9-1.0 (5), scenarios 0.3-0.4 (5). The
 three new jobs from their first run: free-threaded 1.5, sized as the
-serial Linux legs it mirrors (10); pre-commit 0.3 (5); dogfood 10 until a
-green run, since its first failed loading the action in 0.1 minutes and
-timed nothing. `publish.yml`'s
+serial Linux legs it mirrors (10); pre-commit 0.3 (5); dogfood 0.1 on its
+first green run, the second (5) - its first failed loading the action in
+the same 0.1 minutes and timed nothing. `publish.yml`'s
 `build` took 0.3-0.4 minutes on each of the last four releases but waits up
 to 1800 seconds for `tests.yml`, so it is sized from the wait (40);
 `publish` 0.3-0.4 (5).
@@ -4554,9 +4555,24 @@ loads a manifest the way the runner does - which is the case for the job,
 made by its first run. Repaired by naming the value without the braces,
 and pinned by `test_the_action_writes_no_expression_above_its_steps` in
 `tests/test_packaging.py`, watched red on the one line: no `${{` outside a
-comment above `runs:`. The second run is the proof, and it answers what
-the first could not reach - whether the runner's own Python accepts the
-action's `pip install`.
+comment above `runs:`.
+
+**The second run, after the repair**: twenty-one of twenty-one green, read
+job by job. The action loaded and installed from the checkout on the
+runner's own Python - no `setup-python`, as the README's snippet has none -
+in 3.4 seconds with no warning, which answers what the first run could not
+reach; then it gated this pull request's introduced lines from the base the
+event named: 4 documents, 245 introduced lines, 0 findings, the local count
+exactly. Its `verify` arm runs only on a push to `main`, so the merge is its
+first run. The free-threaded job, required now, passed again (1,423 and 1,
+81.5 seconds); every leg carried the new packaging test (Linux 1,423 and 1,
+Windows 1,421 and 3); the shuffled step ran on ubuntu 3.13 alone. The
+slowest test anywhere was 8.88 seconds. The first run's slowest,
+`test_a_repository_rule_reports_its_one_fault_once`, took 4.20 seconds on
+the same Windows 3.10 leg where it had taken 17.01 - four to one between
+two runs of one test on one leg, under `-n auto`. So the next tranche's
+per-test timeout starts from 17.01, the larger of the two, and takes that
+spread as the reason one run's durations cannot size it alone.
 
 ## Authoring constraints these rules impose
 
