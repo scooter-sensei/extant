@@ -711,9 +711,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # --- code blocks -----------------------------------------------------
         # The indented block goes unread again, so every claim inside a
         # transcript is checked: 2,573 findings on the recorded corpus sweep.
+        # Retargeted when fences joined the scanner (Phase 55): the early
+        # return for `.mdx` it broke had to go, because `.mdx` has fences,
+        # so the condition that opens a block is the one site left.
         ("indented code is read as prose again", blocks,
-         "    if mdx:\n        return frozenset()",
-         "    if True:\n        return frozenset()"),
+         "        if indent >= margin + 4 and not mdx and governed is None and not paragraph and not html:",
+         "        if False:"),
         # The container model forgotten, so four spaces under a list item -
         # a continuation paragraph, which is PROSE - is blanked as code.
         ("indentation is measured from the margin, not from the container", blocks,
@@ -725,10 +728,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a generator's indented body reads as code again", blocks,
          "        if _ADMONITION.match(rest) or _DEFINITION.match(rest) or _HTML_OPEN.match(rest):",
          "        if False:"),
+        # The fence anchors below followed the code into blocks.py when
+        # fences joined the indented scanner (Phase 55). Four moved path
+        # only; the block-quote one names the helper its test now lives in.
+        #
         # A fence closed by any run of three, which is the toggle this
         # replaced: a four-backtick block quoting a three-backtick one goes
         # out of phase and its contents are read as prose.
-        ("a shorter fence closes a longer one again", text,
+        ("a shorter fence closes a longer one again", blocks,
          "    return (fence.group(\"char\") == char\n"
          "            and len(fence.group(\"run\")) >= length",
          "    return (fence.group(\"char\") == char\n"
@@ -736,26 +743,47 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # A fence opened inside a block quote left open after the quote
         # ends: aider's chat-history fixture lost 129 findings in prose to
         # it on the first identity run of 2026-09-26.
-        ("a fence outlives the block quote it opened in", text,
-         "        if opened is not None and opened[2] and _quote_depth(line) < opened[2]:",
-         "        if False:"),
+        ("a fence outlives the block quote it opened in", blocks,
+         "    if opened[2] and _quote_depth(raw) < opened[2]:",
+         "    if False:"),
         # A closer with an info string accepted, so ```` ```python ```` shown
         # inside a fenced block ends it and the rest is read as prose.
-        ("a fence line with an info string closes a fence again", text,
+        ("a fence line with an info string closes a fence again", blocks,
          "            and not fence.group(\"rest\").strip()\n",
          "            and True\n"),
         # A closer four or more columns deeper than its opener accepted: a
         # fence shown inside a fence ends it, and the real closer then opens
         # one that runs to the end of the document.
-        ("a fence shown inside a fence closes it again", text,
+        ("a fence shown inside a fence closes it again", blocks,
          "            and _columns(fence.group(\"indent\")) < indent + 4)",
          "            and True)"),
         # Three backticks with a backtick later on the line read as a fence
         # rather than an inline span, blanking everything below it until a
         # closer happens along - kubernetes' changelogs.
-        ("an inline code span opens a fence again", text,
+        ("an inline code span opens a fence again", blocks,
          "    return not (fence.group(\"char\") == \"`\" and \"`\" in fence.group(\"rest\"))",
          "    return True"),
+        # The containers Phase 55 added. A list item's end no longer closing
+        # its fence is the 3,652 lines on GitHub-rendered documents the
+        # measurement found - kubernetes' changelog entries after an
+        # unclosed paste.
+        ("the end of a list item leaves its fence open again", blocks,
+         "    return bool(rest) and indent < columns[items - 1]",
+         "    return False"),
+        # A comment's terminator no longer ending the fence begun inside it,
+        # so the document after `-->` is silenced - bun, qmk and deno.
+        ("the end of a comment leaves its fence open again", blocks,
+         "            if comment and \"-->\" in line:",
+         "            if False:"),
+        # The same with `</pre>` and the three other verbatim tags.
+        ("the end of a verbatim tag leaves its fence open again", blocks,
+         "            elif verbatim is not None and _closing(verbatim, line):",
+         "            elif False:"),
+        # ``- ```` unseen again, so the item's content is read and its
+        # indented closer opens a fence over the prose after it.
+        ("a fence on a list marker line goes unseen again", blocks,
+         "            if on_marker is not None and _opens(on_marker):",
+         "            if False:"),
         # An indented `<!--` taken as an HTML block again, so an HTML
         # example leaves its code block and swallows the lines after it.
         ("an indented HTML example opens a comment again", blocks,

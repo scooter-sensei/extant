@@ -6,6 +6,58 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 55 - One scanner for both code blocks: a fence ends where its container does (unreleased, 2026-09-28)
+
+**Status.** Suite is 1,412 tests across 75 files. On this machine 1,405
+pass and 7 skip; on Linux, through WSL, 1,411 pass and 1 skips. Twenty-two
+added: eighteen in the code-stripping file, three in the indented-code file
+and one in the diff-gate file. Thirteen rules; no mode added; no default or
+exit code moved. The tool remained released as 0.28.0, and this work sits
+above that tag in its own pull request. `python -m mypy`: no issues in 43
+files. Mutation campaign is 310 anchors: the five fence anchors followed the
+code into the blocks module, the indented-code anchor moved to the condition
+that opens a block - the early return it broke went, because `.mdx` has
+fences - and four were written for the container closings. The ten, applied
+to a copy of this tree: 9 of 10 killed in fifty-six minutes, and the survivor
+was the inline-span rule, whose own test the new container rule had started
+rescuing; a test reaching the lines no container's end can reach killed it in
+a second run. The 152 visible corpus clones were swept before and after
+against a prediction of 8 differing, written to a log before the gate ran: 8
+differ, the predicted set, 106 findings gained and none lost. The rest of the
+pre-push list ran against a working-tree extract: smoke 45 clean of 47 with
+the two expected flags; scenarios 25 and 213 assertions; fuzz at seed
+20260824 over 35 repositories, 0 violations; `--self-check` 23 of 23;
+`--verify` clean; `--selftest` 7 fired and 0 silent.
+
+**What it is.** The fence loop moved out of the text module into the one that
+already kept the container model it lacked, so a single scanner now says which
+lines are code. A fence ends when the list item, block quote, HTML comment or
+verbatim tag it opened in ends; a fence on a list marker's line opens one; and
+a fence's content no longer reaches the indented scanner as markup. Measured
+first: 3,652 lines on GitHub-rendered documents were blanked because an
+item's end left its fence open - kubernetes' changelogs above all - and MDX
+judged its own side through the @mdx-js/mdx parser, installed into a scratch
+directory and run offline over the 96 per cent of the corpus's MDX-rendered
+documents it can parse. The gate compared the new stripper with the shipped
+one and judged every moved line by its renderer's reference: 3,437 lines of
+prose read again and 399 of code blanked, one clone per repository, against
+19 of prose silenced and 21 of code read, each explained line by line. Its
+first run found a defect in the new scanner - a `>` inside a fence taken for a
+block-quote marker - repaired with a test. CommonMark's "at most three spaces"
+for an opener stays refused, now with a measured price: 560 lines of code read
+as prose to repair 12. The full record is the section "One scanner for both
+code blocks: a fence ends where its container does" in the design rationale
+under the skill's references.
+
+**Beside it: a test that left its run's errors behind.** Under `-n auto` two
+diff-gate tests failed that pass alone, and they fail the same way on main by
+naming three tests in order. What outlived the injecting test's monkeypatch
+was the run's error list, which only `main()` clears, while the tests call the
+mode directly - test isolation, since every shipped caller runs `main()` once
+per process. Repaired in the tests: one helper takes back by mark what a
+raising rule recorded, and an autouse guard fails whichever test leaves an
+entry behind, which found a third.
+
 ## Phase 54 - The review of pull request #16: nothing read from outside the checkout (shipped, 2026-09-27)
 
 **Status.** Suite is 1,390 tests across 75 files. On this machine 1,383
