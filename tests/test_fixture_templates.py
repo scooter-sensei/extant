@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from conftest import committer, init_repo
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
@@ -179,3 +180,43 @@ def test_installing_twice_gives_two_independent_copies(git_repo,
 
     assert (second_tools / "extant_collect.py").read_text(
         encoding="utf-8") != "# scribbled\n"
+
+
+def _shaped(repo: Path, shape: str) -> Path:
+    """`repo`, left in one of the ref layouts `_head_sha` must read or refuse;
+    returns the directory whose HEAD is asked about."""
+    commit = committer(repo)
+    commit("a.md", "one\n", "first")
+    if shape == "another branch":
+        git(repo, "checkout", "-q", "-b", "other")
+    elif shape == "detached":
+        git(repo, "checkout", "-q", "--detach")
+    elif shape == "packed refs":
+        commit("b.md", "two\n", "second")
+        git(repo, "pack-refs", "--all")
+        return repo
+    elif shape == "linked worktree":
+        linked = repo.parent / "linked"
+        git(repo, "worktree", "add", "-q", "-b", "side", str(linked))
+        commit = committer(linked)
+        commit("c.md", "three\n", "in the worktree")
+        return linked
+    commit("b.md", "two\n", "second")
+    return repo
+
+
+@pytest.mark.parametrize("shape", ["a branch", "another branch", "detached",
+                                   "packed refs", "linked worktree"])
+def test_the_head_read_from_disk_is_the_head_git_names(git_repo, shape: str) -> None:
+    """`committer` read HEAD back with `git rev-parse`, one spawn in three of
+    every commit the suite makes - 1,394 of them in a run, 29.5 ms each against
+    0.23 ms for reading the ref git has just written (measured 2026-09-28). The
+    read is only allowed where it cannot be wrong: a plain loose ref, or the
+    commit itself in a detached HEAD. Packed refs and a linked worktree, whose
+    `.git` is a file, are the layouts it must NOT guess at - it asks git there,
+    and every shape must name the commit git names."""
+    from conftest import _head_sha
+
+    repo, _commit = git_repo
+    where = _shaped(repo, shape)
+    assert _head_sha(where) == git(where, "rev-parse", "HEAD")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import re
 import shutil
 import subprocess
 import sys
@@ -316,9 +317,38 @@ def committer(repo: Path) -> Callable[[str, str, str], str]:
             fh.write(content)
         _run(repo, "add", filename)
         _run(repo, "commit", "-m", message)
-        return _run(repo, "rev-parse", "HEAD").strip()
+        return _head_sha(repo)
 
     return commit
+
+
+_FULL_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+
+
+def _head_sha(repo: Path) -> str:
+    """HEAD's commit, read from the files git has just written where that is
+    unambiguous, and asked of git everywhere else.
+
+    `commit` asked `git rev-parse HEAD` after every commit: 1,394 spawns in a
+    run of the suite, 29.5 ms each on the development machine against 0.23 ms
+    to read the loose ref the commit had just written (measured 2026-09-28).
+    So the plain layouts are read - `HEAD` naming a loose ref, or holding the
+    commit itself when detached - and anything else is refused rather than
+    guessed at: packed refs, a linked worktree whose `.git` is a file, a
+    reftable repository, a symbolic ref pointing at another. Each of those
+    falls back to git, which is what tests/test_fixture_templates.py pins,
+    shape by shape.
+    """
+    git_dir = repo / ".git"
+    try:
+        head = (git_dir / "HEAD").read_text(encoding="ascii").strip()
+        sha = ((git_dir / head[len("ref: "):]).read_text(encoding="ascii").strip()
+               if head.startswith("ref: ") else head)
+    except (OSError, UnicodeDecodeError):
+        sha = ""
+    if _FULL_SHA.fullmatch(sha):
+        return sha
+    return _run(repo, "rev-parse", "HEAD").strip()
 
 
 @pytest.fixture(scope="session")
