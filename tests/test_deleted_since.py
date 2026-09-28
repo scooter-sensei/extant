@@ -121,7 +121,7 @@ def test_the_mode_never_gates(git_repo, capsys) -> None:
 
 
 def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
-        git_repo, capsys, monkeypatch) -> None:
+        git_repo, capsys) -> None:
     """The gap `run_sweep` and `--validate` already closed, missing here.
 
     `deleted_claims` calls `session.validate()` once per changed document, the
@@ -137,22 +137,15 @@ def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
     this does NOT assert a non-zero exit, unlike the equivalent test in
     test_rule_contract.py. It only asserts the failure is SAID.
     """
-    from extant import session as hc
+    from conftest import raising_rule
     from extant import deleted_since
 
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format(f"Merged at `{DEAD}`."), "docs: claim")
     commit("NEXT_SESSION.md", ENTRY.format("Gone."), "docs: remove")
 
-    def explode(ctx, text):
-        raise RuntimeError("deliberate")
-
-    import dataclasses
-
-    broken = dataclasses.replace(hc.RULES[0], check=explode)
-    monkeypatch.setattr(hc, "RULES", (broken,) + hc.RULES[1:])
-
-    code = deleted_since.run_deleted_since(repo, "HEAD~1", "text")
+    with raising_rule() as broken:
+        code = deleted_since.run_deleted_since(repo, "HEAD~1", "text")
     printed = capsys.readouterr()
     combined = printed.out + printed.err
 

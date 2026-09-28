@@ -249,15 +249,17 @@ BREAKAGES = (
         prop="INDENTED",
         why="indented code blocks no longer recognised, so a claim in a "
             "four-space transcript is judged as a promise again",
-        # The scanner's own early return, widened from `.mdx` to every
-        # document: `indented_code_lines` then answers the empty set, which is
-        # exactly the behaviour before Phase 53. Not contrived - it is the
-        # state this tool shipped in for fifty-two phases. The same site as
+        # The condition that opens an indented block, made never true: the
+        # scanner then finds no indented code anywhere, which is exactly the
+        # behaviour before Phase 53. Not contrived - it is the state this tool
+        # shipped in for fifty-two phases. Retargeted in Phase 55 from the
+        # early return for `.mdx` it used to widen, which went when fences
+        # joined the scanner, because `.mdx` has fences. The same site as
         # `mutate.py`'s "indented code is read as prose again", which asks the
         # suite the question this asks the fuzzer.
         edits=(("extant/blocks.py",
-                "    if mdx:\n        return frozenset()",
-                "    if True:\n        return frozenset()"),),
+                "        if indent >= margin + 4 and not mdx and governed is None and not paragraph and not html:",
+                "        if False:"),),
     ),
     Breakage(
         prop="PROCESS",

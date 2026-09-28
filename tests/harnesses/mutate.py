@@ -13,12 +13,17 @@ indistinguishable from a real gap, and exactly the failure this project is
 about. NOT APPLIED is therefore reported as a harness fault, never as a result.
 
 This found six gaps the 168-test suite could not, including two tests that a
-broken implementation satisfied. It is slow by nature: one full suite run per
-mutation. Expect roughly half an hour.
+broken implementation satisfied. It is slow by nature: one suite run per
+mutation, stopping at the first failure. That was half an hour at 168 tests;
+at 165 mutations and 1,400 tests it measured 5h53m, so `--only` exists for
+re-checking one group and `--parallel` for running each suite across every
+core - with each kill confirmed serially, since the serial run is the
+definition of correctness and a kill caused by load would hide a real gap.
 """
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -711,9 +716,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # --- code blocks -----------------------------------------------------
         # The indented block goes unread again, so every claim inside a
         # transcript is checked: 2,573 findings on the recorded corpus sweep.
+        # Retargeted when fences joined the scanner (Phase 55): the early
+        # return for `.mdx` it broke had to go, because `.mdx` has fences,
+        # so the condition that opens a block is the one site left.
         ("indented code is read as prose again", blocks,
-         "    if mdx:\n        return frozenset()",
-         "    if True:\n        return frozenset()"),
+         "        if indent >= margin + 4 and not mdx and governed is None and not paragraph and not html:",
+         "        if False:"),
         # The container model forgotten, so four spaces under a list item -
         # a continuation paragraph, which is PROSE - is blanked as code.
         ("indentation is measured from the margin, not from the container", blocks,
@@ -725,10 +733,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a generator's indented body reads as code again", blocks,
          "        if _ADMONITION.match(rest) or _DEFINITION.match(rest) or _HTML_OPEN.match(rest):",
          "        if False:"),
+        # The fence anchors below followed the code into blocks.py when
+        # fences joined the indented scanner (Phase 55). Four moved path
+        # only; the block-quote one names the helper its test now lives in.
+        #
         # A fence closed by any run of three, which is the toggle this
         # replaced: a four-backtick block quoting a three-backtick one goes
         # out of phase and its contents are read as prose.
-        ("a shorter fence closes a longer one again", text,
+        ("a shorter fence closes a longer one again", blocks,
          "    return (fence.group(\"char\") == char\n"
          "            and len(fence.group(\"run\")) >= length",
          "    return (fence.group(\"char\") == char\n"
@@ -736,26 +748,64 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # A fence opened inside a block quote left open after the quote
         # ends: aider's chat-history fixture lost 129 findings in prose to
         # it on the first identity run of 2026-09-26.
-        ("a fence outlives the block quote it opened in", text,
-         "        if opened is not None and opened[2] and _quote_depth(line) < opened[2]:",
-         "        if False:"),
+        ("a fence outlives the block quote it opened in", blocks,
+         "    if opened[2] and _quote_depth(raw) < opened[2]:",
+         "    if False:"),
         # A closer with an info string accepted, so ```` ```python ```` shown
         # inside a fenced block ends it and the rest is read as prose.
-        ("a fence line with an info string closes a fence again", text,
+        ("a fence line with an info string closes a fence again", blocks,
          "            and not fence.group(\"rest\").strip()\n",
          "            and True\n"),
         # A closer four or more columns deeper than its opener accepted: a
         # fence shown inside a fence ends it, and the real closer then opens
         # one that runs to the end of the document.
-        ("a fence shown inside a fence closes it again", text,
+        ("a fence shown inside a fence closes it again", blocks,
          "            and _columns(fence.group(\"indent\")) < indent + 4)",
          "            and True)"),
         # Three backticks with a backtick later on the line read as a fence
         # rather than an inline span, blanking everything below it until a
         # closer happens along - kubernetes' changelogs.
-        ("an inline code span opens a fence again", text,
+        ("an inline code span opens a fence again", blocks,
          "    return not (fence.group(\"char\") == \"`\" and \"`\" in fence.group(\"rest\"))",
          "    return True"),
+        # The containers Phase 55 added. A list item's end no longer closing
+        # its fence is the 3,652 lines on GitHub-rendered documents the
+        # measurement found - kubernetes' changelog entries after an
+        # unclosed paste.
+        ("the end of a list item leaves its fence open again", blocks,
+         "    return bool(rest) and indent < columns[items - 1]",
+         "    return False"),
+        # A comment's terminator no longer ending the fence begun inside it,
+        # so the document after `-->` is silenced - bun, qmk and deno.
+        ("the end of a comment leaves its fence open again", blocks,
+         "            if comment and \"-->\" in line:",
+         "            if False:"),
+        # The same with `</pre>` and the three other verbatim tags.
+        ("the end of a verbatim tag leaves its fence open again", blocks,
+         "            elif verbatim is not None and _closing(verbatim, line):",
+         "            elif False:"),
+        # ``- ```` unseen again, so the item's content is read and its
+        # indented closer opens a fence over the prose after it.
+        ("a fence on a list marker line goes unseen again", blocks,
+         "            if on_marker is not None and _opens(on_marker):",
+         "            if False:"),
+        # Every quote marker stripped again when deciding whether a line has
+        # left its item, so a `>` INSIDE a fence - a diff line, a prompt, a
+        # redirect - reads as dedented and closes the fence early: node,
+        # cpython and openfoodfacts, found by the delta on 2026-09-27.
+        ("a quote marker inside a fence ends the item again", blocks,
+         "    for _ in range(opened[2]):",
+         "    while True:"),
+        # Opening a fence no longer ends the paragraph it interrupted, so a
+        # four-space line after its closer is read as that paragraph's
+        # continuation rather than as code. Found unanchored AND untested by
+        # the audit of the built tranche on 2026-09-28.
+        ("a fence leaves the paragraph it interrupted open", blocks,
+         "            opened, items = _opener(fence), len(columns)\n"
+         "            fenced.add(number)\n"
+         "            paragraph = False\n",
+         "            opened, items = _opener(fence), len(columns)\n"
+         "            fenced.add(number)\n"),
         # An indented `<!--` taken as an HTML block again, so an HTML
         # example leaves its code block and swallows the lines after it.
         ("an indented HTML example opens a comment again", blocks,
@@ -2339,12 +2389,53 @@ def install_restore_guard(backups: dict[Path, str]) -> None:
             pass    # not the main thread, or the platform lacks the signal
 
 
-def run_suite(root: Path, python: str) -> bool:
+_SERIAL = ["-x", "-q", "--no-header", "-p", "no:cacheprovider"]
+# The suite split across every core, one file per worker. Opt-in (--parallel):
+# the serial run stays the definition of correctness, so this may only ever
+# make a campaign FASTER, never change a verdict - see `run_mutant`.
+_PARALLEL = [*_SERIAL, "-rfE", "-n", "auto", "--dist", "loadfile"]
+# A short-summary line: the node id runs to pytest's " - " before the message,
+# not to the first space - a parametrised id holds spaces ("[a branch]").
+_FAILED_NODE = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?$", re.MULTILINE)
+# pytest's exit code for "tests ran and some failed". A usage error (4) or an
+# empty selection (5) is NOT a confirmation of anything.
+_TESTS_FAILED = 1
+
+
+def run_suite(root: Path, python: str, extra: list[str] | None = None,
+              targets: list[str] | None = None) -> tuple[int, str]:
+    """Run the suite (or `targets` alone): (pytest's exit code, its output)."""
     proc = subprocess.run(
-        [python, "-m", "pytest", "-x", "-q", "--no-header", "-p", "no:cacheprovider"],
+        [python, "-m", "pytest", *(extra if extra is not None else _SERIAL),
+         *(targets or [])],
         cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
-    return proc.returncode == 0
+    return proc.returncode, proc.stdout
+
+
+def run_mutant(root: Path, python: str, parallel: bool) -> tuple[bool, bool]:
+    """(green, overturned): the serial verdict, reached as cheaply as allowed.
+
+    Serial by default, exactly as every campaign before --parallel ran. In
+    parallel a SURVIVOR stands as found - the whole suite passed - but a KILL
+    is confirmed serially before it counts: the failing tests rerun alone,
+    and if they now pass, the whole serial suite decides. That direction is
+    the one that matters. A kill caused by load rather than by the mutation
+    would hide a real gap behind "killed", the healthiest-looking verdict this
+    harness prints; a false survivor only asks somebody to look. `overturned`
+    says a parallel kill did not survive the serial check, so a campaign can
+    report how often that happened.
+    """
+    if not parallel:
+        return run_suite(root, python)[0] == 0, False
+    code, out = run_suite(root, python, _PARALLEL)
+    if code == 0:
+        return True, False
+    nodes = sorted(set(_FAILED_NODE.findall(out)))
+    if nodes and run_suite(root, python, targets=nodes)[0] == _TESTS_FAILED:
+        return False, False
+    serial_green = run_suite(root, python)[0] == 0
+    return serial_green, serial_green
 
 
 def main() -> int:
@@ -2357,6 +2448,9 @@ def main() -> int:
                         help="verify every mutation still matches, run no tests")
     parser.add_argument("--only", metavar="SUBSTRING[,SUBSTRING...]",
                         help="run only mutations whose label contains any of these")
+    parser.add_argument("--parallel", action="store_true",
+                        help="run each suite across every core (pytest-xdist); "
+                             "every kill is confirmed serially before it counts")
     args = parser.parse_args()
 
     root = Path(args.repo).resolve()
@@ -2425,8 +2519,8 @@ def main() -> int:
     print("      Do not edit the repository while it runs, and do not run it")
     print("      against a tree you have uncommitted work in.\n")
 
-    print("baseline: ", end="", flush=True)
-    if not run_suite(root, args.python):
+    print(f"baseline{' (parallel)' if args.parallel else ''}: ", end="", flush=True)
+    if run_suite(root, args.python, _PARALLEL if args.parallel else None)[0] != 0:
         print("SUITE IS ALREADY RED - aborting, every result below would be noise")
         return 1
     print("green\n")
@@ -2434,6 +2528,7 @@ def main() -> int:
     survived: list[str] = []
     killed: list[str] = []
     not_applied: list[str] = []
+    overturned: list[str] = []
     for i, (label, path, old, new) in enumerate(mutations, 1):
         original = backups[path]
         if original.count(old) != 1:
@@ -2443,16 +2538,23 @@ def main() -> int:
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(original.replace(old, new, 1))
         try:
-            green = run_suite(root, args.python)
+            green, flipped = run_mutant(root, args.python, args.parallel)
         finally:
             with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(original)
         (survived if green else killed).append(label)
+        if flipped:
+            overturned.append(label)
         print(f"{i:>2}/{len(mutations)}  "
               f"{'SURVIVED **' if green else 'killed     '}  {label}")
 
     print(f"\nchecked {len(mutations)} mutations: {len(killed)} killed, "
           f"{len(survived)} SURVIVED, {len(not_applied)} not applied")
+    if args.parallel:
+        # Said on every parallel campaign, zero included: a number that is only
+        # printed when it is not zero cannot be told apart from one never counted.
+        print(f"parallel kills overturned by the serial check: {len(overturned)}"
+              + "".join(f"\n  - {label}" for label in overturned))
     if survived:
         print("\nTEST GAPS - behaviour changed and no test noticed:")
         for label in survived:

@@ -57,8 +57,14 @@ each time:
 been measured, and quoting the 3x as a CI figure would be an overclaim.
 
 `--dist loadfile` keeps one file's tests on one worker; plain `--dist load`
-interleaves them across workers freely. Both produce the identical result, which
-is the evidence that nothing here depends on execution order. Which is FASTER
+interleaves them across workers freely. They produced the identical result, and
+that was taken as evidence that nothing here depends on execution order - which
+it was not: on 2026-09-28 `--dist load` put a test that left a raising rule's
+entry in `RULE_ERRORS` ahead of two it then failed, and naming the three in that
+order failed them serially too. An identical result from two orders shows those
+two orders agree, not that every order does. The autouse guard in
+`tests/conftest.py` now fails the test that leaves process state of that kind
+behind, in any order. Which is FASTER
 has not been stable across runs - `load` won the measurement above and
 `loadfile` won an earlier one - so `loadfile` is the recommendation for its
 isolation, not for its speed.
@@ -67,6 +73,13 @@ isolation, not for its speed.
 alone.** Putting `-n auto` in `addopts` makes it unconditional, which breaks
 `--pdb` and takes the choice away from CI. The serial run stays the definition
 of correctness.
+
+CI makes that choice per platform. The Linux legs run serially, so every pull
+request is still judged by the serial run on five Pythons. The Windows legs run
+`-n auto --dist loadfile`, because there a process start costs several times
+what it costs on Linux and the suite starts thousands: serially they took 5.5 to
+9.4 minutes against about 1.5 on Linux, measured on 2026-09-28, and every pull
+request waited on the slowest.
 
 One test deserves naming: `tests/test_consistency_timeout.py` asserts a
 wall-clock bound, which is the kind of assertion most likely to go intermittent

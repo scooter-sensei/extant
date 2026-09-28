@@ -360,3 +360,78 @@ def test_the_document_is_split_once_however_many_blocks_it_holds() -> None:
     text = Counting("".join(f"Step {n}:\n\n    $ run {n}\n\n" for n in range(50)))
     assert len(_lines(text)) == 50
     assert Counting.calls == 1, f"split {Counting.calls} times for 50 blocks"
+
+
+# --------------------------------------------------------------------------
+# 6. A fence's content is not structure
+#
+# This scanner could not see fences: `text.py` decided them in a loop of its
+# own, and the lines inside one reached this state machine as if they were
+# markup. Found by the audit of tranche 17's design on 2026-09-27, with
+# markdown-it-py agreeing on each expected set below; one scanner for both
+# kinds of code block is the repair.
+# --------------------------------------------------------------------------
+
+def test_a_comment_opener_inside_a_fence_does_not_hide_later_code() -> None:
+    """An HTML example in a fence opened a comment here that nothing closed,
+    and every indented block after it was read as prose."""
+    text = ("Intro.\n"
+            "\n"
+            "```html\n"
+            "<!-- a comment example\n"
+            "```\n"
+            "\n"
+            "Text.\n"
+            "\n"
+            "    real indented code\n")
+    assert _lines(text) == {9}
+
+
+def test_a_pre_opener_inside_a_fence_does_not_hide_later_code() -> None:
+    """The same with a verbatim tag, which runs to a `</pre>` that never
+    comes."""
+    text = ("Intro.\n"
+            "\n"
+            "```html\n"
+            "<pre>\n"
+            "```\n"
+            "\n"
+            "    real indented code\n"
+            "\n"
+            "more\n")
+    assert _lines(text) == {7}
+
+
+def test_an_indented_block_straight_after_a_closing_fence_is_code() -> None:
+    """A closing fence is not a paragraph, so nothing is open for the next
+    line to continue lazily; this scanner saw a line of text there."""
+    text = ("Intro.\n"
+            "\n"
+            "```\n"
+            "code\n"
+            "```\n"
+            "    indented after a fence\n")
+    assert _lines(text) == {6}
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("Text\n"
+     "```\n"
+     "code\n"
+     "```\n"
+     "    indented after a fence\n", {5}),
+    ("- item text\n"
+     "  ```\n"
+     "  code\n"
+     "  ```\n"
+     "      indented after a fence\n", {5}),
+])
+def test_a_fence_that_interrupts_a_paragraph_ends_it(text: str, expected: set[int]) -> None:
+    """The test above has a blank line before its fence, so no paragraph is
+    open to begin with and cannot show whether opening a fence ENDS one. A
+    fence may interrupt a paragraph, and CommonMark then reads a four-space
+    line after its closer as code, at the margin and inside a list item alike
+    - markdown-it-py agrees on both. Found by the audit of the built tranche
+    on 2026-09-28: dropping the reset when a fence opens survived every
+    test."""
+    assert _lines(text) == expected

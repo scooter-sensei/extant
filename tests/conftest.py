@@ -7,12 +7,14 @@ so a failure points at the file you would actually edit.
 from __future__ import annotations
 
 import atexit
+import contextlib
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 import pytest
 
@@ -166,6 +168,32 @@ def neutral_config(tmp_path: Path):
         hc._DOC, hc._SCOPE = saved_doc, saved_scope
 
 
+@pytest.fixture(autouse=True)
+def no_rule_error_left_behind():
+    """Fail the test that leaves an entry in `RULE_ERRORS`, and name it.
+
+    The run's error list is process state the other fixtures here do not
+    cover, and a test that leaves an entry there turns the NEXT in-process
+    run red - a different test, in whatever order the suite happened to run.
+    That is how it was found: two tests in test_introduced_since.py failed
+    under `-n auto` on 2026-09-27 and passed alone, because a third had left
+    its deliberately raising rule's entry behind. So the test that leaves one
+    fails here, at its own teardown, in every order; and only THEN is the list
+    emptied, so the report lands on the cause rather than on its victims.
+    Not a reset that hides a leak - the leak is the failure.
+    """
+    from extant.registry import RULE_ERRORS
+
+    yield
+    left = list(RULE_ERRORS)
+    if left:
+        # MUTATED, never rebound: the rules append to this very list.
+        del RULE_ERRORS[:]
+        pytest.fail(f"this test left {left!r} in RULE_ERRORS; the next "
+                    f"in-process run would report it as its own. Take back "
+                    f"what the run recorded - see `raising_rule`.", pytrace=False)
+
+
 @pytest.fixture
 def reconfigure(monkeypatch):
     """Change a configured value so that every reader sees it.
@@ -198,6 +226,41 @@ def reconfigure(monkeypatch):
         return hc._ACTIVE
 
     return apply
+
+
+@contextlib.contextmanager
+def raising_rule() -> Iterator[object]:
+    """The first rule replaced by one whose check raises, for as long as the
+    `with` block lasts; the rule is yielded so a test can name its kind.
+
+    Putting `RULES` back is half the undo. A rule that raised is recorded in
+    `RULE_ERRORS`, the RUN's list, which `main()` clears at the start of a run
+    and which a mode function called directly - as these tests call them -
+    never passes through. A monkeypatch cannot know a run appended to a list,
+    so the entries the broken rule caused stayed, and the next gate run in the
+    same process exited 1 naming a rule nothing had broken: two tests in
+    test_introduced_since.py, whenever the suite ran this one first, which
+    serial file order never does and `-n auto` did on 2026-09-27. So this
+    takes back exactly what was recorded while it was installed - by mark,
+    the way test_rule_contract.py does - and nothing recorded before it.
+    """
+    import dataclasses
+
+    from extant import session as hc
+    from extant.registry import RULE_ERRORS
+
+    def explode(ctx: object, text: str) -> list[object]:
+        raise RuntimeError("deliberate")
+
+    broken = dataclasses.replace(hc.RULES[0], check=explode)
+    mark = len(RULE_ERRORS)
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(hc, "RULES", (broken,) + hc.RULES[1:])
+            yield broken
+    finally:
+        # MUTATED, never rebound: the rules append to this very list.
+        del RULE_ERRORS[mark:]
 
 
 # --- fixture repositories, built once and copied ------------------------------
@@ -254,9 +317,38 @@ def committer(repo: Path) -> Callable[[str, str, str], str]:
             fh.write(content)
         _run(repo, "add", filename)
         _run(repo, "commit", "-m", message)
-        return _run(repo, "rev-parse", "HEAD").strip()
+        return _head_sha(repo)
 
     return commit
+
+
+_FULL_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+
+
+def _head_sha(repo: Path) -> str:
+    """HEAD's commit, read from the files git has just written where that is
+    unambiguous, and asked of git everywhere else.
+
+    `commit` asked `git rev-parse HEAD` after every commit: 1,394 spawns in a
+    run of the suite, 29.5 ms each on the development machine against 0.23 ms
+    to read the loose ref the commit had just written (measured 2026-09-28).
+    So the plain layouts are read - `HEAD` naming a loose ref, or holding the
+    commit itself when detached - and anything else is refused rather than
+    guessed at: packed refs, a linked worktree whose `.git` is a file, a
+    reftable repository, a symbolic ref pointing at another. Each of those
+    falls back to git, which is what tests/test_fixture_templates.py pins,
+    shape by shape.
+    """
+    git_dir = repo / ".git"
+    try:
+        head = (git_dir / "HEAD").read_text(encoding="ascii").strip()
+        sha = ((git_dir / head[len("ref: "):]).read_text(encoding="ascii").strip()
+               if head.startswith("ref: ") else head)
+    except (OSError, UnicodeDecodeError):
+        sha = ""
+    if _FULL_SHA.fullmatch(sha):
+        return sha
+    return _run(repo, "rev-parse", "HEAD").strip()
 
 
 @pytest.fixture(scope="session")
