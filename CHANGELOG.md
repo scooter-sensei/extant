@@ -15,12 +15,13 @@ scanner for both code blocks: a fence ends where its container does".
 paste terminal output into an entry and never close the fence; the next
 entry's marker, back at the margin, ends the item and - on GitHub, and in MDX -
 the fence with it. The fence loop had no container model and blanked every
-entry after the paste until a backtick run happened along: 3,652 lines on
-GitHub-rendered documents across the corpus, measured against markdown-it-py's
-`commonmark` preset, and 3,087 lines of kubernetes' alone are read again. The
-same rule has a second consequence and it is also the renderer's: a closer
-indented less than its item's content ends the item there and then opens a
-fence of its own, running to the end of the document, and that is now what
+entry after the paste until a backtick run happened along: 3,372 lines on
+GitHub-rendered documents across the corpus, one clone per repository,
+measured against markdown-it-py's `commonmark` preset, and 3,087 lines of
+kubernetes' alone are read again. The same rule has a second consequence and
+it is also the renderer's: a closer indented less than its item's content ends
+the item there and then opens a fence of its own, running to the next closing
+fence - or to the end of the document when none follows - and that is now what
 is blanked.
 
 **A fence on a list marker's line is read as one.** `- ` followed straight by
@@ -36,14 +37,17 @@ terminator and silences the document after it.
 scanner could not see fences: an HTML example inside a fence opened a comment
 or a `<pre>` that nothing closed, and every indented block after it was read
 as prose; and a fence's closing line counted as an open paragraph, so an
-indented block right after one was taken as its continuation.
+indented block right after one was taken as its continuation. A fence that
+interrupts a paragraph ends it, too, so a four-space line after its closer is
+code.
 
 **What did not change, and why.** A fence still opens at any indentation,
 because MDX - which compiles every `.mdx` file and Docusaurus's `.md` - has
 no indented code and opens one there; CommonMark's "at most three spaces" is
 right on GitHub and wrong under Docusaurus, the scanner cannot tell which
-renderer a `.md` file has, and applying it was measured to read 560 lines of
-code as prose to repair 12 of prose. MDX judged its own side of that: the
+renderer a `.md` file has, and applying it was measured: 158 more lines of
+prose read and 12 silenced lines repaired, against 539 more lines of code read
+as prose and 19 more lines of prose silenced on MDX sites. MDX judged its own side of that: the
 @mdx-js/mdx parser was run offline over the corpus's MDX-rendered documents
 while the change was measured, and never ships.
 

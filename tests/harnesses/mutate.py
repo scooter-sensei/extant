@@ -784,6 +784,23 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a fence on a list marker line goes unseen again", blocks,
          "            if on_marker is not None and _opens(on_marker):",
          "            if False:"),
+        # Every quote marker stripped again when deciding whether a line has
+        # left its item, so a `>` INSIDE a fence - a diff line, a prompt, a
+        # redirect - reads as dedented and closes the fence early: node,
+        # cpython and openfoodfacts, found by the delta on 2026-09-27.
+        ("a quote marker inside a fence ends the item again", blocks,
+         "    for _ in range(opened[2]):",
+         "    while True:"),
+        # Opening a fence no longer ends the paragraph it interrupted, so a
+        # four-space line after its closer is read as that paragraph's
+        # continuation rather than as code. Found unanchored AND untested by
+        # the audit of the built tranche on 2026-09-28.
+        ("a fence leaves the paragraph it interrupted open", blocks,
+         "            opened, items = _opener(fence), len(columns)\n"
+         "            fenced.add(number)\n"
+         "            paragraph = False\n",
+         "            opened, items = _opener(fence), len(columns)\n"
+         "            fenced.add(number)\n"),
         # An indented `<!--` taken as an HTML block again, so an HTML
         # example leaves its code block and swallows the lines after it.
         ("an indented HTML example opens a comment again", blocks,

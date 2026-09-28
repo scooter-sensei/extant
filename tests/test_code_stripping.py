@@ -321,10 +321,11 @@ def test_an_inline_span_opens_no_fence_where_no_container_would_end_one(text: st
 # Phase 55's, when fence detection moved into `extant/blocks.py` beside the
 # container model the indented scanner already kept. Measured on 2026-09-27
 # against markdown-it-py's `commonmark` preset over the 152 visible corpus
-# clones: 3,652 lines on GitHub-rendered documents were blanked because a
-# list item's end did not close the fence opened in it - kubernetes'
-# changelogs, aider, AdguardTeam, PX4 - and the MDX oracle (@mdx-js/mdx 3)
-# agrees with CommonMark on every list-item shape below.
+# clones: 3,372 lines on GitHub-rendered documents, one clone per repository,
+# were blanked because a list item's end did not close the fence opened in it
+# - kubernetes' changelogs 3,087 of them, then aider, moby, PX4 and bazel -
+# and the MDX oracle (@mdx-js/mdx 3) agrees with CommonMark on every
+# list-item shape below.
 # --------------------------------------------------------------------------
 
 def _prose_at(text: str, path: str) -> str:
@@ -414,7 +415,8 @@ def test_a_closer_dedented_out_of_its_item_opens_a_fence_of_its_own() -> None:
     """The rule has a second consequence, and it is the renderer's rather
     than a choice: a closer indented less than the item's content is not in
     the item, so the item - and the fence - end on that line, and the closer
-    then OPENS a fence at the margin that runs to the end of the document.
+    then OPENS a fence at the margin, which runs to the next closing fence or,
+    as here, to the end of the document when none follows.
     GitHub renders it that way and so does MDX 3; PX4's ko, uk and zh
     translations of one page are this shape. Pinned so a later "fix" has
     to argue with both renderers first."""

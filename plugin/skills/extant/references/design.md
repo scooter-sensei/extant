@@ -4186,10 +4186,18 @@ renders as prose:
 
 | cause | lines | who is right |
 |:--|--:|:--|
-| a list item's end does not close a fence opened in it | 3,652 GitHub-rendered | CommonMark, which is GitHub: a defect |
-| JSX or HTML in `.mdx`, or in `.md` under Docusaurus, Mintlify or Fern | about 73,400 | MDX, whose elements' children are markdown |
-| a fence inside an HTML comment | 1,061 | neither: commented-out code is not rendered |
-| a fence indented 4 or more, continuing a paragraph | 43 GitHub, 88 Docusaurus | depends on the renderer |
+| a list item's end does not close a fence opened in it | 3,372 GitHub-rendered | CommonMark, which is GitHub: a defect |
+| JSX or HTML in `.mdx`, or in `.md` under Docusaurus, Mintlify or Fern | 71,879 | MDX, whose elements' children are markdown |
+| a fence inside an HTML comment | 1,014 | neither: commented-out code is not rendered |
+| a fence indented 4 or more, continuing a paragraph | 43 GitHub-rendered, 157 on MDX sites | depends on the renderer |
+
+One clone per repository, as every count below is. The table as first
+recorded said 3,652, 1,061 and "about 73,400" and set 43 beside 88: the first
+two counted aider's and moby's second corpus tiers, the third re-derives from
+no single definition of its row, and the 88 was haystack's share of Phase 53's
+regressions, a different measurement from the 43 beside it. Corrected by the
+audit of the built tranche on 2026-09-28; the decisions each row supports do
+not move.
 
 The same classifier over Phase 53's 1,474 regressed lines gives 1,268 once
 aider's second corpus tier is folded - the classifier listed ten clones and
@@ -4223,14 +4231,22 @@ closing conditions moved unchanged. Two divergences are recorded rather than
 repaired, each a renderer the reference is not: a fence opens at ANY
 indentation, which is MDX's rule and mkdocs' inside an admonition, and a
 fence inside a comment or a verbatim tag is still blanked, since nothing in
-one is rendered. `mdx` switches off indented code, comments and verbatim tags
-and nothing else, because MDX shares CommonMark's list items and block quotes.
+one is rendered - the terminator's line with it, since it is the comment's.
+`mdx` switches off indented code, comments and verbatim tags and nothing
+else, because MDX shares CommonMark's list items and block quotes. The comment
+half of that switch rests on MDX 3 refusing a comment, and Docusaurus does
+not: its `markdown.mdx1Compat.comments` defaults to true, per the corpus's own
+copy of its configuration validator. So on Docusaurus's `.mdx` the switch is
+wrong in principle; measured by `m17_mdx_comments.py`, no fenced line of any
+`.mdx` on the corpus depends on it, and it stays until one does.
 
 **What auditing the design before building it added.** Four things the
 design as first written did not say. The list-item rule cuts both ways: a
 closer indented less than its item's content is not in the item, so the item
 and its fence end on that line and the closer then opens a fence that runs to
-the end of the document - GitHub renders it so and MDX 3 does too, and PX4's
+the next closing fence - swallowing the author's next opener as content - or
+to the end of the document when none follows; GitHub renders it so and MDX 3
+does too, and PX4's
 ko, uk and zh translations of one page are the shape, bounded on GitHub by the
 80 lines the reference calls code and the old loop read. The list model had
 never run on an `.mdx` file, because the indented scanner returned before it;
@@ -4274,14 +4290,18 @@ the real closer - four spaces in, continuing a paragraph, which CommonMark
 reads as text - then opens a fence under the refused "at most three spaces"
 rule and swallows a list label or a heading. The faithful alternative was
 built as a variant and measured the same way rather than argued: CommonMark's
-rule for a fence line four past its container while a paragraph is open
-repairs moby and bazel and reads 560 lines of code as prose in exchange - 437
-on MDX sites, 102 in mkdocs admonitions - against 21, with 26 lines silenced
-against 19. Refused again, with that number. goose 3: `:::info` at four past
-its item's content after a fence closes is indented code by CommonMark and the
-scanner now agrees, but goose's `.md` is compiled by MDX, which has none -
-Phase 53's recorded divergence for `.md` on an MDX site, reached through the
-repair of the fence-blind scanner. aider 4: bare `>` lines at the end of an
+rule for a fence line four past its container while a paragraph is open. It
+repairs moby's and bazel's 12 silenced lines and reads 158 more lines of prose
+(GitHub 56, MDX sites 88, mkdocs 14) - and in exchange reads 539 more lines of
+code as prose (MDX sites 437, mkdocs admonitions 102), and silences 19 lines on
+MDX sites the chosen design reads, 26 silenced in all against 19. Refused
+again, on those terms. goose 3: its opener is five columns into a list item
+while a paragraph is open, so CommonMark sees no fence there at all and reads
+the whole run as paragraph text; this scanner opens the fence under the same
+refused rule, as MDX does, and after its closer reads `:::info` - four past
+the item's content, no paragraph open - as indented code, which MDX does not
+have. So it is Phase 53's recorded divergence for `.md` on an MDX site,
+reached through the refused opener. aider 4: bare `>` lines at the end of an
 indented block inside a quote, which `_last_nonblank` counts as content
 because it tests the raw line; they hold no text, so blanking them silences
 nothing.
@@ -4305,12 +4325,17 @@ the four-space opener CommonMark forbids.
 **Two readers of one marker, counted.** `_FENCE` counts block-quote markers
 with `(?:\s*>)*` and the containers strip them with `^ {0,3}>`, and since this
 tranche both sit in one module - the shape "one claim, one scanner" warns
-about. They disagree on 96 fence lines in two clones, haystack 68 and bazel
-28, all a doctest's `    >>> ```python` in generated API reference: the wide
-reader counts three quotes where CommonMark sees none, the fence it opens
-closes on the next line, and not one line of either clone moved. Recorded,
-not merged: merging them changes the five closing conditions this tranche
-promised to move unchanged.
+about. They disagree on 96 fence lines in two clones, and in two shapes that
+cut opposite ways. haystack's 68 are a doctest's `    >>> ```python` in
+generated API reference: the wide reader counts three quotes where CommonMark
+sees none, and the fence it opens closes on the next line. bazel's 28 are a
+block quote nested in a list item - a `>` four spaces in, a fence after it -
+in its completion page and its snapshots: there CommonMark measures the marker
+from the item's content and sees a quote, which the wide reader agrees with
+and the containers' pattern, counting from the margin, misses. Not one line of
+either clone moved. Recorded, not merged: merging them changes the five closing conditions
+this tranche promised to move unchanged, and neither reader is the right one
+for both shapes.
 
 **The identity gate, held to a number.** `m16_predict_sites.py` ran the
 survey's own validator over every document holding a fence or an indented line
@@ -4347,6 +4372,33 @@ own teardown, in every order - before emptying the list, so the report lands on
 the cause rather than on its victims. The guard found the third, which a probe
 comparing each test's list before and after had missed: an earlier leak had
 left the identical entry, so before and after compared equal.
+
+**What auditing the built tranche corrected, 2026-09-28.** Asked for after
+the pull request was open and green, and done claim by claim against probes
+rather than by rereading. The record was wrong in seven places, corrected
+above in place: two in the cause table - counts that were raw where every
+other number is one clone per repository, and a pair of numbers taken from two
+different measurements; the refused variant's trade, which the first record gave as
+"560 lines of code to repair 12" and was in fact the larger exchange stated in
+the 19's paragraph; where a stray closer's fence ends - at the next closing
+fence, not at the end of the document; goose's cause; bazel's 28 quote-reader
+disagreements, which are a nested quote and not a doctest; and the premise that
+a comment is a parse error in MDX, which Docusaurus does not share. Two paths
+of the scanner had no mutation anchor, and one of them no test: the
+quote-marker limit the delta forced was killed by its test but unwatched by
+the campaign, and dropping the paragraph a fence ends - a fence interrupting
+a paragraph, then a four-space line after its closer, which markdown-it-py
+calls code at the margin and inside an item - survived every test. Both are
+anchored now, the second with a test watched red first. Two things are
+recorded rather than built. The fuzzer's FENCE oracle calls a document
+unclosed by an odd count of backtick fences, and `fuzz_axes` places claims by
+the same toggle; a document with a dedented closer has an even count and ends
+inside a fence, so the oracle would raise a false alarm on it - latent, since
+no generator writes a fence inside a list item. And a list item whose first
+line is itself indented code - a marker, five spaces, then a fence - is not
+blanked; the marker-line check correctly declines the fence, and the indented
+half of that line was a gap before this tranche, on the plan's list of
+CommonMark facts not yet needed.
 
 ## Authoring constraints these rules impose
 

@@ -6,8 +6,9 @@ its own with no container model, so the end of a list item never closed a
 fence opened inside it: kubernetes' changelogs paste terminal output into an
 entry, never close the fence, and every entry after it was blanked. Measured
 on 2026-09-27 against markdown-it-py's `commonmark` preset over the 152
-visible corpus clones, that was 3,652 lines on GitHub-rendered documents that
-the renderer shows as prose. This module HAD the container model and could
+visible corpus clones, that was 3,372 lines on GitHub-rendered documents that
+the renderer shows as prose, one clone per repository (3,652 counting the
+corpus's duplicate tiers). This module HAD the container model and could
 not see fences, so a fence's content reached it as markup: an HTML example in
 a fence opened a comment nothing closed, and every indented block after it
 was read as prose. One scanner now, one container model, both kinds of block.
@@ -36,11 +37,14 @@ divergences recorded rather than repaired, each a renderer the reference is
 not. A fence opens at ANY indentation: MDX has no indented code, so there it
 is a fence at eight spaces, inside a JSX element's children or continuing a
 paragraph, and mkdocs renders one in an admonition's body; CommonMark's "at
-most three spaces" is right on GitHub (43 lines on the corpus) and wrong
-under Docusaurus (88), and this module cannot tell which renderer a `.md`
-file has. And a fence inside an HTML comment or a verbatim tag is still
-blanked, though CommonMark calls it HTML: nothing inside one is rendered, and
-1,061 lines of commented-out code are not claims.
+most three spaces" is right on GitHub and wrong on MDX sites - a fence opened
+continuing a paragraph put 43 lines behind it on GitHub-rendered `.md` and 157
+on MDX sites, where MDX opens it too - and this module cannot tell which
+renderer a `.md` file has. And
+a fence inside an HTML comment or a verbatim tag is still blanked, though
+CommonMark calls it HTML: nothing inside one is rendered, and 1,014 lines of
+commented-out code, one clone per repository, are not claims. The line holding the terminator is the
+comment's, so it is blanked with the rest.
 
 PURE, and read by `text.py` alone. It asks nothing of git, the filesystem or
 the configuration, so a line's verdict depends on the document and nothing
@@ -165,10 +169,14 @@ def code_lines(text: str, *, mdx: bool = False) -> CodeLines:
     A fence's opener and closer are its lines, and so are the blank lines
     inside either kind of block, because they belong to it and blanking them
     changes nothing; the caller blanks what this returns. `mdx` switches off
-    what MDX does not have - indented code, and HTML comments and verbatim
-    tags, which are JSX there or a parse error - and nothing else: MDX shares
-    CommonMark's list items and block quotes, and the MDX oracle (@mdx-js/mdx
-    3) ends a fence with its list item exactly as markdown-it-py does.
+    indented code, which MDX does not have, and HTML comments and verbatim
+    tags - `<pre>` is JSX there and a comment is a parse error to MDX 3 - and
+    nothing else: MDX shares CommonMark's list items and block quotes, and the
+    MDX oracle (@mdx-js/mdx 3) ends a fence with its list item exactly as
+    markdown-it-py does. Docusaurus accepts comments in `.mdx` all the same
+    (`mdx1Compat.comments` defaults to true), so for its sites the comment
+    half of that switch is wrong in principle; measured, no fenced line of any
+    `.mdx` on the corpus depends on it (`m17_mdx_comments.py`, 2026-09-28).
     """
     fenced: set[int] = set()
     code: set[int] = set()
@@ -371,8 +379,9 @@ def _container_ended(opened: tuple[str, int, int, int], items: int, raw: str,
     no lazy continuation reaches into a fence. That second half has two
     consequences and both are the renderer's: an unclosed fence ends where
     its item does (kubernetes), and a closer dedented out of its item ends the
-    item there and then OPENS a fence of its own that runs to the end of the
-    document - GitHub renders it so, and so does MDX 3.
+    item there and then OPENS a fence of its own, which runs to the next
+    closing fence - swallowing the author's next opener - or to the end of the
+    document when none follows. GitHub renders it so, and so does MDX 3.
 
     The indentation is measured past the quote markers the fence opened
     under and NO others: inside a fence a `>` is content - a shell prompt,

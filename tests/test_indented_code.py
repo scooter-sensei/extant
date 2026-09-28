@@ -412,3 +412,26 @@ def test_an_indented_block_straight_after_a_closing_fence_is_code() -> None:
             "```\n"
             "    indented after a fence\n")
     assert _lines(text) == {6}
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("Text\n"
+     "```\n"
+     "code\n"
+     "```\n"
+     "    indented after a fence\n", {5}),
+    ("- item text\n"
+     "  ```\n"
+     "  code\n"
+     "  ```\n"
+     "      indented after a fence\n", {5}),
+])
+def test_a_fence_that_interrupts_a_paragraph_ends_it(text: str, expected: set[int]) -> None:
+    """The test above has a blank line before its fence, so no paragraph is
+    open to begin with and cannot show whether opening a fence ENDS one. A
+    fence may interrupt a paragraph, and CommonMark then reads a four-space
+    line after its closer as code, at the margin and inside a list item alike
+    - markdown-it-py agrees on both. Found by the audit of the built tranche
+    on 2026-09-28: dropping the reset when a fence opens survived every
+    test."""
+    assert _lines(text) == expected
