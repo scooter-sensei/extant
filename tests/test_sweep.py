@@ -90,6 +90,32 @@ def test_a_sweep_needs_no_configuration_at_all(rotted_repo) -> None:
         )
 
 
+def test_a_rule_that_read_no_document_is_not_said_to_have_examined_nothing(
+        rotted_repo) -> None:
+    """Catches the sweep's NOTE offering two explanations that are both wrong.
+
+    It named every rule with a zero as one that "examined nothing anywhere
+    here - either no document makes such claims, or the pattern does not
+    match", and that is true only of a rule that READ something. The two
+    entry-scoped rules read only the newest entry of the primary document, so
+    in a repository without one they read no document at all - and the NOTE
+    named them in 152 of 152 corpus sweeps, recorded 2026-09-28, where no
+    clone has a primary document. "Did not run" is its own fact, printed as
+    one; the zeros in the `examined:` line stay, because they are true.
+    """
+    result = sweep(rotted_repo)
+    combined = result.stdout + result.stderr
+    lines = combined.splitlines()
+
+    unrun = next((ln for ln in lines if "read no document here" in ln), "")
+    assert "stale-live-claim" in unrun and "unknown-branch" in unrun, combined
+    assert "newest entry" in unrun, unrun
+    blind = next((ln for ln in lines if "examined nothing anywhere" in ln), "")
+    assert "stale-live-claim" not in blind and "unknown-branch" not in blind, blind
+    # A rule that DID read the documents and found no candidate stays there.
+    assert "false-merge-claim" in blind, blind
+
+
 def test_the_sweep_reports_its_denominator(rotted_repo) -> None:
     """How many files were looked at, split by whether they gate.
 

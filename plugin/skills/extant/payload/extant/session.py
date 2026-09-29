@@ -65,7 +65,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Porting warning, stated at length in extant/config.py: three of these
 # patterns were derived by MEASURING this repo's documents. Copy them to another
 # project without re-measuring and the validator matches nothing while appearing
-# healthy. Run `--init` against the target repo instead of guessing.
+# healthy. Run the skill's install.py against the target repo instead of
+# guessing; it derives them from the real documents.
 #
 # A malformed file raises ValueError from here, at IMPORT. The plain-language
 # message a person running the tool sees is printed by extant_collect.py, which

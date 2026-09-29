@@ -63,7 +63,7 @@ from extant.gate import report_repository_notes
 from extant.git import environment
 from extant.registry import RULE_ERRORS
 from extant.report import render_findings
-from extant.sweep import apply_exclusions, survey
+from extant.sweep import apply_exclusions, survey, unusable_note
 
 __all__ = ["introduced_lines", "merge_base", "run_introduced_since",
            "unquote_path"]
@@ -427,6 +427,11 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
               f"{len(excluded_counts)} exclude_paths pattern(s)", file=out)
         for pattern, count in sorted(excluded_counts.items()):
             print(f"    {count:5} {pattern}", file=out)
+        # Unlike "matched nothing", this one IS a fact of the configuration
+        # rather than of the range, so it is printed here as the sweep does.
+        unusable = unusable_note(excluded_counts)
+        if unusable:
+            print(unusable, file=out)
     if unmapped:
         print(f"  {len(unmapped)} changed document(s) hold a bare carriage "
               f"return, which this tool counts as a line break and git does "

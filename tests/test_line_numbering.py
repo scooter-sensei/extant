@@ -136,3 +136,64 @@ def test_one_document_is_scanned_once_however_many_claims_it_carries() -> None:
     assert len(scans) == 1, (
         f"{len(scans)} scans for {len(numbers)} lookups: the document is "
         f"being rescanned per claim, which is the O(m*n) this replaced")
+
+
+# Every place the package numbers lines ITSELF, 1-based, rather than through
+# `line_number_at`, and the rule each one cuts lines by. `splitlines()` breaks
+# on a form feed and the Unicode line separators where `LINE_BREAK` does not,
+# so a document holding one can be numbered two ways - measured and closed in
+# 2026-09 as the internals review's 6.2, on 15 of 108,647 documents (0.014 per
+# cent), with the reasoning in `line_number_at`'s docstring. Closing it on a
+# count is only honest while the count of SITES is known: this is that count,
+# keyed by function so an edit that moves a line does not move the ledger, and
+# a thirteenth site becomes a decision somebody sees rather than a drift.
+LINE_NUMBERING_SITES = {
+    "blocks.py:code_lines": "splitlines",
+    "text.py:_blank_uncached": "splitlines, against code_lines",
+    "commits.py:_find_sha_candidates": "splitlines",
+    "commits.py:_find_bare_sha_candidates": "splitlines",
+    "links.py:_link_sites_uncached": "splitlines",
+    "rules/line_pointer.py:_line_pointer_sites_uncached": "splitlines",
+    "rules/manifest_floor.py:_floor_claims": "splitlines",
+    "rules/md_anchor.py:_fragment_sites": "splitlines",
+    "rules/path_pointer.py:_path_pointer_sites_uncached": "splitlines",
+    "rules/pinned_ref.py:_pinned_refs": "splitlines",
+    "collect.py:scan_todos": "splitlines",
+    # A third rule: a file opened with newline="" and iterated, which cuts at
+    # \n, \r and \r\n and nowhere else - the SARIF snippet for a finding.
+    "report.py:_sarif_snippet": "file iteration",
+}
+
+
+def test_every_line_numbering_site_is_on_the_ledger() -> None:
+    """Catches a thirteenth `enumerate(..., start=1)`, or a site that went.
+
+    The plan that asked for this ledger counted ten, and the count taken for
+    it by grep counted nine: a grep for `enumerate(...splitlines())` cannot
+    see `lines = text.splitlines()` a line above `enumerate(lines, start=1)`,
+    nor a file iterated. Read from the syntax tree instead, which sees both.
+    """
+    import ast
+    from pathlib import Path
+
+    root = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
+            / "extant" / "payload" / "extant")
+    found: set[str] = set()
+    for path in sorted(root.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for func in ast.walk(tree):
+            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(func):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                        and node.func.id == "enumerate"
+                        and any(k.arg == "start" and isinstance(k.value, ast.Constant)
+                                and k.value.value == 1 for k in node.keywords)):
+                    found.add(f"{path.relative_to(root).as_posix()}:{func.name}")
+    assert found, "no site found; this test would pass vacuously"
+    assert found == set(LINE_NUMBERING_SITES), (
+        f"new: {sorted(found - set(LINE_NUMBERING_SITES))}; "
+        f"gone: {sorted(set(LINE_NUMBERING_SITES) - found)}. Name the rule the "
+        f"site cuts lines by here, and in line_number_at's docstring.")

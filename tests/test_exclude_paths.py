@@ -183,6 +183,67 @@ def test_the_unusable_pattern_guard_is_a_contract() -> None:
     assert sweep._exclusion_regex("testdata") is not None
 
 
+def test_negation_and_character_classes_are_named_unusable() -> None:
+    """Catches `!` and `[` escaped into literals and passed off as patterns.
+
+    gitignore reads a leading `!` as NEGATION and `[` as a character class;
+    this matcher escaped both into literal characters, so `!docs/keep.md`
+    matched only a path beginning with `!` and `docs/[a-z]*.md` matched a
+    directory literally called `[a-z]` - each a pattern that silently meant
+    something else. Named rather than supported (no configuration here or in
+    a known install uses either), and named WHY, because "matched nothing, so
+    it may be stale" is the wrong diagnosis for a pattern that never could.
+    """
+    from extant import sweep
+    assert sweep.unusable_exclusion("!docs/keep.md") == "negation is not supported"
+    assert (sweep.unusable_exclusion("docs/[a-z]*.md")
+            == "a character class is not supported")
+    assert sweep._exclusion_regex("!docs/keep.md") is None
+    assert sweep._exclusion_regex("docs/[a-z]*.md") is None
+    # `!` is special only where gitignore says it is: at the start.
+    assert sweep.unusable_exclusion("docs/a!b.md") is None
+    assert sweep._exclusion_regex("docs/a!b.md") is not None
+    assert sweep.unusable_exclusion("testdata") is None
+
+
+def test_the_sweep_names_an_unusable_pattern_and_why(git_repo) -> None:
+    """Printed beside the counts, and kept OUT of the "may be stale" line,
+    which would send the reader to look for the directory rather than at the
+    pattern."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    commit(".extant.toml",
+           'exclude_paths = ["!docs/keep.md", "docs/[a-z]*.md", "vendor/**"]\n',
+           "config")
+
+    code, output = _sweep(repo)
+    unusable = next((ln for ln in output.splitlines() if "unusable" in ln), "")
+    assert "!docs/keep.md (negation is not supported)" in unusable, output
+    assert ("docs/[a-z]*.md (a character class is not supported)"
+            in unusable), output
+    stale = next(ln for ln in output.splitlines() if "matched nothing" in ln)
+    assert "vendor/**" in stale and "!docs" not in stale and "[a-z]" not in stale, stale
+
+
+def test_introduced_since_names_an_unusable_pattern_too(git_repo) -> None:
+    """The second caller of the same exclusions, which the plan's first
+    version of this item did not name."""
+    import subprocess
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    commit(".extant.toml", 'exclude_paths = ["docs/[a-z]*.md"]\n', "config")
+    commit("docs/guide.md", "Words.\n", "docs: guide")
+    tools = _install_into(repo)
+    done = subprocess.run(
+        [sys.executable, str(tools / "extant_collect.py"),
+         "--introduced-since", "HEAD~1"],
+        cwd=str(repo), capture_output=True, text=True,
+        encoding="utf-8", errors="replace")
+    output = done.stdout + done.stderr
+    assert ("docs/[a-z]*.md (a character class is not supported)"
+            in output), output
+
+
 def test_an_unusable_pattern_excludes_nothing_rather_than_everything() -> None:
     """An empty or commented entry is ignored. Compiling it to an empty regex
     would match every path, which is the worst available failure."""

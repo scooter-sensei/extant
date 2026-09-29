@@ -126,8 +126,8 @@ def _documents_at(repo: Path, ref: str,
     return found
 
 
-def _document_at(repo: Path, ref: str, relative: str,
-                 blob: bytes | None) -> str | None:
+def _document_at(ref: str, relative: str, blob: bytes | None,
+                 listed: set[str] | None) -> str | None:
     """A document as it stood at `ref`, from the batch's bytes for it, or
     None if it was not there.
 
@@ -141,35 +141,71 @@ def _document_at(repo: Path, ref: str, relative: str,
     reason, and only a partial repository can produce one: anywhere else a
     `missing` answer is an absent path or a bad ref, and stays None. The
     second question - did the tree at `ref` list this path at all - is
-    `ls-tree`, which needs the tree and not the blob, so a `blob:none` copy
-    answers it without the transport. A copy that cannot answer it either,
-    because its trees are missing too, is reported as unreadable rather
-    than absent: "could not be read" is true of it, "was not there" is not
-    known to be.
+    `_listed_at`'s, asked once for every missing object by the caller and
+    handed in as `listed`: the empty set outside a partial repository, where
+    no answer is needed. A copy that cannot answer it, because its trees are
+    missing too, hands in None and is reported as unreadable rather than
+    absent: "could not be read" is true of it, "was not there" is not known
+    to be.
 
     Decoding strictly, and letting the error reach the caller, is what makes
     "unreadable" a fact this mode can report instead of a mess it prints.
     """
     if blob is None:
-        if is_partial(repo) and _listed_at(repo, ref, relative) is not False:
+        if listed is None or relative in listed:
             raise MissingObject(f"{ref}:{relative}")
         return None
     return blob.decode("utf-8")
 
 
-def _listed_at(repo: Path, ref: str, relative: str) -> bool | None:
-    """Whether the tree at `ref` lists `relative`: True, False, or None when
-    the tree itself cannot be read - a treeless copy, or a ref that is not
-    there. `ls-tree` exits 0 and prints nothing for a path that is not in
-    the tree, so an empty answer is a definite one. Through the seam, as
-    `_changed_between` is: `run` raises on the failure and returns the
-    listing otherwise, which is the whole distinction this needs."""
-    try:
-        ctx = session.context(repo)
-        out = ctx.git.run(ctx.repo, "ls-tree", ref, "--", relative)
-    except (subprocess.CalledProcessError, OSError):
-        return None
-    return bool(out.strip())
+def _listed_at(repo: Path, ref: str, relatives: list[str]) -> set[str] | None:
+    """Which of `relatives` the tree at `ref` lists, or None when the tree
+    itself cannot be read - a treeless copy, or a ref that is not there.
+
+    ONE `ls-tree` over all of them rather than one per document. The
+    per-document form was measured on 2026-09-28 against a `blob:none` copy
+    of fastapi with 100 changed documents configured: 100 processes, 2.74 s
+    of a 3.24 s run, where one listing of the same paths answered in 23 ms -
+    and `--wide-docs` configures documents by the hundred. Chunked, because
+    Windows refuses a command line past 32,767 characters and 100 paths
+    there were already 3,869. `ls-tree` reads its path arguments literally,
+    as the per-document call did, and prints nothing for a path the tree
+    does not hold, so an absent name is a definite answer. Through the seam,
+    as `_changed_between` is: `run` raises on the failure and returns the
+    listing otherwise, which is the whole distinction this needs.
+    """
+    listed: set[str] = set()
+    ctx = session.context(repo)
+    for chunk in _chunks(relatives, _ARGUMENT_BUDGET):
+        try:
+            out = ctx.git.run(ctx.repo, "ls-tree", "-z", "--name-only", ref,
+                              "--", *chunk)
+        except (subprocess.CalledProcessError, OSError):
+            return None
+        listed.update(name for name in out.split("\0") if name)
+    return listed
+
+
+# Characters of paths per `ls-tree`, well inside Windows' 32,767 for the
+# whole command line with the executable, the ref and the flags beside them.
+_ARGUMENT_BUDGET = 8000
+
+
+def _chunks(names: list[str], budget: int) -> list[list[str]]:
+    """`names` in runs whose lengths, a separator each, stay within `budget`.
+    A name longer than the budget on its own still gets a run of its own."""
+    runs: list[list[str]] = []
+    run: list[str] = []
+    used = 0
+    for name in names:
+        if run and used + len(name) + 1 > budget:
+            runs.append(run)
+            run, used = [], 0
+        run.append(name)
+        used += len(name) + 1
+    if run:
+        runs.append(run)
+    return runs
 
 
 def _changed_between(repo: Path, ref: str, candidates: list[str]) -> list[str]:
@@ -247,6 +283,12 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
     examined = skipped = undecodable = 0
     changed = _changed_between(repo, ref, documents)
     previous_versions = _documents_at(repo, ref, changed)
+    # Whether each name the batch gave no blob for was listed at `ref` at
+    # all, asked once for every such name and only where the answer can
+    # differ - see `_document_at`.
+    unheld = [r for r in changed if previous_versions.get(r) is None]
+    listed = (_listed_at(repo, ref, unheld) if unheld and is_partial(repo)
+              else set())
     # ONE scope across every old document. Each is validated against the
     # same checkout and nothing here writes to it, which is the promise
     # `run_scope()` asks for - and this loop never made it, so `validate()`
@@ -258,8 +300,8 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
     with session.run_scope():
         for relative in changed:
             try:
-                previous = _document_at(repo, ref, relative,
-                                        previous_versions.get(relative))
+                previous = _document_at(ref, relative,
+                                        previous_versions.get(relative), listed)
             except (UnicodeDecodeError, MissingObject):
                 # A previous version that cannot be decoded, or that a partial
                 # repository does not hold, is not a version with no claims.

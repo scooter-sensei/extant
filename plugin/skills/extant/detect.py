@@ -14,12 +14,14 @@ a census.
 """
 from __future__ import annotations
 
+import functools
 import importlib.util
 import re
 import subprocess
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Callable, TypedDict
 
 COMMIT_SAMPLE = 500
@@ -39,11 +41,37 @@ class Observation:
     evidence: str
 
 
+_GIT_PATH = Path(__file__).resolve().parent / "payload" / "extant" / "git.py"
+
+
+@functools.lru_cache(maxsize=1)
+def _seam() -> ModuleType:
+    """The payload's extant/git.py, loaded BY PATH for its `environment()`,
+    as `_strata_classifier` below loads strata.py and for the same reason:
+    the installer does not put the payload on its import path. git.py
+    imports nothing from the package, so loading it alone is safe. A payload
+    missing from beside this file is a broken skill install, and raising
+    says so rather than asking git with the operator's environment.
+    """
+    spec = importlib.util.spec_from_file_location("extant_git", _GIT_PATH)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"{_GIT_PATH.as_posix()} is not loadable as a module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _git(repo: Path, *args: str) -> str:
+    # `environment()`, as every git process the payload starts: `cwd` picks
+    # the working tree, but an exported `GIT_DIR` picks whose history
+    # answers, and a hook or a shell inside another repository exports one.
+    # Measured on 2026-09-28: with it leaked, this read the other
+    # repository's last commit while the installer wrote configuration here.
     try:
         return subprocess.run(
             ["git", *args], cwd=repo, capture_output=True, text=True,
             encoding="utf-8", errors="replace", check=True,
+            env=_seam().environment(),
         ).stdout
     except (subprocess.CalledProcessError, OSError):
         return ""
@@ -380,8 +408,10 @@ def find_wide_documents(
             "looked at.",
         ]
 
-    # git QUOTES a path holding unusual bytes - `"caf\303\251.md"` - whenever
-    # core.quotePath is on, which is the default. Pinning that spelling writes
+    # git QUOTES a path holding a double quote, a backslash or a control
+    # character - `"docs/a\tb.md"` - even with core.quotePath off, as `_git`
+    # sets it; a non-ASCII name now arrives as itself, where before Phase 57
+    # this caught `"caf\303\251.md"` too. Pinning that spelling writes
     # an extra_docs entry naming a file that is not there, and `gate.py` reports
     # an absent entry as `missing-document` - a finding this installer would
     # have manufactured. Left out, and COUNTED, because a silent drop is the

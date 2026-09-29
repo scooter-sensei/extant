@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Callable, TextIO
@@ -141,15 +142,21 @@ def report_repository_notes(diag: Callable[[str], None], repo: Path,
     # The same shape from the other direction: the history is all here and
     # some of the OBJECTS are not. They stay not here - `environment()` in
     # extant/git.py refuses the retrieval git would otherwise do mid-command
-    # - so a rename hint or a blob-reading rule answers from less than the
-    # repository holds, and the reader is told so rather than left to infer
-    # it from a hint that did not appear. Worded without the words the
-    # network-shape scan refuses in a literal, as the note above is.
+    # - so a blob-reading rule answers from less than the repository holds,
+    # and the reader is told so rather than left to infer it from a hint
+    # that did not appear. The rename hint is not "less", it is ALL OR
+    # NOTHING: the search exits 128 at the first blob it cannot read and the
+    # seam discards what it printed, so one missing blob withholds every
+    # hint (6 of 6 `blob:none` corpus clones, measured 2026-09-28). Said as
+    # a condition, since a copy that has gathered the blobs gets its hints.
+    # Worded without the words the network-shape scan refuses in a literal,
+    # as the note above is.
     if is_partial(repo):
         diag("  NOTE: this is a partial repository, so objects not present "
              "locally were left missing rather than retrieved over the "
-             "network. A rename hint or a blob-reading rule answers from "
-             "what is here.")
+             "network. A blob-reading rule answers from what is here, and "
+             "where the rename search needs a missing blob no rename hint "
+             "is offered at all - on a fresh blob:none copy, none is.")
     if index_incomplete:
         report_index_note(diag, repo)
 
@@ -407,7 +414,11 @@ def run_validate(repo: Path, args: argparse.Namespace,
     # works in --sweep and is silent in --verify, and reports 0 examined
     # beside 0 findings - the exact conflation the denominator exists to
     # prevent. Found by running the gate, not by any test.
-    session.set_document(doc_path=rel(repo, target))
+    # The format with the path, at this site and the two below: `validate`
+    # inherits it rather than deriving it, so a document installed by path
+    # alone was read as markdown whatever it was.
+    session.set_document(doc_path=rel(repo, target),
+                         doc_format=format_for(rel(repo, target)))
     # ONE run scope across the whole run, or one per document, and `--sha-map`
     # is what decides. A stable scope promises the checkout does not change
     # while it is held, and with a map this mode REWRITES documents between
@@ -485,7 +496,8 @@ def run_validate(repo: Path, args: argparse.Namespace,
                         fh.write(archive_text)
                     diag(f"translated {archive_changed} stale SHA "
                          f"reference(s) in {archive_doc}")
-            session.set_document(doc_path=archive_doc)
+            session.set_document(doc_path=archive_doc,
+                                 doc_format=format_for(archive_doc))
             # Opened after the rewrite above, when it is a scope of its own,
             # and held so the index flag can be read before it closes.
             with document_scope():
@@ -525,7 +537,16 @@ def run_validate(repo: Path, args: argparse.Namespace,
                 continue
             with open(extra, encoding="utf-8", newline="") as fh:
                 extra_text = fh.read()
-            session.set_document(link_base=extra.parent, doc_path=relative)
+            session.set_document(link_base=extra.parent, doc_path=relative,
+                                 doc_format=format_for(relative))
+            # The rules that read this document, asked of the ONE predicate
+            # the findings were selected by. This line used to restate half of
+            # it - the repository-scoped rules, by hand - and so printed the
+            # entry-scoped rules' zeros for a document they never read: "looked
+            # and found nothing" about a rule that did not look. The sweep
+            # asks `rule_applies` for both halves, and now so does this.
+            applies = functools.partial(session.rule_applies, in_archive=False,
+                                        has_entries=False)
             # Findings and denominator are two halves of one examination and
             # must not re-ask git the same questions, whichever scope this is.
             with document_scope():
@@ -533,26 +554,23 @@ def run_validate(repo: Path, args: argparse.Namespace,
                                                   has_entries=False)
                 new_extra = found.record(relative, extra_findings,
                                          primary=False)
-                examined_extra = session.count_examined(repo, extra_text)
+                examined_extra = session.count_examined(repo, extra_text,
+                                                        applies)
                 extras_incomplete |= session.ancestry_incomplete()
-            # Repository-scoped rules do not run for an extra document, so
-            # reporting their candidate count here claims coverage that was
-            # not provided. A denominator that overstates is worse than
-            # none: it is the reassuring number, not the honest one.
-            skipped = {rule.kind for rule in session.RULES
-                       if rule.scope == "repository"}
             # Zero counts are REPORTED, not filtered. "examined 0" and "not
             # applicable here" are different facts, and dropping the zeros
             # made an extra document look fully covered while a rule sat
             # blind - the exact conflation the primary summary avoids.
-            checked = ", ".join(f"{kind} {n}"
-                                for kind, n in examined_extra.items()
-                                if kind not in skipped)
+            checked = ", ".join(f"{rule.kind} {examined_extra[rule.kind]}"
+                                for rule in session.RULES if applies(rule))
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
             errors_reported = session.report_rule_errors(diag, errors_reported)
             if new_extra:
                 exit_code = 1
-    session.set_document(link_base=None)
+    # Both put back, the format as well as the location: a run that read an
+    # `.rst` document last must not leave the next caller reading markdown
+    # as reStructuredText.
+    session.set_document(link_base=None, doc_format="markdown")
     if extras_incomplete and not index_incomplete:
         report_index_note(diag, repo)
 

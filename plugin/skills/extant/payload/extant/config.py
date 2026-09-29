@@ -29,9 +29,11 @@ silently:
   like" a status claim reintroduces false positives, and a validator that cries
   wolf stops being read, which costs more than having no validator.
 
-So: when porting, run `extant_collect.py --init` against the target repo. It
+So: when porting, run the skill's installer against the target repo -
+`python <skill>/install.py --repo /path/to/repo`, as SKILL.md spells it. It
 samples the real document and reports what it finds, so the config is derived
-rather than guessed. See references/porting.md in the skill.
+rather than guessed. See references/porting.md in the skill. (This said
+`extant_collect.py --init` until Phase 57; no such flag has existed.)
 """
 from __future__ import annotations
 

@@ -128,8 +128,28 @@ def suggest_renames(repo: Path, base: Path, text: str, relative: str,
     if updated == text:
         return ""
 
+    # Cut into lines the way GIT cuts them, since git is what reads this.
+    # `splitlines()` also breaks on a form feed and the Unicode line
+    # separators, which git leaves inside a line, so the context stopped
+    # matching the file. And a last line with no terminator needs git's own
+    # marker, which `difflib` never writes: without it `-old` and `+new`
+    # fused onto one line and `git apply` refused the patch as corrupt - on
+    # any fix landing on the last line of the 18 per cent of documents that
+    # end that way.
     diff = difflib.unified_diff(
-        text.splitlines(keepends=True), updated.splitlines(keepends=True),
+        _git_lines(text), _git_lines(updated),
         fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,
     )
-    return "".join(diff)
+    return "".join(line if line.endswith("\n")
+                   else line + "\n\\ No newline at end of file\n"
+                   for line in diff)
+
+
+def _git_lines(text: str) -> list[str]:
+    """`text` cut at `\\n` and nowhere else, each line keeping its terminator,
+    and a final line without one kept without one."""
+    pieces = text.split("\n")
+    lines = [piece + "\n" for piece in pieces[:-1]]
+    if pieces[-1]:
+        lines.append(pieces[-1])
+    return lines
