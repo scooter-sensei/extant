@@ -18,6 +18,7 @@ import re
 
 from extant.entries import split_entries
 from extant.scope import Context
+from extant.text import prose
 
 __all__ = ["FAKE_BRANCH_LEAF", "MISSING_PATH", "branch_in_newest", "sub_group"]
 
@@ -25,10 +26,18 @@ MISSING_PATH = "__extant_selftest_missing__.md"
 FAKE_BRANCH_LEAF = "extant-selftest-no-such-branch"
 
 
-def sub_group(text: str, pattern: "re.Pattern[str]", group: int,
+def sub_group(ctx: Context, text: str, pattern: "re.Pattern[str]", group: int,
               value: str) -> str | None:
-    """Replace one capture of the first match, or None if nothing matched."""
-    match = pattern.search(text)
+    """Replace one capture of the first match IN PROSE, or None if nothing
+    there matched.
+
+    Found in `prose()`, because every rule probing through this reads its
+    claims there: searched in the raw document, the first match could sit in
+    a fenced block, the probe corrupted an example the check never reads, and
+    a working rule was reported as DID NOT FIRE. Spliced into the ORIGINAL
+    text at the same offsets, which `prose()` keeps by contract.
+    """
+    match = pattern.search(prose(ctx.doc, text))
     if not match:
         return None
     start, end = match.span(group)

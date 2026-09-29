@@ -38,6 +38,35 @@ def test_a_suite_that_outlives_its_bound_is_reported_hung(tmp_path) -> None:
     assert took < 30, f"the bound of 3 s was not honoured: {took:.1f} s"
 
 
+def test_the_bound_holds_when_a_grandchild_keeps_the_output_open(
+        tmp_path) -> None:
+    """Catches the bound waiting on processes the suite started.
+
+    An xdist worker is started with its own stdin and stdout and inherits
+    pytest's stderr, so it holds the harness's pipe. On Windows,
+    `subprocess.run` answers a timeout by killing pytest and then reading the
+    pipes to their end - which is when the last holder exits, and a worker
+    stuck in a hung test never does. So `--parallel` on Windows, where the
+    campaigns run, waited forever exactly as it did before the bound. This
+    starts a grandchild the same way. Found by the review of the built
+    tranche, 2026-09-29.
+    """
+    root = _scratch_suite(
+        tmp_path,
+        "import subprocess, sys, time\n\n\n"
+        "def test_waits():\n"
+        "    subprocess.Popen([sys.executable, '-c', 'import time; "
+        "time.sleep(90)'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)\n"
+        "    time.sleep(60)\n")
+    started = time.perf_counter()
+    code, _out = mutate.run_suite(root, sys.executable,
+                                  ["-q", "-s", "-p", "no:cacheprovider"],
+                                  bound=3)
+    took = time.perf_counter() - started
+    assert code is None, f"a hung suite reported exit code {code}"
+    assert took < 30, f"the bound of 3 s was not honoured: {took:.1f} s"
+
+
 def test_a_suite_inside_its_bound_answers_as_before(tmp_path) -> None:
     """The bound changes nothing for a suite that finishes."""
     root = _scratch_suite(tmp_path, "def test_passes():\n    assert True\n")

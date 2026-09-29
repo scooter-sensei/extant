@@ -43,6 +43,7 @@ from extant.collect import collect
 from extant.config import StatusConfig
 from extant.entries import archive, split_entries
 from extant.files import OutsideRepository, inside
+from extant.finding import rel
 from extant.gate import run_check_text, run_validate
 from extant.git import repository_root
 from extant.registry import RULE_ERRORS
@@ -50,6 +51,7 @@ from extant.report import BASELINE_NAME, FORMATS
 from extant.deleted_since import run_deleted_since
 from extant.introduced_since import run_introduced_since
 from extant.sweep import run_sweep
+from extant.text import format_for
 
 __all__ = ["build_parser", "cli", "main", "search_entries",
            "UndecodableDocument"]
@@ -369,7 +371,13 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
               f"{exc.start}). The status document must be a text file.",
               file=sys.stderr)
         return 1
-    session.set_document(link_base=target.parent)
+    # All three, as `--verify` installs the same document: the directory, the
+    # filename the keyed rules read, and the markup language. With the first
+    # alone an `.rst` status document was probed as markdown, and a rule was
+    # shown to fire on text the gate never reads that way.
+    previous = session.document()
+    session.set_document(link_base=target.parent, doc_path=rel(repo, target),
+                         doc_format=format_for(rel(repo, target)))
     lines, fired, unprobeable, errored = session.selftest(repo, text)
     print(f"selftest: probing {len(session.RULES)} rules against "
           f"{primary}\n")
@@ -387,7 +395,7 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
     if unprobeable:
         print("  'No probe' is not a failure by itself, but a rule that "
               "cannot be exercised is also not known to work.")
-    session.set_document(link_base=None)
+    session.install_document(previous)
     return 1 if (silent or errored) else 0
 
 

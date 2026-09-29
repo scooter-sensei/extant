@@ -2310,7 +2310,10 @@ speed.** 1,022 of the 27,677 dead references - 3.7%, in 28 repositories -
 (corrected 2026-09-28: 28 CLONES, and not all of them findings - 665 rows in
 24 repositories de-duplicated, of which 460 are findings in 18 and 205 are
 candidate spellings a rule tried before it settled; the section "The owed
-bundle" below has the split)
+bundle" below has the split. And 27,677 is the 27,710 dead above less the
+33 case mismatches, whose targets exist under another spelling; none of the
+1,022 is one of them, so the share is 3.7% against either, re-checked from
+the rows 2026-09-29)
 name gitignored paths: ruff's generated `docs/settings.md` and
 `docs/default-rules.md`, babel's `build/`, autogen's generated API pages.
 Dead in every fresh clone and in CI, resolving on any machine that has run
@@ -4820,6 +4823,92 @@ writes one.
   - the fuzzer 0 property violations;
   - `--self-check` 23 of 23;
   - smoke, `--verify` and `--selftest` clean.
+
+**The review of the built tranche, 2026-09-29.** Asked for after CI was
+green on the three commits, as a code review and a gap audit against the
+handoff's own list. Every figure in the records re-derived from its rows
+(33 of 36, 91.7 per cent, 18.14 per cent, 460 in 18, 74.6 per cent, 1,447
+tests, 77 files, 327 anchors) and every item traced to its change. Nine
+findings, fixed in a fourth commit, each with a test that failed first and
+an anchor. What each one teaches is the reason it is here:
+
+- **A bound is only as good as what it waits on.** `mutate.py`'s
+  `subprocess.run(timeout=...)` kills one process, and on Windows it then
+  reads the pipes to their end - which comes when the LAST holder exits. An
+  xdist worker is started with its own stdin and stdout and inherits
+  pytest's stderr, so a worker stuck in the hung test held the harness's
+  pipe forever, and `--parallel` on Windows - where the campaigns run -
+  waited exactly as it had before the bound. The test that passed used a
+  stub suite with no grandchildren, the one shape that cannot show it. The
+  suite now writes to a file, which has no end to wait for, and the whole
+  tree is ended: `taskkill /T` on Windows, a process group elsewhere. The
+  red test starts a grandchild the way execnet does; the unbounded version
+  took 90.9 s against a 3 s bound.
+- **A fix owed to two callers was made in one.** The unusable-exclusion
+  item named both surveys; the NOTE split, decided in the same tranche, was
+  made in the sweep alone, and `--introduced-since` - the survey adopters
+  run on every pull request - kept the sentence the sweep had just stopped
+  printing. The reason text moved to `session.py`, beside `rule_applies`,
+  and both surveys call it: the predicate and its explanation in one module
+  cannot part. Two smaller errors went with it. The reason was keyed on
+  `in_archive`, which the repository-scoped rules also declare False, where
+  the fact is the rule's scope. And an entry rule that read nothing beside a
+  primary document that WAS read means the document holds no dated entry,
+  not that it is absent; the sweep's wording for the absent case is byte for
+  byte the old one, so no corpus output moves. The sweep module fell from
+  917 lines to 897.
+- **Changing how a listing is quoted changes how it must be cut.** The
+  installer split `ls-files` output with `splitlines()` and `strip()`. With
+  quoting on, a name holding U+2028, U+2029 or U+0085 arrived octal-escaped
+  and was excluded and counted; with it off, as `environment()` now sets
+  it, the name arrived raw and was cut in two, and `--wide-docs` pinned the
+  fragment - a `missing-document` finding the installer would have made up.
+  git quotes any name holding a control character, so `\n` ends a name and
+  nothing else can: the listing is cut there and not stripped.
+- **The `.rst` fix had five readers, not three.** `--selftest` installed the
+  status document's directory alone, and `--verify --suggest-fixes` built
+  the status document's patch after the markdown default had been put back
+  - with the last extra document's filename still installed. Both install
+  the document as `--verify` does now, and `run_validate` puts back the
+  document it was handed rather than a hard-coded markdown one.
+- **One claim, one scanner, applies to a probe too.** Installing the right
+  format in `--selftest` turned a FIRED into a DID NOT FIRE, and that was
+  the finding. The four probes that share `probes.sub_group` took the first
+  match in the RAW document, and all four checks read `prose()`. When the
+  first match sat in a code block the probe corrupted an example the check
+  never reads, and a working rule was reported as broken and failed the run
+  - on plain markdown, before this tranche, whenever a document's first such
+  claim was inside a fence. It stayed hidden because both halves read the
+  same wrong text while the format was wrong. The probe now searches the
+  prose and splices at the same offset, which `prose()` keeps by contract.
+- **A verdict change is also a behaviour change.** Naming `[` unusable is
+  right, and the CHANGELOG described it as a better diagnosis. But the old
+  literal MATCHED a directory really named `[locale]` - Next.js and
+  SvelteKit route directories are named that way - so a pattern that
+  excluded documents now excludes none, and `--introduced-since` gates on
+  them. Written down now, in the CHANGELOG and config.md, with `?` for each
+  bracket as the spelling that still excludes them. Separately, a comment
+  entry was named unusable; `_exclusion_regex` sets comments aside first,
+  and the verdict now does the same.
+- **A correction the handoff listed as owed was left half made.** design.md
+  divided 1,022 by 27,677 in one section and by 27,710 in the next. Re-read
+  from the rows: 27,677 is the 27,710 dead less the 33 case mismatches, none
+  of the 1,022 is one of them, and the share is 3.69 per cent either way.
+  Said beside the sentence now.
+
+The review's gate:
+- The suite is 1,455 tests: 1,447 and 8 skipped here, 1,454 and 1 on Linux
+  through WSL. mypy is clean on 44 files.
+- The nine new anchors were run in a campaign of their own on a copy: 9 of
+  9 killed, none by the time bound, none overturned by the serial check.
+  The campaign now stands at 336, all matching.
+- The corpus identity gate was predicted BEFORE the run to move nothing:
+  the corpus sets no `exclude_paths`, no clone has a primary document, and
+  the probes, `--selftest`, `--suggest-fixes`, the installer and the diff
+  gate are not in a sweep. Observed: 152 outputs compared, 0 differ.
+- The pre-push chain, from a fresh extract, as before: smoke with no new or
+  missing flag, scenarios 213 of 213, the fuzzer 0 violations,
+  `--self-check` 23 of 23.
 
 ## Authoring constraints these rules impose
 

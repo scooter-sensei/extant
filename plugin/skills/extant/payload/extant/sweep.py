@@ -75,7 +75,6 @@ if TYPE_CHECKING:
                     list[tuple[str, str]], bool]
     _ByPath = dict[str, tuple[list[Finding], str | None, dict[str, int],
                               list[tuple[str, str]], bool]]
-    from extant.contract import Rule
 
 # Below this many documents a survey is faster in one process than in eight.
 # Measured 2026-08-23 on 12 cores, best of three, cache-free, over generated
@@ -649,7 +648,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # what a reader needs told. 139 of the 152 corpus clones are partial.
     report_repository_notes(lambda line: print(line, file=out), repo,
                             index_incomplete)
-    _report_zero_counts(out, examined, ran)
+    _report_zero_counts(out, examined, ran,
+                        primary_read=any(is_primary for _r, is_primary in tasks))
     if unreadable:
         print(f"  {len(unreadable)} could not be read: {', '.join(unreadable)}",
               file=out)
@@ -674,7 +674,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
 
 
 def _report_zero_counts(out: TextIO, examined: dict[str, int],
-                        ran: set[str]) -> None:
+                        ran: set[str], primary_read: bool) -> None:
     """The two NOTEs about zeros in the `examined:` line: rules that read
     documents and found no candidate, and rules that read none. Out of
     `run_sweep` since Phase 57, when splitting the second from the first
@@ -693,36 +693,12 @@ def _report_zero_counts(out: TextIO, examined: dict[str, int],
         print("  NOTE: these rules examined nothing anywhere here - either no "
               "document makes such claims, or the pattern does not match how "
               "this project writes them: " + ", ".join(blind), file=out)
-    unrun = _unrun_note([rule for rule in session.RULES
-                         if rule.kind in examined and rule.kind not in ran])
+    unrun = session.unrun_note(
+        [rule for rule in session.RULES
+         if rule.kind in examined and rule.kind not in ran],
+        primary_read=primary_read, absent="none is here", read="swept")
     if unrun:
         print(unrun, file=out)
-
-
-def _unrun_note(rules: list[Rule]) -> str | None:
-    """The NOTE for rules that read no document here, each group with the one
-    kind of document it does read, or None when every rule read something.
-
-    Two reasons exist, both from the rule's own declaration: an entry-scoped
-    rule reads only the newest entry of the primary document, and a
-    markdown-only rule reads only markdown. Derived rather than listed, so a
-    rule added with either property is explained without anyone editing this.
-    """
-    groups: dict[str, list[str]] = {}
-    for rule in rules:
-        if not rule.in_archive:
-            why = "the newest entry of the primary document, and none is here"
-        elif rule.kind in markup.MARKDOWN_ONLY:
-            why = "markdown, and none was swept"
-        else:
-            why = "a kind of document none here is"
-        groups.setdefault(why, []).append(rule.kind)
-    if not groups:
-        return None
-    return ("  NOTE: these rules read no document here, which is not reading "
-            "one and finding nothing: "
-            + "; ".join(f"{', '.join(kinds)} read only {why}"
-                        for why, kinds in groups.items()))
 
 
 def unusable_exclusion(pattern: str) -> str | None:
@@ -735,9 +711,13 @@ def unusable_exclusion(pattern: str) -> str | None:
     pattern quietly meaning something other than what it said. Named instead
     of supported, because no configuration here or in a known install writes
     either (Phase 48 counted); `!` anywhere but first is literal to gitignore
-    too, and stays usable.
+    too, and stays usable. A comment or an empty entry is no pattern at all,
+    set aside by `_exclusion_regex` before this is asked, so it is refused
+    nothing here either.
     """
     body = pattern.strip()
+    if not body or body.startswith("#"):
+        return None
     if body.startswith("!"):
         return "negation is not supported"
     if "[" in body:

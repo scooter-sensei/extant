@@ -206,6 +206,21 @@ def test_negation_and_character_classes_are_named_unusable() -> None:
     assert sweep.unusable_exclusion("testdata") is None
 
 
+def test_a_comment_is_not_named_an_unusable_pattern() -> None:
+    """Catches the diagnosis reading an entry the matcher never reads.
+
+    `_exclusion_regex` sets a `#` line and an empty entry aside as comments
+    before anything else, so neither is a pattern. The unusable verdict was
+    asked of every configured entry, and named `# drafts [old]` as an
+    unsupported character class - a diagnosis of a comment. Found by the
+    review of the built tranche, 2026-09-29.
+    """
+    from extant import sweep
+    for comment in ("# drafts [old]", "#!keep", "  # [x]", ""):
+        assert sweep.unusable_exclusion(comment) is None, repr(comment)
+    assert sweep.unusable_note(["# drafts [old]", "drafts/**"]) is None
+
+
 def test_the_sweep_names_an_unusable_pattern_and_why(git_repo) -> None:
     """Printed beside the counts, and kept OUT of the "may be stale" line,
     which would send the reader to look for the directory rather than at the

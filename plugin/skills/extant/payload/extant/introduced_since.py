@@ -335,6 +335,9 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     # keys here is what makes a rule that examined nothing print its zero.
     examined: dict[str, int] = {rule.kind: 0 for rule in session.RULES
                                 if rule.scope != "repository"}
+    # The rules that read at least one changed document, as the sweep keeps
+    # them: only of these does a zero mean "looked and found no candidate".
+    ran: set[str] = set()
     # One run scope for the whole gate, and the document put back on the
     # failing path too - the reason is written out in `run_sweep`.
     previous_document = session.document()
@@ -361,6 +364,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
                     continue
                 for kind, count in doc_examined.items():
                     examined[kind] += count
+                ran.update(doc_examined)
                 wrote = lines.get(relative.replace("\\", "/"), set())
                 for finding in findings:
                     if relative in unmapped:
@@ -401,12 +405,23 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     print("  examined: " + ", ".join(f"{kind} {n}"
                                      for kind, n in examined.items()), file=out)
     session.report_rule_errors(lambda line: print(line, file=out))
-    blind = [kind for kind, n in examined.items() if n == 0]
+    # Split as the sweep splits it since Phase 57: both explanations are
+    # wrong about a rule that read no changed document - an entry rule on a
+    # change that left the primary document alone, a markdown rule on one
+    # that touched only reStructuredText - so it is named apart, with why.
+    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
     if blind:
         print("  NOTE: these rules examined nothing in the changed documents "
               "- either they make no such claims, or the pattern does not "
               "match how this project writes them: " + ", ".join(blind),
               file=out)
+    unrun = session.unrun_note(
+        [rule for rule in session.RULES
+         if rule.kind in examined and rule.kind not in ran],
+        primary_read=primary in kept,
+        absent="it is not among the changed documents", read="changed")
+    if unrun:
+        print(unrun, file=out)
     repository_rules = [rule.kind for rule in session.RULES
                         if rule.scope == "repository"]
     print(f"  {len(repository_rules)} repository-wide rule(s) not run: their "

@@ -25,8 +25,10 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -129,6 +131,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # `suggest_renames` left extant/gate.py for its own module on 2026-09-28,
     # when gate.py stood at 899 of its 927 lines; its seven anchors moved with it.
     patches = collect.parent / "extant/patches.py"
+    probes = collect.parent / "extant/probes.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -2434,6 +2437,48 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the installer asks git with the operator's environment", detect,
          "            env=_seam().environment(),\n",
          ""),
+        # --- Phase 57, the review of the built tranche -----------------------
+        # The sweep's NOTE split reached the diff gate, which adopters run.
+        ("the diff gate says a rule that read nothing examined nothing",
+         introduced_since,
+         "    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]",
+         "    blind = [kind for kind, n in examined.items() if n == 0]"),
+        ("the diff gate stops recording which rules read a document",
+         introduced_since,
+         "                ran.update(doc_examined)",
+         "                pass"),
+        # The reason is the rule's SCOPE; repository rules are not archive
+        # rules either, and a primary read with no entry is not an absent one.
+        ("the did-not-run note keys entry scope on in_archive", session,
+         '        if rule.scope == "newest-entry":',
+         "        if not rule.in_archive:"),
+        ("the did-not-run note calls a read primary document absent", session,
+         '            why = ("the newest entry of the primary document, which has none"\n'
+         "                   if primary_read else",
+         '            why = ("the newest entry of the primary document, which has none"\n'
+         "                   if False else"),
+        # A comment is set aside before any pattern question is asked.
+        ("a comment is named an unusable exclusion", sweep,
+         '    if not body or body.startswith("#"):\n        return None',
+         '    if False:\n        return None'),
+        # git ends a listed name at `\n` alone; splitlines cut real names.
+        ("the installer cuts tracked names where python breaks lines", detect,
+         '_git(repo, "ls-files").split("\\n")',
+         '_git(repo, "ls-files").splitlines()'),
+        # --selftest installed the directory alone: probed as markdown.
+        ("--selftest probes an rst status document as markdown", cli,
+         "    session.set_document(link_base=target.parent, doc_path=rel(repo, target),\n"
+         "                         doc_format=format_for(rel(repo, target)))",
+         "    session.set_document(link_base=target.parent)"),
+        # The patch was generated after the markdown default was put back.
+        ("the primary document's patch reads it as markdown", gate,
+         "        session.install_document(primary_document)\n"
+         "        patch = suggest_renames(",
+         "        patch = suggest_renames("),
+        # A probe chose its claim from the raw text; the checks read prose.
+        ("a probe corrupts a claim inside a code block", probes,
+         "    match = pattern.search(prose(ctx.doc, text))",
+         "    match = pattern.search(text)"),
     ]
 
 
@@ -2494,20 +2539,47 @@ def run_suite(root: Path, python: str, extra: list[str] | None = None,
     wait forever - a git child reading stdin, a pool that never returns -
     hung a campaign that runs for hours unattended. None is neither a pass
     nor an ordinary failure, and the caller names it as its own verdict.
+
+    Output goes to a FILE and the whole process tree is ended, because the
+    first version of the bound did neither and did not bind where campaigns
+    run. An xdist worker inherits pytest's stderr; `subprocess.run` answers a
+    timeout on Windows by killing pytest and then reading its pipes to the
+    end, which comes when the last holder exits - and a worker stuck in the
+    hung test never does. A file has no end to wait for, and the tree goes
+    with its root.
     """
-    try:
-        proc = subprocess.run(
+    with tempfile.TemporaryFile() as sink:
+        proc = subprocess.Popen(
             [python, "-m", "pytest", *(extra if extra is not None else _SERIAL),
              *(targets or [])],
-            cwd=root, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=bound,
+            cwd=root, stdout=sink, stderr=subprocess.DEVNULL,
+            start_new_session=sys.platform != "win32",
         )
-    except subprocess.TimeoutExpired as exc:
-        partial = exc.stdout
-        if isinstance(partial, bytes):
-            partial = partial.decode("utf-8", "replace")
-        return None, partial or ""
-    return proc.returncode, proc.stdout
+        code: int | None
+        try:
+            code = proc.wait(timeout=bound)
+        except subprocess.TimeoutExpired:
+            _end_tree(proc)
+            code = None
+        sink.seek(0)
+        return code, sink.read().decode("utf-8", "replace")
+
+
+def _end_tree(proc: subprocess.Popen[bytes]) -> None:
+    """End `proc` and every process it started: pytest, its xdist workers,
+    and whatever a hung test was waiting on. Windows has no process group to
+    signal, so `taskkill /T` walks the tree from the root; elsewhere the
+    suite runs in a session of its own and the whole group is killed."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    proc.kill()
+    proc.wait()
 
 
 def run_mutant(root: Path, python: str, parallel: bool,

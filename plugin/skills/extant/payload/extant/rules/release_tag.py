@@ -269,7 +269,7 @@ def _released_tag(ctx: Context, version: str) -> str | None:
 
 
 def probe(ctx: Context, text: str) -> str | None:
-    return sub_group(text, ctx.config.release_tag, 1, "v0.0.0-extant-selftest")
+    return sub_group(ctx, text, ctx.config.release_tag, 1, "v0.0.0-extant-selftest")
 
 
 RULE = Rule(

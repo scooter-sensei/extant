@@ -534,6 +534,30 @@ def test_a_non_ascii_document_is_pinned_under_its_own_name(tmp_path) -> None:
     assert "git quoted" not in result.stdout, result.stdout
 
 
+def test_a_name_holding_a_line_separator_is_pinned_whole(tmp_path) -> None:
+    """Catches the tracked listing cut where Python breaks lines, not git.
+
+    With quoting off, git no longer octal-escapes a name holding U+2028, and
+    `splitlines()` breaks on it: `docs/notes<U+2028>draft.md` came back as
+    `docs/notes` and `draft.md`, and `--wide-docs` pinned the root-level
+    fragment - an `extra_docs` entry naming no file, which `gate.py` reports
+    as `missing-document`, a finding the installer made up. git ends each
+    listed name at `\\n` and nowhere else, because it quotes any name
+    holding a control character. Found by the review of the built tranche,
+    2026-09-29.
+    """
+    repo = make_repo(tmp_path, **{"README.md": README, "docs__guide.md": "# Guide\n"})
+    name = "notes" + chr(0x2028) + "draft.md"
+    _commit_odd_document(repo, name)
+
+    result = run_installer(repo, "--wide-docs")
+    assert result.returncode == 0, result.stdout
+
+    extras = config_of(repo)["extra_docs"]
+    assert "draft.md" not in extras and "docs/notes" not in extras, extras
+    assert "docs/" + name in extras, extras
+
+
 @pytest.mark.skipif(sys.platform == "win32",
                     reason="a tab is illegal in a Windows filename")
 def test_a_git_quoted_path_is_left_out_and_counted(tmp_path) -> None:

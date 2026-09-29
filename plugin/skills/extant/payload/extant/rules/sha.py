@@ -156,7 +156,7 @@ _DEAD_SHA = "dead" + "0" * 36
 
 
 def probe(ctx: Context, text: str) -> str | None:
-    return sub_group(text, re.compile(r"`([0-9a-f]{7,40})`"), 1, _DEAD_SHA)
+    return sub_group(ctx, text, re.compile(r"`([0-9a-f]{7,40})`"), 1, _DEAD_SHA)
 
 
 RULE = Rule(

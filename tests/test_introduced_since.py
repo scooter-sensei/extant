@@ -95,6 +95,34 @@ def test_a_document_the_range_did_not_change_is_not_read(git_repo, capsys) -> No
     assert "1 tracked document(s) the range did not change were not read" in out, out
 
 
+def test_a_rule_that_read_no_changed_document_is_not_said_to_have_examined_nothing(
+        git_repo, capsys) -> None:
+    """Catches the gate's NOTE offering two explanations that are both wrong.
+
+    The sweep's copy of this NOTE was split in Phase 57: a rule that read no
+    document is named apart from one that read and found no candidate. The
+    gate kept the old line, and it is the one adopters run on every pull
+    request - so a change that did not touch the primary document named the
+    two entry-scoped rules as rules that "examined nothing ... either they make
+    no such claims, or the pattern does not match", when neither read a
+    document at all. Found by the review of the built tranche, 2026-09-29.
+    """
+    repo, commit = git_repo
+    commit("docs/notes.md", "# Notes\n\nNothing yet.\n", "docs: start")
+    commit("docs/notes.md", "# Notes\n\nNothing yet.\n\nStill true.\n",
+           "docs: an edit")
+
+    assert _gate(repo, "HEAD~1") == 0
+    lines = capsys.readouterr().out.splitlines()
+
+    unrun = next((ln for ln in lines if "read no document here" in ln), "")
+    assert "stale-live-claim" in unrun and "unknown-branch" in unrun, lines
+    blind = next((ln for ln in lines if "examined nothing in the changed" in ln), "")
+    assert "stale-live-claim" not in blind and "unknown-branch" not in blind, blind
+    # A rule that DID read the changed document and found nothing stays there.
+    assert "false-merge-claim" in blind, blind
+
+
 def test_the_base_is_the_merge_base_not_the_ref(git_repo, capsys) -> None:
     """On a branch that has diverged from REF, a plain `diff REF` shows every
     line REF has since deleted as a `+` line - lines this branch never wrote.

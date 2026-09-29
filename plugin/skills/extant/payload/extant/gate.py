@@ -389,7 +389,9 @@ def run_validate(repo: Path, args: argparse.Namespace,
               f"{exc.start}). The status document must be a text file.",
               file=sys.stderr)
         return 1
-    # Relative links resolve against the document, not the repo root.
+    # Relative links resolve against the document, not the repo root. What
+    # was installed before is kept, to be put back whole at the end.
+    entered = session.document()
     session.set_document(link_base=target.parent)
     mapping, readable = _sha_map(args)
     if not readable:
@@ -419,6 +421,7 @@ def run_validate(repo: Path, args: argparse.Namespace,
     # alone was read as markdown whatever it was.
     session.set_document(doc_path=rel(repo, target),
                          doc_format=format_for(rel(repo, target)))
+    primary_document = session.document()
     # ONE run scope across the whole run, or one per document, and `--sha-map`
     # is what decides. A stable scope promises the checkout does not change
     # while it is held, and with a map this mode REWRITES documents between
@@ -567,19 +570,24 @@ def run_validate(repo: Path, args: argparse.Namespace,
             errors_reported = session.report_rule_errors(diag, errors_reported)
             if new_extra:
                 exit_code = 1
-    # Both put back, the format as well as the location: a run that read an
-    # `.rst` document last must not leave the next caller reading markdown
-    # as reStructuredText.
-    session.set_document(link_base=None, doc_format="markdown")
+    # Put back whole, the format and the filename as well as the location: a
+    # run that read an `.rst` document last must not leave the next caller
+    # reading markdown as reStructuredText.
+    session.install_document(entered)
     if extras_incomplete and not index_incomplete:
         report_index_note(diag, repo)
 
     if args.suggest_fixes:
         # Written to stdout as a patch and never applied. In sarif mode the
         # document must stay pure JSON, so the patch goes to stderr instead
-        # of corrupting it.
+        # of corrupting it. Generated with the primary document installed,
+        # as the rules that reported it read it: after the loop above, the
+        # generator scanned an `.rst` document as markdown and could not see
+        # the pointer the rule had just reported.
+        session.install_document(primary_document)
         patch = suggest_renames(repo, target.parent, text,
                                 rel(repo, target), findings)
+        session.install_document(entered)
         if patch:
             # Written as BYTES, because print() rewrites newlines on
             # Windows. A patch for a document that uses LF then arrives

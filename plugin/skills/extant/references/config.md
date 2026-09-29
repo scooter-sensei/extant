@@ -227,6 +227,11 @@ matching something else or reporting it as merely stale:
 ```
 
 A `!` anywhere but first is a literal to gitignore too, and is read as one.
+A directory whose name really holds brackets - `docs/[locale]/` - is excluded
+with `?` where each bracket stands, `docs/?locale?/**`, which also matches
+any other one character there; until Phase 57 the bracketed spelling was
+taken as a literal and excluded it, and now it excludes nothing. A comment
+entry is not named.
 Nor does it read backslash escapes - a backslash is taken as a path separator
 - or `core.ignorecase`: a pattern matches the case it is written in, on
 every platform, where git on a Windows or macOS clone would also take

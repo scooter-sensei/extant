@@ -823,6 +823,91 @@ def test_verify_reads_an_rst_status_or_archive_document_as_rst(
     assert "[dead-md-link]" not in result.stdout, result.stdout
 
 
+def test_selftest_reads_an_rst_status_document_as_rst(git_repo, capsys) -> None:
+    """Catches --selftest probing text the gate never reads.
+
+    It installed the primary document's directory and neither its path nor
+    its markup language, so an `.rst` status document was probed as markdown.
+    A pointer inside a `code-block` directive is code to reStructuredText and
+    prose to markdown: --verify never examines it, and --selftest corrupted
+    it and reported `dead-path-pointer` as FIRED - proof of a rule working on
+    a reading the gate does not make. Found by the review of the built
+    tranche, 2026-09-29.
+    """
+    from extant import cli
+    repo, commit = git_repo
+    commit("STATUS.rst", "Status\n======\n\n.. code-block:: text\n\n"
+           "   See `docs/absent.md` here.\n", "docs: status")
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.rst"\n',
+                                       encoding="utf-8")
+
+    cli.main(["--selftest", "--repo", str(repo)])
+    out = capsys.readouterr().out
+
+    line = next(ln for ln in out.splitlines() if "dead-path-pointer" in ln)
+    assert "NO PROBE" in line, out
+
+
+def test_selftest_corrupts_a_claim_the_rule_reads_not_one_in_a_fence(
+        git_repo, capsys) -> None:
+    """Catches a probe choosing its claim from text the check never reads.
+
+    The four probes sharing `sub_group` searched the raw document, and every
+    one of their checks reads `prose()`. When the first match sat in a fenced
+    block, the probe corrupted an example, the check blanked it, and the
+    selftest reported a working rule as DID NOT FIRE - exiting 1 on a
+    document whose real claims the rule reads perfectly. Found when the
+    `.rst` fix above made the probe and the check disagree about a
+    `code-block`; the markdown fence was the same fault all along.
+    """
+    from extant import cli
+    repo, commit = git_repo
+    commit("docs/real.md", "# Real\n", "docs: real")
+    commit("NEXT_SESSION.md", "# Status\n\n```text\nSee `docs/example.md` in "
+           "the sample.\n```\n\nSee `docs/real.md` for the plan.\n",
+           "docs: status")
+
+    cli.main(["--selftest", "--repo", str(repo)])
+    out = capsys.readouterr().out
+
+    line = next(ln for ln in out.splitlines() if "dead-path-pointer" in ln)
+    assert "FIRED" in line and "DID NOT" not in line, out
+
+
+def test_suggest_fixes_reads_an_rst_status_document_as_rst(git_repo) -> None:
+    """Catches the patch generator reading the primary document as markdown.
+
+    `run_validate` put the markdown default back after the extra documents
+    and only then generated the primary document's patch, so the rules read
+    an `.rst` document as reStructuredText and the generator scanned it as
+    markdown. An indented paragraph is a block quote to the first and code to
+    the second, so the rule reported a pointer to a renamed file there and
+    the generator, unable to see it, said nothing references a moved file.
+    Found by the review of the built tranche, 2026-09-29.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("docs/old.md", "# Old\n", "docs: old")
+    git(repo, "mv", "docs/old.md", "docs/new.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    commit("STATUS.rst", "Status\n======\n\n## Phase 1 - x (done, 2026-01-01)\n\n"
+           "Intro paragraph.\n\n    See `docs/old.md` here.\n", "docs: status")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.rst"\n',
+                                       encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
+         "--repo", str(repo), "--verify", "--suggest-fixes"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+    )
+
+    # The finding goes to the diagnostic stream and the patch to stdout.
+    assert "[dead-path-pointer]" in result.stdout + result.stderr, result.stderr
+    assert "+    See `docs/new.md` here." in result.stdout, (
+        result.stdout + result.stderr)
+
+
 # --- loopholes found by the adversarial smoke test ---------------------------
 
 def test_claims_inside_a_code_fence_are_not_checked(git_repo) -> None:

@@ -30,6 +30,14 @@ moved to its own module: `extant.gate.suggest_renames` is now
 document, the archive and every extra document were read as markdown
 whatever their suffix, so the markdown link rule reported shapes that are
 not links in reStructuredText. `--sweep` already read them correctly.
+`--suggest-fixes` now reads the status document the same way when it builds
+its patch, and `--selftest` probes it the same way.
+
+**`--selftest` corrupts a claim the rule reads.** Four rules' probes took
+the first match in the raw document, so when that match sat in a code block
+the probe corrupted an example, the rule - which does not read code - stayed
+silent, and a working rule was reported as DID NOT FIRE, failing the run.
+They now take the first claim the rule itself reads.
 
 **Denominators name only the rules that looked.** `--verify`'s line for an
 extra document listed `stale-live-claim 0, unknown-branch 0` for documents
@@ -37,7 +45,8 @@ those rules never read; it now lists the rules that read it. `--sweep`'s
 "examined nothing anywhere here" NOTE no longer names a rule that read no
 document at all - on a repository without an entry-structured primary
 document, the two entry-scoped rules - and a new NOTE says which rules
-those are and what they read.
+those are and what they read. `--introduced-since` does the same for a
+change that left the primary document alone.
 
 **What a partial repository cannot answer, said precisely.** The note
 said a rename hint "answers from what is here"; on a copy missing a blob the
@@ -49,17 +58,25 @@ previous versions instead of one each: 100 changed documents went from
 **An `exclude_paths` pattern with `!` or `[` is named as unusable.** Neither
 negation nor a character class is supported; such a pattern used to become a
 literal and was then reported as merely stale. `--sweep` and
-`--introduced-since` now name it, and say which.
+`--introduced-since` now name it, and say which. **This can widen what is
+read:** as a literal, `docs/[locale]/**` excluded a directory really named
+`[locale]`, and it now excludes nothing, so those documents are swept and
+`--introduced-since` gates on them. Write `?` where each bracket stands -
+`docs/?locale?/**` - which also matches any other one character there. A
+comment in the list is not named.
 
 **The installer asks the repository it was given.** It started git with
 the operator's environment, so an exported `GIT_DIR` made it describe
 another repository. It now uses the same scrubbed environment as the tool,
 which also means a document whose name holds a non-ASCII character is
-configured under that name rather than left out.
+configured under that name rather than left out, a Unicode line separator
+included.
 
 For contributors: `pytest.ini` names a test that runs past 60 seconds
 (`faulthandler_timeout`), and `tests/harnesses/mutate.py` bounds each
-mutant's suite and reports one that hung as its own kind of kill.
+mutant's suite and reports one that hung as its own kind of kill. The bound
+ends the whole process tree, xdist workers included, so it holds under
+`--parallel` on Windows too.
 
 **The GitHub Action loads again.** 0.28.0's action cannot be used in any
 mode: GitHub's runner refuses to load it, with "Unrecognized named-value:

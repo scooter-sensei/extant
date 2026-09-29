@@ -79,9 +79,14 @@ def _git(repo: Path, *args: str) -> str:
 
 def _tracked_paths(repo: Path) -> list[str]:
     """Every tracked path, read once. Git rather than a filesystem walk, so a
-    vendored copy under an ignored directory cannot be resolved to."""
-    return [ln.strip() for ln in _git(repo, "ls-files").splitlines()
-            if ln.strip()]
+    vendored copy under an ignored directory cannot be resolved to.
+
+    Cut at `\\n` and nowhere else, and not stripped: git quotes any name
+    holding a control character, so `\\n` ends a name and nothing else can.
+    `splitlines()` also breaks on U+2028, U+2029 and U+0085, which reach here
+    raw since `environment()` turned quoting off, and cut one real document
+    into two names that are not."""
+    return [name for name in _git(repo, "ls-files").split("\n") if name]
 
 
 # --- trunk -------------------------------------------------------------------
