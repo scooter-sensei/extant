@@ -124,6 +124,9 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # the third time this file has recorded the same lesson. Mutations rot
     # alongside the code they point at.
     gate = collect.parent / "extant/gate.py"
+    # `suggest_renames` left extant/gate.py for its own module on 2026-09-28,
+    # when gate.py stood at 899 of its 927 lines; its seven anchors moved with it.
+    patches = collect.parent / "extant/patches.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -511,7 +514,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # A patch replaces `](old)` on the page; a title, a bracket or a
         # percent-encoding puts the target elsewhere on it, and writing the
         # resolved spelling back would break the link it repairs.
-        ("a patch is written over a spelling the page does not use", gate,
+        ("a patch is written over a spelling the page does not use", patches,
          "        if path_part != target:\n            continue",
          "        if False:\n            continue"),
         ("the anchor rule partitions a bracketed fragment as written",
@@ -1108,30 +1111,30 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The old anchor named `replacements.append((target, moved))`, which no
         # longer exists; a mutation kept alive by pointing it at something else
         # would be testing a different thing under an old label.
-        ("suggest-fixes offers a guess for a merely missing file", gate,
+        ("suggest-fixes offers a guess for a merely missing file", patches,
          "        moved = renamed_to(ctx, named)\n        if moved:",
          "        moved = renamed_to(ctx, named) or named + \".guess\"\n"
          "        if moved:"),
         # THE INVARIANT. Without it `--suggest-fixes` offered to rewrite a link
         # split across a newline that `--validate` had just reported clean - a
         # patch for a finding that does not exist.
-        ("a patch is offered with no finding behind it", gate,
+        ("a patch is offered with no finding behind it", patches,
          "        if target not in linked or resolve_reference(ctx, base, target)[0]:",
          "        if resolve_reference(ctx, base, target)[0]:"),
         # The two strings the shared scanner returns are not interchangeable:
         # one RESOLVES and one is REPLACED. Swapping them makes the patch look
         # for a string the document does not contain.
-        ("the patch replaces on the resolved target, not the written spelling", gate,
+        ("the patch replaces on the resolved target, not the written spelling", patches,
          "            replacements.append((raw, spelled + raw[len(path_part):]))",
          "            replacements.append((target, spelled))"),
         ("the shared scanner drops the spelling the document uses", links,
          "                sites.append((number, raw, target, html))",
          "                sites.append((number, target, target, html))"),
-        ("suggest-fixes rewrites prose as well as references", gate,
+        ("suggest-fixes rewrites prose as well as references", patches,
          '        updated = updated.replace(f"]({old})", f"]({new})")\n'
          '        updated = updated.replace(f"`{old}`", f"`{new}`")',
          "        updated = updated.replace(old, new)"),
-        ("suggest-fixes writes the file instead of emitting a patch", gate,
+        ("suggest-fixes writes the file instead of emitting a patch", patches,
          "    if not replacements:\n        return \"\"",
          "    if not replacements:\n        return \"\"\n"
          "    (base / 'SIDE_EFFECT.txt').write_text('written', encoding='utf-8')"),
@@ -2278,7 +2281,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # And the patch spells the answer relative to the page; a
         # repository-relative path spliced into `docs/a.md` points at
         # `docs/docs/...`.
-        ("the rename patch is spelled from the root", gate,
+        ("the rename patch is spelled from the root", patches,
          "            spelled = \"/\" + moved if rooted else relative_spelling(repo, base, moved)",
          "            spelled = \"/\" + moved if rooted else moved"),
         # A branch that exists only as a tag: the ref table says it is not a

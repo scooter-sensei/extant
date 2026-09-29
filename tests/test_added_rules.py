@@ -483,7 +483,7 @@ def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
     one into `docs/a.md` - `[it](docs/new.md)` - points at `docs/docs/new.md`.
     Spelled relative to the document instead: `new.md`, or `../guides/new.md`
     for a move across directories."""
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/old.md", "# old\n", "docs: add")
@@ -498,7 +498,7 @@ def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
     with hc.run_scope():
         found = hc.validate(repo, text, base=repo / "docs", doc="docs/a.md",
                             has_entries=False)
-        patch = gate.suggest_renames(repo, repo / "docs", text, "docs/a.md", found)
+        patch = patches.suggest_renames(repo, repo / "docs", text, "docs/a.md", found)
     assert "+See [it](new.md#install) and [far](../guides/far.md)." in patch, patch
 
 
@@ -1275,7 +1275,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1287,7 +1287,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
 
     findings = hc.validate(repo, text)
-    patch = gate.suggest_renames(repo, repo, text,
+    patch = patches.suggest_renames(repo, repo, text,
                                  "NEXT_SESSION.md", findings)
 
     assert patch, "a recorded rename produced no suggestion"
@@ -1303,14 +1303,14 @@ def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
     exactly the authoring this refuses to do."""
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     hc._SCOPE = hc.RunScope()
 
     missing = "See [x](docs/never-existed.md).\n"
-    assert gate.suggest_renames(
+    assert patches.suggest_renames(
         repo, repo, missing, "NEXT_SESSION.md",
         hc.validate(repo, missing)) == ""
 
@@ -1323,7 +1323,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1333,7 +1333,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     text = "See [plan](docs/plan.md).\nWe renamed docs/plan.md last week.\n"
 
     findings = hc.validate(repo, text)
-    patch = gate.suggest_renames(repo, repo, text,
+    patch = patches.suggest_renames(repo, repo, text,
                                  "NEXT_SESSION.md", findings)
 
     assert "+See [plan](docs/design.md)." in patch
@@ -1453,7 +1453,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1463,7 +1463,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     before = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
 
     body = "See [plan](docs/plan.md).\n"
-    patch = gate.suggest_renames(repo, repo, body, "DOC.md",
+    patch = patches.suggest_renames(repo, repo, body, "DOC.md",
                                  hc.validate(repo, body))
 
     after = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
@@ -1494,7 +1494,7 @@ def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
     rewrite the target anyway. A patch for a finding that does not exist, on a
     document the tool had just declared clean.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1504,7 +1504,7 @@ def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
 
     # The control: on one line the rule sees it, so a patch is right.
     same_line = "See [the plan](docs/plan.md).\n"
-    assert gate.suggest_renames(repo, repo, same_line, "DOC.md",
+    assert patches.suggest_renames(repo, repo, same_line, "DOC.md",
                                 hc.validate(repo, same_line))
 
     # Split across a newline: the rule cannot see it, so nothing may be offered.
@@ -1513,7 +1513,7 @@ def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
         "the rule is expected to be silent here; if it now reports this link, "
         "this test is pinning the wrong thing"
     )
-    assert gate.suggest_renames(repo, repo, split, "DOC.md",
+    assert patches.suggest_renames(repo, repo, split, "DOC.md",
                                 hc.validate(repo, split)) == ""
 
 
@@ -1536,7 +1536,7 @@ def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> No
     split across a newline, which the shared scanner already refuses, so the
     invariant could be deleted with every test still green.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     # A generator config puts the whole repository in a site tree.
@@ -1560,7 +1560,7 @@ def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> No
         "not what is being tested"
     )
 
-    assert gate.suggest_renames(repo, repo, body, "DOC.md", findings) == ""
+    assert patches.suggest_renames(repo, repo, body, "DOC.md", findings) == ""
 
 
 def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
@@ -1576,7 +1576,7 @@ def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
     The suffix has to come back on the replacement, or the patch would drop the
     very thing the link needed.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1585,12 +1585,12 @@ def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
 
     query = "See [plan](docs/plan.md?raw=1).\n"
-    patch = gate.suggest_renames(repo, repo, query, "DOC.md",
+    patch = patches.suggest_renames(repo, repo, query, "DOC.md",
                                  hc.validate(repo, query))
     assert "+See [plan](docs/design.md?raw=1)." in patch, patch
 
     fragment = "See [plan](docs/plan.md#install).\n"
-    patch = gate.suggest_renames(repo, repo, fragment, "DOC.md",
+    patch = patches.suggest_renames(repo, repo, fragment, "DOC.md",
                                  hc.validate(repo, fragment))
     assert "+See [plan](docs/design.md#install)." in patch, patch
 
@@ -1611,7 +1611,7 @@ def test_a_percent_encoded_link_is_reported_and_deliberately_not_patched(
     teaches it to re-encode, this test should be UPDATED rather than deleted:
     the requirement is that the two never disagree silently.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/old guide.md", "# guide\n", "docs: guide")
@@ -1622,7 +1622,7 @@ def test_a_percent_encoded_link_is_reported_and_deliberately_not_patched(
     body = "See [guide](docs/old%20guide.md).\n"
     reported = [f for f in hc.validate(repo, body) if f.kind == "dead-md-link"]
     assert reported, "the rule must still REPORT it; only the patch is refused"
-    assert gate.suggest_renames(repo, repo, body, "DOC.md",
+    assert patches.suggest_renames(repo, repo, body, "DOC.md",
                                 hc.validate(repo, body)) == ""
 
 

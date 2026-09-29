@@ -18,7 +18,7 @@ other Context-taking questions, because they are questions about what the
 repository tracks rather than about what the document says.
 
 Three readers, one scanner. `rules/md_link.py` judges what `link_sites`
-returns and counts it; `gate.suggest_renames` reads the same list to find
+returns and counts it; `patches.suggest_renames` reads the same list to find
 the spelling it will patch; `rules/md_anchor.py` reads `MD_LINK` and
 `link_destination` directly because it partitions the destination on its
 `#` rather than resolving it. Every destination reaches a filesystem through
