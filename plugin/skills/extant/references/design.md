@@ -87,6 +87,7 @@ Where each section went, by its title:
 - The type checker: four measured, the floor none can see, and a gate on the one that enforces the most
 - CI honesty: the version the maintainer runs, the surfaces adopters run, and a third order
 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer
+- What a zero means: a rule names its vocabulary, and off is a state
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 
@@ -140,8 +141,18 @@ RULE = Rule(
     falsifiable="is the claimed commit an ancestor of the ref the claim names?",
     probe=probe,
     examined=examined,
+    settings=("merge_claim",),
 )
 ```
+
+`settings` names the configuration keys the rule's vocabulary comes from,
+and is empty for a rule keyed on a token shape. It is what a zero means:
+the run words each rule that examined nothing by it - nothing of that shape
+here, a pattern the project set that matched nothing, or the shipped
+default, naming the key - and an empty value switches the rule off. A test
+reads every rule module and fails when what it reads and what it declares
+differ. One limit, stated: "set" means present in `.extant.toml`, not
+checked by a person, so an installer's guess counts as set.
 
 **The admission test:** a rule belongs only if it can be answered yes/no by git
 or the filesystem, AND produces zero false positives on a corpus it was NOT

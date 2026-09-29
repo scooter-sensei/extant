@@ -6,6 +6,71 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 59 - What a zero means: a rule names its vocabulary, and off is a state (unreleased, 2026-09-29)
+
+**Status.** Built and gated. 1,502 tests across 78 files, of which 1,494
+pass and 8 skip on this machine; `python -m mypy`: no issues in 44 files;
+357 mutation anchors match, and the 23 this tranche wrote or retargeted were
+each run for real on a copy: all 23 killed, one only after its test was
+corrected. No rule added or removed, thirteen as before; no mode added; no
+exit code moved. The tool remained released as 0.28.0.
+
+**What it answers.** The scrutiny of pull request 13 said a rule whose
+pattern nobody set reports `examined 0` in the voice of a project that makes
+no such claims. Measured first, over the 39 visible benchmark installs and
+the 139 de-duplicated corpus sweeps:
+
+- The installer left at least three of the five claim patterns undetermined
+  in 39 of 39, and every one ran on the shipped default while it said
+  "Rules with no pattern check nothing".
+- The zero NOTE named 1,115 zeros in 139 sweeps: 642 of rules that read no
+  pattern at all, 334 on a default nobody set, 139 of a rule that was off.
+  Its one sentence was wrong for the first and third and silent about the
+  second.
+- An empty pattern had no working meaning: three of the five raised in their
+  rules on every run, one widened a rule silently, and one reported 256
+  examined on a 14-line document.
+
+**What changed.**
+
+- A rule declares the settings its vocabulary comes from, and a test reads
+  each rule module and fails when the two differ.
+- The loaded settings record which keys the file sets and which it switches
+  off. An empty claim pattern is off: the rule does not run, and every
+  output - `--verify`, `--check-text`, `--sweep`, `--introduced-since`,
+  `--selftest` and SARIF - says so, with the key.
+- Each zero of a rule that read something is worded by its cause: no pattern
+  to set, a pattern the project set, or the shipped default, naming the key.
+  An entry rule on a primary document holding no entry is said to have read
+  nothing, in every mode.
+- A pattern matching the empty string, or with the wrong number of groups,
+  is refused when the file loads; 0 of 41 known configurations are refused.
+- SARIF carries the NOTE lines the text printed, states an off rule as
+  disabled, and reports a rule that raised as a failed execution.
+- The installer says what an undetermined setting will do. It leaves a claim
+  pattern on the shipped default and says so; it switches the phase keys off
+  when the commit subjects show no convention.
+
+**What was reversed.** The plan's "a key the installer marked unknown is
+off" was designed, then reversed by a foolproofing pass: the installer reads
+the document on install day and `/extant` writes entries after it, so off
+would silence every later claim, and it would not have fixed the scrutiny's
+own example either.
+
+**Found on the way.** A test in `tests/test_fuzz_findings.py` read the
+sweep's stderr for a NOTE printed to stdout, so it could never fail. It
+reads stdout now. And the smoke harness caught two of its own probes the
+load-time refusal had changed: one wrote patterns with no capture group,
+and one fed the matcher a pattern that is now refused before it runs,
+while its tolerated flag quietly stopped being raised.
+
+**Identity.** On the 152 visible corpus clones, predicted byte for byte
+before the run: 152 of 152 outputs byte-identical to the prediction. No finding and no `examined:` count moved.
+
+Everything is in the section "What a zero means: a rule names its vocabulary,
+and off is a state", in the design rationale's part on keeping the tool
+honest.
+
 ## Phase 58 - The differential gate, measured and refused: what a change breaks without writing it (unreleased, 2026-09-29)
 
 **Status.** Measurement only. No shipped file changed, so there is no
