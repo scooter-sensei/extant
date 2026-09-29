@@ -370,10 +370,12 @@ only the author knows which two strings name one fact.
 | `plugin/skills/extant/payload/extant/rules/` | one module per rule |
 | `plugin/skills/extant/payload/extant_collect.py` | the entry point the hook invokes by path; a version handshake and one import |
 | `plugin/skills/extant/install.py` | the installer, detection and presets |
-| `plugin/skills/extant/references/design.md` | why each rule works as it does |
+| `plugin/skills/extant/references/design.md` | why each rule works as it does: the core, and a map of the parts |
+| `plugin/skills/extant/references/design/` | the rest of the design rationale, one part per subject |
 | `tests/harnesses/` | the audits pytest cannot perform. `scenarios.py`, `smoke.py` and `fuzz.py` are their own CI jobs; the self-check job runs `mutate.py --check-only` and `fuzz.py --self-check`; `corpus.py`, `perf.py` and `stress.py` are hand-run |
 | `CONTRIBUTING.md` | the same rules, aimed at people |
 
 Read `plugin/skills/extant/references/design.md` before changing a rule. It
 records the real mistake behind each decision, which is usually the reason the
-obvious simplification is wrong.
+obvious simplification is wrong, and its map names the part under `design/`
+that holds the rest of a subject.

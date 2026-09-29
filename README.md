@@ -1219,7 +1219,8 @@ All under `plugin/skills/extant/`:
 |:---|:---|
 | `references/porting.md` | Getting the settings right for your project. Read first. |
 | `references/config.md` | Every setting explained. |
-| `references/design.md` | Why each rule works as it does, and the real mistake behind each decision. |
+| `references/design.md` | Why each rule works as it does, and the real mistake behind each decision. The core, with a map of the parts. |
+| `references/design/` | The rest of the design rationale, one file per subject. |
 | `SKILL.md` | What Claude reads. |
 
 </details>

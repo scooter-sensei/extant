@@ -392,7 +392,7 @@ jobs:
   free-threaded:
     # The free-threaded build of 3.14, for ONE run and then a verdict.
     #
-    # It is the instrument a thread-pooled sweep waits on (design.md's
+    # It is the instrument a thread-pooled sweep waits on (design/quality.md's
     # paragraph on 3.4 and `contextvars`): threads only pay without a GIL, and
     # neither the development machine nor its WSL has such an interpreter.
     # `setup-python` takes the `t` suffix (its docs/advanced-usage.md), and on

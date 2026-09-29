@@ -36,6 +36,16 @@ extra_docs = [
     "CONTRIBUTING.md",
     "tests/harnesses/README.md",
     "plugin/skills/extant/references/design.md",
+    # The design rationale's parts, divided out of design.md on 2026-09-29;
+    # checked for the same reason the core is.
+    "plugin/skills/extant/references/design/rules.md",
+    "plugin/skills/extant/references/design/widening.md",
+    "plugin/skills/extant/references/design/history.md",
+    "plugin/skills/extant/references/design/boundaries.md",
+    "plugin/skills/extant/references/design/performance.md",
+    "plugin/skills/extant/references/design/gates.md",
+    "plugin/skills/extant/references/design/code-blocks.md",
+    "plugin/skills/extant/references/design/quality.md",
 ]
 # README.md is deliberately NOT here, and it was tried. Adding it produced four
 # findings and every one was a false positive: `8f2a91c` and `abc1234` are the

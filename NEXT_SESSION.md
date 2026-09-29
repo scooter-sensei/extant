@@ -66,10 +66,19 @@ agent tier, where documents move fastest, cannot be replayed offline, so
 it is the population to measure first if the question is ever reopened.
 
 Everything is in the section "The differential gate, measured and refused:
-what a change breaks without writing it" in the design rationale under the
-skill's references. CORPUS.md carries the buckets, rendered from its figures
+what a change breaks without writing it", in the design rationale's part
+on reading a range. CORPUS.md carries the buckets, rendered from its figures
 like every other number there, under "What a change breaks without writing
 it".
+
+**The design rationale, divided.** At 5,133 lines one file had stopped
+being readable, so it was divided by subject: `design.md` keeps the core
+and a map of where every section went, and eight parts sit beside it under
+`references/design/` - rules, widening, history, boundaries, performance,
+reading a range, code blocks, and keeping the tool honest. Every section
+moved verbatim, which a check against the previous commit confirmed; four
+cross-references that would have pointed across a file were reworded. The
+parts are checked documents, like the core.
 
 ## Phase 57 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer (unreleased, 2026-09-28)
 

@@ -352,12 +352,13 @@ their repository name one fact.
 **Eight candidates have been measured against two corpora and refused** -
 environment variables twice, code symbols, HTTP endpoints, CLI flags, ports,
 image tags, README versions - at 0% to 22% precision. Six were refusable by
-these clauses without cloning anything. `references/design.md` has the numbers.
+these clauses without cloning anything. `references/design/widening.md` has the numbers.
 
 ## Read before changing anything
 
 - `references/design.md` - why each rule is scoped as it is, with the incident
-  behind each decision. Read this before adding or widening a rule.
+  behind each decision. Read this before adding or widening a rule; its map
+  names the part under `references/design/` that holds the rest of a subject.
 - `references/porting.md` - how to derive the configuration from a real
   document. **Read this before installing into a new repo.**
 - `references/config.md` - every configurable value.
