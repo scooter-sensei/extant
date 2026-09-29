@@ -2307,6 +2307,10 @@ HEAD never disagree.
 
 **The one real argument for an authoritative index is a verdict, not a
 speed.** 1,022 of the 27,677 dead references - 3.7%, in 28 repositories -
+(corrected 2026-09-28: 28 CLONES, and not all of them findings - 665 rows in
+24 repositories de-duplicated, of which 460 are findings in 18 and 205 are
+candidate spellings a rule tried before it settled; the section "The owed
+bundle" below has the split)
 name gitignored paths: ruff's generated `docs/settings.md` and
 `docs/default-rules.md`, babel's `build/`, autogen's generated API pages.
 Dead in every fresh clone and in CI, resolving on any machine that has run
@@ -2787,7 +2791,12 @@ placeholder-shaped line, 0 in a template tree.
 Read by hand on 2026-09-21, in the gap audit that closed tranches 10 and
 11, because the review asked for the replay's findings to be adjudicated
 the way the precision sample was and the paragraph above had judged them by
-instrument alone. All 36 are dead as stated. Of the 31 in `obra/superpowers`,
+instrument alone. All 36 are dead as stated. (Corrected 2026-09-28, when
+the read was repeated to write it down as labels: 33 are. Vitepress's two
+anchors are answered by `> ## Notices`, a heading inside the block quote
+the licence is copied into, which the anchor set does not read; and one of
+moby's three is a vendored README's floor read against moby's own
+manifest. The section "The owed bundle" below has the labels.) Of the 31 in `obra/superpowers`,
 22 sit in QUOTED text: ten in blockquoted grader output that cross-checks
 five commits of an evaluation workspace against that workspace's `git log`,
 six in a list quoting the same output beside a grader's own verdict that
@@ -4573,6 +4582,244 @@ the same Windows 3.10 leg where it had taken 17.01 - four to one between
 two runs of one test on one leg, under `-n auto`. So the next tranche's
 per-test timeout starts from 17.01, the larger of the two, and takes that
 spread as the reason one run's durations cannot size it alone.
+
+## The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer
+
+Phase 57, tranche 19 of the internals review, 2026-09-28. The plan's eleven
+owed items, two the review of pull request 13's semantics placed here, and
+three that building found. One of the eleven was already done: Phase 54 hands
+the diff gate's tree listing to its workers. And one was dropped on the
+record's own reasons, below. Every premise was re-measured on the day, and
+the audit asked for before building changed six of them. This section keeps
+the numbers.
+
+**Two found by reading a log.** The first CI run of the dogfood job's
+`verify` arm was judged by its colour, and reading it showed every
+`checked <extra>:` line naming `stale-live-claim 0, unknown-branch 0`.
+Those two have `in_archive=False`, so `rule_applies` refuses them for a
+document with no entries: they never read the document. The line filtered
+the repository-scoped rules by hand and nothing else, which is the drift
+`rule_applies`' docstring exists to prevent. The sweep reads the one
+predicate for both halves, and now so does this line.
+
+Fixing it found the second. `validate` inherits the markup language rather
+than deriving it. `--sweep` installs it per document; `--verify` never did,
+at any of its three sites (the status document, the archive, each extra).
+So an `.rst` document under `--verify` was read as markdown, and the
+markdown-only link rule reported `np.dtype[mp.mpf](dps=100)`, a shape that
+is not a link in reStructuredText. The two modes disagreed about one file.
+Neither moves a corpus output, since the corpus runs sweeps. Both are
+pinned by tests watched red, and the three sites by an anchor each.
+
+**The patch `--suggest-fixes` writes.** `difflib` was handed `splitlines()`
+and writes no `\ No newline at end of file` marker. So a fix landing on a
+last line with no terminator fused `-old` and `+new` onto one line, and
+`git apply` refused the whole patch as corrupt, exit 128, in both modes that
+emit one. Measured over every tracked document: 17,104 of 94,269 (18.14 per
+cent) end that way, in 107 of 176 de-duplicated repositories. That is an
+upper bound, because a patch is offered only for a finding with a rename
+hint: the corpus carries 2 such findings, and its 139 partial clones can
+offer none. So the case for the fix is correctness, not volume. The same
+fix cuts lines where git cuts them, at `\n` alone, because `splitlines()`
+also breaks at a form feed and at `U+2028`, and the patch's context then
+matched no line of the file. Four cases are applied, not inspected.
+
+The generator left `gate.py` for `extant/patches.py`. This was not forced.
+`gate.py` stood at 899 lines against the 927-line ceiling in
+`tests/test_module_quality.py`; the fix alone would have fitted, and the
+"900" quoted in the plan was the ceiling before 2026-09-09. It was made
+because tranche 21 has a NOTE to rework in that module, and this was the
+cheaper of the two cuts available. The function has callers in both gating
+modes, is not a mode itself, and uses none of `gate.py`'s private helpers,
+so it moved whole. `--check-text`, the cut planned before, calls four of
+them. Seven anchors moved with it, and each was run again.
+
+**A zero from a rule that did not look.** The sweep's NOTE named every rule
+with a zero as one that "examined nothing anywhere here - either no
+document makes such claims, or the pattern does not match". That is
+true only of a rule that read something. The two entry-scoped rules read
+only the newest entry of the primary document, and no visible corpus clone
+has one, so the NOTE gave both wrong reasons for them in 152 of 152 corpus
+outputs. A rule that read no document is now named apart, with the kind of
+document it reads, derived from the rule's own declaration. The `examined:`
+line keeps its zeros, because they are true. The other half of the NOTE -
+a phrase-keyed rule's zero, or an unconfigured one's - is tranche 21's.
+Item 13 measured the defaults it needs, from the recorded identity sweep,
+de-duplicated to 139 repositories:
+- `false-merge-claim` reads every swept document and examines 0 in all 139.
+- `dead-path-pointer` examines 705 in 76.
+- `dead-release-tag` examines 8 in 7.
+- The two entry rules cannot be measured by a sweep at all.
+
+**What a partial copy cannot answer.** The rename search the hint needs
+exited 128 ("lazy fetching disabled") on 6 of 6 `blob:none` corpus clones
+and found 0 renames, where full clones of the same six found 73 to 6,795.
+The seam raises on the exit and what git printed before it stopped is
+discarded, so the map is all or nothing. On a copy missing a blob the
+search needs there is no hint at all. The note that said a hint "answers
+from what is here" now says so. It is worded as a condition, because a
+partial copy that has gathered the blobs gets its hints.
+
+`--deleted-since` asked `ls-tree` once per missing previous version to
+tell "was not there" from "is not here". On a local `blob:none` copy of
+fastapi with 100 changed documents configured that was 102 spawns, and the
+100 `ls-tree` calls took 2.74 s of a 3.24 s run. One `ls-tree` over the
+same paths took 23 ms, and a full `ls-tree -r` of the ref 26 ms. The
+pathspec form is the one taken, because it grows with the documents rather
+than the tree. It is chunked at 8,000 characters under Windows' 32,767, and
+its path arguments are literal, as the per-document call's were. The
+installer's `--wide-docs` configures documents by the hundred, which is why
+the count was the one the item feared.
+
+Making that local partial copy needed a workaround.
+`git clone --filter=blob:none file://...` silently makes a FULL copy
+unless the source's upload-pack allows filtering, and a `-c` never reaches
+it: git clears `GIT_CONFIG_PARAMETERS` for a local upload-pack. A
+temporary `GIT_CONFIG_GLOBAL` holding `[uploadpack] allowFilter = true`
+does. Check that an old blob is really missing before measuring anything on
+such a copy.
+
+**Exclusions, named rather than escaped.** A leading `!` and any `[`
+became literals and matched nothing. The sweep then called such a pattern
+"stale", which sends a reader to look for a directory. Both surveys that
+apply `exclude_paths` now name the pattern as unusable and say which of
+the two it is. The plan named the sweep alone; `--introduced-since` applies
+the same exclusions and prints their counts. Phase 48 counted 0 of the 3
+patterns anyone has written using either feature, so neither is supported.
+
+**The installer asked git with the operator's environment.** A `GIT_DIR`
+exported by a hook, or by a shell inside another repository, made
+`detect._git` describe that repository while the installer wrote
+configuration into this one. This was measured in a test before it was
+fixed. `detect.py` now loads `git.py` by path, as it already loaded
+`strata.py`, and starts git with its `environment()`. That also turns
+`core.quotePath` off, so a non-ASCII document name now arrives as itself
+and is pinned under it, where before it arrived quoted and was left out
+and counted. Two installer tests changed for that reason. The quoted
+branch stays for what quoting off still quotes: a double quote, a
+backslash, a control character.
+
+**Where a hang is named, and where it is ended.** The plan's
+pytest-timeout had lost its premise: tranche 18 put `timeout-minutes` on
+every CI job. What was still missing was the NAME of a hung test, and any
+bound at all on a mutation campaign, which runs for hours unattended.
+
+pytest's built-in `faulthandler_timeout = 60` gives the name. 60 is three
+times the slowest test on any CI leg: 17.01 s on the Windows 3.10 leg under
+`-n auto`, the worst of tranche 18's three runs (4.20 and 5.73 s in the
+other two), rounded up.
+
+`mutate.py` gives the bound. It times its green baseline and bounds each
+mutant's suite at three times that, never under a minute. A suite that
+outlives the bound is a kill, because it did not pass, but a weak one,
+because no test failed. It is printed as `killed HUNG` and counted on
+every campaign, zero included.
+
+The plugin was refused on three counts:
+- It is a dependency.
+- `--strict-config` makes its ini key an error wherever it is not loaded,
+  which includes the WSL recipe.
+- Its Windows thread method ends a serial run whole, exit 1 with no
+  `FAILED` line, which `mutate.py` would have counted as a kill it could
+  not name.
+
+**The line-numbering ledger.** The plan said ten sites and a grep said
+nine; the syntax tree says twelve. A grep for `enumerate(...splitlines())`
+cannot see `lines = text.splitlines()` a line above `enumerate(lines,
+start=1)`, nor a file iterated. The twelve are:
+- the eight `line_number_at`'s docstring named, the md-link site now in
+  `links.py`;
+- Phase 55's pair, the blanking loop and `code_lines`;
+- the TODO scan in `collect.py`;
+- the SARIF snippet in `report.py`. It iterates a file opened with
+  `newline=""`, a third splitting rule, `\n`, `\r` and `\r\n` - LINE_BREAK's
+  set.
+
+The docstring counts them, and `tests/test_line_numbering.py` holds the
+ledger.
+
+**The replay's hand-read, written down and corrected.** CORPUS.md carried
+the instrument's verdict on the 36 findings the diff gate would have
+failed on, 0 resolving, but not the hand-read design.md recorded on
+2026-09-21, because that read left counts and no labels. It was re-read
+finding by finding and saved as one label each, so the figures render it.
+Two verdicts did not survive, and 33 of 36 are dead as stated.
+- Vitepress's two `[Notices](#notices)` are answered by `> ## Notices`, a
+  heading inside the block quote the licence text is copied into. A
+  renderer anchors it; `anchors()` reads `^#` and does not.
+- One of moby's three vendored findings compares a library README's "Go
+  1.23 or newer" with moby's own `go.mod`. The vendored copy has no manifest
+  of its own, and the library's floor contradicts nothing.
+
+The split of superpowers' 31 held exactly: 22 quoted, 6 in the document's
+own prose about another workspace's commits, 3 the document's own claims.
+Counted over the identity sweep, the block-quote class is 1 of 1,540
+`dead-md-anchor` findings at HEAD (mkdocs), so it is recorded rather than
+put in a tranche. The Precision table has a diff-scoped row now: 36 judged,
+3 not dead as stated, 91.7 per cent.
+
+**The 1,022 gitignored-path verdicts, re-counted before being classified.**
+The figure was never saved: the path-index rows record `check-ignore` only
+for resolved references. It reproduces exactly, 1,022 of 27,710 dead
+references, but in 28 CLONES: 665 rows in 24 repositories once
+de-duplicated. And the rows are every path a rule ASKED about, including
+candidate spellings tried before it settled - a route's `.md` and
+`/index.md`, and a root reading of a link that resolves from its own
+directory.
+
+Joined to the shipped sweep's own findings by document and line, 460 are
+findings, in 18 repositories. 205 are probes: 166 whose citation resolved
+elsewhere or was not reported, and 39 with no citing line at all. The 460,
+read by class:
+
+| class | findings | where |
+|:---|---:|:---|
+| build, install or checkout artefacts | 358 | babel 343 (two generated allowlists linking into a test-suite checkout under `build/`), vscode 7, superpowers 4, next.js 2, chatdev 2 |
+| pages a docs build generates and a site serves | 38 | ruff 22, go 9, uv 3, autogen 3, OWASP 1 |
+| a vendored copy missing its siblings | 46 | bun 32, node 14 |
+| a file only on the author's machine, or another project's layout | 16 | lobe-chat 10, spec-kit 4, astro 1, qmk 1 |
+| a wrong link an ignore pattern happens to match | 2 | rust 1, metagpt 1 |
+
+The authoritative index would make these 460 read dead on a machine that
+has built them as they do in CI. Three quarters of that is one repository's
+generated test allowlists, and the population that would decide it is
+still the one Phase 43 named: repositories with a docs build, measured on a
+checkout that has run it, which pristine clones cannot be. Recorded as the
+split, with the proposal left open and not built.
+
+**Dropped, on the record's own reasons.** The `_fragment_sites` memo:
+Phase 44 left it because "it reads the disk, its memo would need a
+lifetime, and its second walk is 0.057 s". Building it would have added a
+second disk-reading memo to `registry.forget_memos`, whose docstring says
+exactly one exists, and the plan's `DocScope` form could not have worked:
+`validate` builds its own `DocScope` and `count_examined` sees another.
+**Carried by decision:** the fuzzer's FENCE oracle disagrees with the
+Phase 55 scanner on a dedented closer inside a list item, and no generator
+writes one.
+
+**The gate.**
+- Suite green here (1,439 and 8 skipped) and on Linux through WSL (1,446
+  and 1).
+- `python -m mypy`: no issues in 44 files.
+- The mutation campaign is 327 anchors, all matching. The 24 this tranche
+  wrote, retargeted or moved were each applied to a copy and watched
+  turning the suite red.
+- One needed a second version. The first no-newline-marker anchor replaced
+  the marker's WORDS and survived, because `git apply` reads any line
+  beginning `\ ` as the marker without reading the rest - some diff tools
+  translate it. That is an equivalent mutant. Aimed at the condition that
+  writes the marker, the anchor was killed.
+- The corpus identity gate was predicted before the run BYTE FOR BYTE,
+  every after-side output written from its before-side. 152 of 152 outputs
+  differ: 139 by the partial note, and all by the NOTE split. Observed: 152
+  of 152 byte-identical to the prediction. The first check reported 0,
+  because the predictor split CRLF outputs on `\n` alone; fixing its line
+  handling, and nothing it predicted, gave 152.
+- The pre-push chain, from an extract of the working tree:
+  - scenarios 25, with 213 of 213 assertions;
+  - the fuzzer 0 property violations;
+  - `--self-check` 23 of 23;
+  - smoke, `--verify` and `--selftest` clean.
 
 ## Authoring constraints these rules impose
 

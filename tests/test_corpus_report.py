@@ -101,6 +101,28 @@ def test_a_changed_figure_changes_the_report() -> None:
         "comparison in the test above cannot detect a stale document")
 
 
+def test_the_replay_carries_its_hand_read_and_a_precision_row() -> None:
+    """Catches the diff-scoped gate's precision stated by instrument alone.
+
+    design.md carried the replay's hand-read from 2026-09-21 and CORPUS.md
+    did not: its replay section said "0 resolve under some reading" and its
+    Precision table had no diff-scoped row. The hand-read now comes from
+    labels, one per gated finding - and writing them down found two of the
+    first read's verdicts wrong - so the report renders it and the table
+    carries the row, both from the figures.
+    """
+    figures = json.loads(FIGURES.read_text(encoding="utf-8"))
+    replay = figures["replay"]
+    hand = replay["hand_read"]
+    body = render(figures)
+    # The renderer wraps prose, so a phrase may straddle a line break.
+    flat = " ".join(body.split())
+    assert (f"{hand['dead_as_stated']:,} of {replay['judged']:,} are dead as "
+            f"stated") in flat, "the hand-read verdict is not in the report"
+    assert "| autopsy | `diff-scoped`, replayed |" in body, (
+        "the Precision table has no diff-scoped row")
+
+
 def test_every_committed_figure_is_reachable_from_the_report() -> None:
     """A figure nobody renders is a number with no reader.
 

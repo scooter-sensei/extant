@@ -11,6 +11,56 @@ prose and the old fence loop had blanked, none lost - and nothing else moved.
 The record is in `plugin/skills/extant/references/design.md` under "One
 scanner for both code blocks: a fence ends where its container does".
 
+Then Phase 57, the owed bundle: no rule, mode, default or exit code moved,
+and on the same 152 clones every output changed in two NOTE lines and in
+nothing else, exactly as predicted before the run. Its record is the section
+"The owed bundle: what a zero means, where a patch ends, and what a partial
+copy cannot answer" in the same file.
+
+**A `--suggest-fixes` patch applies to a document with no final newline.**
+A fix landing on the last line of such a document produced a patch
+`git apply` refused as corrupt, because no `\ No newline at end of file`
+marker was written; 18 per cent of the corpus's markdown ends that way. Lines
+are now also cut where git cuts them, so a form feed or a Unicode line
+separator inside a line no longer breaks the patch's context. The generator
+moved to its own module: `extant.gate.suggest_renames` is now
+`extant.patches.suggest_renames`, the only importable name that moved.
+
+**`--verify` reads an `.rst` document as reStructuredText.** The status
+document, the archive and every extra document were read as markdown
+whatever their suffix, so the markdown link rule reported shapes that are
+not links in reStructuredText. `--sweep` already read them correctly.
+
+**Denominators name only the rules that looked.** `--verify`'s line for an
+extra document listed `stale-live-claim 0, unknown-branch 0` for documents
+those rules never read; it now lists the rules that read it. `--sweep`'s
+"examined nothing anywhere here" NOTE no longer names a rule that read no
+document at all - on a repository without an entry-structured primary
+document, the two entry-scoped rules - and a new NOTE says which rules
+those are and what they read.
+
+**What a partial repository cannot answer, said precisely.** The note
+said a rename hint "answers from what is here"; on a copy missing a blob the
+rename search needs there is no hint at all, and the note now says so.
+`--deleted-since` on such a copy asks git one question for all its missing
+previous versions instead of one each: 100 changed documents went from
+100 processes, most of a 3.2-second run, to one.
+
+**An `exclude_paths` pattern with `!` or `[` is named as unusable.** Neither
+negation nor a character class is supported; such a pattern used to become a
+literal and was then reported as merely stale. `--sweep` and
+`--introduced-since` now name it, and say which.
+
+**The installer asks the repository it was given.** It started git with
+the operator's environment, so an exported `GIT_DIR` made it describe
+another repository. It now uses the same scrubbed environment as the tool,
+which also means a document whose name holds a non-ASCII character is
+configured under that name rather than left out.
+
+For contributors: `pytest.ini` names a test that runs past 60 seconds
+(`faulthandler_timeout`), and `tests/harnesses/mutate.py` bounds each
+mutant's suite and reports one that hung as its own kind of kill.
+
 **The GitHub Action loads again.** 0.28.0's action cannot be used in any
 mode: GitHub's runner refuses to load it, with "Unrecognized named-value:
 'github'", because the description of its new `since` input quoted the

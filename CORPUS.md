@@ -173,6 +173,17 @@ convention, a SHA that is a UUID fragment or names any object today: 0 resolve
 under some reading. 7 carry the `future-tense` annotation - annotated, never a
 veto, as the hand-labelled sample treated the same shapes.
 
+**Read by hand**, labelled one finding at a time on 2026-09-28: 33 of 36 are
+dead as stated. Of `obra/superpowers`'s 31, 22 sit in quoted text - an
+evaluation's grader output, a quote bank, an example ledger line - and 6 name
+the evaluated workspace's commits in the document's own prose, so 28 times in
+31 what the gate would have failed a build on is an agent's transcript of
+another repository's history; 3 are the document's own claims. Not dead as
+stated: a vendored README's floor read against the host repository's manifest
+(1); an anchor a heading inside a block quote answers, which the anchor set
+does not read (2). An earlier read, which kept counts and no labels, had all 36
+as dead.
+
 Population, stated: 3 of the 13 - `Aider-AI/aider`, `astral-sh/ruff`,
 `vuejs/vitepress` - are reserved rows in the benchmark manifest, read here
 through their autopsy copies, which every identity run has swept. The
@@ -194,11 +205,16 @@ measured under; they are not interchangeable.
 | bench | `root+docs-ord` | 168 | 1 | 99.4% |
 | heldout | `docs3-ord` | 33 | 0 | 100.0% |
 | niche | `docs3-ord` | 4,595 | 20 | 99.6% |
+| autopsy | `diff-scoped`, replayed | 36 | 3 | 91.7% |
 
 A finding counts against precision if its citation resolves under ANY reading a
 real one could legitimately have: case-folded, a missing extension, a directory
 index, a schemeless URL. That is deliberately harsher than re-running the rule,
 which would re-ask the rule's own question and agree with itself.
+
+The diff-scoped row is the replay's hand-read rather than a reading-based
+judgement: its second number counts the findings read as NOT dead as stated,
+which the replay section above names.
 
 ## SHA citations, and the answer that inverted the question
 
