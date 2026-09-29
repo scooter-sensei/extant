@@ -12,6 +12,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 TOOL = SKILL_ROOT / "payload" / "extant_collect.py"
@@ -483,7 +485,7 @@ def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
     one into `docs/a.md` - `[it](docs/new.md)` - points at `docs/docs/new.md`.
     Spelled relative to the document instead: `new.md`, or `../guides/new.md`
     for a move across directories."""
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/old.md", "# old\n", "docs: add")
@@ -498,7 +500,7 @@ def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
     with hc.run_scope():
         found = hc.validate(repo, text, base=repo / "docs", doc="docs/a.md",
                             has_entries=False)
-        patch = gate.suggest_renames(repo, repo / "docs", text, "docs/a.md", found)
+        patch = patches.suggest_renames(repo, repo / "docs", text, "docs/a.md", found)
     assert "+See [it](new.md#install) and [far](../guides/far.md)." in patch, patch
 
 
@@ -712,6 +714,198 @@ def test_extra_docs_are_validated(git_repo) -> None:
     assert "CLAUDE.md" in result.stdout, result.stdout
     assert "dead-md-link" in result.stdout, result.stdout
     assert result.returncode == 1
+
+
+def test_an_extra_documents_denominators_name_only_the_rules_that_read_it(
+        git_repo) -> None:
+    """Catches the extra-document line restating half of `rule_applies`.
+
+    It filtered the repository-scoped rules by hand and nothing else, so it
+    printed `stale-live-claim 0, unknown-branch 0` for a document those two
+    never read: they read only the newest entry, and an extra document has
+    none. A zero there says "looked and found nothing" about a rule that did
+    not look - the conflation the denominator exists to refuse. Found on
+    2026-09-28 in the dogfood job's log, on this repository's own --verify.
+    The expected set is the one predicate's answer, so a change to what an
+    extra document may be read by moves the line and this test together.
+    """
+    import shutil
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n\n## Phase 1 - x (done, 2026-01-01)\n\nNothing.\n",
+           "docs: status")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+    (repo / ".extant.toml").write_text('extra_docs = ["CLAUDE.md"]\n', encoding="utf-8")
+    (repo / "CLAUDE.md").write_text("See [design](docs/absent.md).\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
+         "--repo", str(repo), "--verify"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+    )
+
+    line = next((ln for ln in result.stdout.splitlines()
+                 if ln.startswith("checked CLAUDE.md:")), None)
+    assert line is not None, result.stdout
+    named = {part.strip().rsplit(" ", 1)[0]
+             for part in line.split(":", 1)[1].split(",")}
+    expected = {rule.kind for rule in hc.RULES
+                if hc.rule_applies(rule, in_archive=False, has_entries=False)}
+    assert named == expected, (
+        f"named {sorted(named)}, but only {sorted(expected)} read an extra "
+        f"document:\n{line}")
+    assert "stale-live-claim" not in named and "unknown-branch" not in named
+
+
+def test_verify_reads_an_rst_extra_document_as_rst(git_repo) -> None:
+    """Catches --verify reading every document as markdown.
+
+    `validate` inherits the markup language rather than deriving it, and the
+    three places --verify installs a document named its path and never its
+    format - so an `.rst` extra document was read as markdown, and the
+    markdown-only link rule reported `[x](missing.md)`, a shape that is not a
+    link in reStructuredText. `--sweep` reads the same file correctly, so the
+    two modes disagreed about one document. Found on 2026-09-28 while fixing
+    the extra-document denominators beside it.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "# Status\n\n## Phase 1 - x (done, 2026-01-01)\n\nNothing.\n",
+           "docs: status")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+    (repo / ".extant.toml").write_text('extra_docs = ["NOTES.rst"]\n', encoding="utf-8")
+    (repo / "NOTES.rst").write_text(
+        "Title\n=====\n\nA doctest writes np.dtype[mp.mpf](dps=100) here.\n\n"
+        "See `docs/absent.md` for more.\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
+         "--repo", str(repo), "--verify"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+    )
+
+    assert "[dead-md-link]" not in result.stdout, result.stdout
+    # Still read, and read as what it is: the format-neutral rules run.
+    assert "[dead-path-pointer]" in result.stdout, result.stdout
+    line = next(ln for ln in result.stdout.splitlines()
+                if ln.startswith("checked NOTES.rst:"))
+    assert "dead-md-link" not in line and "dead-md-anchor" not in line, line
+
+
+@pytest.mark.parametrize("role", ["primary_doc", "archive_doc"])
+def test_verify_reads_an_rst_status_or_archive_document_as_rst(
+        git_repo, role) -> None:
+    """The other two places --verify installs a document, closed with the
+    extra documents' and pinned apart from them: each named its path and not
+    its format, so an `.rst` primary or archive was read as markdown too."""
+    import shutil
+    repo, commit = git_repo
+    body = ("Status\n======\n\n## Phase 1 - x (done, 2026-01-01)\n\n"
+            "A doctest writes np.dtype[mp.mpf](dps=100) here.\n")
+    if role == "primary_doc":
+        commit("STATUS.rst", body, "docs: status")
+        config = 'primary_doc = "STATUS.rst"\n'
+    else:
+        commit("NEXT_SESSION.md", "# S\n\n## Phase 2 - y (done, 2026-01-02)\n\n"
+               "Nothing.\n", "docs: status")
+        commit("ARCHIVE.rst", body, "docs: archive")
+        config = 'archive_doc = "ARCHIVE.rst"\n'
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+    (repo / ".extant.toml").write_text(config, encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
+         "--repo", str(repo), "--verify"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+    )
+
+    assert "checked" in result.stdout, result.stdout
+    assert "[dead-md-link]" not in result.stdout, result.stdout
+
+
+def test_selftest_reads_an_rst_status_document_as_rst(git_repo, capsys) -> None:
+    """Catches --selftest probing text the gate never reads.
+
+    It installed the primary document's directory and neither its path nor
+    its markup language, so an `.rst` status document was probed as markdown.
+    A pointer inside a `code-block` directive is code to reStructuredText and
+    prose to markdown: --verify never examines it, and --selftest corrupted
+    it and reported `dead-path-pointer` as FIRED - proof of a rule working on
+    a reading the gate does not make. Found by the review of the built
+    tranche, 2026-09-29.
+    """
+    from extant import cli
+    repo, commit = git_repo
+    commit("STATUS.rst", "Status\n======\n\n.. code-block:: text\n\n"
+           "   See `docs/absent.md` here.\n", "docs: status")
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.rst"\n',
+                                       encoding="utf-8")
+
+    cli.main(["--selftest", "--repo", str(repo)])
+    out = capsys.readouterr().out
+
+    line = next(ln for ln in out.splitlines() if "dead-path-pointer" in ln)
+    assert "NO PROBE" in line, out
+
+
+def test_selftest_corrupts_a_claim_the_rule_reads_not_one_in_a_fence(
+        git_repo, capsys) -> None:
+    """Catches a probe choosing its claim from text the check never reads.
+
+    The four probes sharing `sub_group` searched the raw document, and every
+    one of their checks reads `prose()`. When the first match sat in a fenced
+    block, the probe corrupted an example, the check blanked it, and the
+    selftest reported a working rule as DID NOT FIRE - exiting 1 on a
+    document whose real claims the rule reads perfectly. Found when the
+    `.rst` fix above made the probe and the check disagree about a
+    `code-block`; the markdown fence was the same fault all along.
+    """
+    from extant import cli
+    repo, commit = git_repo
+    commit("docs/real.md", "# Real\n", "docs: real")
+    commit("NEXT_SESSION.md", "# Status\n\n```text\nSee `docs/example.md` in "
+           "the sample.\n```\n\nSee `docs/real.md` for the plan.\n",
+           "docs: status")
+
+    cli.main(["--selftest", "--repo", str(repo)])
+    out = capsys.readouterr().out
+
+    line = next(ln for ln in out.splitlines() if "dead-path-pointer" in ln)
+    assert "FIRED" in line and "DID NOT" not in line, out
+
+
+def test_suggest_fixes_reads_an_rst_status_document_as_rst(git_repo) -> None:
+    """Catches the patch generator reading the primary document as markdown.
+
+    `run_validate` put the markdown default back after the extra documents
+    and only then generated the primary document's patch, so the rules read
+    an `.rst` document as reStructuredText and the generator scanned it as
+    markdown. An indented paragraph is a block quote to the first and code to
+    the second, so the rule reported a pointer to a renamed file there and
+    the generator, unable to see it, said nothing references a moved file.
+    Found by the review of the built tranche, 2026-09-29.
+    """
+    import shutil
+    repo, commit = git_repo
+    commit("docs/old.md", "# Old\n", "docs: old")
+    git(repo, "mv", "docs/old.md", "docs/new.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    commit("STATUS.rst", "Status\n======\n\n## Phase 1 - x (done, 2026-01-01)\n\n"
+           "Intro paragraph.\n\n    See `docs/old.md` here.\n", "docs: status")
+    shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.rst"\n',
+                                       encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(repo / "tools" / "extant_collect.py"),
+         "--repo", str(repo), "--verify", "--suggest-fixes"],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+    )
+
+    # The finding goes to the diagnostic stream and the patch to stdout.
+    assert "[dead-path-pointer]" in result.stdout + result.stderr, result.stderr
+    assert "+    See `docs/new.md` here." in result.stdout, (
+        result.stdout + result.stderr)
 
 
 # --- loopholes found by the adversarial smoke test ---------------------------
@@ -1275,7 +1469,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1287,7 +1481,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
 
     findings = hc.validate(repo, text)
-    patch = gate.suggest_renames(repo, repo, text,
+    patch = patches.suggest_renames(repo, repo, text,
                                  "NEXT_SESSION.md", findings)
 
     assert patch, "a recorded rename produced no suggestion"
@@ -1303,14 +1497,14 @@ def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
     exactly the authoring this refuses to do."""
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     hc._SCOPE = hc.RunScope()
 
     missing = "See [x](docs/never-existed.md).\n"
-    assert gate.suggest_renames(
+    assert patches.suggest_renames(
         repo, repo, missing, "NEXT_SESSION.md",
         hc.validate(repo, missing)) == ""
 
@@ -1323,7 +1517,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1333,7 +1527,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     text = "See [plan](docs/plan.md).\nWe renamed docs/plan.md last week.\n"
 
     findings = hc.validate(repo, text)
-    patch = gate.suggest_renames(repo, repo, text,
+    patch = patches.suggest_renames(repo, repo, text,
                                  "NEXT_SESSION.md", findings)
 
     assert "+See [plan](docs/design.md)." in patch
@@ -1408,6 +1602,54 @@ def test_the_suggested_patch_actually_applies(git_repo) -> None:
     assert "docs/design.md" in (repo / "NEXT_SESSION.md").read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("document", [
+    "# Notes\n\nSee [the design](old.md) for why.",
+    "# Notes\r\n\r\nSee [the design](old.md) for why.",
+    "# Notes\f page two\n\nSee [the design](old.md) for why.\n",
+    "# Notes\u2028 still one line to git\n\nSee [the design](old.md).\n",
+], ids=["no-final-newline", "crlf-no-final-newline", "form-feed-in-a-line",
+        "line-separator-in-a-line"])
+def test_the_suggested_patch_applies_to_whatever_the_document_ends_with(
+        git_repo, document) -> None:
+    """Catches a patch cut into lines by a rule git does not use.
+
+    `difflib` was handed `splitlines()`, which breaks on a form feed and the
+    Unicode line separators as well as on `\\n`, and it writes no
+    `\\ No newline at end of file` marker - so a fix landing on a last line
+    with no terminator fused `-old` and `+new` onto one line, and `git apply`
+    refused the whole patch as corrupt. Measured 2026-09-28: 17,104 of 94,269
+    tracked markdown documents in the corpus, 18 per cent, end that way. Each
+    case is applied, not inspected, because a patch git rejects is the defect
+    whatever it looks like.
+    """
+    repo, commit = git_repo
+    # So `git apply` writes the bytes the patch says, on every platform; a
+    # machine-wide `core.autocrlf` would otherwise rewrite the line endings
+    # the last assertion compares.
+    git(repo, "config", "core.autocrlf", "false")
+    commit("old.md", "# old\n", "docs: old")
+    git(repo, "mv", "old.md", "new.md")
+    git(repo, "commit", "-qm", "docs: rename")
+    (repo / "NOTES.md").write_bytes(document.encode("utf-8"))
+
+    produced = subprocess.run(
+        [sys.executable, str(SKILL_ROOT / "payload" / "extant_collect.py"),
+         "--repo", str(repo), "--check-text", "--as-path", "NOTES.md",
+         "--suggest-fixes"],
+        cwd=repo, input=document.encode("utf-8"), capture_output=True)
+    patch = produced.stdout.decode("utf-8")
+    assert "+See [the design](new.md)" in patch, (patch, produced.stderr)
+    (repo / "fix.patch").write_bytes(produced.stdout)
+
+    applied = subprocess.run(["git", "apply", "fix.patch"], cwd=repo,
+                             capture_output=True, text=True, encoding="utf-8")
+
+    assert applied.returncode == 0, (
+        f"git apply rejected the patch: {applied.stderr}\n{patch!r}")
+    assert (repo / "NOTES.md").read_bytes() == document.replace(
+        "](old.md)", "](new.md)").encode("utf-8")
+
+
 def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
     """`a.md` and `./a.md` are one file, and a file always agrees with itself.
 
@@ -1453,7 +1695,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     """
     from extant import session as hc
     from extant import cli
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1463,7 +1705,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     before = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
 
     body = "See [plan](docs/plan.md).\n"
-    patch = gate.suggest_renames(repo, repo, body, "DOC.md",
+    patch = patches.suggest_renames(repo, repo, body, "DOC.md",
                                  hc.validate(repo, body))
 
     after = {p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()}
@@ -1494,7 +1736,7 @@ def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
     rewrite the target anyway. A patch for a finding that does not exist, on a
     document the tool had just declared clean.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1504,7 +1746,7 @@ def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
 
     # The control: on one line the rule sees it, so a patch is right.
     same_line = "See [the plan](docs/plan.md).\n"
-    assert gate.suggest_renames(repo, repo, same_line, "DOC.md",
+    assert patches.suggest_renames(repo, repo, same_line, "DOC.md",
                                 hc.validate(repo, same_line))
 
     # Split across a newline: the rule cannot see it, so nothing may be offered.
@@ -1513,7 +1755,7 @@ def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
         "the rule is expected to be silent here; if it now reports this link, "
         "this test is pinning the wrong thing"
     )
-    assert gate.suggest_renames(repo, repo, split, "DOC.md",
+    assert patches.suggest_renames(repo, repo, split, "DOC.md",
                                 hc.validate(repo, split)) == ""
 
 
@@ -1536,7 +1778,7 @@ def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> No
     split across a newline, which the shared scanner already refuses, so the
     invariant could be deleted with every test still green.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     # A generator config puts the whole repository in a site tree.
@@ -1560,7 +1802,7 @@ def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> No
         "not what is being tested"
     )
 
-    assert gate.suggest_renames(repo, repo, body, "DOC.md", findings) == ""
+    assert patches.suggest_renames(repo, repo, body, "DOC.md", findings) == ""
 
 
 def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
@@ -1576,7 +1818,7 @@ def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
     The suffix has to come back on the replacement, or the patch would drop the
     very thing the link needed.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/plan.md", "# plan\n", "docs: plan")
@@ -1585,12 +1827,12 @@ def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
     hc._SCOPE = hc.RunScope()
 
     query = "See [plan](docs/plan.md?raw=1).\n"
-    patch = gate.suggest_renames(repo, repo, query, "DOC.md",
+    patch = patches.suggest_renames(repo, repo, query, "DOC.md",
                                  hc.validate(repo, query))
     assert "+See [plan](docs/design.md?raw=1)." in patch, patch
 
     fragment = "See [plan](docs/plan.md#install).\n"
-    patch = gate.suggest_renames(repo, repo, fragment, "DOC.md",
+    patch = patches.suggest_renames(repo, repo, fragment, "DOC.md",
                                  hc.validate(repo, fragment))
     assert "+See [plan](docs/design.md#install)." in patch, patch
 
@@ -1611,7 +1853,7 @@ def test_a_percent_encoded_link_is_reported_and_deliberately_not_patched(
     teaches it to re-encode, this test should be UPDATED rather than deleted:
     the requirement is that the two never disagree silently.
     """
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/old guide.md", "# guide\n", "docs: guide")
@@ -1622,7 +1864,7 @@ def test_a_percent_encoded_link_is_reported_and_deliberately_not_patched(
     body = "See [guide](docs/old%20guide.md).\n"
     reported = [f for f in hc.validate(repo, body) if f.kind == "dead-md-link"]
     assert reported, "the rule must still REPORT it; only the patch is refused"
-    assert gate.suggest_renames(repo, repo, body, "DOC.md",
+    assert patches.suggest_renames(repo, repo, body, "DOC.md",
                                 hc.validate(repo, body)) == ""
 
 

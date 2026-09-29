@@ -393,3 +393,66 @@ def test_every_direct_git_spawn_in_the_source_passes_the_environment() -> None:
     print(f"{len(sites)} direct git spawns in the source: {sites}")
     assert len(sites) == 9, f"expected the eight direct sites plus the seam, found {sites}"
     assert not naked, f"git spawned with the operator's environment at {naked}"
+
+
+def test_the_installer_asks_the_repository_it_was_given(
+        monkeypatch, git_repo, tmp_path) -> None:
+    """Catches the installer's git calls inheriting a leaked `GIT_DIR`.
+
+    `detect._git` is the installer's only way to ask git anything - the
+    trunk, the tags, the tracked documents - and it started git with the
+    operator's environment, so a `GIT_DIR` exported by a hook, or by a shell
+    still inside another repository, made the installer describe THAT one
+    while writing configuration into this one. The payload's modes have been
+    scrubbed since the environment helper existed; the installer beside them
+    never was. Closed in Phase 57.
+    """
+    import detect
+    repo, commit = git_repo
+    commit("a.md", "a\n", "docs: this repository")
+    other = tmp_path / "other"
+    init_repo(other)
+    committer(other)("b.md", "b\n", "docs: another repository")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+
+    answer = detect._git(repo, "log", "-1", "--format=%s").strip()
+
+    assert answer == "docs: this repository", (
+        f"with GIT_DIR naming another repository the installer read {answer!r}")
+
+
+def test_every_git_spawn_on_the_installer_side_passes_the_environment() -> None:
+    """The structural half, for `detect.py` and `install.py`, which never ship
+    and so were outside the scan above. Accepts the seam's helper however it
+    is reached: `detect.py` loads `git.py` by path, as it loads `strata.py`,
+    rather than putting the payload on the installer's import path."""
+    import ast
+
+    skill = PAYLOAD.parent
+    sites: list[str] = []
+    naked: list[str] = []
+    for path in (skill / "detect.py", skill / "install.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "run" and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "subprocess" and node.args):
+                continue
+            first = node.args[0]
+            is_git = (isinstance(first, ast.List) and first.elts
+                      and isinstance(first.elts[0], ast.Constant)
+                      and first.elts[0].value == "git")
+            if not is_git:
+                continue
+            where = f"{path.name}:{node.lineno}"
+            sites.append(where)
+
+            def names_environment(value: ast.expr) -> bool:
+                func = value.func if isinstance(value, ast.Call) else None
+                return (getattr(func, "id", "") == "environment"
+                        or getattr(func, "attr", "") == "environment")
+            if not any(kw.arg == "env" and names_environment(kw.value)
+                       for kw in node.keywords):
+                naked.append(where)
+    print(f"installer-side git spawns: {sites}")
+    assert sites, "no git spawn found on the installer side; this test is vacuous"
+    assert not naked, f"git spawned with the operator's environment at {naked}"

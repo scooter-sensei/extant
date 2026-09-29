@@ -207,7 +207,7 @@ def examined(ctx: Context, text: str) -> int:
 
 
 def probe(ctx: Context, text: str) -> str | None:
-    return sub_group(text, ctx.config.path_pointer, 1, MISSING_PATH)
+    return sub_group(ctx, text, ctx.config.path_pointer, 1, MISSING_PATH)
 
 
 RULE = Rule(

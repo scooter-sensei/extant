@@ -135,6 +135,39 @@ def test_verify_never_goes_back_for_an_object_the_transport_left_out(
         f"during --verify: {sorted(before - after)}")
 
 
+def test_the_note_says_a_rename_hint_is_withheld_rather_than_answered(
+        partial_repo, capsys) -> None:
+    """Catches the note describing the rename hint as degraded when it is gone.
+
+    It said a rename hint "answers from what is here". Measured 2026-09-28:
+    the rename search refs._rename_map runs exited 128 on 6 of 6 `blob:none`
+    corpus clones and found 0 renames, where full clones of the same six
+    found 73 to 6,795. The map is all or nothing - the seam raises on the
+    exit and what git printed before it stopped is discarded - so on a copy
+    missing a blob the search needs there is no hint at all, and this
+    fixture's finding shows it: the pointer names a renamed file and carries
+    no hint. The note now says that, and still says it conditionally,
+    because a partial copy that has since gathered the blobs gets its hints.
+
+    Skipped below git 2.42 for the reason the test above gives: there the
+    blob is retrieved, and the hint appears.
+    """
+    from extant import cli
+
+    version = git_version()
+    if version < (2, 42):
+        pytest.skip(f"git {version} ignores GIT_NO_LAZY_FETCH; needs 2.42")
+
+    cli.main(["--verify", "--repo", str(partial_repo)])
+    out = capsys.readouterr().out
+    assert "dead-path-pointer" in out and "renamed to" not in out, (
+        f"the fixture's own evidence is gone - a hint was offered:\n{out}")
+    note = next(line for line in out.splitlines()
+                if "NOTE:" in line and "partial" in line)
+    assert "no rename hint is offered" in note, note
+    assert "rename hint or a blob-reading rule answers" not in note, note
+
+
 def test_deleted_since_counts_a_missing_previous_version_as_unreadable(
         partial_repo, tmp_path) -> None:
     """The guard's one new way to be wrong, closed.
@@ -171,6 +204,56 @@ def test_deleted_since_counts_a_missing_previous_version_as_unreadable(
         f"the old version's blob is not local; examined {examined}, "
         f"unreadable {unreadable} - a missing object was read as an absent "
         f"document")
+
+
+def test_deleted_since_asks_about_every_missing_object_in_one_listing(
+        partial_repo, tmp_path, monkeypatch) -> None:
+    """Catches one `ls-tree` per missing previous version.
+
+    Each document whose old blob the copy did not hold cost a process of its
+    own to tell "was not there" from "is not here". Measured 2026-09-28 on a
+    `blob:none` copy of fastapi with 100 changed documents configured: 102
+    spawns, 100 of them `ls-tree`, 2.74 s of a 3.24 s run, where one listing
+    over the same paths answered in 23 ms. `--wide-docs` configures documents
+    by the hundred, so the count was the one the item feared.
+    """
+    from extant import session as hc
+    from extant import deleted_since
+
+    names = ["a.md", "b.md", "c.md"]
+    source = tmp_path / "source"
+    commit = committer(source)
+    for name in names:
+        commit(name, f"# {name}\n\nfirst\n", f"docs: {name}")
+    for name in names:
+        commit(name, f"# {name}\n\nsecond\n", f"docs: {name} again")
+    git(partial_repo, "pull", "-q", "--ff-only")
+    (partial_repo / ".extant.toml").write_text(
+        "extra_docs = [" + ", ".join(f'"{n}"' for n in names) + "]\n",
+        encoding="utf-8")
+    hc.reload_config(partial_repo)
+    ref = "HEAD~3"
+
+    spawns: list[str] = []
+    real = subprocess.run
+
+    def counted(cmd, *a, **kw):
+        if cmd and str(cmd[0]) == "git":
+            spawns.append(" ".join(str(c) for c in cmd[1:]))
+        return real(cmd, *a, **kw)
+
+    monkeypatch.setattr(subprocess, "run", counted)
+    gone, examined, _skipped, unreadable = deleted_since.deleted_claims(
+        partial_repo, ref)
+    monkeypatch.undo()
+    hc.reload_config(partial_repo)
+
+    listings = [s for s in spawns if s.startswith("ls-tree")]
+    print(f"examined={examined} unreadable={unreadable}; {spawns}")
+    assert (examined, unreadable) == (0, 3), (examined, unreadable)
+    assert len(listings) == 1, (
+        f"{len(listings)} ls-tree processes for {len(names)} missing "
+        f"objects:\n" + "\n".join(listings))
 
 
 def test_the_older_spelling_of_the_filter_is_recognised_too(git_repo) -> None:

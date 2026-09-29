@@ -6,6 +6,124 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 57 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer (unreleased, 2026-09-28)
+
+**Status.** Suite is 1,455 tests across 77 files. On this machine 1,447 pass
+and 8 skip; on Linux, through WSL, 1,454 pass and 1 skips. Thirty-one were
+added, eight of them by the review below, and the new skip here is a
+filename with a tab in it, which Windows cannot hold and Linux runs. Thirteen rules; no mode added; no default or
+exit code moved. The tool remained released as 0.28.0, and this work sits
+above that tag in its own pull request. `python -m mypy`: no issues in 44 files.
+
+The mutation campaign is 336 anchors, all matching: 24 new, 2 retargeted,
+and 7 moved with the patch generator. Each of the 33 was applied to a copy
+and watched turning the suite red - the review's nine in a campaign of
+their own, 9 of 9 killed - but one only on its second version. The
+first version of the no-newline-marker anchor replaced the marker's words
+and SURVIVED. `git apply` reads any line beginning `\ ` as the marker
+without reading the rest, so that was an equivalent mutant. Retargeted at the
+condition that writes the marker, it was killed.
+
+The corpus identity gate was predicted before the run, byte for byte, and all
+152 outputs matched the prediction: every output differs in two NOTE lines
+and in nothing else. The first check said 0 of 152. That was the
+predictor's own fault - it split CRLF outputs on `\n` - and fixing only its
+line handling gave 152.
+
+The pre-push chain, from an extract of the working tree:
+- scenarios 25, with 213 of 213 assertions;
+- the fuzzer 0 property violations;
+- `--self-check` 23 of 23;
+- smoke, `--verify` and `--selftest` clean.
+
+Both gates ran again after the review's fixes, from a fresh extract, with
+the same results. The identity gate was predicted to move nothing, and 0 of
+152 outputs moved.
+
+**What it is.** The owed bundle. Eleven items came from the plan and two
+from the review of pull request 13's semantics, and building found three
+more. One item was already done: Phase 54 hands the diff gate's tree listing
+to its workers. The `_fragment_sites` memo was dropped, for the reasons
+Phase 44 recorded. What changed:
+
+- A `--suggest-fixes` patch now applies when the fix lands on a document's
+  last line and that line has no terminator. 18 per cent of the corpus's
+  markdown ends that way, and `git apply` refused such patches as corrupt.
+  Lines are now cut where git cuts them. The generator moved to
+  `extant/patches.py`, which was not forced: `gate.py` stood at 899 of 927.
+- `--verify` reads an `.rst` document as reStructuredText, as `--sweep`
+  does. It had read every document as markdown.
+- An extra document's `checked` line names only the rules that read it.
+  It had listed the entry-scoped rules' zeros for documents those rules
+  never read, a drift from `rule_applies` that dogfood's log showed.
+- The sweep names a rule that read no document apart from one that
+  examined nothing. The old NOTE gave both reasons wrongly for the two
+  entry rules in 152 of 152 corpus outputs.
+- On a partial copy, the note says no rename hint is offered where the
+  search needs a missing blob. The rename map was empty on 6 of 6
+  `blob:none` clones.
+- On a partial copy, `--deleted-since` asks one `ls-tree` for every
+  missing object. It had asked one per object: 100 processes, 2.74 s of a
+  3.24 s run.
+- An `exclude_paths` pattern holding `!` or `[` is named unusable, in both
+  surveys.
+- The installer starts git with the scrubbed environment. A leaked
+  `GIT_DIR` made it describe another repository.
+- `pytest.ini` names a hung test; `tests/harnesses/mutate.py` bounds each
+  mutant's suite and names a hung one.
+- A ledger test holds the package's twelve line-numbering sites.
+- Two docstrings stop pointing at an `--init` flag that never existed.
+
+**What the measurements corrected.**
+- CORPUS.md now carries the replay's hand-read, and writing it down as
+  labels found two of the first read's verdicts wrong: 33 of the 36 are
+  dead as stated, not 36. The Precision table has a diff-scoped row, at
+  91.7 per cent.
+- The 1,022 gitignored-path verdicts were 1,022 rows in 28 clones. They are
+  460 findings in 18 repositories, and three quarters of those are one
+  repository's generated test allowlists. The proposal is recorded with its
+  split and not built.
+- The plan's module ceiling of 900 was 927 since 2026-09-09.
+
+**The review of the built tranche, 2026-09-29.** A review and gap audit of
+the pull request found nine things, all fixed in a fourth commit, each with
+a test that failed first and an anchor:
+- The mutation harness's new bound did not hold under `--parallel` on
+  Windows, where campaigns run: after the timeout, Python read the suite's
+  pipes to their end, and an xdist worker holding the inherited stderr never
+  ends. The suite now writes to a file, and the whole process tree is ended.
+- `--introduced-since` kept the NOTE the sweep had just stopped printing. It
+  now names a rule that read no changed document apart, as the sweep does.
+- That note's reason is keyed on the rule's scope, not on `in_archive`,
+  which the repository rules share, and a primary document that was read
+  and holds no entry is no longer called absent. It moved beside
+  `rule_applies`, the predicate it explains, and the sweep module fell from
+  917 lines to 897.
+- The installer cut its tracked listing with `splitlines()`. Once quoting was
+  off, that split a name holding a Unicode line separator in two and pinned
+  the fragment.
+- `--selftest` installed the status document's directory, and neither its
+  path nor its markup language.
+- `--suggest-fixes` built the status document's patch after the markdown
+  default had been put back.
+- Fixing `--selftest` showed a probe defect older than this tranche. The
+  four probes that share one substitution took the first match in the raw
+  text, so a claim inside a code block was corrupted, the rule - which does
+  not read code - stayed silent, and a working rule was reported as DID NOT
+  FIRE. They now search the prose their checks read.
+- A comment in `exclude_paths` was named an unusable pattern. And the
+  change for `[` was not written down for what it is to a directory really
+  named with brackets: one the old literal excluded is read again. The
+  CHANGELOG and the configuration reference now say so, with the `?`
+  spelling that still excludes it.
+- The design rationale gave two denominators for the gitignored-path
+  figure. 27,677 is the 27,710 dead less the 33 case mismatches, and none of
+  the 1,022 is one of them.
+
+Everything is in the section "The owed bundle: what a zero means, where a
+patch ends, and what a partial copy cannot answer" in the design rationale
+under the skill's references.
+
 ## Phase 56 - CI honesty: the version the maintainer runs, the surfaces adopters run, and a third order (unreleased, 2026-09-28)
 
 **Status.** Suite is 1,424 tests across 76 files. On this machine 1,417

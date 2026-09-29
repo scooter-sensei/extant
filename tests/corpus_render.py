@@ -415,6 +415,36 @@ def render(fig: dict) -> str:
                "No finding carries a context annotation."),
             "",
         ]
+        hr = rp.get("hand_read")
+        if hr:
+            bc = hr["by_class"]
+            quoted, workspace = bc.get("quoted", 0), bc.get("workspace-prose", 0)
+            reasons = {
+                "heading-in-a-block-quote": "an anchor a heading inside a block "
+                                            "quote answers, which the anchor set "
+                                            "does not read",
+                "floor-read-against-the-host-manifest": "a vendored README's "
+                                                        "floor read against the "
+                                                        "host repository's manifest",
+            }
+            wrong = "; ".join(f"{reasons.get(k, k)} ({_n(n)})"
+                              for k, n in sorted(hr["by_verdict"].items()))
+            L += [
+                f"**Read by hand**, labelled one finding at a time on "
+                f"{hr['read']}: {_n(hr['dead_as_stated'])} of "
+                f"{_n(rp['judged'])} are dead as stated. Of "
+                f"`{top['repository']}`'s {_n(top['ordinary'])}, {_n(quoted)} sit "
+                f"in quoted text - an evaluation's grader output, a quote bank, "
+                f"an example ledger line - and {_n(workspace)} name the "
+                f"evaluated workspace's commits in the document's own prose, so "
+                f"{_n(quoted + workspace)} times in {_n(top['ordinary'])} what the "
+                f"gate would have failed a build on is an agent's transcript of "
+                f"another repository's history; {_n(bc.get('own-claim', 0))} are "
+                f"the document's own claims. Not dead as stated: {wrong}. An "
+                f"earlier read, which kept counts and no labels, had all "
+                f"{_n(rp['judged'])} as dead.",
+                "",
+            ]
         if rp.get("reserved_elsewhere"):
             L += [
                 f"Population, stated: {_n(len(rp['reserved_elsewhere']))} of the "
@@ -455,6 +485,12 @@ def render(fig: dict) -> str:
             L.append(f"| {tier} | `{policy}` | {_n(g['judged'])} | "
                      f"{_n(g['resolve_under_some_reading'])} | "
                      f"{g['precision_pct']}% |")
+    replayed = (fig.get("replay") or {}).get("hand_read")
+    if replayed:
+        judged = fig["replay"]["judged"]
+        wrong = judged - replayed["dead_as_stated"]
+        L.append(f"| autopsy | `diff-scoped`, replayed | {_n(judged)} | "
+                 f"{_n(wrong)} | {round(100.0 * (judged - wrong) / judged, 1)}% |")
     L += [
         "",
         "A finding counts against precision if its citation resolves under ANY",
@@ -463,6 +499,15 @@ def render(fig: dict) -> str:
         "harsher than re-running the rule, which would re-ask the rule's own",
         "question and agree with itself.",
         "",
+    ]
+    if replayed:
+        L += [
+            "The diff-scoped row is the replay's hand-read rather than a",
+            "reading-based judgement: its second number counts the findings read",
+            "as NOT dead as stated, which the replay section above names.",
+            "",
+        ]
+    L += [
         "## SHA citations, and the answer that inverted the question",
         "",
         f"This section counts a DIFFERENT set of repositories from the tables",

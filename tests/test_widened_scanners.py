@@ -134,7 +134,7 @@ def test_a_definition_inside_a_fence_is_an_example(git_repo) -> None:
 def test_the_patch_generator_sees_a_reference_definition(git_repo) -> None:
     """The second reader of `link_sites`.
 
-    `gate.suggest_renames` patches links to renamed files, and it was moved
+    `patches.suggest_renames` patches links to renamed files, and it was moved
     onto the one scanner precisely so it cannot disagree with the rule about
     what a link is. Catches a widening applied to the rule alone.
     """
@@ -629,7 +629,7 @@ def test_a_titled_or_bracketed_link_gets_no_repair_patch(git_repo) -> None:
     silently stopped offering patches at all.
     """
     import subprocess
-    from extant import gate
+    from extant import patches
     from extant import session as hc
     repo, commit = git_repo
     commit("docs/a b.md", "# a\n", "docs: spaced")
@@ -646,7 +646,7 @@ def test_a_titled_or_bracketed_link_gets_no_repair_patch(git_repo) -> None:
     findings = hc.validate(repo, text)
     assert sorted(f.subject for f in findings if f.kind == "dead-md-link") == [
         "docs/a b.md", "docs/plan.md", "docs/plan.md"]
-    patch = gate.suggest_renames(repo, repo, text, "NEXT_SESSION.md", findings)
+    patch = patches.suggest_renames(repo, repo, text, "NEXT_SESSION.md", findings)
     assert ('+[a](<docs/a b.md>) and [b](docs/plan.md "Plan") '
             'and [c](docs/design.md).') in patch
 

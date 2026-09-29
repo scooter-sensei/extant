@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Callable, TextIO
@@ -42,133 +43,22 @@ from extant.config import StatusConfig
 from extant.files import refusal
 from extant.finding import Finding, rel
 from extant.git import has_commit_graph, is_partial, is_shallow
-from extant.refs import renamed_to
+from extant.patches import suggest_renames
 from extant.registry import RULE_ERRORS
 from extant.report import (
     BASELINE_NAME, Collector, load_baseline, render_findings, write_baseline,
 )
 from extant.scope import RunScope
-from extant.sites import reference_path, relative_spelling, resolve_reference
-from extant.links import link_sites
-from extant.text import format_for, prose
+from extant.text import format_for
 
 __all__ = ["report_denominators", "report_index_note",
-           "report_repository_notes", "run_check_text", "run_validate",
-           "suggest_renames"]
+           "report_repository_notes", "run_check_text", "run_validate"]
 
 # What `--check-text` calls the document when `--as-path` was not given.
 # Named rather than blank: every diagnostic line here begins "checked <name>",
 # and a blank one reads as a bug in the tool rather than as a deliberate
 # absence of a path.
 STDIN_NAME = "<stdin>"
-
-
-def suggest_renames(repo: Path, base: Path, text: str, relative: str,
-                    findings: list[Finding]) -> str:
-    """A unified diff repointing references at where git says the file went.
-
-    Emitted to stdout as a PATCH, never written. That is not caution for its own
-    sake: this tool's authority rests entirely on the fact that it checks claims
-    and never writes them. A validator that edits prose can be wrong in a new
-    way - it can author a falsehood itself - and the first time it did, nothing
-    would be left to catch it.
-
-    A patch keeps the boundary and loses nothing. `git apply` is one command,
-    the diff is reviewable before it is applied, and the decision stays with the
-    person whose document it is.
-
-    Only renames GIT RECORDED are offered. A path that is merely missing gets no
-    suggestion, because guessing where it went is exactly the authoring this
-    refuses to do.
-    """
-    replacements: list[tuple[str, str]] = []
-    ctx = session.context(repo)
-
-    # THE INVARIANT: a patch is only ever offered for a claim a rule REPORTED.
-    # Before this, `suggest_renames` scanned the document itself, with a filter
-    # that differed from the rule's five ways - so it offered to rewrite a link
-    # split across a newline that `--validate` had just declared clean, while
-    # exiting 0. A patch is an edit to somebody's prose; the authority for it
-    # has to be a finding, not a second opinion.
-    #
-    # Taken from the findings BEFORE the baseline is applied, deliberately. A
-    # baselined finding is still wrong - it is only not new - and keying this
-    # on what survived suppression would have quietly coupled the patch
-    # generator to the baseline, so adopting one would stop offering repairs
-    # for everything it forgave.
-    linked = {f.subject for f in findings
-              if f.kind == "dead-md-link" and f.subject}
-    pointed = {f.subject for f in findings
-               if f.kind == "dead-path-pointer" and f.subject}
-
-    for _number, raw, target, _html in link_sites(ctx.doc, text):
-        if target not in linked or resolve_reference(ctx, base, target)[0]:
-            continue
-        # `target` is what RESOLVES; `raw` is what the document actually says,
-        # and the replacement below matches text on the page. They differ for a
-        # percent-encoded link, and there the two cannot be reconciled without
-        # GUESSING an encoding for the replacement - `docs/new guide.md` has to
-        # go back as `docs/new%20guide.md` to stay a working link, and choosing
-        # that spelling is authoring rather than checking. Refused, explicitly:
-        # the finding is still reported, and no patch is offered for it.
-        path_part = raw.split("#", 1)[0].split("?", 1)[0]
-        if path_part != target:
-            continue
-        # Looked up under the path the link RESOLVES to and spelled back
-        # RELATIVE TO THE DOCUMENT, the two halves of one fact: the map's keys
-        # and answers are repository-relative, a link is relative to its page.
-        # Asked as written, `[it](old.md)` in `docs/` found nothing; answered
-        # as written, it would have been repointed at `docs/new.md`, which from
-        # `docs/` names `docs/docs/new.md`. A root-relative link stays rooted.
-        rooted = target.startswith("/")
-        named = (target.lstrip("/") if rooted
-                 else reference_path(repo, base, target) or target)
-        moved = renamed_to(ctx, named)
-        if moved:
-            spelled = "/" + moved if rooted else relative_spelling(repo, base, moved)
-            # The fragment or query survives the move. `[x](a.md#install)` is
-            # repointed to `[x](b.md#install)`, which the previous code could
-            # not do at all: it replaced on the fragment-stripped target, so
-            # `](a.md)` matched nothing in a document that says `](a.md#install)`
-            # and the patch came out empty.
-            replacements.append((raw, spelled + raw[len(path_part):]))
-
-    for raw in ctx.config.path_pointer.findall(prose(ctx.doc, text)):
-        if raw not in pointed or resolve_reference(ctx, repo, raw)[0]:
-            continue
-        # The rule's own order: from the root as written, then from beside
-        # the document, spelled back the way each was asked.
-        moved = renamed_to(ctx, raw)
-        if moved:
-            replacements.append((raw, moved))
-            continue
-        if base != repo:
-            beside_path = reference_path(repo, base, raw)
-            moved = renamed_to(ctx, beside_path) if beside_path is not None else None
-            if moved:
-                replacements.append((raw, relative_spelling(repo, base, moved)))
-
-    if not replacements:
-        return ""
-
-    updated = text
-    for old, new in dict.fromkeys(replacements):
-        # Replaced only where the path is USED as a reference - inside a link
-        # target or a backticked pointer - rather than anywhere the characters
-        # happen to appear. A bare replace would also rewrite prose discussing
-        # the old name, which is often the very sentence explaining the move.
-        updated = updated.replace(f"]({old})", f"]({new})")
-        updated = updated.replace(f"`{old}`", f"`{new}`")
-
-    if updated == text:
-        return ""
-
-    import difflib
-    diff = difflib.unified_diff(
-        text.splitlines(keepends=True), updated.splitlines(keepends=True),
-        fromfile=f"a/{relative}", tofile=f"b/{relative}", n=3,
-    )
-    return "".join(diff)
 
 
 def report_denominators(diag: Callable[[str], None], repo: Path, name: str,
@@ -252,15 +142,21 @@ def report_repository_notes(diag: Callable[[str], None], repo: Path,
     # The same shape from the other direction: the history is all here and
     # some of the OBJECTS are not. They stay not here - `environment()` in
     # extant/git.py refuses the retrieval git would otherwise do mid-command
-    # - so a rename hint or a blob-reading rule answers from less than the
-    # repository holds, and the reader is told so rather than left to infer
-    # it from a hint that did not appear. Worded without the words the
-    # network-shape scan refuses in a literal, as the note above is.
+    # - so a blob-reading rule answers from less than the repository holds,
+    # and the reader is told so rather than left to infer it from a hint
+    # that did not appear. The rename hint is not "less", it is ALL OR
+    # NOTHING: the search exits 128 at the first blob it cannot read and the
+    # seam discards what it printed, so one missing blob withholds every
+    # hint (6 of 6 `blob:none` corpus clones, measured 2026-09-28). Said as
+    # a condition, since a copy that has gathered the blobs gets its hints.
+    # Worded without the words the network-shape scan refuses in a literal,
+    # as the note above is.
     if is_partial(repo):
         diag("  NOTE: this is a partial repository, so objects not present "
              "locally were left missing rather than retrieved over the "
-             "network. A rename hint or a blob-reading rule answers from "
-             "what is here.")
+             "network. A blob-reading rule answers from what is here, and "
+             "where the rename search needs a missing blob no rename hint "
+             "is offered at all - on a fresh blob:none copy, none is.")
     if index_incomplete:
         report_index_note(diag, repo)
 
@@ -493,7 +389,9 @@ def run_validate(repo: Path, args: argparse.Namespace,
               f"{exc.start}). The status document must be a text file.",
               file=sys.stderr)
         return 1
-    # Relative links resolve against the document, not the repo root.
+    # Relative links resolve against the document, not the repo root. What
+    # was installed before is kept, to be put back whole at the end.
+    entered = session.document()
     session.set_document(link_base=target.parent)
     mapping, readable = _sha_map(args)
     if not readable:
@@ -518,7 +416,12 @@ def run_validate(repo: Path, args: argparse.Namespace,
     # works in --sweep and is silent in --verify, and reports 0 examined
     # beside 0 findings - the exact conflation the denominator exists to
     # prevent. Found by running the gate, not by any test.
-    session.set_document(doc_path=rel(repo, target))
+    # The format with the path, at this site and the two below: `validate`
+    # inherits it rather than deriving it, so a document installed by path
+    # alone was read as markdown whatever it was.
+    session.set_document(doc_path=rel(repo, target),
+                         doc_format=format_for(rel(repo, target)))
+    primary_document = session.document()
     # ONE run scope across the whole run, or one per document, and `--sha-map`
     # is what decides. A stable scope promises the checkout does not change
     # while it is held, and with a map this mode REWRITES documents between
@@ -596,7 +499,8 @@ def run_validate(repo: Path, args: argparse.Namespace,
                         fh.write(archive_text)
                     diag(f"translated {archive_changed} stale SHA "
                          f"reference(s) in {archive_doc}")
-            session.set_document(doc_path=archive_doc)
+            session.set_document(doc_path=archive_doc,
+                                 doc_format=format_for(archive_doc))
             # Opened after the rewrite above, when it is a scope of its own,
             # and held so the index flag can be read before it closes.
             with document_scope():
@@ -636,7 +540,16 @@ def run_validate(repo: Path, args: argparse.Namespace,
                 continue
             with open(extra, encoding="utf-8", newline="") as fh:
                 extra_text = fh.read()
-            session.set_document(link_base=extra.parent, doc_path=relative)
+            session.set_document(link_base=extra.parent, doc_path=relative,
+                                 doc_format=format_for(relative))
+            # The rules that read this document, asked of the ONE predicate
+            # the findings were selected by. This line used to restate half of
+            # it - the repository-scoped rules, by hand - and so printed the
+            # entry-scoped rules' zeros for a document they never read: "looked
+            # and found nothing" about a rule that did not look. The sweep
+            # asks `rule_applies` for both halves, and now so does this.
+            applies = functools.partial(session.rule_applies, in_archive=False,
+                                        has_entries=False)
             # Findings and denominator are two halves of one examination and
             # must not re-ask git the same questions, whichever scope this is.
             with document_scope():
@@ -644,35 +557,37 @@ def run_validate(repo: Path, args: argparse.Namespace,
                                                   has_entries=False)
                 new_extra = found.record(relative, extra_findings,
                                          primary=False)
-                examined_extra = session.count_examined(repo, extra_text)
+                examined_extra = session.count_examined(repo, extra_text,
+                                                        applies)
                 extras_incomplete |= session.ancestry_incomplete()
-            # Repository-scoped rules do not run for an extra document, so
-            # reporting their candidate count here claims coverage that was
-            # not provided. A denominator that overstates is worse than
-            # none: it is the reassuring number, not the honest one.
-            skipped = {rule.kind for rule in session.RULES
-                       if rule.scope == "repository"}
             # Zero counts are REPORTED, not filtered. "examined 0" and "not
             # applicable here" are different facts, and dropping the zeros
             # made an extra document look fully covered while a rule sat
             # blind - the exact conflation the primary summary avoids.
-            checked = ", ".join(f"{kind} {n}"
-                                for kind, n in examined_extra.items()
-                                if kind not in skipped)
+            checked = ", ".join(f"{rule.kind} {examined_extra[rule.kind]}"
+                                for rule in session.RULES if applies(rule))
             diag(f"checked {relative}: {checked or 'nothing applicable'}")
             errors_reported = session.report_rule_errors(diag, errors_reported)
             if new_extra:
                 exit_code = 1
-    session.set_document(link_base=None)
+    # Put back whole, the format and the filename as well as the location: a
+    # run that read an `.rst` document last must not leave the next caller
+    # reading markdown as reStructuredText.
+    session.install_document(entered)
     if extras_incomplete and not index_incomplete:
         report_index_note(diag, repo)
 
     if args.suggest_fixes:
         # Written to stdout as a patch and never applied. In sarif mode the
         # document must stay pure JSON, so the patch goes to stderr instead
-        # of corrupting it.
+        # of corrupting it. Generated with the primary document installed,
+        # as the rules that reported it read it: after the loop above, the
+        # generator scanned an `.rst` document as markdown and could not see
+        # the pointer the rule had just reported.
+        session.install_document(primary_document)
         patch = suggest_renames(repo, target.parent, text,
                                 rel(repo, target), findings)
+        session.install_document(entered)
         if patch:
             # Written as BYTES, because print() rewrites newlines on
             # Windows. A patch for a document that uses LF then arrives

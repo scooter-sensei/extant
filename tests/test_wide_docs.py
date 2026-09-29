@@ -501,40 +501,87 @@ def test_an_empty_index_refuses_rather_than_enumerating_nothing(tmp_path) -> Non
     assert not (repo / ".extant.toml").exists()
 
 
-def test_a_git_quoted_path_is_left_out_and_counted(tmp_path) -> None:
-    """A quoted spelling names no file on disk, so pinning it manufactures a
-    finding.
-
-    With `core.quotePath` on - the default - git renders a path holding unusual
-    bytes as `"caf\\303\\251.md"`, quotes and octal escapes included. Writing
-    that into `extra_docs` gives `gate.py` a path it cannot open, and an absent
-    entry is a `missing-document` finding by deliberate design: the installer
-    would have invented the very thing it exists to detect.
-
-    Counted rather than dropped silently, because a document that vanishes from
-    the enumeration with no explanation is the other way to be wrong here.
-    """
-    repo = make_repo(tmp_path, **{"README.md": README, "docs__guide.md": "# Guide\n"})
-    # Built rather than written out: the ASCII rule covers string literals in
-    # every file here, tests included, and a filename is the one place a
-    # non-ASCII character is the POINT rather than a slip.
-    odd = repo / "docs" / ("caf" + chr(0xE9) + ".md")
+def _commit_odd_document(repo: Path, name: str) -> None:
+    odd = repo / "docs" / name
     with open(odd, "w", encoding="utf-8", newline="") as fh:
-        fh.write("# Cafe\n")
+        fh.write("# Odd\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, capture_output=True, check=True)
     subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=T",
                     "commit", "-m", "odd"], cwd=repo, capture_output=True, check=True)
-    listed = subprocess.run(["git", "ls-files"], cwd=repo, capture_output=True,
-                            text=True, check=True).stdout
-    if '"' not in listed:                    # git configured not to quote
-        return
+
+
+def test_a_non_ascii_document_is_pinned_under_its_own_name(tmp_path) -> None:
+    """Catches the installer asking git with the operator's `core.quotePath`.
+
+    With it on - git's default - `docs/cafe.md` with an accented e came back
+    as `"docs/caf\\303\\251.md"`, and the installer, rightly refusing to pin a
+    spelling that names no file, left a real document out. The installer now
+    starts git with the payload's `environment()`, which turns quoting off, so
+    the name arrives as itself and is pinned (Phase 57). Built with `chr`
+    rather than written out: the ASCII rule covers every literal here, and a
+    filename is the one place a non-ASCII character is the point.
+    """
+    repo = make_repo(tmp_path, **{"README.md": README, "docs__guide.md": "# Guide\n"})
+    name = "caf" + chr(0xE9) + ".md"
+    _commit_odd_document(repo, name)
 
     result = run_installer(repo, "--wide-docs")
     assert result.returncode == 0, result.stdout
 
     extras = config_of(repo)["extra_docs"]
     assert "docs/guide.md" in extras
-    assert not any('"' in e or "\\3" in e for e in extras), extras
+    assert "docs/" + name in extras, extras
+    assert "git quoted" not in result.stdout, result.stdout
+
+
+def test_a_name_holding_a_line_separator_is_pinned_whole(tmp_path) -> None:
+    """Catches the tracked listing cut where Python breaks lines, not git.
+
+    With quoting off, git no longer octal-escapes a name holding U+2028, and
+    `splitlines()` breaks on it: `docs/notes<U+2028>draft.md` came back as
+    `docs/notes` and `draft.md`, and `--wide-docs` pinned the root-level
+    fragment - an `extra_docs` entry naming no file, which `gate.py` reports
+    as `missing-document`, a finding the installer made up. git ends each
+    listed name at `\\n` and nowhere else, because it quotes any name
+    holding a control character. Found by the review of the built tranche,
+    2026-09-29.
+    """
+    repo = make_repo(tmp_path, **{"README.md": README, "docs__guide.md": "# Guide\n"})
+    name = "notes" + chr(0x2028) + "draft.md"
+    _commit_odd_document(repo, name)
+
+    result = run_installer(repo, "--wide-docs")
+    assert result.returncode == 0, result.stdout
+
+    extras = config_of(repo)["extra_docs"]
+    assert "draft.md" not in extras and "docs/notes" not in extras, extras
+    assert "docs/" + name in extras, extras
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="a tab is illegal in a Windows filename")
+def test_a_git_quoted_path_is_left_out_and_counted(tmp_path) -> None:
+    """A quoted spelling names no file on disk, so pinning it manufactures a
+    finding.
+
+    Quoting off still quotes a path holding a double quote, a backslash or a
+    control character - a tab arrives as `"docs/a\\tb.md"`, quotes and escape
+    included. Writing that into `extra_docs` gives `gate.py` a path it cannot
+    open, and an absent entry is a `missing-document` finding by deliberate
+    design: the installer would have invented the very thing it exists to
+    detect. Counted rather than dropped silently, because a document that
+    vanishes from the enumeration with no explanation is the other way to be
+    wrong here.
+    """
+    repo = make_repo(tmp_path, **{"README.md": README, "docs__guide.md": "# Guide\n"})
+    _commit_odd_document(repo, "a" + chr(9) + "b.md")
+
+    result = run_installer(repo, "--wide-docs")
+    assert result.returncode == 0, result.stdout
+
+    extras = config_of(repo)["extra_docs"]
+    assert "docs/guide.md" in extras
+    assert not any('"' in e or chr(9) in e for e in extras), extras
     assert "git quoted" in result.stdout, result.stdout
 
 

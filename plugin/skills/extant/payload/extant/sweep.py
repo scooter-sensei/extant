@@ -39,7 +39,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, TextIO
 
 from extant import refs, session
 # ALIASED, because `text` is what every function here calls the document
@@ -60,7 +60,7 @@ from extant.report import (
 
 __all__ = [
     "apply_exclusions", "excluded_documents", "partition_documents",
-    "run_sweep", "survey",
+    "run_sweep", "survey", "unusable_exclusion", "unusable_note",
 ]
 
 if TYPE_CHECKING:
@@ -454,6 +454,11 @@ def run_sweep(repo: Path, fmt: str) -> int:
             # any document's, so they are read once rather than per file.
             repository_examined = session.count_examined(repo, "")
             examined: dict[str, int] = {kind: 0 for kind in repository_examined}
+            # The rules that read at least one document, or ran once for the
+            # repository: a zero means "looked, found no candidate" only for
+            # these. Each document's denominators carry exactly the rules
+            # `rule_applies` let read it, so the union is the answer.
+            ran: set[str] = set()
             tasks = [(relative, relative == primary)
                      for _label, group, _gates in sections for relative in group]
             gathered, workers, fallback = survey(repo, tasks, tracked=tracked)
@@ -494,6 +499,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
                         for f in findings)
                     for kind, count in doc_examined.items():
                         examined[kind] += count
+                    ran.update(doc_examined)
 
             # Repository-scoped rules answer a question about the REPOSITORY,
             # so they run ONCE here rather than inside the loop above.
@@ -531,6 +537,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
                             stratum=strata.classify(rule.subject_file or "."))
                     for finding in produced)
                 examined[rule.kind] = repository_examined[rule.kind]
+                ran.add(rule.kind)
         finally:
             # The DOCUMENT only. The run scope hands itself back, on the
             # failing path too; this is the half that is per-file, and
@@ -601,7 +608,13 @@ def run_sweep(repo: Path, fmt: str) -> int:
               f"{len(excluded_counts)} exclude_paths pattern(s)", file=out)
         for pattern, count in sorted(excluded_counts.items()):
             print(f"    {count:5} {pattern}", file=out)
-        idle = sorted(p for p, n in excluded_counts.items() if not n)
+        unusable = unusable_note(excluded_counts)
+        if unusable:
+            print(unusable, file=out)
+        # An unusable pattern is not stale - it could never have matched -
+        # and "may be stale" would send the reader to look for a directory.
+        idle = sorted(p for p, n in excluded_counts.items()
+                      if not n and unusable_exclusion(p) is None)
         if idle:
             print(f"  matched nothing, so they exclude nothing and may be "
                   f"stale: {', '.join(idle)}", file=out)
@@ -635,15 +648,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # what a reader needs told. 139 of the 152 corpus clones are partial.
     report_repository_notes(lambda line: print(line, file=out), repo,
                             index_incomplete)
-    # Zero counts are REPORTED rather than filtered, and named again here. A
-    # rule examining nothing across a WHOLE repository is a far stronger signal
-    # than the same zero in one document, and it is the one a reader skimming a
-    # 13-entry line will miss.
-    blind = [kind for kind, n in examined.items() if n == 0]
-    if blind:
-        print("  NOTE: these rules examined nothing anywhere here - either no "
-              "document makes such claims, or the pattern does not match how "
-              "this project writes them: " + ", ".join(blind), file=out)
+    _report_zero_counts(out, examined, ran,
+                        primary_read=any(is_primary for _r, is_primary in tasks))
     if unreadable:
         print(f"  {len(unreadable)} could not be read: {', '.join(unreadable)}",
               file=out)
@@ -667,6 +673,69 @@ def run_sweep(repo: Path, fmt: str) -> int:
     return 1 if (results["vetted"] or RULE_ERRORS or unreturned) else 0
 
 
+def _report_zero_counts(out: TextIO, examined: dict[str, int],
+                        ran: set[str], primary_read: bool) -> None:
+    """The two NOTEs about zeros in the `examined:` line: rules that read
+    documents and found no candidate, and rules that read none. Out of
+    `run_sweep` since Phase 57, when splitting the second from the first
+    took that function past its ceiling."""
+    # Zero counts are REPORTED rather than filtered, and named again here. A
+    # rule examining nothing across a WHOLE repository is a far stronger signal
+    # than the same zero in one document, and it is the one a reader skimming a
+    # 13-entry line will miss.
+    #
+    # Only of a rule that READ something, though. One that no document here
+    # is for - the entry-scoped rules without a primary document - did not
+    # look, and both explanations below are wrong about it: that NOTE named
+    # them in 152 of 152 corpus sweeps (2026-09-28). Said apart, with why.
+    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
+    if blind:
+        print("  NOTE: these rules examined nothing anywhere here - either no "
+              "document makes such claims, or the pattern does not match how "
+              "this project writes them: " + ", ".join(blind), file=out)
+    unrun = session.unrun_note(
+        [rule for rule in session.RULES
+         if rule.kind in examined and rule.kind not in ran],
+        primary_read=primary_read, absent="none is here", read="swept")
+    if unrun:
+        print(unrun, file=out)
+
+
+def unusable_exclusion(pattern: str) -> str | None:
+    """Why `pattern` cannot mean what gitignore would make of it, or None.
+
+    A leading `!` is NEGATION to gitignore and `[` opens a character class;
+    this matcher implements neither, and used to escape both into literal
+    characters - so `!docs/keep.md` matched only a path beginning with `!`,
+    and `docs/[a-z]*.md` a directory literally named `[a-z]`. Each was a
+    pattern quietly meaning something other than what it said. Named instead
+    of supported, because no configuration here or in a known install writes
+    either (Phase 48 counted); `!` anywhere but first is literal to gitignore
+    too, and stays usable. A comment or an empty entry is no pattern at all,
+    set aside by `_exclusion_regex` before this is asked, so it is refused
+    nothing here either.
+    """
+    body = pattern.strip()
+    if not body or body.startswith("#"):
+        return None
+    if body.startswith("!"):
+        return "negation is not supported"
+    if "[" in body:
+        return "a character class is not supported"
+    return None
+
+
+def unusable_note(patterns: Iterable[str]) -> str | None:
+    """The one line both surveys print for the patterns `unusable_exclusion`
+    refuses, or None when there are none - one wording, from one place, so
+    the two cannot come to describe the same pattern differently."""
+    named = [f"{p} ({why})" for p in sorted(patterns)
+             if (why := unusable_exclusion(p)) is not None]
+    if not named:
+        return None
+    return ("  unusable, so they exclude nothing: " + ", ".join(named))
+
+
 def _exclusion_regex(pattern: str) -> re.Pattern[str] | None:
     """Compile one gitignore-shaped path pattern, or None if it is unusable.
 
@@ -681,6 +750,8 @@ def _exclusion_regex(pattern: str) -> re.Pattern[str] | None:
     """
     pattern = pattern.strip().replace("\\", "/")
     if not pattern or pattern.startswith("#"):
+        return None
+    if unusable_exclusion(pattern) is not None:
         return None
     anchored = "/" in pattern.rstrip("/")
     # A trailing slash names a DIRECTORY, as it does in a .gitignore, so a

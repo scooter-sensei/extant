@@ -90,6 +90,59 @@ def test_a_sweep_needs_no_configuration_at_all(rotted_repo) -> None:
         )
 
 
+def test_a_rule_that_read_no_document_is_not_said_to_have_examined_nothing(
+        rotted_repo) -> None:
+    """Catches the sweep's NOTE offering two explanations that are both wrong.
+
+    It named every rule with a zero as one that "examined nothing anywhere
+    here - either no document makes such claims, or the pattern does not
+    match", and that is true only of a rule that READ something. The two
+    entry-scoped rules read only the newest entry of the primary document, so
+    in a repository without one they read no document at all - and the NOTE
+    named them in 152 of 152 corpus sweeps, recorded 2026-09-28, where no
+    clone has a primary document. "Did not run" is its own fact, printed as
+    one; the zeros in the `examined:` line stay, because they are true.
+    """
+    result = sweep(rotted_repo)
+    combined = result.stdout + result.stderr
+    lines = combined.splitlines()
+
+    unrun = next((ln for ln in lines if "read no document here" in ln), "")
+    assert "stale-live-claim" in unrun and "unknown-branch" in unrun, combined
+    assert "newest entry" in unrun, unrun
+    blind = next((ln for ln in lines if "examined nothing anywhere" in ln), "")
+    assert "stale-live-claim" not in blind and "unknown-branch" not in blind, blind
+    # A rule that DID read the documents and found no candidate stays there.
+    assert "false-merge-claim" in blind, blind
+
+
+def test_the_did_not_run_note_names_each_rule_by_its_own_scope() -> None:
+    """Catches the reason keyed on `in_archive` rather than on scope.
+
+    The two repository-scoped rules declare `in_archive=False` as well, so a
+    note keyed on it would have told a reader that `inconsistent-artifact`
+    reads only the newest entry of the primary document. And a primary
+    document that WAS read but holds no dated entry is not one that "is not
+    here". Found by the review of the built tranche, 2026-09-29.
+    """
+    from extant import session as hc
+
+    by_kind = {rule.kind: rule for rule in hc.RULES}
+    entry = by_kind["stale-live-claim"]
+    repository = by_kind["inconsistent-artifact"]
+
+    absent = hc.unrun_note([entry, repository], primary_read=False,
+                           absent="none is here", read="swept") or ""
+    assert "stale-live-claim read only the newest entry" in absent, absent
+    assert "inconsistent-artifact read only the newest entry" not in absent, absent
+    assert "inconsistent-artifact" in absent, absent
+
+    present = hc.unrun_note([entry], primary_read=True,
+                            absent="none is here", read="swept") or ""
+    assert "none is here" not in present, present
+    assert "has none" in present, present
+
+
 def test_the_sweep_reports_its_denominator(rotted_repo) -> None:
     """How many files were looked at, split by whether they gate.
 

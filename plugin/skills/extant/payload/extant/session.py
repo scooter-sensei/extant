@@ -46,7 +46,8 @@ __all__ = [
     "config", "context", "count_examined",
     "document", "install_config", "install_document", "reload_config",
     "report_rule_errors",
-    "rule_applies", "run_scope", "selftest", "set_document", "validate",
+    "rule_applies", "run_scope", "selftest", "set_document", "unrun_note",
+    "validate",
 ]
 
 # Two levels up from extant/session.py, which is the repository root in both
@@ -65,7 +66,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Porting warning, stated at length in extant/config.py: three of these
 # patterns were derived by MEASURING this repo's documents. Copy them to another
 # project without re-measuring and the validator matches nothing while appearing
-# healthy. Run `--init` against the target repo instead of guessing.
+# healthy. Run the skill's install.py against the target repo instead of
+# guessing; it derives them from the real documents.
 #
 # A malformed file raises ValueError from here, at IMPORT. The plain-language
 # message a person running the tool sees is printed by extant_collect.py, which
@@ -458,6 +460,41 @@ def rule_applies(rule: Rule, in_archive: bool, has_entries: bool, *,
         # something else wearing its shape.
         return False
     return True
+
+
+def unrun_note(rules: list[Rule], *, primary_read: bool, absent: str,
+               read: str) -> str | None:
+    """The NOTE for `rules`, which read no document here, each group with the
+    one kind of document it does read - or None when there are none.
+
+    The reasons are `rule_applies`' clauses, taken from each rule's own
+    declaration rather than listed, so a rule added with any of them is
+    explained without editing this; here beside it so the two cannot part.
+    `primary_read` says the primary document was read, and an entry rule that
+    still read nothing then means it holds no dated entry; `absent` is how
+    the caller says it was not read. `read` is what the caller did to its
+    documents - "swept", or "changed" for the diff gate. Out of
+    extant/sweep.py since the review of Phase 57, when both surveys needed it.
+    """
+    groups: dict[str, list[str]] = {}
+    for rule in rules:
+        if rule.scope == "newest-entry":
+            why = ("the newest entry of the primary document, which has none"
+                   if primary_read else
+                   f"the newest entry of the primary document, and {absent}")
+        elif rule.scope == "repository":
+            why = "the repository as a whole, in a pass that did not run"
+        elif rule.kind in MARKDOWN_ONLY:
+            why = f"markdown, and none was {read}"
+        else:
+            why = "a kind of document none here is"
+        groups.setdefault(why, []).append(rule.kind)
+    if not groups:
+        return None
+    return ("  NOTE: these rules read no document here, which is not reading "
+            "one and finding nothing: "
+            + "; ".join(f"{', '.join(kinds)} read only {why}"
+                        for why, kinds in groups.items()))
 
 
 @contextmanager

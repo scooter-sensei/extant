@@ -23,9 +23,13 @@ definition of correctness and a kill caused by load would hide a real gap.
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import signal
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 
@@ -124,6 +128,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # the third time this file has recorded the same lesson. Mutations rot
     # alongside the code they point at.
     gate = collect.parent / "extant/gate.py"
+    # `suggest_renames` left extant/gate.py for its own module on 2026-09-28,
+    # when gate.py stood at 899 of its 927 lines; its seven anchors moved with it.
+    patches = collect.parent / "extant/patches.py"
+    probes = collect.parent / "extant/probes.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -511,7 +519,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # A patch replaces `](old)` on the page; a title, a bracket or a
         # percent-encoding puts the target elsewhere on it, and writing the
         # resolved spelling back would break the link it repairs.
-        ("a patch is written over a spelling the page does not use", gate,
+        ("a patch is written over a spelling the page does not use", patches,
          "        if path_part != target:\n            continue",
          "        if False:\n            continue"),
         ("the anchor rule partitions a bracketed fragment as written",
@@ -1108,30 +1116,30 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The old anchor named `replacements.append((target, moved))`, which no
         # longer exists; a mutation kept alive by pointing it at something else
         # would be testing a different thing under an old label.
-        ("suggest-fixes offers a guess for a merely missing file", gate,
+        ("suggest-fixes offers a guess for a merely missing file", patches,
          "        moved = renamed_to(ctx, named)\n        if moved:",
          "        moved = renamed_to(ctx, named) or named + \".guess\"\n"
          "        if moved:"),
         # THE INVARIANT. Without it `--suggest-fixes` offered to rewrite a link
         # split across a newline that `--validate` had just reported clean - a
         # patch for a finding that does not exist.
-        ("a patch is offered with no finding behind it", gate,
+        ("a patch is offered with no finding behind it", patches,
          "        if target not in linked or resolve_reference(ctx, base, target)[0]:",
          "        if resolve_reference(ctx, base, target)[0]:"),
         # The two strings the shared scanner returns are not interchangeable:
         # one RESOLVES and one is REPLACED. Swapping them makes the patch look
         # for a string the document does not contain.
-        ("the patch replaces on the resolved target, not the written spelling", gate,
+        ("the patch replaces on the resolved target, not the written spelling", patches,
          "            replacements.append((raw, spelled + raw[len(path_part):]))",
          "            replacements.append((target, spelled))"),
         ("the shared scanner drops the spelling the document uses", links,
          "                sites.append((number, raw, target, html))",
          "                sites.append((number, target, target, html))"),
-        ("suggest-fixes rewrites prose as well as references", gate,
+        ("suggest-fixes rewrites prose as well as references", patches,
          '        updated = updated.replace(f"]({old})", f"]({new})")\n'
          '        updated = updated.replace(f"`{old}`", f"`{new}`")',
          "        updated = updated.replace(old, new)"),
-        ("suggest-fixes writes the file instead of emitting a patch", gate,
+        ("suggest-fixes writes the file instead of emitting a patch", patches,
          "    if not replacements:\n        return \"\"",
          "    if not replacements:\n        return \"\"\n"
          "    (base / 'SIDE_EFFECT.txt').write_text('written', encoding='utf-8')"),
@@ -1612,9 +1620,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the per-pattern counts stop being reported", sweep,
          "        for pattern, count in sorted(excluded_counts.items()):",
          "        for pattern, count in []:"),
+        # Retargeted in Phase 57, when an unusable pattern stopped being
+        # counted as a stale one and the comprehension grew a second line.
         ("a pattern that matched nothing is no longer named", sweep,
-         "        idle = sorted(p for p, n in excluded_counts.items() if not n)",
-         "        idle = []"),
+         "        idle = sorted(p for p, n in excluded_counts.items()\n",
+         "        idle = sorted(p for p, n in {}.items()\n"),
         # Retargeted on 2026-09-14, when the exclusion-and-conflict block
         # left `run_sweep` for `apply_exclusions` so `--introduced-since`
         # could read the same implementation: the line dedented one level
@@ -2098,8 +2108,10 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # repository does not hold fails `git show`, and None from that read
         # meant "absent then" - so `--deleted-since` examined nothing, counted
         # nothing unreadable, and the deleted false claim went unreported.
+        # Retargeted in Phase 57: the listing is asked once for every missing
+        # object by the caller and handed in, so the branch reads a set.
         ("a missing object reads as an absent previous version", deleted_since,
-         '        if is_partial(repo) and _listed_at(repo, ref, relative) is not False:\n'
+         '        if listed is None or relative in listed:\n'
          '            raise MissingObject(f"{ref}:{relative}")',
          '        pass'),
         # The batch that replaced one `git show` per document (2026-09-20).
@@ -2278,7 +2290,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # And the patch spells the answer relative to the page; a
         # repository-relative path spliced into `docs/a.md` points at
         # `docs/docs/...`.
-        ("the rename patch is spelled from the root", gate,
+        ("the rename patch is spelled from the root", patches,
          "            spelled = \"/\" + moved if rooted else relative_spelling(repo, base, moved)",
          "            spelled = \"/\" + moved if rooted else moved"),
         # A branch that exists only as a tag: the ref table says it is not a
@@ -2352,6 +2364,121 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the survey's own scope is not handed the tracked list", sweep,
          "        scope.tracked_markdown[str(repo)] = tracked",
          "        pass"),
+        # --- Phase 57, the owed bundle ---------------------------------------
+        # `--verify`'s extra-document line restated half of `rule_applies` -
+        # the repository-scoped clause, by hand - and printed the entry
+        # rules' zeros for documents they never read.
+        ("an extra document's denominators restate half of rule_applies", gate,
+         "                                for rule in session.RULES if applies(rule))",
+         "                                for rule in session.RULES\n"
+         "                                if rule.scope != \"repository\")"),
+        # `validate` inherits the markup language, and the three places
+        # `--verify` installs a document named only its path.
+        ("--verify reads an extra document as markdown", gate,
+         "            session.set_document(link_base=extra.parent, doc_path=relative,\n"
+         "                                 doc_format=format_for(relative))",
+         "            session.set_document(link_base=extra.parent, doc_path=relative)"),
+        ("--verify reads the primary document as markdown", gate,
+         "    session.set_document(doc_path=rel(repo, target),\n"
+         "                         doc_format=format_for(rel(repo, target)))",
+         "    session.set_document(doc_path=rel(repo, target))"),
+        ("--verify reads the archive as markdown", gate,
+         "            session.set_document(doc_path=archive_doc,\n"
+         "                                 doc_format=format_for(archive_doc))",
+         "            session.set_document(doc_path=archive_doc)"),
+        # A fix landing on a last line with no terminator: `git apply` refused
+        # the whole patch as corrupt. And lines cut where git does not cut.
+        # Aimed at the CONDITION, not the marker's text: the first version
+        # replaced the words "No newline at end of file" and SURVIVED its first
+        # run, because `git apply` reads any line beginning `\ ` as the marker
+        # without reading the rest - the words are translated by some diff
+        # tools. An equivalent mutant; this one drops the marker line itself.
+        ("the patch drops git's no-newline marker", patches,
+         '"".join(line if line.endswith(',
+         '"".join(line if True or line.endswith('),
+        ("the patch is cut into lines by splitlines again", patches,
+         "        _git_lines(text), _git_lines(updated),",
+         "        text.splitlines(keepends=True), updated.splitlines(keepends=True),"),
+        # The partial note said a rename hint "answers from what is here"; on a
+        # copy missing a blob the search needs, there is no hint at all.
+        ("the partial note says a rename hint answers from what is here", gate,
+         '"where the rename search needs a missing blob no rename hint "',
+         '"a rename hint answers from what is here; "'),
+        # One `ls-tree` per missing previous version: 100 processes, 2.74 s of
+        # a 3.24 s run on a partial copy of fastapi.
+        ("the missing-object listing goes back to one process per document",
+         deleted_since,
+         "    for chunk in _chunks(relatives, _ARGUMENT_BUDGET):",
+         "    for chunk in ([name] for name in relatives):"),
+        # `!` and `[` escaped into literals, and an unusable pattern diagnosed
+        # as a stale one - in both surveys that apply the exclusions.
+        ("an unusable exclusion is escaped into a literal again", sweep,
+         "    if unusable_exclusion(pattern) is not None:\n        return None",
+         "    if False:\n        return None"),
+        ("an unusable exclusion is called stale", sweep,
+         "                      if not n and unusable_exclusion(p) is None)",
+         "                      if not n)"),
+        ("the sweep stops naming an unusable pattern", sweep,
+         "        unusable = unusable_note(excluded_counts)",
+         "        unusable = None"),
+        ("--introduced-since stops naming an unusable pattern", introduced_since,
+         "        unusable = unusable_note(excluded_counts)",
+         "        unusable = None"),
+        # A rule that read no document was said to have "examined nothing",
+        # with two explanations both wrong about it.
+        ("a rule that read nothing is said to have examined nothing", sweep,
+         "    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]",
+         "    blind = [kind for kind, n in examined.items() if n == 0]"),
+        ("the sweep stops recording which rules read a document", sweep,
+         "                    ran.update(doc_examined)",
+         "                    pass"),
+        # The installer asked git with the operator's environment, so a leaked
+        # GIT_DIR made it describe another repository.
+        ("the installer asks git with the operator's environment", detect,
+         "            env=_seam().environment(),\n",
+         ""),
+        # --- Phase 57, the review of the built tranche -----------------------
+        # The sweep's NOTE split reached the diff gate, which adopters run.
+        ("the diff gate says a rule that read nothing examined nothing",
+         introduced_since,
+         "    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]",
+         "    blind = [kind for kind, n in examined.items() if n == 0]"),
+        ("the diff gate stops recording which rules read a document",
+         introduced_since,
+         "                ran.update(doc_examined)",
+         "                pass"),
+        # The reason is the rule's SCOPE; repository rules are not archive
+        # rules either, and a primary read with no entry is not an absent one.
+        ("the did-not-run note keys entry scope on in_archive", session,
+         '        if rule.scope == "newest-entry":',
+         "        if not rule.in_archive:"),
+        ("the did-not-run note calls a read primary document absent", session,
+         '            why = ("the newest entry of the primary document, which has none"\n'
+         "                   if primary_read else",
+         '            why = ("the newest entry of the primary document, which has none"\n'
+         "                   if False else"),
+        # A comment is set aside before any pattern question is asked.
+        ("a comment is named an unusable exclusion", sweep,
+         '    if not body or body.startswith("#"):\n        return None',
+         '    if False:\n        return None'),
+        # git ends a listed name at `\n` alone; splitlines cut real names.
+        ("the installer cuts tracked names where python breaks lines", detect,
+         '_git(repo, "ls-files").split("\\n")',
+         '_git(repo, "ls-files").splitlines()'),
+        # --selftest installed the directory alone: probed as markdown.
+        ("--selftest probes an rst status document as markdown", cli,
+         "    session.set_document(link_base=target.parent, doc_path=rel(repo, target),\n"
+         "                         doc_format=format_for(rel(repo, target)))",
+         "    session.set_document(link_base=target.parent)"),
+        # The patch was generated after the markdown default was put back.
+        ("the primary document's patch reads it as markdown", gate,
+         "        session.install_document(primary_document)\n"
+         "        patch = suggest_renames(",
+         "        patch = suggest_renames("),
+        # A probe chose its claim from the raw text; the checks read prose.
+        ("a probe corrupts a claim inside a code block", probes,
+         "    match = pattern.search(prose(ctx.doc, text))",
+         "    match = pattern.search(text)"),
     ]
 
 
@@ -2403,18 +2530,62 @@ _TESTS_FAILED = 1
 
 
 def run_suite(root: Path, python: str, extra: list[str] | None = None,
-              targets: list[str] | None = None) -> tuple[int, str]:
-    """Run the suite (or `targets` alone): (pytest's exit code, its output)."""
-    proc = subprocess.run(
-        [python, "-m", "pytest", *(extra if extra is not None else _SERIAL),
-         *(targets or [])],
-        cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    return proc.returncode, proc.stdout
+              targets: list[str] | None = None,
+              bound: float | None = None) -> tuple[int | None, str]:
+    """Run the suite (or `targets` alone): (pytest's exit code, its output).
+
+    The exit code is None when the suite outlived `bound` seconds and was
+    ended. It had no bound before Phase 57, so a mutation that made one test
+    wait forever - a git child reading stdin, a pool that never returns -
+    hung a campaign that runs for hours unattended. None is neither a pass
+    nor an ordinary failure, and the caller names it as its own verdict.
+
+    Output goes to a FILE and the whole process tree is ended, because the
+    first version of the bound did neither and did not bind where campaigns
+    run. An xdist worker inherits pytest's stderr; `subprocess.run` answers a
+    timeout on Windows by killing pytest and then reading its pipes to the
+    end, which comes when the last holder exits - and a worker stuck in the
+    hung test never does. A file has no end to wait for, and the tree goes
+    with its root.
+    """
+    with tempfile.TemporaryFile() as sink:
+        proc = subprocess.Popen(
+            [python, "-m", "pytest", *(extra if extra is not None else _SERIAL),
+             *(targets or [])],
+            cwd=root, stdout=sink, stderr=subprocess.DEVNULL,
+            start_new_session=sys.platform != "win32",
+        )
+        code: int | None
+        try:
+            code = proc.wait(timeout=bound)
+        except subprocess.TimeoutExpired:
+            _end_tree(proc)
+            code = None
+        sink.seek(0)
+        return code, sink.read().decode("utf-8", "replace")
 
 
-def run_mutant(root: Path, python: str, parallel: bool) -> tuple[bool, bool]:
-    """(green, overturned): the serial verdict, reached as cheaply as allowed.
+def _end_tree(proc: subprocess.Popen[bytes]) -> None:
+    """End `proc` and every process it started: pytest, its xdist workers,
+    and whatever a hung test was waiting on. Windows has no process group to
+    signal, so `taskkill /T` walks the tree from the root; elsewhere the
+    suite runs in a session of its own and the whole group is killed."""
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    proc.kill()
+    proc.wait()
+
+
+def run_mutant(root: Path, python: str, parallel: bool,
+               bound: float | None = None) -> tuple[bool, bool, bool]:
+    """(green, overturned, hung): the serial verdict, reached as cheaply as
+    allowed, and whether it was reached only by the time bound.
 
     Serial by default, exactly as every campaign before --parallel ran. In
     parallel a SURVIVOR stands as found - the whole suite passed - but a KILL
@@ -2425,17 +2596,24 @@ def run_mutant(root: Path, python: str, parallel: bool) -> tuple[bool, bool]:
     harness prints; a false survivor only asks somebody to look. `overturned`
     says a parallel kill did not survive the serial check, so a campaign can
     report how often that happened.
+
+    `hung` says the serial verdict was a suite that outlived `bound`: a kill,
+    because the suite did not pass, and a WEAK one, because no test failed -
+    the mutation made something wait. Counted with the kills and named apart
+    from them, so a campaign never presents one as the other.
     """
     if not parallel:
-        return run_suite(root, python)[0] == 0, False
-    code, out = run_suite(root, python, _PARALLEL)
+        code = run_suite(root, python, bound=bound)[0]
+        return code == 0, False, code is None
+    code, out = run_suite(root, python, _PARALLEL, bound=bound)
     if code == 0:
-        return True, False
+        return True, False, False
     nodes = sorted(set(_FAILED_NODE.findall(out)))
-    if nodes and run_suite(root, python, targets=nodes)[0] == _TESTS_FAILED:
-        return False, False
-    serial_green = run_suite(root, python)[0] == 0
-    return serial_green, serial_green
+    if nodes and run_suite(root, python, targets=nodes,
+                           bound=bound)[0] == _TESTS_FAILED:
+        return False, False, False
+    serial = run_suite(root, python, bound=bound)[0]
+    return serial == 0, serial == 0, serial is None
 
 
 def main() -> int:
@@ -2520,15 +2698,26 @@ def main() -> int:
     print("      against a tree you have uncommitted work in.\n")
 
     print(f"baseline{' (parallel)' if args.parallel else ''}: ", end="", flush=True)
+    started = time.perf_counter()
     if run_suite(root, args.python, _PARALLEL if args.parallel else None)[0] != 0:
         print("SUITE IS ALREADY RED - aborting, every result below would be noise")
         return 1
-    print("green\n")
+    # Three times what the green suite took, and never under a minute: the
+    # headroom the CI jobs' timeout-minutes were sized with. Under --parallel
+    # a kill is confirmed by a SERIAL run, so the bound must cover one: the
+    # parallel time times the core count, which overstates the serial time
+    # (the speed-up is less than linear) - the safe side for a bound.
+    took = time.perf_counter() - started
+    bound = max(60.0, 3 * (took if not args.parallel
+                           else took * (os.cpu_count() or 1)))
+    print(f"green in {took:.0f} s; each mutant's suite is bounded at "
+          f"{bound:.0f} s\n")
 
     survived: list[str] = []
     killed: list[str] = []
     not_applied: list[str] = []
     overturned: list[str] = []
+    hung: list[str] = []
     for i, (label, path, old, new) in enumerate(mutations, 1):
         original = backups[path]
         if original.count(old) != 1:
@@ -2538,18 +2727,27 @@ def main() -> int:
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(original.replace(old, new, 1))
         try:
-            green, flipped = run_mutant(root, args.python, args.parallel)
+            green, flipped, stalled = run_mutant(root, args.python,
+                                                 args.parallel, bound)
         finally:
             with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(original)
         (survived if green else killed).append(label)
         if flipped:
             overturned.append(label)
-        print(f"{i:>2}/{len(mutations)}  "
-              f"{'SURVIVED **' if green else 'killed     '}  {label}")
+        if stalled:
+            hung.append(label)
+        verdict = ("SURVIVED **" if green
+                   else "killed HUNG" if stalled else "killed     ")
+        print(f"{i:>2}/{len(mutations)}  {verdict}  {label}")
 
     print(f"\nchecked {len(mutations)} mutations: {len(killed)} killed, "
           f"{len(survived)} SURVIVED, {len(not_applied)} not applied")
+    # Said on every campaign, zero included, as the overturned count below is:
+    # a kill only by the time bound means the mutation made something WAIT and
+    # no test failed, which is a weaker kill than it prints as.
+    print(f"killed only by the {bound:.0f} s bound (hung, a weak kill): "
+          f"{len(hung)}" + "".join(f"\n  - {label}" for label in hung))
     if args.parallel:
         # Said on every parallel campaign, zero included: a number that is only
         # printed when it is not zero cannot be told apart from one never counted.

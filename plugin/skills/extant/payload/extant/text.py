@@ -494,15 +494,23 @@ def line_number_at(text: str, offset: int) -> int:
     through every offset of every terminator spelling rather than sampling.
 
     THIS IS NOT THE ONLY LINE NUMBERING IN THE PACKAGE, and a reader who has
-    got this far deserves telling rather than discovering it. Eight sites
-    number lines with `enumerate(..., start=1)` over `splitlines()` - two in
-    extant/commits.py and one each in the line-pointer, manifest-floor,
-    md-anchor, md-link, path-pointer and pinned-ref rules - and two number them
-    from an offset through this function. `splitlines()` breaks on a larger
-    set than `LINE_BREAK` does: form feed, vertical tab, the file separators and
-    the Unicode line separators are all breaks to it and content to this. So a
-    document carrying one of those gets TWO DIFFERENT line numbers for one
-    position, and a finding is reported against the wrong line by whichever
+    got this far deserves telling rather than discovering it. Twelve sites
+    number lines with `enumerate(..., start=1)`, and two number them from an
+    offset through this function. Eleven of the twelve cut by `splitlines()`:
+    two in extant/commits.py, one each in the line-pointer, manifest-floor,
+    md-anchor, path-pointer and pinned-ref rules, the md-link scanner in
+    extant/links.py, `code_lines` in extant/blocks.py with the blanking loop
+    here that reads it, and the TODO scan in extant/collect.py. The twelfth,
+    the SARIF snippet in extant/report.py, iterates a file opened with
+    `newline=""`, which cuts at `\\n`, `\\r` and `\\r\\n` - LINE_BREAK's set.
+    tests/test_line_numbering.py keeps the ledger, read from the syntax tree,
+    so a thirteenth is a decision rather than a drift.
+
+    `splitlines()` breaks on a larger set than `LINE_BREAK` does: form feed,
+    vertical tab, the file separators and the Unicode line separators are all
+    breaks to it and content to this. So a document carrying one of those
+    gets TWO DIFFERENT line numbers for one position, and a finding is
+    reported against the wrong line by whichever
     rule read it:
 
         >>> doc = "alpha\\nbeta\\fgamma\\ndelta HERE\\n"
@@ -512,7 +520,7 @@ def line_number_at(text: str, offset: int) -> int:
 
     Recorded and deliberately NOT repaired here, because the obvious repair is
     wrong in a way that touches every document rather than the rare one. Making
-    the eight agree with this by splitting on `LINE_BREAK` appends a phantom
+    the eleven agree with this by splitting on `LINE_BREAK` appends a phantom
     trailing line to every file ending in a newline - `"alpha\\nbeta\\n"` is two
     lines to `splitlines()` and three to `LINE_BREAK.split()` - so every rule
     that counts lines would gain one, on every ordinary document. Widening
@@ -525,7 +533,7 @@ def line_number_at(text: str, offset: int) -> int:
     strictly, 15 hold one of the breakers `splitlines()` honours and
     `LINE_BREAK` does not - 12 a form feed, 2 `U+2028`, 1 `U+2029` - and 13
     of those sit between backticks on a line. The two numberings can differ
-    on 0.014 per cent of documents, so the eight sites stay as they are and
+    on 0.014 per cent of documents, so those sites stay as they are and
     this paragraph is the record; the count lives in the design rationale
     under "Where a sweep's time goes, measured without the profiler".
     """

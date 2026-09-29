@@ -228,7 +228,7 @@ def probe(ctx: Context, text: str) -> str | None:
     if not other:
         return None  # nothing off-trunk exists here to probe with
     pattern = ctx.config.merge_claim
-    return sub_group(text, pattern, pattern.groups, other[0])
+    return sub_group(ctx, text, pattern, pattern.groups, other[0])
 
 
 RULE = Rule(

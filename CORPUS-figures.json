@@ -1034,6 +1034,19 @@
     },
     "document_changes": 1168,
     "gated": 36,
+    "hand_read": {
+      "by_class": {
+        "own-claim": 3,
+        "quoted": 22,
+        "workspace-prose": 6
+      },
+      "by_verdict": {
+        "floor-read-against-the-host-manifest": 1,
+        "heading-in-a-block-quote": 2
+      },
+      "dead_as_stated": 33,
+      "read": "2026-09-28"
+    },
     "introduced_lines": 24467,
     "judged": 36,
     "ladder_on_these": {
