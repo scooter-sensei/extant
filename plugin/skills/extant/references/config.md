@@ -117,10 +117,13 @@ suite_duration = '(?:in|took) ([\d.]+)s'  # optional; omit and no time is record
 `--suite-json` always works and needs no runner at all: supply
 `{"passed": N, "failed": N, "duration_s": N}` from CI or a script.
 
-## Switching workflow features off
+## Switching a feature or a rule off
 
-Three keys accept an empty value to mean **disabled**, rather than falling back
-to a default:
+Eight keys accept an empty value to mean **off**, rather than falling back to a
+default. Every other key treats a missing value as "use the default", and so do
+these when they are absent - only the empty string switches them off.
+
+Three are workflow features:
 
 ```toml
 phase_task = ''     # no phase or ticket cadence in commit subjects
@@ -132,9 +135,52 @@ This matters because the defaults are *this* project's conventions. Left unset,
 a repo with no phase cadence silently inherits a phase regex and every commit is
 labelled `unknown` - a habit imposed on a project that never had one. With them
 empty, `parse_phase` returns `None` and the bundle reports `plan.enabled =
-false`, both of which are honest.
+false`, both of which are honest. The installer writes `phase_task = ''` and
+`phase_bare = ''` when it finds no convention in the commit subjects it
+samples, and keeps `phase_bare` when they say `Phase N.N`.
 
-The installer leaves these unset when it detects no convention.
+Five are the claim patterns, and switching one off switches off the rules that
+read it:
+
+```toml
+merge_claim  = ''   # false-merge-claim
+live_phrases = ''   # stale-live-claim
+branch_token = ''   # stale-live-claim and unknown-branch
+path_pointer = ''   # dead-path-pointer
+release_tag  = ''   # dead-release-tag
+```
+
+An off rule does not run, and every run says so where it lists the rules that
+read no document - "dead-path-pointer read nothing: `path_pointer` is set empty
+in .extant.toml" - and `--selftest` reports it as `NOT RUN` rather than as a
+rule that stayed silent. `inconsistent-artifact` is off in the same way until a
+`consistency` check is configured.
+
+A pattern that is not empty but matches the empty string - `(x)?`, `a*` - is
+refused when the file loads, and so is one with the wrong number of capture
+groups for its rule (`merge_claim` takes one or two, `live_phrases` any, the
+other three exactly one). Before these were refused, `path_pointer = ''`
+reported 256 examined on a 14-line document and the others raised inside their
+rules on every run.
+
+The installer does NOT switch a claim pattern off when it cannot determine one.
+It leaves it commented out, so the shipped default applies, and says so in the
+file and in its closing advice. It derives a pattern from the document as it
+stands on install day, and `/extant` writes entries after that: off would
+silence every claim written later.
+
+## What a zero means
+
+A rule that examined nothing is named, with the reason:
+
+- **no pattern to set** - the rule reads a token shape (a SHA, a link, a
+  manifest floor), so nothing in the documents has that shape;
+- **under a pattern set in .extant.toml** - either the documents make no such
+  claims, or the pattern does not match how the project writes them;
+- **under the shipped default** - the key is not set here, so the rule ran on
+  extant's own vocabulary. The NOTE names the key to set;
+- **read nothing** - the rule is switched off, reads only the newest entry of a
+  primary document that holds none, or reads only markdown and none was read.
 
 ## Structure
 

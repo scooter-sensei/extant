@@ -103,4 +103,5 @@ RULE = Rule(
     falsifiable="does the branch exist, or appear in any merge commit?",
     probe=probe,
     examined=examined,
+    settings=("branch_token",),
 )

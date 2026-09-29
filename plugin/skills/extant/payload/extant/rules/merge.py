@@ -240,4 +240,5 @@ RULE = Rule(
     falsifiable="is the claimed commit an ancestor of the ref the claim names?",
     probe=probe,
     examined=examined,
+    settings=("merge_claim",),
 )

@@ -30,6 +30,7 @@ from typing import Callable, Generator
 
 from extant import registry as _registry
 from extant.config import Config, StatusConfig, load_config
+from extant.entries import split_entries
 from extant.finding import Finding
 from extant.git import CountingGit, Git, SubprocessGit   # noqa: F401
 #                      ^ CountingGit and SubprocessGit are re-exported: the
@@ -37,17 +38,18 @@ from extant.git import CountingGit, Git, SubprocessGit   # noqa: F401
 #                        these in place of `_GIT` below.
 from extant.registry import RULE_ERRORS, RULES, Rule, forget_memos
 from extant.scope import Context, DocScope, RunScope
-from extant.text import MARKDOWN_ONLY
+from extant.text import MARKDOWN_ONLY, prose
 
 __all__ = [
     "CONFIG", "Config", "Context", "CountingGit", "DocScope",
     "REPO_ROOT", "RULES", "RULE_ERRORS",
-    "Rule", "RunScope", "SubprocessGit", "ancestry_incomplete",
+    "Rule", "RunScope", "SubprocessGit", "UNRUN_NOTE", "ZERO_DEFAULT",
+    "ZERO_SET", "ZERO_SHAPE", "ancestry_incomplete",
     "config", "context", "count_examined",
-    "document", "install_config", "install_document", "reload_config",
-    "report_rule_errors",
-    "rule_applies", "run_scope", "selftest", "set_document", "unrun_note",
-    "validate",
+    "document", "holds_entry", "install_config", "install_document",
+    "reload_config", "report_rule_errors",
+    "rule_applies", "run_scope", "selftest", "set_document", "switched_off",
+    "unread_reason", "unrun_note", "validate", "zero_note",
 ]
 
 # Two levels up from extant/session.py, which is the repository root in both
@@ -349,7 +351,8 @@ def report_rule_errors(emit: Callable[[str], None], mark: int = 0) -> int:
     return len(RULE_ERRORS)
 
 
-def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
+def selftest(repo: Path, text: str
+             ) -> tuple[list[str], int, int, int, int]:
     """Corrupt one real claim per rule and confirm the rule notices.
 
     The question this answers is the one --verify cannot: not "is the document
@@ -371,9 +374,22 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
     three and misreported as one of them.
     """
     lines: list[str] = []
-    fired = unprobeable = errored = 0
+    fired = unprobeable = errored = not_run = 0
     ctx = context(repo)
+    entry_found = holds_entry(text)
     for rule in RULES:
+        # The predicate `--verify` selects rules by, and the owed item it
+        # closes: this probed every rule regardless, so an entry rule was
+        # probed on a document holding no entry, a markdown rule on rst, and
+        # a rule switched off was counted as SILENT - it matched nothing,
+        # fired on nothing and raised nothing, which is how `silent` is
+        # counted - and failed the run it had been switched off to pass.
+        if not rule_applies(rule, False, True, entry_found=entry_found):
+            not_run += 1
+            lines.append(f"  {rule.kind:<20} NOT RUN        reads "
+                         + unread_reason(rule, primary_read=True, absent="",
+                                         read="probed"))
+            continue
         try:
             probed = rule.probe(ctx, text)
         except Exception as exc:                            # noqa: BLE001
@@ -419,11 +435,12 @@ def selftest(repo: Path, text: str) -> tuple[list[str], int, int, int]:
         else:
             lines.append(f"  {rule.kind:<20} DID NOT FIRE   corrupted a real "
                          f"match and the rule stayed silent")
-    return lines, fired, unprobeable, errored
+    return lines, fired, unprobeable, errored, not_run
 
 
 def rule_applies(rule: Rule, in_archive: bool, has_entries: bool, *,
-                 repository_rules: bool = True) -> bool:
+                 repository_rules: bool = True,
+                 entry_found: bool = True) -> bool:
     """Whether `rule` reads a document in this position.
 
     ONE definition, because two callers ask the question: the loop that
@@ -444,7 +461,18 @@ def rule_applies(rule: Rule, in_archive: bool, has_entries: bool, *,
 
     Reads the current document's FORMAT, so the caller must set the document
     in hand before asking.
+
+    Two clauses since Phase 59, both about a rule that would read nothing.
+    A rule whose own setting is switched off reads no document anywhere.
+    And `entry_found` is False when the primary document holds no entry for
+    the newest-entry rules to read - which is not `has_entries`: that says
+    the document is the kind that may hold entries, and the repository rules
+    ride on it, so folding "holds none" into it stopped them running too.
     """
+    if _ACTIVE.off.intersection(rule.settings):
+        return False
+    if rule.scope == "newest-entry" and not entry_found:
+        return False
     primary = not in_archive and has_entries
     if rule.scope == "repository" and not (primary and repository_rules):
         # Repository-wide, so it must not be repeated for the archive and
@@ -460,6 +488,15 @@ def rule_applies(rule: Rule, in_archive: bool, has_entries: bool, *,
         # something else wearing its shape.
         return False
     return True
+
+
+# The fixed words of each zero NOTE, named so a test finds its line by the
+# same words this module prints. A test filtering output for a phrase the NOTE
+# no longer holds passes every negative assertion made of it.
+UNRUN_NOTE = "these rules read no document here"
+ZERO_SHAPE = "and read no pattern a project sets"
+ZERO_SET = "under a pattern set in .extant.toml"
+ZERO_DEFAULT = "under the shipped default"
 
 
 def unrun_note(rules: list[Rule], *, primary_read: bool, absent: str,
@@ -478,23 +515,110 @@ def unrun_note(rules: list[Rule], *, primary_read: bool, absent: str,
     """
     groups: dict[str, list[str]] = {}
     for rule in rules:
-        if rule.scope == "newest-entry":
-            why = ("the newest entry of the primary document, which has none"
-                   if primary_read else
-                   f"the newest entry of the primary document, and {absent}")
-        elif rule.scope == "repository":
-            why = "the repository as a whole, in a pass that did not run"
-        elif rule.kind in MARKDOWN_ONLY:
-            why = f"markdown, and none was {read}"
-        else:
-            why = "a kind of document none here is"
+        why = unread_reason(rule, primary_read=primary_read, absent=absent,
+                            read=read)
         groups.setdefault(why, []).append(rule.kind)
     if not groups:
         return None
-    return ("  NOTE: these rules read no document here, which is not reading "
-            "one and finding nothing: "
-            + "; ".join(f"{', '.join(kinds)} read only {why}"
+    return (f"  NOTE: {UNRUN_NOTE}, which is not reading one and finding "
+            "nothing: "
+            + "; ".join(f"{', '.join(kinds)} read {why}"
                         for why, kinds in groups.items()))
+
+
+def unread_reason(rule: Rule, *, primary_read: bool, absent: str,
+                  read: str) -> str:
+    """What `rule` reads, when it read nothing here: the clause of
+    `rule_applies` that refused it, in words. Completes "... read ".
+
+    One function, because two outputs say it - the NOTE above and the
+    `--selftest` line - and a reason written twice is two reasons.
+    """
+    off = [key for key in rule.settings if key in _ACTIVE.off]
+    if off:
+        return "nothing: " + " and ".join(
+            "no `consistency` check is configured" if key == "consistency"
+            else f"`{key}` is set empty in .extant.toml, which switches it off"
+            for key in off)
+    if rule.scope == "newest-entry":
+        why = ("the newest entry of the primary document, which has none"
+               if primary_read else
+               f"the newest entry of the primary document, and {absent}")
+    elif rule.scope == "repository":
+        why = "the repository as a whole, in a pass that did not run"
+    elif rule.kind in MARKDOWN_ONLY:
+        why = f"markdown, and none was {read}"
+    else:
+        why = "a kind of document none here is"
+    return "only " + why
+
+
+def switched_off() -> list[str]:
+    """The rules a setting of their own switches off, for the machine
+    formats: SARIF states them as disabled rather than as blind."""
+    return [rule.kind for rule in RULES
+            if _ACTIVE.off.intersection(rule.settings)]
+
+
+def holds_entry(text: str) -> bool:
+    """Whether `text` holds an entry for the newest-entry rules to read.
+
+    Asked the way those rules ask it - the prose, split into sections, the
+    first of kind "phase" - so the answer cannot differ from theirs. Reads the
+    current document's format, like `rule_applies`. Measured over the 39
+    visible benchmark installs, 25 primary documents held none: 23 because
+    `entry_prefix` was undetermined and the default `## Phase ` matched no
+    header, and every one printed the entry rules as having matched nothing.
+    """
+    _preamble, segments, _base = split_entries(prose(_DOC, text), _ACTIVE)
+    return any(kind == "phase" for kind, _entry in segments)
+
+
+def zero_note(kinds: list[str], *, did: str, claims: str) -> list[str]:
+    """The NOTE lines for rules that READ a document and examined nothing,
+    one line per cause - or none. `did` is what the caller says they did
+    ("matched nothing at all"), `claims` its first explanation ("this
+    document makes no such claims").
+
+    It printed one sentence for three causes. Over 139 corpus sweeps it
+    named 1,115 zeros, and its second explanation - the pattern does not
+    match how the project writes - was impossible for the 642 whose rules
+    read no pattern, and unhelpful for the 334 running on a default nobody
+    set, because it did not say that is what they ran on. A rule's
+    `settings` says which it is, and the configuration says whether the
+    project set them.
+    """
+    by_kind = {rule.kind: rule for rule in RULES}
+    shape: list[str] = []
+    chosen: list[str] = []
+    default: list[str] = []
+    for kind in kinds:
+        rule = by_kind.get(kind)
+        if rule is None or not rule.settings:
+            shape.append(kind)
+            continue
+        unset = [key for key in rule.settings if key not in _ACTIVE.configured]
+        if unset:
+            default.append(f"{kind} ({', '.join(unset)})")
+        else:
+            chosen.append(f"{kind} ({', '.join(rule.settings)})")
+    lines = []
+    if shape:
+        lines.append(f"  NOTE: these rules {did}, {ZERO_SHAPE}, so nothing "
+                     f"here is of the shape they look for: {', '.join(shape)}")
+    if chosen:
+        lines.append(f"  NOTE: these rules {did} {ZERO_SET} - either {claims}, "
+                     f"or the pattern does not match how this project writes "
+                     f"them: {', '.join(chosen)}")
+    if default:
+        # Stated as a fact, not as an accusation: the shipped default is the
+        # vocabulary extant was built on, and for this repository and Cerene
+        # it is their own. What the reader needs is the lever - the key.
+        lines.append(f"  NOTE: these rules {did} {ZERO_DEFAULT}, which "
+                     f".extant.toml does not set - either {claims}, or this "
+                     f"project writes them in words the default does not "
+                     f"match: {', '.join(default)}")
+    return lines
 
 
 @contextmanager
@@ -550,7 +674,8 @@ def run_scope() -> Generator[RunScope, None, None]:
 def validate(repo: Path, text: str, *, in_archive: bool = False,
              has_entries: bool = True, base: Path | None = None,
              doc: str | None = None,
-             repository_rules: bool = True) -> list[Finding]:
+             repository_rules: bool = True,
+             entry_found: bool = True) -> list[Finding]:
     """Run every rule that applies to this KIND of document.
 
     The caller says what the document IS; the registry decides which rules
@@ -581,6 +706,10 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
     so the same fault was reported twice - once attributed to the status
     document and once to the file that actually declares it. See
     `rule_applies`.
+
+    `entry_found` is False when a primary document holds no entry, so the
+    newest-entry rules have nothing to read and do not run: `holds_entry` of
+    the text, asked by the caller, which also needs it to word the zeros.
 
     `base` is the DIRECTORY the text came from, because a relative markdown link
     resolves against its own file rather than against the repository root. The
@@ -646,7 +775,8 @@ def validate(repo: Path, text: str, *, in_archive: bool = False,
         findings: list[Finding] = []
         for rule in RULES:
             if not rule_applies(rule, in_archive, has_entries,
-                                repository_rules=repository_rules):
+                                repository_rules=repository_rules,
+                                entry_found=entry_found):
                 continue
             try:
                 findings += rule.check(ctx, text)

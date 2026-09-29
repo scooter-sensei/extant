@@ -890,3 +890,129 @@ def test_a_preset_consistency_check_needs_its_files_to_exist(tmp_path) -> None:
         "with both files present and both patterns matching, the preset must "
         "emit its consistency check - otherwise the assertion above is vacuous"
     )
+
+
+# --- what the installer says about a setting it could not determine ---------
+#
+# Run over the 39 visible benchmark rows on 2026-09-29, the installer left at
+# least three claim patterns undetermined in all 39, wrote them commented out,
+# and closed with "Rules with no pattern check nothing" - while every one of
+# them ran on the pattern extant ships, because a commented-out key is an
+# absent one. The design first proposed switching them OFF instead and was
+# reversed: the installer derives a pattern from the document as it stands on
+# install day, `/extant` writes entries after it, and off would silence every
+# claim written later. So they stay on the default, and the files and the
+# closing advice say so.
+
+def test_an_undetermined_pattern_is_left_to_the_shipped_default_and_says_so(
+        tmp_path) -> None:
+    repo = make_repo(tmp_path, **{"README.md": README})
+    result = run_installer(repo, "--preset", "readme")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    text = (repo / ".extant.toml").read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if ln.startswith("# merge_claim"))
+    assert "shipped default" in line and "''" in line, line
+    cfg = config_of(repo)
+    for key in ("merge_claim", "live_phrases", "path_pointer"):
+        assert key not in cfg, f"{key} was written as if it had been measured"
+
+    shipped = next((ln for ln in result.stdout.splitlines()
+                    if "SHIPPED DEFAULT:" in ln), "")
+    for key in ("merge_claim", "live_phrases", "path_pointer"):
+        assert key in shipped, result.stdout
+    assert "check nothing" not in result.stdout, result.stdout
+
+
+def test_a_default_observation_is_not_written_as_if_measured(tmp_path) -> None:
+    """`release_tag` with no version-shaped tags was written live as the
+    default pattern, marked [default], so the file read as a project that
+    had set it - the one thing the run now reports differently."""
+    repo = make_repo(tmp_path, **{"README.md": README})
+    assert run_installer(repo, "--preset", "readme").returncode == 0
+    assert "release_tag" not in config_of(repo)
+    text = (repo / ".extant.toml").read_text(encoding="utf-8")
+    assert any(ln.startswith("# release_tag") for ln in text.splitlines()), text
+
+
+def test_phase_grouping_is_switched_off_when_no_convention_is_found(
+        tmp_path) -> None:
+    """Item (i). `extant/collect.py`'s `parse_phase` says the installer leaves
+    these unset when it detects no convention, meaning OFF; unset meant the
+    shipped phase patterns, and every commit was labelled "unknown" - the
+    failure DISABLEABLE's own comment was written about. 39 of 39 benchmark
+    installs were in that state."""
+    repo = make_repo(tmp_path, **{"NEXT_SESSION.md": "# Status\n\nNothing.\n"})
+    result = run_installer(repo)
+    assert result.returncode == 0, result.stdout + result.stderr
+    cfg = config_of(repo)
+    assert cfg.get("phase_task") == "" and cfg.get("phase_bare") == "", cfg
+    off = next((ln for ln in result.stdout.splitlines() if "OFF:" in ln), "")
+    assert "phase_task" in off and "phase_bare" in off, result.stdout
+
+
+def test_a_bare_phase_convention_keeps_its_pattern(tmp_path) -> None:
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    from extant.config import DEFAULTS
+
+    repo = make_repo(tmp_path, **{"NEXT_SESSION.md": "# Status\n\nNothing.\n"})
+    for n in range(4):
+        (repo / f"f{n}.txt").write_text("x\n", encoding="utf-8")
+        for cmd in (["add", "-A"], ["commit", "-m", f"Phase 1.{n}: work"]):
+            subprocess.run(["git", *cmd], cwd=repo, capture_output=True,
+                           check=True)
+    assert run_installer(repo).returncode == 0
+    cfg = config_of(repo)
+    assert cfg.get("phase_task") == ""
+    assert cfg.get("phase_bare") == DEFAULTS["phase_bare"], cfg
+
+
+def test_the_closing_advice_says_what_each_setting_will_do() -> None:
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    from detect import Observation
+    from install import closing_advice
+
+    text = "\n".join(closing_advice([
+        Observation("merge_claim", None, "unknown", ""),
+        Observation("live_phrases", None, "default", ""),
+        Observation("release_tag", "(v1)", "default", ""),
+        Observation("trunk", "main", "unknown", ""),
+        Observation("phase_task", "", "unknown", ""),
+        Observation("branch_token", "`(x)`", "guessed", ""),
+        Observation("primary_doc", "README.md", "derived", ""),
+    ]))
+    assert "SHIPPED DEFAULT: merge_claim, live_phrases, release_tag" in text
+    assert "OFF: phase_task" in text
+    assert "NOT VERIFIED: trunk" in text
+    assert "LOW CONFIDENCE: branch_token" in text
+    assert "check nothing" not in text and "primary_doc" not in text
+
+
+def test_the_installer_knows_which_settings_can_be_switched_off() -> None:
+    """Its own copy, because it cannot import the payload; pinned to it."""
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    from extant.config import DISABLEABLE
+    from install import SWITCHABLE
+
+    assert SWITCHABLE == DISABLEABLE
+
+
+def test_the_derived_table_names_a_default_and_an_off_setting(tmp_path) -> None:
+    """The table above the advice printed "NOT DETERMINED" for a setting
+    that runs on the shipped default, and a blank for one switched off."""
+    repo = make_repo(tmp_path, **{"README.md": README})
+    result = run_installer(repo, "--preset", "readme")
+    table = result.stdout.split("derived configuration", 1)[1].split(
+        "still needs you", 1)[0]
+    rows = {ln.split()[0]: ln for ln in table.splitlines()
+            if ln.strip() and ln.startswith("  ") and not ln.startswith("   ")}
+    assert "shipped default" in rows["merge_claim"], rows["merge_claim"]
+    assert "'' (off)" in rows["phase_task"], rows["phase_task"]
+    assert "NOT DETERMINED" not in table, table

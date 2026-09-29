@@ -174,7 +174,12 @@ corpora knows a re-sweep is owed.
 **Every check must report its denominator.** "0 findings" and "0 examined" print
 identically, so a broken check is indistinguishable from a clean result. State
 what was examined. This project hit that failure repeatedly, and reading the
-code caught none of them, because the defect is an absence.
+code caught none of them, because the defect is an absence. And a zero must say
+WHY: a rule declares in `Rule.settings` the configuration keys its vocabulary
+comes from - none, for a rule keyed on a token shape - and the run words each
+zero by that and by whether the project set those keys.
+`tests/test_what_a_zero_means.py` reads every rule module and fails when what
+it reads and what it declares differ.
 
 **One claim, one scanner.** The recurring shape of that absence is a rule whose
 `check` and whose `examined` walk the document separately - two readers of one

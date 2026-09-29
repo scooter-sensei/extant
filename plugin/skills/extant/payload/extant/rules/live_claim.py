@@ -162,4 +162,7 @@ RULE = Rule(
     falsifiable="is the named branch on an integration branch, or gone entirely?",
     probe=probe,
     examined=examined,
+    # Two, and both are vocabulary: the phrase says a claim is being made,
+    # the token says what it is about. Either one unset is a default in use.
+    settings=("live_phrases", "branch_token"),
 )

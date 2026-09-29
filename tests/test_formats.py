@@ -193,7 +193,11 @@ def test_sarif_carries_the_denominator(tmp_path) -> None:
     """
     from extant import report
 
-    doc = json.loads(report.format_sarif([], examined={"dead-sha": 12, "raw-lfs-blob": 0}))
+    printed = ("  NOTE: these rules matched nothing at all, and read no "
+               "pattern a project sets, so nothing here is of the shape they "
+               "look for: raw-lfs-blob")
+    doc = json.loads(report.format_sarif(
+        [], examined={"dead-sha": 12, "raw-lfs-blob": 0}, notes=[printed]))
     run = doc["runs"][0]
 
     assert run["properties"]["examined"]["dead-sha"] == 12
@@ -201,8 +205,10 @@ def test_sarif_carries_the_denominator(tmp_path) -> None:
              for n in run["invocations"][0]["toolExecutionNotifications"]]
     assert any("dead-sha 12" in n for n in notes), notes
     # A rule that examined nothing is named, not left for the reader to spot
-    # in a long line - the same NOTE the text output prints.
-    assert any("raw-lfs-blob" in n and "nothing" in n for n in notes), notes
+    # in a long line - by the same NOTE the text output prints, word for word
+    # since Phase 59. It used to work out its own list, and never learned
+    # the split the text made in Phase 57.
+    assert printed.strip().removeprefix("NOTE: ") in notes, notes
 
 
 def test_sarif_points_at_the_claim_not_just_the_line(tmp_path) -> None:

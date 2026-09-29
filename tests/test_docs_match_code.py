@@ -307,3 +307,19 @@ def test_the_harness_readme_still_counts_the_properties_it_claims() -> None:
         f"{contrived} of {watched} breakages are marked contrived, but the "
         f"README says {contrived_claim.group(0)}"
     )
+
+
+def test_every_setting_an_empty_value_switches_off_is_documented() -> None:
+    """`''` means OFF for eight settings since Phase 59, and default for the
+    rest - a difference a reader cannot guess, so each one is named, set
+    empty, in the section of `references/config.md` that says so."""
+    sys.path.insert(0, str(SKILL_ROOT / "payload"))
+    from extant.config import DISABLEABLE
+
+    text = (SKILL_ROOT / "references" / "config.md").read_text(encoding="utf-8")
+    start = text.index("## Switching")
+    section = text[start:text.index("\n## ", start + 1)]
+    missing = sorted(key for key in DISABLEABLE
+                     if not re.search(rf"^{key}\s*=\s*''", section, re.M))
+    assert not missing, (
+        f"references/config.md does not show these switched off: {missing}")

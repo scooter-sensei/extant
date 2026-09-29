@@ -24,6 +24,8 @@ EXPECTED = {
     "live_phrases", "branch_token", "path_pointer", "merge_claim",
     "release_tag", "release_claims_are_ours", "section_header",
     "todo_excluded_files", "todo_excluded_dir_prefix",
+    # Where each setting came from, since Phase 59: what a zero means.
+    "configured", "off",
 }
 
 

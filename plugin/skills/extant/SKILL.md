@@ -306,7 +306,9 @@ stays silent after its own probe is not working. A rule may instead report
 NO PROBE, meaning the repository offered nothing safe to corrupt - no claim of
 that kind exists here. That is an expected outcome rather than a failure, but
 it is not evidence the rule works either, which is why it is printed rather
-than folded into the pass count. Probes mutate the project's
+than folded into the pass count. A rule this document is not read by - one
+switched off by its own setting, an entry rule on a document holding no entry
+- reports NOT RUN with the reason, and is never probed. Probes mutate the project's
 actual prose rather than injecting invented text, so what is exercised is this
 configuration against this writing; a synthetic probe written in the default
 vocabulary would only prove the defaults match the defaults.

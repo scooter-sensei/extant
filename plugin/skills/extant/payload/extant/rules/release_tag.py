@@ -281,4 +281,5 @@ RULE = Rule(
     falsifiable="does the tag exist, and is it on an integration branch?",
     probe=probe,
     examined=examined,
+    settings=("release_tag",),
 )

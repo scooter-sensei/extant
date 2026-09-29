@@ -2449,14 +2449,16 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                pass"),
         # The reason is the rule's SCOPE; repository rules are not archive
         # rules either, and a primary read with no entry is not an absent one.
+        # Retargeted in Phase 59, when the reasons moved into `unread_reason`
+        # so `--selftest` prints the same words: one indent level shallower.
         ("the did-not-run note keys entry scope on in_archive", session,
-         '        if rule.scope == "newest-entry":',
-         "        if not rule.in_archive:"),
+         '    if rule.scope == "newest-entry":',
+         "    if not rule.in_archive:"),
         ("the did-not-run note calls a read primary document absent", session,
-         '            why = ("the newest entry of the primary document, which has none"\n'
-         "                   if primary_read else",
-         '            why = ("the newest entry of the primary document, which has none"\n'
-         "                   if False else"),
+         '        why = ("the newest entry of the primary document, which has none"\n'
+         "               if primary_read else",
+         '        why = ("the newest entry of the primary document, which has none"\n'
+         "               if False else"),
         # A comment is set aside before any pattern question is asked.
         ("a comment is named an unusable exclusion", sweep,
          '    if not body or body.startswith("#"):\n        return None',
@@ -2479,6 +2481,83 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a probe corrupts a claim inside a code block", probes,
          "    match = pattern.search(prose(ctx.doc, text))",
          "    match = pattern.search(text)"),
+        # --- Phase 59, what a zero means ------------------------------------
+        # A rule's declared vocabulary is what its zero is worded by.
+        ("a keyed rule declares no setting", rules / "merge.py",
+         '    settings=("merge_claim",),',
+         "    settings=(),"),
+        # Where each setting came from, read off the file.
+        ("the settings forget which keys the file set",
+         collect.parent / "extant/config.py",
+         "        configured = frozenset(overrides)",
+         "        configured = frozenset()"),
+        ("an empty pattern is not recorded as off",
+         collect.parent / "extant/config.py",
+         '        off=frozenset(key for key in DISABLEABLE if values[key] in (None, ""))',
+         "        off=frozenset()"),
+        ("an empty claim pattern means nothing again",
+         collect.parent / "extant/config.py",
+         '        if pattern == "":\n            return _switched_off(key)',
+         "        if False:\n            return _switched_off(key)"),
+        ("a pattern matching the empty string is accepted",
+         collect.parent / "extant/config.py",
+         '        if regex.match("") is not None:',
+         "        if False:"),
+        ("a pattern with the wrong group count is accepted",
+         collect.parent / "extant/config.py",
+         "        if wanted is not None and regex.groups not in wanted:",
+         "        if False:"),
+        # Off is a state: the rule does not run, and every output says so.
+        ("a switched-off rule runs anyway", session,
+         "    if _ACTIVE.off.intersection(rule.settings):\n        return False",
+         "    if False:\n        return False"),
+        ("an entry rule reads a document holding no entry", session,
+         '    if rule.scope == "newest-entry" and not entry_found:',
+         "    if False:"),
+        ("a switched-off rule is given a scope's reason", session,
+         '    if off:\n        return "nothing: "',
+         '    if False:\n        return "nothing: "'),
+        ("the sweep's repository pass runs a switched-off rule", sweep,
+         "                        or not session.rule_applies(rule, False, True)):",
+         "                        or False):"),
+        ("--selftest probes a rule the document is not read by", session,
+         "        if not rule_applies(rule, False, True, entry_found=entry_found):",
+         "        if False:"),
+        # One classifier: a zero is worded by its cause.
+        ("a zero no pattern could explain is blamed on one", session,
+         "        if rule is None or not rule.settings:",
+         "        if rule is None:"),
+        ("a zero on the shipped default is said to be the project's", session,
+         "        unset = [key for key in rule.settings if key not in _ACTIVE.configured]",
+         "        unset = []"),
+        ("--verify says a rule that read nothing matched nothing", gate,
+         "    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]",
+         "    blind = [kind for kind, n in examined.items() if n == 0]"),
+        # SARIF says what the text says.
+        ("SARIF drops the NOTE lines the text printed", report,
+         "                for line in notes or []]",
+         "                for line in []]"),
+        ("SARIF reports a run with a raised rule as successful", report,
+         '            "executionSuccessful": not errors,',
+         '            "executionSuccessful": True,'),
+        ("SARIF does not name a switched-off rule as disabled", report,
+         "        if off:\n            # SARIF's own words",
+         "        if False:\n            # SARIF's own words"),
+        # The installer says what an undetermined setting will do.
+        ("the installer writes a [default] value as if measured",
+         detect.parent / "install.py",
+         "        if o.value is None or o.confidence == DEFAULT:",
+         "        if o.value is None:"),
+        ("the closing advice forgets a [default] value runs the default",
+         detect.parent / "install.py",
+         "               if o.value is None or o.confidence == DEFAULT]",
+         "               if o.value is None]"),
+        ("phase grouping inherits the shipped pattern again", detect,
+         '            "phase_task", "", UNKNOWN,',
+         '            "phase_task", None, UNKNOWN,'),
+        ("no branches to sample invents a third vocabulary", detect,
+         '            "branch_token", None, DEFAULT,',
+         '            "branch_token", r"`((?:feature|feat|fix)/[^`]+)`", DEFAULT,'),
     ]
 
 

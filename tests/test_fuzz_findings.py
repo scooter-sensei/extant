@@ -156,8 +156,14 @@ def test_a_cross_file_anchor_is_counted_by_the_rule_that_judges_it(
     examined = _examined(doc)
     assert examined["dead-md-anchor"] >= len(found), examined
 
-    note = [line for line in _sweep(repo).stderr.splitlines()
+    # STDOUT. This read stderr, where a text-format sweep prints no NOTE, so
+    # the list was always empty and the assertion below could never fail -
+    # found on 2026-09-29 while rewording the NOTE, which is the change it
+    # would otherwise have survived unnoticed. The lines are asserted to
+    # exist first, so the next change of stream cannot hide them again.
+    note = [line for line in _sweep(repo).stdout.splitlines()
             if "examined nothing anywhere here" in line]
+    assert note, "no zero NOTE printed at all; the check below is vacuous"
     assert not [line for line in note if "dead-md-anchor" in line], note
 
 

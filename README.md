@@ -59,27 +59,31 @@ was never merged:
 $ extant --repo . --sweep
 
 UNREVIEWED - surveyed only, not gated
+docs/plans/phase-3.md: line 3: [false-merge-claim] claims work merged to main at `096aa5d`, but that commit is not an ancestor of main
 docs/plans/phase-3.md: line 4: [dead-sha] `8f2a91c` does not resolve in this repo
-docs/plans/phase-3.md: line 3: [false-merge-claim] claims work merged to main at `1828109`, but that commit is not an ancestor of main
 docs/plans/phase-3.md: line 6: [dead-path-pointer] points at `docs/plans/phase-2.md`, which does not exist
 
 swept 2 markdown file(s): 0 configured (0 finding(s)), 2 unreviewed (3 finding(s))
-  2 repository-wide rule(s) ran once (0 finding(s))
-  examined: dead-sha 1, stale-live-claim 0, unknown-branch 0, false-merge-claim 1, dead-release-tag 0, dead-path-pointer 1, dead-md-link 0, dead-md-anchor 0, inconsistent-artifact 0, dead-pinned-ref 0, raw-lfs-blob 0, manifest-floor-mismatch 0, dead-line-pointer 0
-  NOTE: these rules examined nothing anywhere here - either no document makes such claims, or the pattern does not match how this project writes them: stale-live-claim, unknown-branch, dead-release-tag, dead-md-link, dead-md-anchor, inconsistent-artifact, dead-pinned-ref, raw-lfs-blob, manifest-floor-mismatch, dead-line-pointer
+  1 repository-wide rule(s) ran once (0 finding(s))
+  examined: dead-sha 2, stale-live-claim 0, unknown-branch 0, false-merge-claim 1, dead-release-tag 0, dead-path-pointer 1, dead-md-link 0, dead-md-anchor 0, inconsistent-artifact 0, dead-pinned-ref 0, raw-lfs-blob 0, manifest-floor-mismatch 0, dead-line-pointer 0
+  NOTE: these rules examined nothing anywhere here, and read no pattern a project sets, so nothing here is of the shape they look for: dead-md-link, dead-md-anchor, dead-pinned-ref, raw-lfs-blob, manifest-floor-mismatch, dead-line-pointer
+  NOTE: these rules examined nothing anywhere here under the shipped default, which .extant.toml does not set - either no document makes such claims, or this project writes them in words the default does not match: dead-release-tag (release_tag)
+  NOTE: these rules read no document here, which is not reading one and finding nothing: stale-live-claim, unknown-branch read only the newest entry of the primary document, and none is here; inconsistent-artifact read nothing: no `consistency` check is configured
   nothing is configured, so nothing here can fail. Set primary_doc or extra_docs in .extant.toml to gate on a file.
 ```
 
-That is real output, not an illustration. The middle line is the one nothing
+That is real output, not an illustration. The first finding is the one nothing
 else will give you: **the commit exists, and the sentence about it is still
 false.** Answering that means asking git for ancestry, which a text linter has
 no way to do.
 
-The last three lines count what it **looked at**, not what it found, and on a
-repository this small most rules have nothing to bite on. Saying so is the
-point: a rule reporting `0` examined either has no such claims to read here or
-does not recognise how this project writes them, and neither is the same as a
-pass. It matters as much as the findings, and
+The lines after the findings count what it **looked at**, not what it found,
+and on a repository this small most rules have nothing to bite on. Saying so is
+the point, and so is saying WHY each zero is a zero: a rule that reads a token
+shape found none of that shape; a rule that reads a phrase ran on the pattern
+extant ships, because nothing here sets one, and the NOTE names the key; and a
+rule that read no document is named apart, with the reason. None of those is
+the same as a pass. It matters as much as the findings, and
 [there is a section about why](#every-check-reports-its-denominator).
 
 ## Try it in one line

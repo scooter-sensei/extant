@@ -382,6 +382,24 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         finally:
             session.install_document(previous_document)
 
+    # Split as the sweep splits it since Phase 57: both explanations are
+    # wrong about a rule that read no changed document - an entry rule on a
+    # change that left the primary document alone, a markdown rule on one
+    # that touched only reStructuredText - so it is named apart, with why.
+    # Worded by cause since Phase 59, and worked out before the findings are
+    # rendered, because SARIF carries the same lines.
+    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
+    notes = session.zero_note(
+        blind, did="examined nothing in the changed documents",
+        claims="they make no such claims")
+    unrun = session.unrun_note(
+        [rule for rule in session.RULES
+         if rule.kind in examined and rule.kind not in ran],
+        primary_read=primary in kept,
+        absent="it is not among the changed documents", read="changed")
+    if unrun:
+        notes.append(unrun)
+
     if fmt == "text":
         for line in render_findings(gating, fmt)[0]:
             print(line, file=out)
@@ -390,6 +408,8 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         # result, and a machine consumer handed zero bytes fails its upload
         # rather than reading "no results".
         for line in render_findings(gating, fmt, repo, examined=examined,
+                                    notes=notes, off=session.switched_off(),
+                                    errors=list(RULE_ERRORS),
                                     run_kind="introduced-since")[0]:
             print(line)
 
@@ -405,23 +425,8 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     print("  examined: " + ", ".join(f"{kind} {n}"
                                      for kind, n in examined.items()), file=out)
     session.report_rule_errors(lambda line: print(line, file=out))
-    # Split as the sweep splits it since Phase 57: both explanations are
-    # wrong about a rule that read no changed document - an entry rule on a
-    # change that left the primary document alone, a markdown rule on one
-    # that touched only reStructuredText - so it is named apart, with why.
-    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
-    if blind:
-        print("  NOTE: these rules examined nothing in the changed documents "
-              "- either they make no such claims, or the pattern does not "
-              "match how this project writes them: " + ", ".join(blind),
-              file=out)
-    unrun = session.unrun_note(
-        [rule for rule in session.RULES
-         if rule.kind in examined and rule.kind not in ran],
-        primary_read=primary in kept,
-        absent="it is not among the changed documents", read="changed")
-    if unrun:
-        print(unrun, file=out)
+    for line in notes:
+        print(line, file=out)
     repository_rules = [rule.kind for rule in session.RULES
                         if rule.scope == "repository"]
     print(f"  {len(repository_rules)} repository-wide rule(s) not run: their "
