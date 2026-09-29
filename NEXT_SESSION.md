@@ -6,6 +6,71 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 58 - The differential gate, measured and refused: what a change breaks without writing it (unreleased, 2026-09-29)
+
+**Status.** Measurement only. No shipped file changed, so there is no
+CHANGELOG entry and the suite is unchanged: 1,455 tests across 77 files,
+of which 1,447 pass and 8 skip on this machine. Thirteen rules; no mode
+added; no default or exit code moved. The tool remained released as 0.28.0.
+Phase 57 reached `main` as pull request 22, beside Phases 55 and 56, and
+the release that will carry the three is decided and held. `python -m mypy`: no issues in 44
+files.
+
+**What it asked.** `--introduced-since` gates on the claims a change wrote.
+The scrutiny of pull request 13 said it misses the claims a change broke
+without writing them, and proposed a sweep differential: base against head,
+with every finding sorted into introduced, broken, standing or repaired. Its
+bars were that broken be at least ten times introduced, that broken
+precision be near 95 per cent, and that no flip occur which the change did
+not cause.
+
+**What was measured.** The Phase 47 replay's 650 changes across the 13
+autopsy clones: 663 trees, each swept once, in 29.8 minutes with 0 errors.
+The buckets compare multisets of fingerprints, once on today's fingerprint
+and once with the four details that carry a moving value normalised. Six
+design errors were caught before the run: three premises that failed
+against the rows, and three gaps in the candidate shape.
+
+- The oracle held. Introduced plus rewritten equalled the gate's own gated
+  findings in every one of the 650 changes, 30 and 30. A gap audit of the
+  built tranche added three wider checks over all 650 - the findings the
+  gate sets aside (175), its changed documents, its introduced lines - and
+  0 changes disagree on any.
+- Broken is 4, all in one change, against 30 introduced: a ratio of 0.13
+  against a bar of 10.
+- All four were read by hand, and all four are dead as stated. A
+  prometheus/docs merge moved a duplicate "Slack channel" heading off a page
+  and left four links to its `-1` slug. Four of four settles nothing
+  against a 95 per cent bar.
+- 0 broken findings sat in a document the change did not touch. The
+  proposal's own example occurred 0 times in 650 changes, and had few
+  chances to: 24 changes deleted or renamed any file, and of the 3 that
+  deleted a file another document named, two fixed that document in the
+  same change. 48 changes removed 1,853 anchors between them, and exactly 4
+  links at the head still targeted one - the four above, all reported.
+- The repository-scoped rules examined nothing in any tree, so the case of
+  a version bumped in one file of two is unmeasured here, not zero.
+- 0 flips were in a document and target the change left alone. Today's
+  fingerprint churned once in 650 changes: a line pointer whose target
+  shrank while the pointer stayed dead. That is the baseline debt's count,
+  and it is small because the population holds only 12 findings of the
+  four churning kinds: 1 of its 3 line pointers moved within 50 changes.
+  The debt stays owed.
+- Two sweeps cost 10.2 times the gate over the same 650 changes.
+- Ref attribution is empty by construction on this population.
+
+**D2: refused.** A narrower differential, over the changed documents alone,
+would have caught all four, at a cost estimated but not measured. It is
+recorded, not proposed, because at 4 against 30 it misses the same bar. The
+agent tier, where documents move fastest, cannot be replayed offline, so
+it is the population to measure first if the question is ever reopened.
+
+Everything is in the section "The differential gate, measured and refused:
+what a change breaks without writing it" in the design rationale under the
+skill's references. CORPUS.md carries the buckets, rendered from its figures
+like every other number there, under "What a change breaks without writing
+it".
+
 ## Phase 57 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer (unreleased, 2026-09-28)
 
 **Status.** Suite is 1,455 tests across 77 files. On this machine 1,447 pass

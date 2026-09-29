@@ -189,6 +189,68 @@ Population, stated: 3 of the 13 - `Aider-AI/aider`, `astral-sh/ruff`,
 through their autopsy copies, which every identity run has swept. The
 repository carrying the findings, `obra/superpowers`, is not one of them.
 
+## What a change breaks without writing it
+
+`--introduced-since` gates on the claims a change wrote, and says it does not
+see the ones a change breaks without writing them - a moved file leaving
+another document's link pointing nowhere, a heading removed under a link. A
+differential would: the same 650 changes as the replay above, each swept at its
+commit and at its first parent (663 trees across 13 clones), every finding
+compared as a multiset of fingerprints and sorted into buckets. The buckets use
+the fingerprint with its moving values made stable - a line pointer's line
+total, a manifest's spec - and today's raw fingerprint is kept beside them.
+Measured 2026-09-29, with the package the replay was re-run with that day,
+whose gate flags 30 findings on these changes where the replay's package
+flagged 36.
+
+| bucket | findings | changes | today's raw fingerprint |
+|:---|---:|---:|---:|
+| introduced - new, on a line the change wrote (today's gate) | 30 | 8 | 30 in 8 |
+| broken - new, on a line it did not write (the proposal) | 4 | 1 | 5 in 2 |
+| broken, from a repository-scoped rule | 0 | 0 | 0 in 0 |
+| rewritten - stood in the base, on a line the change wrote | 0 | 0 | 0 in 0 |
+| repaired - in the base only | 145 | 18 | 146 in 19 |
+| standing - in both | 74,851 | - | 74,850 |
+
+**The oracle.** Per change, introduced plus rewritten must equal what the gate
+itself flagged: 30 against 30, 0 changes disagreeing. Three wider checks over
+every change - the findings on lines the change did not write against the 175
+the gate counts as set aside, and the changed documents and introduced lines
+against the gate's own - disagree 0 times.
+
+**The bar, and the verdict.** The proposal's own bar was broken at least ten
+times introduced. It is **4 against 30**, in 1 change and 1 document: 4
+`dead-md-anchor`, left by a change that moved a duplicate heading and with it
+the `-1` slug the links named. All were read by hand: 4 dead as stated. A
+precision bar cannot be read off so few, and the ratio decides without it:
+**not built**.
+
+**Why broken is rare here.** 24 of the 650 changes deleted or renamed any file,
+4 of them a document. 3 deleted a file another document named: 2 mended that
+document in the same change, and 1 left it named by an instruction the path
+rule does not read. 48 changes removed 1,853 anchors between them, and at the
+head 4 relative links still aimed at one - 4 of them reported, the broken
+findings above. Authors mend what a change breaks in the same change.
+
+**What it cannot show.** The two repository-scoped rules examined 0 claims
+across every tree - no clone configures a consistency check - so a version
+bumped in one file of two, a break the gate never sees, is not measured here.
+The agent tier, where documents are written and moved fastest, is `blob:none`
+and cannot be replayed.
+
+**Repairs and churn.** Every repair was checked against its diff: 138 had their
+own line removed or rewritten, 7 sat in a document the change deleted, and 0 on
+a line the change left alone. 0 flips sat in a document and target the change
+left alone. Today's raw fingerprint reads 1 standing finding as broken and
+repaired at once; the kinds whose detail carries a moving value hold few
+findings here - `dead-line-pointer` 3, of which 1 moved;
+`manifest-floor-mismatch` 9, of which 0 moved - so that count says how rare
+they are, not how stable the fingerprint is.
+
+**Cost.** Two sweeps per change took 3,182.6 s over the 650 changes, against
+the gate's 311.7 s: 10.21 times, plus 65.9 s of checkouts the gate does not
+need.
+
 ## Precision
 
 Against a hand-labelled sample of 1,402 findings, pooled precision is

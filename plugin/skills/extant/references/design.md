@@ -2920,6 +2920,211 @@ against a working-tree extract with `--self-check` at 22 of 22. The
 replay itself ran from a `git archive` extract of `main` at the merge, so
 its numbers are the shipped mode's and not the branch's.
 
+## The differential gate, measured and refused: what a change breaks without writing it
+
+Tranche 20 of the internals review, 2026-09-29, and measurement only: no
+shipped file changed. It decides D2, whether a gate on claims a change BROKE
+is ever built.
+
+**The question.** `--introduced-since` gates on the claims a change wrote,
+and its docstring says what it does not do: a heading removed under another
+document's anchor, a pure rename that leaves a moved file's relative links
+pointing nowhere - those have no `+` line. The scrutiny of pull request 13
+proposed catching them with a fingerprint differential, a sweep at the base
+against a sweep at the head, sorting every finding into four buckets:
+introduced (new, on a line the change wrote - today's gate), broken (new, on
+a line it did not write - the proposal), standing, and repaired. Its own
+bars: broken should be at least an order of magnitude larger than
+introduced, or the differential is not worth its cost; broken precision
+below about 95 per cent cannot gate; and any flip the change did not cause
+is an instrument defect. Refusal was named in advance as a normal outcome.
+
+**The population and the apparatus.** The Phase 47 replay's 650 changes -
+the last 50 first-parent commits of each of the 13 autopsy clones - and so
+663 trees, 51 per clone, because each commit's first parent is the next
+row's commit. That was checked against the rows rather than assumed, and it
+holds because no clone has been fetched since. The instrument is
+`m20_buckets.py` in the extant-hardening checkout, beside `m10_replay.py`
+and using its worktrees and its `judge`. It sweeps each tree from one
+extract of `main`'s package, persists every finding under
+`D:/repo/out-buckets/`, and computes the buckets offline, so a killed run
+resumes and a changed question does not sweep again. 663 sweeps, 0 errors,
+29.8 minutes.
+
+**Six things the first design would have got wrong.** Three premises failed
+when checked against the rows before anything ran:
+- The fingerprint is not stable for four rules, because `detail` embeds a
+  value that moves while the claim does not: `dead-line-pointer` the target
+  file's line total, `manifest-floor-mismatch` the manifest's spec,
+  `inconsistent-artifact` the disagreeing values, `raw-lfs-blob` the blob's
+  size. The buckets are computed twice, on today's fingerprint and on one
+  with those four normalised, and the difference is counted as churn.
+- A dict of fingerprints loses multiplicity: one dead target cited twice is
+  two findings with one fingerprint, and on moby 297 of 450 findings share
+  one. The buckets compare multisets - per fingerprint, the smaller of the
+  two counts stands, and only the surplus is new or repaired.
+- The 377 changes that touched no document were proposed as the false-flip
+  probe. They are where a broken finding comes from - the moved target, the
+  shortened file - so counting their flips as defects would count the
+  finding the tranche was looking for. The probe is a flip whose document
+  and target the change both left alone.
+
+Three more were found in the candidate shape before it was built, each now a
+rule of the instrument:
+- The gate never reads the base. It flags a dead claim on a line the change
+  rewrote whether or not the claim stood before, so its gated set is
+  introduced plus a fifth bucket, rewritten - stood in the base, sits on a
+  written line - and the oracle compares against that sum. Checked against
+  introduced alone, the oracle would have failed on correct data.
+- A site generator's configuration decides what a link resolves to, so a
+  change to it can flip a finding whose document and target it never
+  touched. The probe counts every configuration `sites.py` reads as
+  touched, matched generously by name - 15 of the 650 changes touch a file
+  so named, 8 of them in vitepress.
+- When a fingerprint's head count exceeds its base count, the new instances
+  are taken from written lines first, so an ambiguous instance is counted
+  introduced and never inflates broken.
+
+A synthetic repository broken six known ways - a moved target, a dropped
+heading, a shrunk file with a grown one beside it, a renamed document, a new
+dead link written beside a rewritten old one, and a repair - was labelled
+correctly in all six, in both modes, before the campaign ran.
+
+**The oracle held, and three wider checks with it.** Per commit,
+introduced plus rewritten against the gate's own gated findings from the
+same package: 30 and 30, 0 changes disagreeing. That checks 30 findings in 8
+changes, so the gap audit of the built tranche added three checks the rows
+already allowed, over all 650: the findings in changed documents on lines
+the change did not write equal the 175 the gate's header counts as set
+aside; the changed documents the instrument reads equal the gate's count;
+and so do the introduced lines. 0 changes disagree on any of the three.
+Rewritten is 0 in this population - no change in 650 rewrote a line holding
+a claim that was already dead - so that fix was exercised by the synthetic
+repository alone.
+
+**The buckets**, normalised, with today's raw fingerprint in brackets where
+it differs:
+
+| bucket | findings | changes |
+|:--|--:|--:|
+| introduced | 30 | 8 |
+| broken | 4 (5) | 1 (2) |
+| broken, repository rule | 0 | 0 |
+| repaired | 145 (146) | 18 |
+| standing | 74,851 (74,850) | - |
+
+Broken against introduced is 4 against 30, a ratio of 0.13. The bar was 10:
+it is missed by a factor of 75.
+
+The repository-rule row is empty by construction, not by measurement: both
+repository-scoped rules examined 0 claims in all 663 trees, because no clone
+configures a consistency check and none holds an LFS claim. So the case the
+preparation named - a version bumped in one file of two, a real break the
+gate never sees - is unmeasured here. The entry rules, `false-merge-claim`
+and `dead-pinned-ref` also examined nothing, and `dead-release-tag` one claim,
+in babel. What this population can show is the file-backed rules and the
+SHA rules, and a SHA finding can flip only when its document changes, since
+both sweeps of a pair read one object store.
+
+**The hand-read: all four.** One change in prometheus/docs, a merge that
+moved the contributing sections of its community page into a new guide. The
+page had two headings reading "Slack channel", and a renderer gives the
+second the duplicate's `-1` suffix. The move took the second heading and
+left four links to it, in the mentorship section, on lines the change did
+not write. All four are dead as stated, at the commit and at the clone's
+HEAD two months later. Four of four is 100 per cent, and a 95 per cent bar
+cannot be read off four findings from one change: the lower 95 per cent
+Wilson bound is 51.0 per cent.
+
+**Where broken lives, and how often it could have.** All four sit in a
+document the change edited, and 0 in a document it did not touch. They were
+not invisible to the gate: they are 4 of the findings its header counted as
+sitting on lines the range did not touch, in a document it had already
+read. The scrutiny's own example - a move leaving ANOTHER document's link
+dead - occurred 0 times in 650 changes, and the exposure says why: only 24
+changes deleted or renamed any file, 4 of them a document. Resolving every
+link and backticked path in the base's documents finds 3 changes that
+deleted a file another document named. Two edited that document in the same
+change, so nothing was left pointing at the file. The third left a
+superpowers plan reading "Create:" before the deleted file's path, an
+instruction `dead-path-pointer` does not read by design. For anchors, 48
+changes removed at least one - 1,853 anchors in all - and at the head
+exactly 4 relative links still targeted one: all 4 reported, and they are
+the four above. So `broken` is rare here because authors mend what a change
+breaks in the same change, not because the rules miss it. What the rules do
+not read is outside the question: a gate built from these rules could not
+see it either. The one document rename in the population, in ruff, broke
+nothing, and held no finding before or after, so the rename mapping was
+exercised by the synthetic repository alone.
+
+Every one of the 145 repairs was checked against the diff rather than
+sampled: 138 had their own line removed or rewritten, and 7 sat in a
+document the change deleted. Most are three shapes: 120 in one rewrite of
+babel's test262 allowlist, one in each of twelve fastapi translations that
+dropped the same dead link, and seven SHAs that left superpowers with the
+evaluation notes that held them.
+
+**The churn.** 0 flips the change did not touch, in either mode, so no
+fingerprint defect beyond the four details named above - and since 0 of
+roughly 75,000 standing findings flipped in a document no change touched,
+the sweep is also deterministic across trees. The raw churn is one finding:
+a superpowers plan's pointer at line 211 of a skill file, dead before and
+after, while the file shrank from 202 lines to 167. Today's fingerprint
+reads it as one broken and one repaired; normalised, it stands. That is the
+count the baseline debt was owed, and it needs its denominator to be read:
+the four churning kinds hold only 12 findings in the whole population - 9
+`manifest-floor-mismatch` in moby, none of which moved, and 3
+`dead-line-pointer` in superpowers, of which that one moved within 50
+changes. Once in 650 changes is a statement about how rare the kinds are
+here, not about how stable the fingerprint is. A project whose plans cite
+code by line would un-suppress a baselined pointer whenever the cited file
+changed length. The fix has a precedent - move the moving value from
+`detail` into `repair`, as Phase 47 did for the rename hint - and stays
+owed, with these numbers, for a later bundle.
+
+**The cost.** Two sweeps per change took 3,182.6 s over the 650, against
+the gate's 311.7 s over the same changes: 10.2 times the gate, plus 65.9 s
+of checkouts the gate does not need. The two were timed in separate runs on
+the same machine and package, the gate's earlier the same day. (The
+preparation's figure of about 14 times was two sweeps at HEAD against the
+gate's mean; over the replay it is 10.2.) fastapi, the most documents of the
+13 at 1,692 tracked, sweeps in a median 3.10 s; aider is the slowest, at
+8.58 s. No autopsy clone is near 5,000 documents, and the benchmark tier's
+base trees cannot be checked out offline, so that figure is unmeasured.
+
+**Ref attribution is empty here by construction.** The clones' reflogs hold
+the replay's own worktree checkouts rather than history, and across the 13
+at HEAD the ref-backed rules examine one claim and report none. Both sweeps
+of a pair also answer against today's refs and object store, so a
+ref-backed flip cannot occur in this instrument at all. In a pull-request
+gate the refs cannot move under the change, which was the scrutiny's own
+reading; measuring it on this repository's own history remains a separate
+item, worth taking only if D2 is ever reopened.
+
+**The population's limit.** Mature projects, their last 50 integrated
+changes each. The agent tier, where documents are written and moved fastest,
+is `blob:none` and cannot be replayed offline, the limit Phase 47 stated for
+the same replay. superpowers, the one agent-written clone with blobs, held 2
+of the 3 deletions another document named.
+
+**D2: refused.** Every bar that can be read fails, and the one that cannot
+be read rests on four findings. The ratio is 0.13 against 10, the cost is
+ten times the gate, and the four it would have added were not the
+proposal's shape: they sat in a document the change edited, among the
+findings the gate already reads and sets aside. A narrower differential -
+the changed documents alone, swept at the base as well as at the head -
+would have caught all four. Its cost is unmeasured: estimated from the
+gate's own timing, about twice the gate plus a checkout of the base. It is
+recorded as the shape to measure first if another population - the agent
+tier, once it can be replayed - shows broken approaching introduced, and
+not proposed now: at 4 against 30 it misses the same bar.
+
+**The gate.** Measurement only, so no anchors and no identity sweep. The
+synthetic six, before the campaign; the oracle and the three wider checks,
+per commit; every broken finding read and every repair checked against its
+diff; the suite and `--verify` after these records. The hand-read's labels
+are in `D:/repo/out-buckets/handread.jsonl`.
+
 ## The probe tranche: one batch, one scope, one list, and a matcher read against git
 
 Tranche 11 of the internals review, 2026-09-20 and 21: the five probes Phase

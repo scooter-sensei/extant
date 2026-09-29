@@ -116,6 +116,132 @@ def _rewrap(lines: list[str]) -> list[str]:
     return out
 
 
+def _buckets_section(fig: dict) -> list[str]:
+    """What a change breaks without writing it: the replay's changes swept at
+    each commit and at its first parent (tranche 20, Phase 58).
+
+    Its own function rather than more of `render`, which is long enough. An
+    absent or unavailable figure renders nothing, as the replay section does,
+    so a figures file written before the measurement still round-trips.
+    """
+    bk = fig.get("buckets") or {}
+    if not bk or bk.get("unavailable"):
+        return []
+    table = bk["buckets"]
+
+    def cell(label: str, mode: str, key: str) -> int:
+        return table[label][mode][key]
+
+    rows = [
+        ("introduced - new, on a line the change wrote (today's gate)", "introduced"),
+        ("broken - new, on a line it did not write (the proposal)", "broken"),
+        ("broken, from a repository-scoped rule", "broken-repo"),
+        ("rewritten - stood in the base, on a line the change wrote", "rewritten"),
+        ("repaired - in the base only", "repaired"),
+    ]
+    oracle, cross = bk["oracle"], bk["cross_checks"]
+    wider = (cross["aside_disagreeing"] + cross["documents_disagreeing"]
+             + cross["lines_disagreeing"])
+    named, recall = bk["named_deletions"], bk["anchor_recall"]
+    exposure, cost = bk["exposure"], bk["cost"]
+    diff = bk["repaired_against_diff"]
+    broken, introduced = cell("broken", "norm", "findings"), cell("introduced", "norm", "findings")
+    kinds = ", ".join(f"{_n(n)} `{k}`" for k, n in sorted(bk["broken_by_kind"].items()))
+    churn = cell("broken", "raw", "findings") - broken
+    churning = "; ".join(
+        f"`{k}` {_n(v['findings'])}, of which {_n(v['moved'])} moved"
+        for k, v in sorted(bk["churning_kinds"].items()))
+    replayed = (fig.get("replay") or {}).get("gated")
+    L = [
+        "## What a change breaks without writing it",
+        "",
+        f"`--introduced-since` gates on the claims a change wrote, and says it "
+        f"does not see the ones a change breaks without writing them - a moved "
+        f"file leaving another document's link pointing nowhere, a heading "
+        f"removed under a link. A differential would: the same "
+        f"{_n(bk['changes'])} changes as the replay above, each swept at its "
+        f"commit and at its first parent ({_n(bk['trees'])} trees across "
+        f"{_n(bk['clones'])} clones), every finding compared as a multiset of "
+        f"fingerprints and sorted into buckets. The buckets use the fingerprint "
+        f"with its moving values made stable - a line pointer's line total, a "
+        f"manifest's spec - and today's raw fingerprint is kept beside them. "
+        f"Measured {bk['measured']}, with the package the replay was re-run "
+        f"with that day, whose gate flags {_n(oracle['gate'])} findings on these "
+        f"changes"
+        + (f" where the replay's package flagged {_n(replayed)}." if replayed
+           else "."),
+        "",
+        "| bucket | findings | changes | today's raw fingerprint |",
+        "|:---|---:|---:|---:|",
+    ]
+    for text, label in rows:
+        L.append(f"| {text} | {_n(cell(label, 'norm', 'findings'))} | "
+                 f"{_n(cell(label, 'norm', 'changes'))} | "
+                 f"{_n(cell(label, 'raw', 'findings'))} in "
+                 f"{_n(cell(label, 'raw', 'changes'))} |")
+    L += [
+        f"| standing - in both | {_n(cell('standing', 'norm', 'findings'))} | - | "
+        f"{_n(cell('standing', 'raw', 'findings'))} |",
+        "",
+        f"**The oracle.** Per change, introduced plus rewritten must equal what "
+        f"the gate itself flagged: {_n(oracle['instrument'])} against "
+        f"{_n(oracle['gate'])}, {_n(oracle['disagreeing'])} changes disagreeing. "
+        f"Three wider checks over every change - the findings on lines the "
+        f"change did not write against the {_n(cross['aside_gate'])} the gate "
+        f"counts as set aside, and the changed documents and introduced lines "
+        f"against the gate's own - disagree {_n(wider)} times.",
+        "",
+        f"**The bar, and the verdict.** The proposal's own bar was broken at "
+        f"least ten times introduced. It is **{_n(broken)} against "
+        f"{_n(introduced)}**, in {_n(cell('broken', 'norm', 'changes'))} change "
+        f"and {_n(bk['broken_documents'])} document: {kinds}, left by a change "
+        f"that moved a duplicate heading and with it the `-1` slug the links "
+        f"named. All were read by hand: "
+        + ", ".join(f"{_n(n)} {label}" for label, n in sorted(bk["hand_read"].items()))
+        + ". A precision bar cannot be read off so few, and the ratio decides "
+        "without it: **not built**.",
+        "",
+        f"**Why broken is rare here.** {_n(exposure['deleted_or_renamed_any_file'])} "
+        f"of the {_n(exposure['changes'])} changes deleted or renamed any file, "
+        f"{_n(exposure['deleted_or_renamed_a_document'])} of them a document. "
+        f"{_n(named['changes'])} deleted a file another document named: "
+        f"{_n(named['mended_in_the_change'])} mended that document in the same "
+        f"change, and {_n(named['still_named_at_head'])} left it named by an "
+        f"instruction the path rule does not read. "
+        f"{_n(recall['changes_removing_an_anchor'])} changes removed "
+        f"{_n(recall['anchors_removed'])} anchors between them, and at the head "
+        f"{_n(recall['links_left_at_head'])} relative links still aimed at one - "
+        f"{_n(recall['reported'])} of them reported, the broken findings above. "
+        f"Authors mend what a change breaks in the same change.",
+        "",
+        f"**What it cannot show.** The two repository-scoped rules examined "
+        f"{_n(bk['repository_rules_examined'])} claims across every tree - no "
+        f"clone configures a consistency check - so a version bumped in one file "
+        f"of two, a break the gate never sees, is not measured here. The agent "
+        f"tier, where documents are written and moved fastest, is `blob:none` "
+        f"and cannot be replayed.",
+        "",
+        f"**Repairs and churn.** Every repair was checked against its diff: "
+        f"{_n(diff.get('line_removed_or_rewritten', 0))} had their own line "
+        f"removed or rewritten, {_n(diff.get('document_deleted', 0))} sat in a "
+        f"document the change deleted, and "
+        f"{_n(diff.get('line_untouched', 0))} on a line the change left alone. "
+        f"{_n(bk['untouched_flips'])} flips sat in a document and target the "
+        f"change left alone. Today's raw fingerprint reads {_n(churn)} standing "
+        f"{'finding' if churn == 1 else 'findings'} as broken and repaired at "
+        f"once; the kinds whose detail "
+        f"carries a moving value hold few findings here - {churning} - so that "
+        f"count says how rare they are, not how stable the fingerprint is.",
+        "",
+        f"**Cost.** Two sweeps per change took {cost['differential_seconds']:,} s "
+        f"over the {_n(cost['pairs'])} changes, against the gate's "
+        f"{cost['gate_seconds']:,} s: {cost['ratio']} times, plus "
+        f"{cost['checkout_seconds']:,} s of checkouts the gate does not need.",
+        "",
+    ]
+    return L
+
+
 def render(fig: dict) -> str:
     c, h, prov = fig["corpus"], fig["holdout"], fig["provenance"]
     census, pilot = fig["sha_census"], fig["agent_pilot"]
@@ -460,6 +586,8 @@ def render(fig: dict) -> str:
                    f"IS one of them, so the reach above rests on a reserved row."),
                 "",
             ]
+
+    L += _buckets_section(fig)
 
     L += ["## Precision", ""]
     bp = fig["precision"].get("bench", {}).get("pooled")

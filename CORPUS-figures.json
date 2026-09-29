@@ -46,6 +46,142 @@
     "saturated": true,
     "sessions": 6
   },
+  "buckets": {
+    "anchor_recall": {
+      "anchors_removed": 1853,
+      "changes_removing_an_anchor": 48,
+      "links_left_at_head": 4,
+      "reported": 4
+    },
+    "broken_by_kind": {
+      "dead-md-anchor": 4
+    },
+    "broken_documents": 1,
+    "buckets": {
+      "broken": {
+        "norm": {
+          "changes": 1,
+          "findings": 4
+        },
+        "raw": {
+          "changes": 2,
+          "findings": 5
+        }
+      },
+      "broken-repo": {
+        "norm": {
+          "changes": 0,
+          "findings": 0
+        },
+        "raw": {
+          "changes": 0,
+          "findings": 0
+        }
+      },
+      "introduced": {
+        "norm": {
+          "changes": 8,
+          "findings": 30
+        },
+        "raw": {
+          "changes": 8,
+          "findings": 30
+        }
+      },
+      "repaired": {
+        "norm": {
+          "changes": 18,
+          "findings": 145
+        },
+        "raw": {
+          "changes": 19,
+          "findings": 146
+        }
+      },
+      "repaired-repo": {
+        "norm": {
+          "changes": 0,
+          "findings": 0
+        },
+        "raw": {
+          "changes": 0,
+          "findings": 0
+        }
+      },
+      "rewritten": {
+        "norm": {
+          "changes": 0,
+          "findings": 0
+        },
+        "raw": {
+          "changes": 0,
+          "findings": 0
+        }
+      },
+      "standing": {
+        "norm": {
+          "changes": 600,
+          "findings": 74851
+        },
+        "raw": {
+          "changes": 600,
+          "findings": 74850
+        }
+      }
+    },
+    "changes": 650,
+    "churning_kinds": {
+      "dead-line-pointer": {
+        "findings": 3,
+        "moved": 1
+      },
+      "manifest-floor-mismatch": {
+        "findings": 9,
+        "moved": 0
+      }
+    },
+    "clones": 13,
+    "cost": {
+      "checkout_seconds": 65.9,
+      "differential_seconds": 3182.6,
+      "gate_seconds": 311.7,
+      "pairs": 650,
+      "ratio": 10.21
+    },
+    "cross_checks": {
+      "aside_disagreeing": 0,
+      "aside_gate": 175,
+      "documents_disagreeing": 0,
+      "lines_disagreeing": 0
+    },
+    "exposure": {
+      "changes": 650,
+      "deleted_or_renamed_a_document": 4,
+      "deleted_or_renamed_any_file": 24
+    },
+    "hand_read": {
+      "dead as stated": 4
+    },
+    "measured": "2026-09-29",
+    "named_deletions": {
+      "changes": 3,
+      "mended_in_the_change": 2,
+      "naming_document_edited": 2,
+      "still_named_at_head": 1
+    },
+    "oracle": {
+      "disagreeing": 0,
+      "gate": 30,
+      "instrument": 30
+    },
+    "repaired_against_diff": {
+      "document_deleted": 7,
+      "line_removed_or_rewritten": 138
+    },
+    "repository_rules_examined": 0,
+    "trees": 663,
+    "untouched_flips": 0
+  },
   "corpus": {
     "clone_count": 125,
     "distinct_repositories": 122,
