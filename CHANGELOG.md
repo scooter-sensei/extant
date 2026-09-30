@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.29.0 (2026-09-30)
 
-Above 0.28.0, unreleased: CommonMark's two code blocks read by one scanner,
+The five tranches of the internals review that followed 0.28.0, Phases 55
+to 59. First, CommonMark's two code blocks read by one scanner,
 so a fence now ends where the list item, block quote, HTML comment or
 verbatim tag it opened in ends. No rule added or removed, thirteen as before;
 no mode added; no default or exit code moved; on the 152 visible corpus

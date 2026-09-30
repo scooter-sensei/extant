@@ -3,13 +3,13 @@
 #     - uses: actions/checkout@v4
 #       with:
 #         fetch-depth: 0          # REQUIRED - see below
-#     - uses: scooter-sensei/extant@v0.28.0
+#     - uses: scooter-sensei/extant@v0.29.0
 #
 # Or, on a pull request, gate only on the claims the change WROTE - no
 # document to configure, no path pinned, and a finding on a line the range
 # did not touch is reported and does not fail the job:
 #
-#     - uses: scooter-sensei/extant@v0.28.0
+#     - uses: scooter-sensei/extant@v0.29.0
 #       with:
 #         mode: introduced-since
 #         since: ${{ github.event.pull_request.base.sha }}
@@ -29,7 +29,7 @@
 # WHY THE VERSION APPEARS NOWHERE HERE
 #
 # The install is `pip install "$GITHUB_ACTION_PATH"` - the very source the
-# caller pinned with `@v0.28.0`. Naming a version here would make this an
+# caller pinned with `@v0.29.0`. Naming a version here would make this an
 # eighth file carrying one, and the seven that do are cross-checked by
 # `.extant.toml`'s consistency block precisely because they drifted once. An
 # eighth that nothing checks is how that happens again.
