@@ -121,7 +121,9 @@ def count_examined(ctx: Context, text: str,
     have raised for a skipped rule is no longer recorded either, and that is
     right rather than a loss: its `check` never ran, so the record would
     have named the failure of a rule that did not look at the document.
-    `--verify` passes nothing and gets every count, as it always has.
+    `--verify` passes the same predicate since Phase 59: it passed nothing
+    and printed a markdown rule's count on rst beside a NOTE that the rule
+    read nothing.
     """
     counts: dict[str, int] = {}
     for rule in RULES:

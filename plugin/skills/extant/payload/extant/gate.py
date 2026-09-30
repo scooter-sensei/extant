@@ -93,30 +93,28 @@ def report_denominators(diag: Callable[[str], None], repo: Path, name: str,
     """
     summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
     # The rules that READ this document, by the predicate that selected
-    # them. The line above keeps every rule's count, because each zero is
-    # true; which of them LOOKED is what decides the explanation. A zero
+    # them. The line above keeps every rule, at 0 where the caller counted
+    # only these; which of them LOOKED is what decides the explanation. A zero
     # here used to be one sentence - "either this document makes no such
     # claims, or the pattern is wrong" - for a rule switched off, a rule
     # with no pattern to be wrong, an entry rule on a document holding no
     # entry and a markdown rule on reStructuredText alike.
     ran = {rule.kind for rule in session.RULES
            if session.rule_applies(rule, False, True, entry_found=entry_found)}
-    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
     diag(f"checked {name}: {summary}")
     # Beside the denominators, because that is where a reader looks to
     # decide whether a quiet rule was quiet or broken.
     errors_reported = session.report_rule_errors(diag)
-    notes = session.zero_note(blind, did="matched nothing at all",
-                              claims="this document makes no such claims")
-    unrun = session.unrun_note(
-        [rule for rule in session.RULES
-         if rule.kind in examined and rule.kind not in ran],
-        primary_read=True, absent="it was not read", read="checked")
-    if unrun:
-        notes.append(unrun)
+    notes = session.zero_notes(
+        examined, ran, did="matched nothing at all",
+        claims="this document makes no such claims", primary_read=True,
+        absent="it was not read", read="checked")
+    # The checkout's notes join them, collected rather than printed, because
+    # SARIF is rendered from `notes` after this returns and says what the
+    # text said - a shallow repository's dead SHAs most of all.
+    report_repository_notes(notes.append, repo, index_incomplete)
     for line in notes:
         diag(line)
-    report_repository_notes(diag, repo, index_incomplete)
     return errors_reported, notes
 
 
@@ -312,9 +310,9 @@ def _finish(diag: Callable[[str], None], repo: Path, args: argparse.Namespace,
         # `examined` is the primary document's denominator, the same figure
         # the `checked ...` diagnostic prints. A machine consumer of the
         # SARIF could not see it at all before.
-        # With the NOTE lines the text printed, the rules switched off, and
-        # every rule that raised - all three of which SARIF used to work out
-        # for itself, or not at all.
+        # With the NOTE lines the text printed - the zeros, the checkout's,
+        # the missing path - the rules switched off, and every rule that
+        # raised: SARIF used to work these out for itself, or not at all.
         for line in render_findings(found.located, args.format, repo,
                                     examined=examined, notes=notes,
                                     off=session.switched_off(),
@@ -487,8 +485,12 @@ def run_validate(repo: Path, args: argparse.Namespace,
             # nothing print identically - the failure that recurred five
             # times in one day. A rule reporting 0 examined is either
             # genuinely absent from this document or broken, and the reader
-            # has to be able to tell.
-            examined = session.count_examined(repo, text)
+            # has to be able to tell. Counted for the rules that read it, as
+            # the sweep counts: a markdown rule on rst printed a count beside
+            # a NOTE saying it read nothing.
+            examined = session.count_examined(repo, text, functools.partial(
+                session.rule_applies, in_archive=False, has_entries=True,
+                entry_found=entry_found))
             # Read INSIDE the scope, which is the whole reason the note it
             # feeds took a year to print: the index is a fact of the scope,
             # and the notes print after the scope has closed.
@@ -604,7 +606,12 @@ def run_validate(repo: Path, args: argparse.Namespace,
     # reading markdown as reStructuredText.
     session.install_document(entered)
     if extras_incomplete and not index_incomplete:
-        report_index_note(diag, repo)
+        # Into `notes` too, which SARIF is rendered from below.
+        index_note: list[str] = []
+        report_index_note(index_note.append, repo)
+        for line in index_note:
+            diag(line)
+        notes += index_note
 
     if args.suggest_fixes:
         # Written to stdout as a patch and never applied. In sarif mode the
@@ -805,12 +812,16 @@ def run_check_text(repo: Path, args: argparse.Namespace,
         entry_found = session.holds_entry(text)
         findings = session.validate(repo, text, entry_found=entry_found)
         exit_code = 1 if found.record(name, findings, primary=True) else 0
-        examined = session.count_examined(repo, text)
+        examined = session.count_examined(repo, text, functools.partial(
+            session.rule_applies, in_archive=False, has_entries=True,
+            entry_found=entry_found))
         index_incomplete = session.ancestry_incomplete()
     errors_reported, notes = report_denominators(
         diag, repo, name, examined, index_incomplete, entry_found=entry_found)
     if not relative:
-        _note_the_missing_path(diag)
+        # One line, kept in `notes` for SARIF like the rest.
+        _note_the_missing_path(notes.append)
+        diag(notes[-1])
     session.set_document(link_base=None)
 
     if args.suggest_fixes:

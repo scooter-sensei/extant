@@ -314,6 +314,12 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
     for item in located:
         if item.finding.kind not in seen:
             seen.append(item.finding.kind)
+    # And every rule the invocation below names - switched off, or raised -
+    # which has no result to be listed by, so that each reference there
+    # resolves to a descriptor here (SARIF 2.1.0, 3.52.4).
+    for kind in [*(off or []), *(kind for kind, _message in errors or [])]:
+        if kind not in seen:
+            seen.append(kind)
 
     descriptors = []
     for kind in seen:
@@ -440,7 +446,7 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
                    "message": {"text": f"{kind} raised {message}. A rule "
                                        "that raised has not found nothing, "
                                        "it has failed to look."},
-                   "associatedRule": {"id": kind},
+                   "associatedRule": {"id": kind, "index": seen.index(kind)},
                    "exception": {"kind": message.split(":", 1)[0],
                                  "message": message}}
                   for kind, message in errors or []]
@@ -458,7 +464,7 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
             # 3.50.2). GitHub code scanning reads no `invocations` at all, so
             # this is for every other reader of the file.
             invocation["ruleConfigurationOverrides"] = [
-                {"descriptor": {"id": kind},
+                {"descriptor": {"id": kind, "index": seen.index(kind)},
                  "configuration": {"enabled": False}}
                 for kind in off]
         run["invocations"] = [invocation]

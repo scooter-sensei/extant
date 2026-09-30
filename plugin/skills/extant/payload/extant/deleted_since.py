@@ -368,8 +368,15 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
         # indexes the document AS IT WAS. Reading the current file at that
         # line shows whatever now occupies it - a quotation attributed to a
         # claim that is no longer there.
+        #
+        # SARIF words no zero of its own any more; a run that examined no
+        # document says so here, and one whose rule raised is not a success.
+        nothing = ("  NOTE: no changed document was examined, so no claim "
+                   "could be found removed")
         for line in render_findings(
                 gone, fmt, examined={"documents": examined},
+                notes=[] if examined else [nothing],
+                errors=list(session.RULE_ERRORS),
                 run_kind="deleted-since")[0]:
             print(line)
 

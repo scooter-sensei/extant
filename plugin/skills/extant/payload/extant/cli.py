@@ -384,8 +384,10 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
     for line in lines:
         print(line)
     silent = len(session.RULES) - fired - unprobeable - errored - not_run
-    # The fifth count only when it is not zero, so a run with nothing
-    # switched off prints exactly what it always printed.
+    # The fifth count only when it is not zero - which is most runs:
+    # `inconsistent-artifact` is off until a check is configured, and an
+    # entry rule on a document holding no entry, or a markdown rule on rst,
+    # is not run either.
     print(f"\n  {fired} fired, {unprobeable} had nothing to corrupt, "
           f"{errored} could not be run, {silent} stayed silent"
           + (f", {not_run} not run here" if not_run else ""))

@@ -1199,3 +1199,110 @@ session prints them with, and assert it exists before asserting on it.
   HANG flag simply stopped being raised, which the harness cannot see,
   because a tolerated flag is allowed to be absent. With one group the flag
   is back. Smoke then: 48 observations, 0 new flags, 0 missing.
+
+**The review of the pull request, 2026-09-30.** A review of the two commits
+above found twelve things, and the commit after them fixes all twelve. Five
+were defects this tranche brought in, four were records or wording that said
+more than the code did, and three were the shape this project keeps paying
+for: one fact written in more than one place.
+
+The five defects:
+
+- The group-count refusal was stricter than any rule. `branch_token` and
+  `release_tag` are read by group 1 alone, so a pattern with a nested group
+  had worked, and refused it stopped every mode at load - `--collect`,
+  `--archive` and the hooks, not only its rule. The smoke probe above that
+  was rewritten to one group is exactly that shape, and would load again.
+  The counts are a range now: `merge_claim` one or two, because its probe
+  splices the last group; `path_pointer` exactly one, because the patch
+  generator reads it with `findall`, which returns tuples past one; the
+  other two at least one.
+- The empty-string refusal asked `match("")`, which tries one position of an
+  empty string. `\b([\w/.-]*)` passed it and reported 24 examined on a
+  7-line document, the failure the refusal exists to stop. It asks the
+  pattern's minimum width now, from the standard library's own regex
+  parser - private in both of its spellings, `re._parser` from 3.11 and
+  `sre_parse` before, chosen by version so the type checker, at its 3.10
+  target, reads the second with no suppression. The 41 known configurations
+  were loaded again through the new refusals: 0 refused.
+- `--verify` and `--check-text` counted every rule and then named the ones
+  that had not run, so a markdown rule on an rst primary printed
+  `dead-md-link 1` beside a NOTE saying it read nothing. They count only the
+  rules that read the document, as the sweep has since 2026-09-15: a rule
+  that did not run is 0 in the `examined:` line.
+- SARIF named rules it did not describe. The descriptors were built from the
+  results, and a switched-off rule has none, so every
+  `ruleConfigurationOverrides` entry referred to nothing (SARIF 2.1.0,
+  3.52.4), and so did the `associatedRule` of a rule that raised. Both are
+  described now and both references carry the index. The visible cost:
+  `inconsistent-artifact` is a descriptor in every SARIF file from a
+  repository with no consistency check.
+- `--deleted-since` handed SARIF no NOTE and no rule errors. SARIF had worked
+  out its own zero warning, so when it stopped, this mode lost the one it
+  had. It says "no changed document was examined" again, and a rule that
+  raised makes `executionSuccessful` false here as well.
+
+The records and wording that said more than the code:
+
+- "SARIF carries the NOTE lines the text printed" held for the zeros only.
+  The shallow, partial and ancestry-bound notes, the parallel survey's
+  fallback and `--check-text`'s missing path reached the text alone - on a
+  shallow checkout, the one note that says what a dead SHA there means.
+  Each mode gathers them before SARIF is rendered now, and prints them where
+  it always did, so the sentence holds as written.
+- `--introduced-since` said "--verify and --sweep run them" of every
+  repository rule, `inconsistent-artifact` included, which neither runs
+  while it is off. It lists only the rules they would run.
+- The NOTE for a primary document holding no entry said "which has none" and
+  stopped there. On this tranche's own measurement, 23 of the 25 installs
+  with no entry had entries the default `## Phase ` did not match, so when
+  `entry_prefix` is not set the NOTE now names it - "headed by the shipped
+  default `entry_prefix` '## Phase '" - the lever the rest of this section
+  gives every other zero.
+- A comment in `--selftest` said its fifth count appears only when something
+  is switched off. It appears in most runs, because `inconsistent-artifact`
+  is off until a check is configured.
+
+One fact in more than one place:
+
+- `rule_applies` refused a rule, a second function worked out in words which
+  clause had refused it, and the off test was written a third time for
+  SARIF. `session.why_not_read` holds the clauses and their reasons
+  together; `rule_applies` asks whether it returned None, and the off test is
+  one function. A NOTE covering a whole run asks it at the one position its
+  rules share.
+- Three modes carried the same block of zero NOTE lines. `session.zero_notes`
+  is that block now, and the three anchors that probed the copies each probe
+  the set of rules that ran, which its mode hands in.
+- `session.holds_entry` made a fourth reader of the newest entry, beside the
+  two entry rules and their probe - one claim, one scanner, broken. The one
+  reader is `newest_entry` in extant/entries.py now, and unifying them found
+  a defect of the kind Phase 57 fixed in `sub_group`: the branch probe split
+  the RAW text, so a first branch token inside a fence was the one
+  corrupted, the rule read the prose, and a working rule was reported as
+  DID NOT FIRE. The probe finds the entry in the prose and splices at its
+  offset.
+
+**The gate of the review.**
+
+- The suite: 1,510 tests across 78 files, of which 1,502 pass and 8 skip on
+  this machine; `python -m mypy`: no issues in 44 files. Eight tests are
+  new. Five of the defects were reproduced on the tranche's head before they
+  were fixed - the group refusal, the zero-width pattern, the rst count, the
+  fenced probe and the zero-document SARIF.
+- 357 mutation anchors match, 13 of them retargeted at the code that
+  replaced what they named, and none added. The 13 were run for real on a
+  copy: all 13 killed, none by the hang bound alone. The fuzzer's 23
+  breakage anchors match.
+- Identity, predicted before the run from the Phase 59 outputs: 0 of 152
+  would differ, because the one sweep wording the fixes change is the lever
+  after "which has none", and no corpus sweep reads a primary document -
+  every one says "and none is here", so the entry rules never ran there and
+  `newest_entry` could not differ either. Observed: 152 compared, 0 differ.
+- The chain, from an extract of the working tree: smoke 48 observations,
+  0 new flags and 0 missing; scenarios 213 of 213; the fuzzer 0 violations
+  over 35 repositories; `--self-check` 23 of 23. `--verify` 0, and
+  `--selftest` 7 fired and 0 silent.
+- extant/config.py stands at the 927-line module ceiling and `run_sweep` at
+  the 303-line function ceiling. Both were held by moving work out and by
+  shortening comments this tranche had written, not by raising a number.

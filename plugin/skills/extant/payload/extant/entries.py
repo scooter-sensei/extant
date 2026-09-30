@@ -37,7 +37,7 @@ from pathlib import Path
 from extant.config import Config
 from extant.text import lone_cr_to_lf
 
-__all__ = ["archive", "split_entries"]
+__all__ = ["archive", "newest_entry", "split_entries"]
 
 
 def _terminator(text: str) -> str | None:
@@ -109,6 +109,31 @@ def split_entries(text: str,
         kind = "phase" if chunk.startswith(config.phase_prefix) else "other"
         segments.append((kind, chunk))
     return preamble, segments, base
+
+
+def newest_entry(text: str, config: Config) -> tuple[int, str] | None:
+    """The newest phase entry of `text` and the offset it starts at, or None.
+
+    THE reader of it. The two entry rules, their probes and
+    `session.holds_entry` each walked the segments for themselves, and one of
+    them walked the raw text where the rest walked the prose: its probe
+    corrupted a token in a fence the rule never reads, and a working rule was
+    reported as DID NOT FIRE. Callers hand it the prose, and splice at the
+    offset into the original, which `prose()` keeps by contract.
+
+    Entries are stored newest-first, so it is the first segment of kind
+    "phase"; the segments are consecutive slices from the end of the preamble,
+    which is what the offset is counted from.
+    """
+    preamble, segments, _base = split_entries(text, config)
+    newest: tuple[int, str] | None = None
+    cursor = len(preamble)
+    for kind, entry in segments:
+        start, cursor = cursor, cursor + len(entry)
+        if kind == "phase":
+            newest = start, entry
+            break        # the newest phase entry, and never another
+    return newest
 
 
 def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:

@@ -61,6 +61,32 @@ def test_sweep_says_the_repository_is_shallow(git_repo, tmp_path, capsys) -> Non
     assert len(_notes(out, "shallow")) == 1, out
 
 
+def test_sarif_carries_the_shallow_note_the_text_prints(git_repo, tmp_path,
+                                                        capsys) -> None:
+    """SARIF is rendered before the checkout's notes were printed, and did not
+    carry them: a code-scanning consumer got a shallow copy's dead SHAs with
+    nothing to say what the count describes."""
+    import json
+
+    from extant import session as hc
+    from extant import sweep
+    repo, commit = git_repo
+    commit("docs/notes.md", "# Notes\n", "docs")
+    commit("docs/notes.md", "# Notes\n\nMerged at `0123456789ab`.\n", "docs: claim")
+    shallow = _shallow_copy(repo, tmp_path / "shallow", depth=1)
+    hc.reload_config(shallow)
+
+    sweep.run_sweep(shallow, "sarif")
+    captured = capsys.readouterr()
+
+    printed = _notes(captured.err, "shallow")
+    assert len(printed) == 1, captured.err
+    invocation = json.loads(captured.out)["runs"][0]["invocations"][0]
+    sent = [n["message"]["text"]
+            for n in invocation["toolExecutionNotifications"]]
+    assert printed[0].strip().removeprefix("NOTE: ") in sent, sent
+
+
 # --- the commit-graph note ----------------------------------------------------
 
 def _release_history(git_repo):

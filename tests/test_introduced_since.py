@@ -434,7 +434,13 @@ def test_repository_rules_are_not_run_and_the_output_says_so(git_repo, capsys) -
 
     skipped = [rule.kind for rule in hc.RULES if rule.scope == "repository"]
     assert skipped, "no repository-scoped rule exists to skip"
-    assert f"{len(skipped)} repository-wide rule(s) not run" in out, out
+    # Named as run by --verify and --sweep only if they would run it: one
+    # switched off - `inconsistent-artifact`, with no check here - is not.
+    named = [rule.kind for rule in hc.RULES if rule.scope == "repository"
+             and hc.rule_applies(rule, False, True)]
+    assert "inconsistent-artifact" not in named, named
+    assert f"{len(named)} repository-wide rule(s) not run" in out, out
+    assert f"({', '.join(named)})" in out, out
     counted = next(line for line in out.splitlines()
                    if line.strip().startswith("examined:"))
     for kind in skipped:

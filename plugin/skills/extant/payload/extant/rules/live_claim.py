@@ -8,7 +8,7 @@ one - see `test_rules_are_leaves`.
 from __future__ import annotations
 
 from extant.contract import Rule
-from extant.entries import split_entries
+from extant.entries import newest_entry
 from extant.finding import Finding
 from extant.probes import branch_in_newest
 from extant.refs import (
@@ -42,8 +42,8 @@ def _live_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
     Only the NEWEST phase entry is ever read. Entries are stored newest-first,
     so that is the first segment whose kind is "phase"; every phase entry after
     it is historical by definition and must never produce a finding, no matter
-    what it says. The walk still advances over EVERY segment before it, phase
-    or not, so the reported line numbers stay correct.
+    what it says. `newest_entry` counts its offset past EVERY segment before
+    it, phase or not, so the reported line numbers stay correct.
 
     Claims inside code are examples, not promises - hence `prose`. A token that
     is path-shaped is not returned and so is neither judged nor counted: the
@@ -51,14 +51,10 @@ def _live_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
     owns that one.
     """
     text = prose(ctx.doc, text)
-    _, segments, _ = split_entries(text, ctx.config)
     sites: list[tuple[int, str]] = []
-    cursor = 0
-    for kind, entry in segments:
-        start = text.index(entry, cursor)
-        cursor = start + len(entry)  # advance for every segment, phase or not
-        if kind != "phase":
-            continue
+    newest = newest_entry(text, ctx.config)
+    if newest is not None:
+        start, entry = newest
         if ctx.config.live_phrases.search(entry):
             for match in ctx.config.branch_token.finditer(entry):
                 branch = match.group(1)
@@ -66,7 +62,6 @@ def _live_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
                     continue
                 sites.append(
                     (text.count("\n", 0, start + match.start()) + 1, branch))
-        break        # the newest phase entry, and never another
     return sites
 
 
@@ -146,9 +141,8 @@ def probe(ctx: Context, text: str) -> str | None:
     and would tell an adopter with different wording nothing except that the
     default matches the default.
     """
-    _, segments, _ = split_entries(text, ctx.config)
-    newest = next((s for kind, s in segments if kind == "phase"), "")
-    if not newest or not ctx.config.live_phrases.search(newest):
+    newest = newest_entry(prose(ctx.doc, text), ctx.config)
+    if newest is None or not ctx.config.live_phrases.search(newest[1]):
         return None
     return branch_in_newest(ctx, text)
 

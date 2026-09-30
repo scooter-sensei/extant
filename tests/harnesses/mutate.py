@@ -257,10 +257,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Retargeted when the scan moved into `_live_sites`: the newest entry
         # is held by a `break` now rather than by a `newest_checked` flag, so
         # the way to make the rule read every phase entry is to fall through.
-        ("live-claim checks EVERY entry, not just the newest",
-         rules / "live_claim.py",
-         "        break        # the newest phase entry, and never another",
-         "        continue     # the newest phase entry, and never another"),
+        # Retargeted again in Phase 59, when both entry rules and their probes
+        # came to read `newest_entry`: falling through there hands them the
+        # OLDEST phase entry, which is the same claim broken from the far end.
+        ("live-claim checks EVERY entry, not just the newest", entries_mod,
+         "            break        # the newest phase entry, and never another",
+         "            continue     # the newest phase entry, and never another"),
         # Dedented one level when `check` stopped nesting its own scan inside a
         # per-entry loop and started reading `_branch_sites`. Same statement.
         ("branch rule loses the merge-history rescue", rules / "branch.py",
@@ -611,19 +613,21 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # nothing and the suite stays green; `--check-only` in CI is what caught
         # it. Third time for this pair, which is the argument for that mode
         # existing at all.
+        # And a fourth, in Phase 59: the clause moved into `why_not_read`,
+        # which returns its reason where it returned False.
         ("archive exemption ignored", session,
          "    if (in_archive or not has_entries) and not rule.in_archive:\n"
-         "        return False",
-         "    if False:\n        return False"),
+         "        where = (",
+         "    if False:\n        where = ("),
         # Anchored on the CONDITION alone. It used to include the dispatch line
         # that followed, and the rst work inserted a format check between the
         # two, so the pair stopped matching while the behaviour it probes was
         # untouched. A mutation should name the smallest thing it is about.
         ("has_entries ignored (entry rules run on extra docs)", session,
          "    if (in_archive or not has_entries) and not rule.in_archive:\n"
-         "        return False",
+         "        where = (",
          "    if in_archive and not rule.in_archive:\n"
-         "        return False"),
+         "        where = ("),
 
         # --- denominator ------------------------------------------------------
         # Retargeted when the denominator stopped being one entry in a central
@@ -2333,10 +2337,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The survey's repository notes, on the mode most often pointed at a
         # repository nobody here had seen. Removed, a depth-limited or
         # partial copy is swept with no word about what the counts mean.
+        # Retargeted in Phase 59: the notes are gathered before SARIF renders,
+        # to carry them, and printed here from the list.
         ("the survey prints no repository note", sweep,
-         "    report_repository_notes(lambda line: print(line, file=out), repo,\n"
-         "                            index_incomplete)\n",
-         "    pass\n"),
+         "    for line in checkout_notes:\n        print(line, file=out)\n",
+         ""),
         # --- tranche 11 of the internals review ---------------------------
         # The scope across `--verify`, and the arm that keeps it per document.
         # Dropped, every document rebuilds the ref table and the trunk index
@@ -2426,9 +2431,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        unusable = None"),
         # A rule that read no document was said to have "examined nothing",
         # with two explanations both wrong about it.
+        # Retargeted in Phase 59, when the three copies of the zero NOTE became
+        # `session.zero_notes`: each mode is anchored on the `ran` it hands it.
         ("a rule that read nothing is said to have examined nothing", sweep,
-         "    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]",
-         "    blind = [kind for kind, n in examined.items() if n == 0]"),
+         '        examined, ran, did="examined nothing anywhere here",',
+         '        examined, set(examined), did="examined nothing anywhere here",'),
         ("the sweep stops recording which rules read a document", sweep,
          "                    ran.update(doc_examined)",
          "                    pass"),
@@ -2441,24 +2448,26 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # The sweep's NOTE split reached the diff gate, which adopters run.
         ("the diff gate says a rule that read nothing examined nothing",
          introduced_since,
-         "    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]",
-         "    blind = [kind for kind, n in examined.items() if n == 0]"),
+         '        examined, ran, did="examined nothing in the changed documents",',
+         '        examined, set(examined), '
+         'did="examined nothing in the changed documents",'),
         ("the diff gate stops recording which rules read a document",
          introduced_since,
          "                ran.update(doc_examined)",
          "                pass"),
         # The reason is the rule's SCOPE; repository rules are not archive
         # rules either, and a primary read with no entry is not an absent one.
-        # Retargeted in Phase 59, when the reasons moved into `unread_reason`
-        # so `--selftest` prints the same words: one indent level shallower.
+        # Retargeted twice in Phase 59: the reasons joined the clauses in
+        # `why_not_read`, and the note asks it at the one position its rules
+        # share. Keyed on in_archive, a repository rule is refused as an entry
+        # rule on a primary holding no entry; told a read primary was absent,
+        # the note loses "which has none".
         ("the did-not-run note keys entry scope on in_archive", session,
-         '    if rule.scope == "newest-entry":',
-         "    if not rule.in_archive:"),
+         '    if rule.scope == "newest-entry" and not entry_found:',
+         "    if not rule.in_archive and not entry_found:"),
         ("the did-not-run note calls a read primary document absent", session,
-         '        why = ("the newest entry of the primary document, which has none"\n'
-         "               if primary_read else",
-         '        why = ("the newest entry of the primary document, which has none"\n'
-         "               if False else"),
+         '                           entry_found=not primary_read, doc_format="",',
+         '                           entry_found=True, doc_format="",'),
         # A comment is set aside before any pattern question is asked.
         ("a comment is named an unusable exclusion", sweep,
          '    if not body or body.startswith("#"):\n        return None',
@@ -2499,18 +2508,21 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          collect.parent / "extant/config.py",
          '        if pattern == "":\n            return _switched_off(key)',
          "        if False:\n            return _switched_off(key)"),
+        # Retargeted with the review of Phase 59: the empty string is asked of
+        # the pattern's width, and the group counts are a range.
         ("a pattern matching the empty string is accepted",
          collect.parent / "extant/config.py",
-         '        if regex.match("") is not None:',
+         "        if _sre.parse(regex.pattern, regex.flags).getwidth()[0] == 0:",
          "        if False:"),
         ("a pattern with the wrong group count is accepted",
          collect.parent / "extant/config.py",
-         "        if wanted is not None and regex.groups not in wanted:",
+         "        if regex.groups < low or (high is not None and regex.groups > high):",
          "        if False:"),
         # Off is a state: the rule does not run, and every output says so.
+        # Retargeted to `_off_keys`, the one test of it since the review.
         ("a switched-off rule runs anyway", session,
-         "    if _ACTIVE.off.intersection(rule.settings):\n        return False",
-         "    if False:\n        return False"),
+         "    return [key for key in rule.settings if key in _ACTIVE.off]",
+         "    return []"),
         ("an entry rule reads a document holding no entry", session,
          '    if rule.scope == "newest-entry" and not entry_found:',
          "    if False:"),
@@ -2521,8 +2533,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "                        or not session.rule_applies(rule, False, True)):",
          "                        or False):"),
         ("--selftest probes a rule the document is not read by", session,
-         "        if not rule_applies(rule, False, True, entry_found=entry_found):",
-         "        if False:"),
+         "        if why is not None:\n            not_run += 1",
+         "        if False:\n            not_run += 1"),
         # One classifier: a zero is worded by its cause.
         ("a zero no pattern could explain is blamed on one", session,
          "        if rule is None or not rule.settings:",
@@ -2530,7 +2542,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a zero on the shipped default is said to be the project's", session,
          "        unset = [key for key in rule.settings if key not in _ACTIVE.configured]",
          "        unset = []"),
-        ("--verify says a rule that read nothing matched nothing", gate,
+        # On `session.zero_notes` since the review, which --verify now reads.
+        ("--verify says a rule that read nothing matched nothing", session,
          "    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]",
          "    blind = [kind for kind, n in examined.items() if n == 0]"),
         # SARIF says what the text says.

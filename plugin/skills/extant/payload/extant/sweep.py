@@ -59,8 +59,9 @@ from extant.report import (
 )
 
 __all__ = [
-    "apply_exclusions", "excluded_documents", "partition_documents",
-    "run_sweep", "survey", "unusable_exclusion", "unusable_note",
+    "apply_exclusions", "excluded_documents", "fallback_note",
+    "partition_documents", "run_sweep", "survey", "unusable_exclusion",
+    "unusable_note",
 ]
 
 if TYPE_CHECKING:
@@ -568,8 +569,9 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # concatenation out at each use is how the `swept ...` line and the
     # per-stratum breakdown came to be summed from different sets.
     everything = results["vetted"] + results["unvetted"] + results["repository"]
-    zero_notes = _zero_counts(
-        examined, ran, primary_read=any(is_primary for _r, is_primary in tasks))
+    checkout_notes, fallback_notes, zero_notes = _survey_notes(
+        repo, examined, ran, any(is_primary for _r, is_primary in tasks),
+        index_incomplete, fallback)
     if fmt == "text":
         section_lines, entries = format_sweep_sections(results)
         for line in section_lines:
@@ -577,7 +579,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     else:
         entries = 0
         for line in render_findings(
-                everything, fmt, repo, examined=examined, notes=zero_notes,
+                everything, fmt, repo, examined=examined,
+                notes=checkout_notes + fallback_notes + zero_notes,
                 off=session.switched_off(), errors=list(RULE_ERRORS),
                 run_kind="sweep")[0]:
             print(line)
@@ -603,10 +606,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # reported is if the reader can say which one they ran.
     if workers:
         print(f"  surveyed across {workers} worker process(es)", file=out)
-    if fallback is not None:
-        print(f"  NOTE: the parallel survey could not start, so every "
-              f"document was read in this process instead: {fallback}",
-              file=out)
+    for line in fallback_notes:
+        print(line, file=out)
     # Never folded into the unreadable count: a file that could not be READ
     # and a file that was dispatched and never came back are different
     # failures, and the second one means the survey lost a document rather
@@ -664,8 +665,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # a year - on the mode most often pointed at a repository nobody here had
     # seen, where a wall of dead SHAs from a depth-limited copy is exactly
     # what a reader needs told. 139 of the 152 corpus clones are partial.
-    report_repository_notes(lambda line: print(line, file=out), repo,
-                            index_incomplete)
+    for line in checkout_notes:
+        print(line, file=out)
     for line in zero_notes:
         print(line, file=out)
     if unreadable:
@@ -691,33 +692,35 @@ def run_sweep(repo: Path, fmt: str) -> int:
     return 1 if (results["vetted"] or RULE_ERRORS or unreturned) else 0
 
 
-def _zero_counts(examined: dict[str, int], ran: set[str],
-                 primary_read: bool) -> list[str]:
-    """The NOTEs about zeros in the `examined:` line: rules that read
-    documents and found no candidate, worded by cause since Phase 59, and
-    rules that read none. Out of `run_sweep` since Phase 57, when splitting
-    the second from the first took that function past its ceiling. Returned
-    rather than printed since Phase 59, because SARIF, rendered before them,
-    carries the same lines."""
-    # Zero counts are REPORTED rather than filtered, and named again here. A
-    # rule examining nothing across a WHOLE repository is a far stronger signal
-    # than the same zero in one document, and it is the one a reader skimming a
-    # 13-entry line will miss.
-    #
-    # Only of a rule that READ something, though. One that no document here
-    # is for - the entry-scoped rules without a primary document - did not
-    # look, and both explanations below are wrong about it: that NOTE named
-    # them in 152 of 152 corpus sweeps (2026-09-28). Said apart, with why.
-    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
-    notes = session.zero_note(blind, did="examined nothing anywhere here",
-                              claims="no document makes such claims")
-    unrun = session.unrun_note(
-        [rule for rule in session.RULES
-         if rule.kind in examined and rule.kind not in ran],
-        primary_read=primary_read, absent="none is here", read="swept")
-    if unrun:
-        notes.append(unrun)
-    return notes
+def _survey_notes(repo: Path, examined: dict[str, int], ran: set[str],
+                  primary_read: bool, index_incomplete: bool,
+                  fallback: str | None
+                  ) -> tuple[list[str], list[str], list[str]]:
+    """Every NOTE the survey prints - the checkout's, a parallel fallback,
+    and the zeros of the `examined:` line - worked out before any is printed,
+    because SARIF, rendered first, carries the same lines. Out of `run_sweep`,
+    which is at its ceiling.
+
+    Zero counts are REPORTED rather than filtered: a rule examining nothing
+    across a WHOLE repository is a far stronger signal than the same zero in
+    one document. Only of a rule that READ something, though; one no document
+    here is for is said apart, with why (`session.zero_notes`).
+    """
+    checkout: list[str] = []
+    report_repository_notes(checkout.append, repo, index_incomplete)
+    return checkout, fallback_note(fallback), session.zero_notes(
+        examined, ran, did="examined nothing anywhere here",
+        claims="no document makes such claims", primary_read=primary_read,
+        absent="none is here", read="swept")
+
+
+def fallback_note(reason: str | None) -> list[str]:
+    """The NOTE for a parallel survey that could not start, or none. Here for
+    `--introduced-since` too, whose SARIF carries it as this one's does."""
+    if reason is None:
+        return []
+    return [f"  NOTE: the parallel survey could not start, so every "
+            f"document was read in this process instead: {reason}"]
 
 
 def unusable_exclusion(pattern: str) -> str | None:

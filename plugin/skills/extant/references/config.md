@@ -156,10 +156,11 @@ in .extant.toml" - and `--selftest` reports it as `NOT RUN` rather than as a
 rule that stayed silent. `inconsistent-artifact` is off in the same way until a
 `consistency` check is configured.
 
-A pattern that is not empty but matches the empty string - `(x)?`, `a*` - is
-refused when the file loads, and so is one with the wrong number of capture
-groups for its rule (`merge_claim` takes one or two, `live_phrases` any, the
-other three exactly one). Before these were refused, `path_pointer = ''`
+A pattern that is not empty but can match the empty string anywhere - `(x)?`,
+`a*`, or `\b(\w*)` after a word - is refused when the file loads, and so is
+one with the wrong number of capture groups for its rule (`merge_claim` takes
+one or two, `path_pointer` exactly one, `branch_token` and `release_tag` at
+least one - their rules read the first - and `live_phrases` any). Before these were refused, `path_pointer = ''`
 reported 256 examined on a 14-line document and the others raised inside their
 rules on every run.
 

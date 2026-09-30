@@ -190,6 +190,10 @@ def test_consistency_is_off_until_a_check_is_configured(tmp_path: Path) -> None:
     ("path_pointer", "(x)?"),
     ("live_phrases", "(pending)*"),
     ("merge_claim", "(m)?"),
+    # Empty only in context, which `match("")` never saw: after a word
+    # boundary, or behind a space - 24 examined on a 7-line document.
+    ("path_pointer", "\\b([\\w/.-]*)"),
+    ("branch_token", "(?<=\\s)(\\S*)"),
 ])
 def test_a_pattern_that_matches_the_empty_string_is_refused(
         tmp_path: Path, key: str, pattern: str) -> None:
@@ -213,6 +217,18 @@ def test_a_pattern_with_the_wrong_number_of_groups_is_refused(
     every run, which never exits 0 but names the rule rather than the key."""
     with pytest.raises(ValueError, match=f"{key}.*group"):
         _settings(tmp_path, f"{key} = '{pattern}'\n")
+
+
+@pytest.mark.parametrize("key,pattern", [
+    ("branch_token", "`((feature|fix)/[^`]+)`"),
+    ("release_tag", "released in (v(\\d+)\\.\\d+)"),
+])
+def test_a_rule_reading_group_one_takes_more_groups(tmp_path: Path, key: str,
+                                                    pattern: str) -> None:
+    """These rules read group 1 and nothing past it, so a nested group was a
+    working configuration before the refusal, and must stay one: refused, it
+    stopped every mode at load, not only its rule."""
+    assert getattr(_settings(tmp_path, f"{key} = '{pattern}'\n"), key).groups == 2
 
 
 def test_merge_claim_keeps_both_of_its_shapes(tmp_path: Path) -> None:
@@ -361,18 +377,34 @@ def test_an_entry_rule_on_a_document_with_no_entry_read_nothing(
     unrun = line_with(result, UNRUN_NOTE)
     assert ("stale-live-claim, unknown-branch read only the newest entry of "
             "the primary document, which has none") in unrun, unrun
+    # And the lever, since 23 of the 25 measured were entries headed some
+    # other way than the shipped `## Phase `.
+    assert "shipped default `entry_prefix` '## Phase '" in unrun, unrun
     zeros = lines_with(result, "NOTE: these rules matched nothing")
     assert "stale-live-claim" not in zeros and "unknown-branch" not in zeros
+
+
+def test_a_set_entry_prefix_is_not_named_as_the_lever(git_repo) -> None:
+    repo, commit = git_repo
+    commit(".extant.toml", "entry_prefix = '## Step '\n", "chore: config")
+    commit("NEXT_SESSION.md", "# Status\n\nNothing dated here.\n",
+           "docs: status")
+    unrun = line_with(run(repo, "--verify"), UNRUN_NOTE)
+    assert "which has none" in unrun and "entry_prefix" not in unrun, unrun
 
 
 def test_a_markdown_rule_on_an_rst_primary_read_nothing(git_repo) -> None:
     repo, commit = git_repo
     commit(".extant.toml", "primary_doc = 'STATUS.rst'\n", "chore: config")
-    commit("STATUS.rst", "Status\n======\n\nPlain prose.\n", "docs: status")
+    # A link-shaped token, which the markdown rule counted although it did
+    # not run: its count and the NOTE saying it read nothing, side by side.
+    commit("STATUS.rst", "Status\n======\n\nSee [the notes](docs/notes.md).\n",
+           "docs: status")
     result = run(repo, "--verify")
     unrun = line_with(result, UNRUN_NOTE)
     assert "dead-md-link" in unrun and "markdown" in unrun, unrun
     assert "dead-md-link" not in lines_with(result, "NOTE: these rules matched")
+    assert "dead-md-link 0," in line_with(result, "checked STATUS.rst")
 
 
 def test_check_text_words_its_zeros_the_same_way(git_repo) -> None:
@@ -415,10 +447,17 @@ def test_sarif_names_a_switched_off_rule_as_disabled(git_repo) -> None:
     commit(".extant.toml", "path_pointer = ''\n", "chore: config")
     commit("NEXT_SESSION.md", ENTRY.format("Plain prose."), "docs: status")
     result = run(repo, "--verify", "--format=sarif")
-    invocation = json.loads(result.stdout)["runs"][0]["invocations"][0]
-    overrides = invocation["ruleConfigurationOverrides"]
-    assert {"descriptor": {"id": "dead-path-pointer"},
-            "configuration": {"enabled": False}} in overrides, overrides
+    run_ = json.loads(result.stdout)["runs"][0]
+    overrides = run_["invocations"][0]["ruleConfigurationOverrides"]
+    disabled = [o for o in overrides
+                if o["descriptor"]["id"] == "dead-path-pointer"]
+    assert disabled and disabled[0]["configuration"] == {"enabled": False}
+    # Every reference resolves: an off rule has no result to be listed by,
+    # so it is listed for the override, at the index the override names.
+    rules = run_["tool"]["driver"]["rules"]
+    for override in overrides:
+        ref = override["descriptor"]
+        assert rules[ref["index"]]["id"] == ref["id"], (ref, rules)
 
 
 def test_sarif_reports_a_rule_that_raised_as_a_failed_execution() -> None:
@@ -431,5 +470,39 @@ def test_sarif_reports_a_rule_that_raised_as_a_failed_execution() -> None:
     assert invocation["executionSuccessful"] is False
     raised = [n for n in invocation["toolExecutionNotifications"]
               if n["level"] == "error"]
-    assert raised and raised[0]["associatedRule"] == {"id": "dead-sha"}
+    assert raised and raised[0]["associatedRule"]["id"] == "dead-sha"
+    rules = document["runs"][0]["tool"]["driver"]["rules"]
+    assert rules[raised[0]["associatedRule"]["index"]]["id"] == "dead-sha"
     assert "ValueError: boom" in raised[0]["exception"]["message"]
+
+
+def test_deleted_since_sarif_says_it_examined_no_document(git_repo) -> None:
+    """SARIF stopped working out its own zeros, and this mode handed it none:
+    a range that changed no document lost the warning it had."""
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", ENTRY.format("Plain prose."), "docs: status")
+    result = run(repo, "--deleted-since", "HEAD", "--format=sarif")
+    invocation = json.loads(result.stdout)["runs"][0]["invocations"][0]
+    assert invocation["executionSuccessful"] is True
+    sent = [n["message"]["text"]
+            for n in invocation["toolExecutionNotifications"]]
+    assert any("no changed document was examined" in text for text in sent), sent
+
+
+# --- 7. the newest entry has one reader -------------------------------------
+
+def test_a_branch_probe_corrupts_the_token_the_rule_reads(git_repo) -> None:
+    """The probe split the RAW text, so the first branch token it found could
+    sit in a fence the rule never reads: corrupted there, the rule stayed
+    silent on a claim it would have caught - a false DID NOT FIRE."""
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", ENTRY.format(
+        "```\n`feature/in-a-fence`\n```\n\nWork on `feature/demo` continues."),
+        "docs: status")
+    # The prose token names a branch that exists, so only the probe's
+    # corruption of it can make the rule fire.
+    subprocess.run(["git", "branch", "feature/demo"], cwd=repo, check=True,
+                   capture_output=True)
+    result = run(repo, "--selftest")
+    line = line_with(result, "unknown-branch")
+    assert "FIRED" in line and "DID NOT" not in line, result.stdout

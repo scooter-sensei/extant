@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
@@ -71,6 +72,11 @@ except ModuleNotFoundError:                              # Python < 3.11
         import tomli as tomllib
     except ModuleNotFoundError:
         tomllib = None
+
+if sys.version_info >= (3, 11):     # the regex parser, for `claim` below
+    from re import _parser as _sre
+else:                               # the same module, under its older name
+    import sre_parse as _sre
 
 # `tomllib` is deliberately absent: it is an implementation detail of this
 # module's fallback, not something a sibling should reach for. One test does
@@ -286,23 +292,21 @@ DEFAULTS: dict[str, object] = {
 # quietly applied to a repo that never had one.
 #
 # The five claim patterns joined on 2026-09-29. '' meant nothing working for
-# any of them: `merge_claim`, `branch_token` and `release_tag` raised
-# `IndexError: no such group` in their rules every run (`merge_claim` took
-# `dead-sha` down too), `live_phrases` made every branch token in the newest
-# entry a live claim, `path_pointer` reported 256 examined on a 14-line
-# document. No working configuration held one, so OFF breaks nobody.
+# any: three raised `IndexError: no such group` in their rules every run,
+# `live_phrases` made every branch token in the newest entry a live claim, and
+# `path_pointer` reported 256 examined on a 14-line document. OFF breaks nobody.
 _PATTERN_KEYS = ("merge_claim", "live_phrases", "branch_token", "path_pointer",
                  "release_tag")
 DISABLEABLE = frozenset({"phase_task", "phase_bare", "plans_dir",
                          *_PATTERN_KEYS})
 
-# The capture groups each claim pattern's rule reads by number. Anything else
-# raised `IndexError` inside the rule every run, naming a rule rather than the
-# mistyped setting. `merge_claim` keeps both shapes: (ref, sha), and the older
-# (sha) checked against trunk. `live_phrases` is a gate and reads no group.
-_GROUPS: dict[str, tuple[int, ...]] = {
-    "merge_claim": (1, 2), "branch_token": (1,), "path_pointer": (1,),
-    "release_tag": (1,),
+# The fewest and most capture groups each claim pattern's rule reads, None for
+# no most: fewer raised `IndexError` in the rule every run. More is refused only
+# where a rule reads past group 1 - `merge_claim` (ref, sha) or (sha), probed at
+# its last; `path_pointer` through `findall` - and `live_phrases` reads none.
+_GROUPS: dict[str, tuple[int, int | None]] = {
+    "merge_claim": (1, 2), "path_pointer": (1, 1), "branch_token": (1, None),
+    "release_tag": (1, None),
 }
 
 
@@ -310,12 +314,10 @@ def _switched_off(key: str) -> re.Pattern[str]:
     """What an OFF claim pattern holds: one that never matches, with the
     default's group count, because `commits.py` branches on `pattern.groups`.
 
-    Not None: shared machinery reads these for the rules - the commit batch
-    (for `dead-sha` too), the patch generator, the probes - and None needed a
-    guard at twenty sites in eight modules, one forgotten being a crash. It IS
-    the failure this project names, a pattern matching nothing, installed on
-    purpose; acceptable only because it cannot be silent: the key is in `off`,
-    `session.rule_applies` does not run its rule, and every run says so.
+    Not None: shared machinery reads these for the rules - the commit batch,
+    the patch generator, the probes - and None needed a guard at twenty sites.
+    It IS a pattern matching nothing, installed on purpose, and not silent:
+    the key is in `off`, its rule does not run, and every run says so.
     """
     groups = re.compile(str(DEFAULTS[key])).groups
     return re.compile("(?!)" + "()" * groups)
@@ -363,10 +365,9 @@ class StatusConfig:
     # Where each setting came from, read off the file itself: the keys it
     # SETS, and those it switches OFF (a disableable key set empty, or no
     # `consistency` check at all). A key in neither is the shipped default.
-    # This is what lets a rule that examined nothing say which of the three
-    # it ran under - measured over 39 installs, every one left at least three
-    # claim patterns on a default the run then never mentioned. "Set" means
-    # present in the file, not checked by a person: an installer guess is set.
+    # This lets a rule that examined nothing say which of the three it ran
+    # under - over 39 installs, every one left at least three claim patterns
+    # on a default the run never mentioned. "Set" means present in the file.
     configured: frozenset[str] = frozenset()
     off: frozenset[str] = frozenset()
 
@@ -855,19 +856,20 @@ def load_config(repo: Path) -> StatusConfig:
         if pattern == "":
             return _switched_off(key)
         regex = compiled(key, pattern, flags)
-        if regex.match("") is not None:
-            # The shape `path_pointer = ''` had before it meant off: a match
-            # at every position, 256 "examined" on a 14-line document.
+        # The shape `path_pointer = ''` had before it meant off. Asked of the
+        # pattern's WIDTH, not of `match("")`, which misses `\b(\w*)`.
+        if _sre.parse(regex.pattern, regex.flags).getwidth()[0] == 0:
             raise ValueError(
                 f"{source}: {key} matches the empty string, so it would find "
                 f"a claim at every position of every document. Set it to '' "
                 f"to switch the rule off.")
-        wanted = _GROUPS.get(key)
-        if wanted is not None and regex.groups not in wanted:
+        low, high = _GROUPS.get(key, (0, None))
+        if regex.groups < low or (high is not None and regex.groups > high):
+            wanted = (f"at least {low}" if high is None
+                      else str(low) if high == low else f"{low} or {high}")
             raise ValueError(
                 f"{source}: {key} has {regex.groups} capture group(s) and "
-                f"needs {' or '.join(str(n) for n in wanted)}, around the "
-                f"value the rule checks")
+                f"needs {wanted}, around the value the rule checks")
         return regex
 
     consistency = _compile_consistency(values["consistency"], path)

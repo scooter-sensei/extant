@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 
-from extant.entries import split_entries
+from extant.entries import newest_entry
 from extant.scope import Context
 from extant.text import prose
 
@@ -51,17 +51,20 @@ def branch_in_newest(ctx: Context, text: str) -> str | None:
     tokens in the same entry, so both are made to fire the same way. It lived
     in the branch rule and the live-claim probe called it there, which is the
     sideways reach this module exists to remove.
+
+    Found in the prose, as the rules read it, and spliced into the original
+    at the same offset - the fix `sub_group` had, for the same false DID NOT
+    FIRE: a first token inside a fence was corrupted and never read.
     """
-    _, segments, _ = split_entries(text, ctx.config)
-    for kind, entry in segments:
-        if kind != "phase":
-            continue
-        match = ctx.config.branch_token.search(entry)
-        if not match:
-            return None
-        leaf = match.group(1).split("/", 1)
-        fake = (f"{leaf[0]}/{FAKE_BRANCH_LEAF}" if len(leaf) > 1
-                else FAKE_BRANCH_LEAF)
-        start, end = match.span(1)
-        return text.replace(entry, entry[:start] + fake + entry[end:], 1)
-    return None
+    newest = newest_entry(prose(ctx.doc, text), ctx.config)
+    if newest is None:
+        return None
+    offset, entry = newest
+    match = ctx.config.branch_token.search(entry)
+    if not match:
+        return None
+    leaf = match.group(1).split("/", 1)
+    fake = (f"{leaf[0]}/{FAKE_BRANCH_LEAF}" if len(leaf) > 1
+            else FAKE_BRANCH_LEAF)
+    start, end = match.span(1)
+    return text[:offset + start] + fake + text[offset + end:]

@@ -63,7 +63,7 @@ from extant.gate import report_repository_notes
 from extant.git import environment
 from extant.registry import RULE_ERRORS
 from extant.report import render_findings
-from extant.sweep import apply_exclusions, survey, unusable_note
+from extant.sweep import apply_exclusions, fallback_note, survey, unusable_note
 
 __all__ = ["introduced_lines", "merge_base", "run_introduced_since",
            "unquote_path"]
@@ -387,18 +387,14 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     # change that left the primary document alone, a markdown rule on one
     # that touched only reStructuredText - so it is named apart, with why.
     # Worded by cause since Phase 59, and worked out before the findings are
-    # rendered, because SARIF carries the same lines.
-    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
-    notes = session.zero_note(
-        blind, did="examined nothing in the changed documents",
-        claims="they make no such claims")
-    unrun = session.unrun_note(
-        [rule for rule in session.RULES
-         if rule.kind in examined and rule.kind not in ran],
-        primary_read=primary in kept,
+    # rendered, because SARIF carries the same lines - the checkout's and a
+    # parallel fallback's as well.
+    notes = session.zero_notes(
+        examined, ran, did="examined nothing in the changed documents",
+        claims="they make no such claims", primary_read=primary in kept,
         absent="it is not among the changed documents", read="changed")
-    if unrun:
-        notes.append(unrun)
+    checkout_notes: list[str] = []
+    report_repository_notes(checkout_notes.append, repo, index_incomplete)
 
     if fmt == "text":
         for line in render_findings(gating, fmt)[0]:
@@ -408,7 +404,9 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         # result, and a machine consumer handed zero bytes fails its upload
         # rather than reading "no results".
         for line in render_findings(gating, fmt, repo, examined=examined,
-                                    notes=notes, off=session.switched_off(),
+                                    notes=notes + checkout_notes
+                                    + fallback_note(fallback),
+                                    off=session.switched_off(),
                                     errors=list(RULE_ERRORS),
                                     run_kind="introduced-since")[0]:
             print(line)
@@ -427,8 +425,11 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     session.report_rule_errors(lambda line: print(line, file=out))
     for line in notes:
         print(line, file=out)
+    # Only those `--verify` and `--sweep` would run: one switched off is run
+    # by neither, and the SARIF says it is off.
     repository_rules = [rule.kind for rule in session.RULES
-                        if rule.scope == "repository"]
+                        if rule.scope == "repository"
+                        and session.rule_applies(rule, False, True)]
     print(f"  {len(repository_rules)} repository-wide rule(s) not run: their "
           f"findings sit at a line nothing wrote, so --verify and --sweep "
           f"run them ({', '.join(repository_rules)})", file=out)
@@ -461,14 +462,12 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         print(f"  {len(binary_documents)} changed document(s) git reads as "
               f"binary and were not examined: {', '.join(binary_documents)}",
               file=out)
-    report_repository_notes(lambda line: print(line, file=out), repo,
-                            index_incomplete)
+    for line in checkout_notes:
+        print(line, file=out)
     if workers:
         print(f"  surveyed across {workers} worker process(es)", file=out)
-    if fallback is not None:
-        print(f"  NOTE: the parallel survey could not start, so every "
-              f"document was read in this process instead: {fallback}",
-              file=out)
+    for line in fallback_note(fallback):
+        print(line, file=out)
     if unreturned:
         print(f"  {len(unreturned)} document(s) were dispatched and returned "
               f"no result, so they were NOT examined: "

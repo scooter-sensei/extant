@@ -8,12 +8,13 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 ## Phase 59 - What a zero means: a rule names its vocabulary, and off is a state (unreleased, 2026-09-29)
 
-**Status.** Built and gated. 1,502 tests across 78 files, of which 1,494
-pass and 8 skip on this machine; `python -m mypy`: no issues in 44 files;
-357 mutation anchors match, and the 23 this tranche wrote or retargeted were
-each run for real on a copy: all 23 killed, one only after its test was
-corrected. No rule added or removed, thirteen as before; no mode added; no
-exit code moved. The tool remained released as 0.28.0.
+**Status.** Built, gated, reviewed and fixed. 1,510 tests across 78 files,
+of which 1,502 pass and 8 skip on this machine; `python -m mypy`: no issues
+in 44 files; 357 mutation anchors match, and the 23 this tranche wrote or
+retargeted were each run for real on a copy: all 23 killed, one only after
+its test was corrected. The 13 its review retargeted: all 13 killed. No rule
+added or removed, thirteen as before; no mode added; no exit code moved. The
+tool remained released as 0.28.0.
 
 **What it answers.** The scrutiny of pull request 13 said a rule whose
 pattern nobody set reports `examined 0` in the voice of a project that makes
@@ -43,8 +44,9 @@ the 139 de-duplicated corpus sweeps:
   to set, a pattern the project set, or the shipped default, naming the key.
   An entry rule on a primary document holding no entry is said to have read
   nothing, in every mode.
-- A pattern matching the empty string, or with the wrong number of groups,
-  is refused when the file loads; 0 of 41 known configurations are refused.
+- A pattern that can match the empty string anywhere, or with the wrong
+  number of groups for its rule, is refused when the file loads; 0 of 41
+  known configurations are refused.
 - SARIF carries the NOTE lines the text printed, states an off rule as
   disabled, and reports a rule that raised as a failed execution.
 - The installer says what an undetermined setting will do. It leaves a claim
@@ -66,6 +68,28 @@ while its tolerated flag quietly stopped being raised.
 
 **Identity.** On the 152 visible corpus clones, predicted byte for byte
 before the run: 152 of 152 outputs byte-identical to the prediction. No finding and no `examined:` count moved.
+
+**The review of the pull request.** It found twelve things, all fixed in one
+more commit:
+
+- Five defects. The group-count refusal stopped every mode on a nested group
+  two rules read correctly; the empty-string refusal missed a pattern empty
+  only after a word; `--verify` printed a count for a rule it then said read
+  nothing; SARIF referred to rules it never described; and `--deleted-since`
+  lost the zero warning SARIF used to work out for it.
+- Four statements larger than the code. SARIF carried only the zero NOTEs,
+  not the checkout's; `--introduced-since` said two modes run a rule that is
+  off; "which has none" did not name `entry_prefix`, the cause in 23 of the
+  25 installs measured; and a `--selftest` comment described a rare case as
+  the only one.
+- Three facts written twice. Why a rule does not run and whether it runs are
+  one function; the zero NOTE lines are one call; and the newest entry has
+  one reader, which found a branch probe corrupting a token in a fence.
+
+Identity for the fixes, predicted as 0 of 152 before the run:
+0 of 152 differ. The chain from an extract: smoke 48 observations with 0 new
+flags, scenarios 213 of 213, the fuzzer 0 violations over 35 repositories,
+`--self-check` 23 of 23.
 
 Everything is in the section "What a zero means: a rule names its vocabulary,
 and off is a state", in the design rationale's part on keeping the tool
