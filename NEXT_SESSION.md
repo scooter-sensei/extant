@@ -6,15 +6,16 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 59 - What a zero means: a rule names its vocabulary, and off is a state (unreleased, 2026-09-29)
+## Phase 59 - What a zero means: a rule names its vocabulary, and off is a state (shipped, 2026-09-29)
 
 **Status.** Built, gated, reviewed and fixed. 1,510 tests across 78 files,
 of which 1,502 pass and 8 skip on this machine; `python -m mypy`: no issues
 in 44 files; 357 mutation anchors match, and the 23 this tranche wrote or
 retargeted were each run for real on a copy: all 23 killed, one only after
 its test was corrected. The 13 its review retargeted: all 13 killed. No rule
-added or removed, thirteen as before; no mode added; no exit code moved. The
-tool remained released as 0.28.0.
+added or removed, thirteen as before; no mode added; no exit code moved. This
+work shipped in 0.29.0, with Phases 55 to 58; it reached `main` as pull
+request 23.
 
 **What it answers.** The scrutiny of pull request 13 said a rule whose
 pattern nobody set reports `examined 0` in the voice of a project that makes
@@ -95,15 +96,14 @@ Everything is in the section "What a zero means: a rule names its vocabulary,
 and off is a state", in the design rationale's part on keeping the tool
 honest.
 
-## Phase 58 - The differential gate, measured and refused: what a change breaks without writing it (unreleased, 2026-09-29)
+## Phase 58 - The differential gate, measured and refused: what a change breaks without writing it (shipped, 2026-09-29)
 
 **Status.** Measurement only. No shipped file changed, so there is no
 CHANGELOG entry and the suite is unchanged: 1,455 tests across 77 files,
 of which 1,447 pass and 8 skip on this machine. Thirteen rules; no mode
-added; no default or exit code moved. The tool remained released as 0.28.0.
-Phase 57 reached `main` as pull request 22, beside Phases 55 and 56, and
-the release that will carry the three is decided and held. `python -m mypy`: no issues in 44
-files.
+added; no default or exit code moved. Its records shipped in 0.29.0, with
+Phases 55 to 57 and 59; Phase 57 had reached `main` as pull request 22,
+beside Phases 55 and 56. `python -m mypy`: no issues in 44 files.
 
 **What it asked.** `--introduced-since` gates on the claims a change wrote.
 The scrutiny of pull request 13 said it misses the claims a change broke
@@ -169,14 +169,14 @@ moved verbatim, which a check against the previous commit confirmed; four
 cross-references that would have pointed across a file were reworded. The
 parts are checked documents, like the core.
 
-## Phase 57 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer (unreleased, 2026-09-28)
+## Phase 57 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer (shipped, 2026-09-28)
 
 **Status.** Suite is 1,455 tests across 77 files. On this machine 1,447 pass
 and 8 skip; on Linux, through WSL, 1,454 pass and 1 skips. Thirty-one were
 added, eight of them by the review below, and the new skip here is a
 filename with a tab in it, which Windows cannot hold and Linux runs. Thirteen rules; no mode added; no default or
-exit code moved. The tool remained released as 0.28.0, and this work sits
-above that tag in its own pull request. `python -m mypy`: no issues in 44 files.
+exit code moved. This work shipped in 0.29.0, with Phases 55, 56, 58 and
+59, from its own pull request. `python -m mypy`: no issues in 44 files.
 
 The mutation campaign is 336 anchors, all matching: 24 new, 2 retargeted,
 and 7 moved with the patch generator. Each of the 33 was applied to a copy
@@ -287,16 +287,16 @@ Everything is in the section "The owed bundle: what a zero means, where a
 patch ends, and what a partial copy cannot answer" in the design rationale
 under the skill's references.
 
-## Phase 56 - CI honesty: the version the maintainer runs, the surfaces adopters run, and a third order (unreleased, 2026-09-28)
+## Phase 56 - CI honesty: the version the maintainer runs, the surfaces adopters run, and a third order (shipped, 2026-09-28)
 
 **Status.** Suite is 1,424 tests across 76 files. On this machine 1,417
 pass and 7 skip; on Linux, through WSL, 1,423 pass and 1 skips. Five added:
 three for the new order option in their own file, one in the file that
 checks the documentation against the code, and one in the packaging file
 for the defect below. Thirteen rules; no mode added; no default or exit
-code moved; the one shipped file that changed is the action's metadata. The tool
-remained released as 0.28.0, and this work sits above that tag in its own
-pull request. `python -m mypy`: no issues in 43 files. Mutation campaign is 312
+code moved; the one shipped file that changed is the action's metadata. This
+work shipped in 0.29.0, with Phases 55 and 57 to 59, from its own pull
+request. `python -m mypy`: no issues in 43 files. Mutation campaign is 312
 anchors, all matching, none moved, and no campaign was run: there is no
 shipped code for a mutation to break. Nor was the corpus identity gate. What
 proves this tranche is the CI run it triggers, read job by job.
@@ -338,14 +338,14 @@ green on all twenty-one checks: the action loaded, installed on the
 runner's own Python in 3.4 seconds, and found nothing on the 245 lines this
 work wrote - the same count as here.
 
-## Phase 55 - One scanner for both code blocks: a fence ends where its container does (unreleased, 2026-09-28)
+## Phase 55 - One scanner for both code blocks: a fence ends where its container does (shipped, 2026-09-28)
 
 **Status.** Suite is 1,419 tests across 75 files. On this machine 1,412
 pass and 7 skip; on Linux, through WSL, 1,418 pass and 1 skips. Twenty-nine
 added: eighteen in the code-stripping file, five each in the indented-code and
 fixture-template files, and one in the diff-gate file. Thirteen rules; no mode added; no default or
-exit code moved. The tool remained released as 0.28.0, and this work sits
-above that tag in its own pull request. `python -m mypy`: no issues in 43
+exit code moved. This work shipped in 0.29.0, with Phases 56 to 59, from
+its own pull request. `python -m mypy`: no issues in 43
 files. Mutation campaign is 312 anchors: the five fence anchors followed the
 code into the blocks module, the indented-code anchor moved to the condition
 that opens a block - the early return it broke went, because `.mdx` has
