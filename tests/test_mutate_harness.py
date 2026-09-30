@@ -9,9 +9,15 @@ end it. Ending it is this harness's job, because the harness is what waits.
 Chosen in Phase 57 over the pytest-timeout plugin: no dependency, no
 `--strict-config` error where the plugin is not loaded, and no whole-process
 exit on Windows that the harness would have counted as a kill it could not name.
+
+Two more here are what a faster campaign would expose: the node id a
+`--parallel` kill is confirmed by, and a rewrite that stale bytecode cannot
+hide.
 """
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -92,6 +98,67 @@ def test_the_suite_names_a_hung_test_at_three_times_the_slowest() -> None:
     assert ini.has_option("pytest", "faulthandler_timeout"), (
         "pytest.ini no longer names a hung test")
     assert float(ini.get("pytest", "faulthandler_timeout")) >= 3 * 17.01
+
+
+def test_a_failing_test_is_rerun_by_the_name_pytest_printed(tmp_path) -> None:
+    """Catches `--parallel`'s confirmation reading a node id it cannot rerun.
+
+    pytest drops the " - message" tail of a short-summary line with no room
+    left at 80 columns, and 84 per cent of this suite's node ids leave none.
+    On Windows such a line ends in the carriage return the console wrote, the
+    pattern kept it, and the rerun asked for a test that does not exist: exit
+    4, not 1. Every such kill then fell through to a whole serial suite. The
+    verdict survived it; the time did not - on five anchors on 2026-09-30,
+    `--parallel` took longer than serial. The literal line fails on every
+    platform; the rerun fails where the console writes CRLF.
+    """
+    name = "test_" + "a_name_that_leaves_no_room_for_the_message_" * 2
+    root = _scratch_suite(tmp_path, f"def {name}():\n    assert False\n")
+    node = f"test_scratch.py::{name}"
+    assert mutate._FAILED_NODE.findall(f"FAILED {node}\r\n") == [node]
+
+    _code, out = mutate.run_suite(root, sys.executable,
+                                  ["-q", "-rfE", "-p", "no:cacheprovider"])
+    nodes = mutate._FAILED_NODE.findall(out)
+    assert nodes == [node], nodes
+    code, _out = mutate.run_suite(root, sys.executable, targets=nodes)
+    assert code == mutate._TESTS_FAILED, f"the rerun exited {code}"
+
+
+def test_a_rewrite_in_the_same_second_is_never_served_stale_bytecode(
+        tmp_path) -> None:
+    """Catches a mutant that never runs, and a restore that runs the mutant.
+
+    CPython trusts a cached .pyc while the source keeps its size and its
+    whole-second mtime (bpo-31772, still open). Most anchors change a file's
+    size; 13 of the 357 on 2026-09-30 did not - one character for another.
+    Written and restored inside one second, the mutant's suite imported the
+    ORIGINAL's bytecode, a false SURVIVED, or the restored file went on
+    running the mutant's. Measured with a fast suite: 29 and 21 cycles of 50.
+    A campaign's suites take minutes, which is all that kept it latent, so
+    anything that makes a mutant cheap exposes it. The sleep starts the
+    cycles just past a second boundary, so the writes below share one.
+    """
+    target = tmp_path / "target.py"
+    original, mutant = "FLAG = '-z'\n", "FLAG = '-Z'\n"
+    env = {k: v for k, v in os.environ.items()
+           if k != "PYTHONDONTWRITEBYTECODE"}
+
+    def imported() -> str:
+        return subprocess.run(
+            [sys.executable, "-c", "import target; print(target.FLAG)"],
+            cwd=tmp_path, env=env, capture_output=True, text=True,
+            check=True).stdout.strip()
+
+    mutate.write_source(target, original)
+    assert imported() == "-z"
+    time.sleep(1.02 - time.time() % 1)
+    for _ in range(3):
+        mutate.write_source(target, mutant)
+        ran_mutant = imported()
+        mutate.write_source(target, original)
+        ran_original = imported()
+        assert (ran_mutant, ran_original) == ("-Z", "-z")
 
 
 def test_a_hung_mutant_is_killed_and_says_so(tmp_path) -> None:

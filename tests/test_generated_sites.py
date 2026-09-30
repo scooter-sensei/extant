@@ -286,7 +286,10 @@ def test_the_anchor_rule_does_not_read_a_file_outside_the_repository(
     annotation. `resolve_reference` had just been repaired for exactly that,
     and this rule bypassed it by not asking.
 
-    Catches a return to any home-grown `is_file()` here.
+    It no longer catches a home-grown `is_file()` on its own. `_target_anchors`
+    now opens every target through `inside()`, which refuses this file as
+    well, so the fragment goes unjudged whichever check runs first. The test
+    below is the one that still bites.
     """
     from extant import session as hc
     from extant.rules import md_anchor
@@ -304,6 +307,44 @@ def test_the_anchor_rule_does_not_read_a_file_outside_the_repository(
     assert found == [], (
         "judged a fragment against a file outside the repository: "
         + "; ".join(f.detail for f in found))
+
+
+def test_the_anchor_rule_leaves_a_case_only_mismatch_to_the_link_rule(
+        git_repo) -> None:
+    """A cross-file fragment is judged only when its path resolves exactly as
+    written. A case-only mismatch belongs to `dead-md-link`.
+
+    That is what `md_anchor` promises, and `resolve_reference` is what keeps
+    the promise. The mutation "the anchor rule resolves a cross-file target
+    itself" swaps it for a bare `is_file()`. It SURVIVED the first campaign
+    over all 357 anchors, on 2026-09-30: the outside-file test above had
+    stopped biting once `inside()` arrived. What `is_file()` still changes is
+    case. On a case-insensitive filesystem it accepts `readme.md` for
+    `README.md`, and this rule then judged a fragment through a spelling the
+    link rule reports.
+
+    Red only where the filesystem folds case: Windows, where the campaign
+    runs, and macOS. On Linux the file lookup refuses the variant by itself,
+    so the assertion holds there without `resolve_reference` - stated rather
+    than implied, as `test_a_windows_spelled_pointer_resolves` does.
+    """
+    from extant import session as hc
+    from extant.rules import md_anchor
+    repo, commit = git_repo
+    commit("README.md", "# Real Heading\n\nbody\n", "docs: readme")
+    hc._SCOPE = hc.RunScope()
+    hc.set_document(link_base=repo, doc_path="DOC.md", doc_format="markdown")
+    ctx = hc.context(repo)
+
+    exact = md_anchor.check(ctx, "[x](README.md#no-such-heading)\n")
+    variant = md_anchor.check(ctx, "[x](readme.md#no-such-heading)\n")
+
+    # The exact spelling IS judged, or the second assertion would pass with a
+    # rule that judged no cross-file fragment at all.
+    assert len(exact) == 1, [f.detail for f in exact]
+    assert variant == [], (
+        "judged a fragment through a case-only mismatch: "
+        + "; ".join(f.detail for f in variant))
 
 
 def test_an_absolute_target_is_not_answered_by_the_machines_filesystem(

@@ -2574,6 +2574,28 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     ]
 
 
+def write_source(path: Path, text: str) -> None:
+    """Write `text` over `path`, LF-terminated, with a whole-second mtime
+    later than any the file had before.
+
+    CPython trusts a cached .pyc while the source keeps its size and its
+    whole-second mtime (bpo-31772, still open). A one-character mutation keeps
+    the size, so a mutant written and restored inside one second ran the
+    ORIGINAL's bytecode - a false SURVIVED - or left the restored file running
+    the mutant's. Measured on 2026-09-30 with a fast suite: 29 and 21 cycles
+    of 50. Suites that take minutes kept it latent here, and nothing else did.
+
+    Every bytecode file was compiled against an mtime this file has already
+    had, so a strictly later one can match none of them. Writes faster than
+    one a second run the stamp ahead of the clock, which is harmless.
+    """
+    before = int(path.stat().st_mtime) if path.exists() else 0
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    stamp = max(int(time.time()), before + 1)
+    os.utime(path, (stamp, stamp))
+
+
 def install_restore_guard(backups: dict[Path, str]) -> None:
     """Put the source back if this process is killed part-way through.
 
@@ -2594,8 +2616,7 @@ def install_restore_guard(backups: dict[Path, str]) -> None:
         for path, original in backups.items():
             try:
                 if path.read_text(encoding="utf-8") != original:
-                    with open(path, "w", encoding="utf-8", newline="\n") as fh:
-                        fh.write(original)
+                    write_source(path, original)
                     print(f"\nrestored {path.name} after interruption", file=sys.stderr)
             except OSError:
                 pass
@@ -2614,8 +2635,11 @@ _SERIAL = ["-x", "-q", "--no-header", "-p", "no:cacheprovider"]
 # make a campaign FASTER, never change a verdict - see `run_mutant`.
 _PARALLEL = [*_SERIAL, "-rfE", "-n", "auto", "--dist", "loadfile"]
 # A short-summary line: the node id runs to pytest's " - " before the message,
-# not to the first space - a parametrised id holds spaces ("[a branch]").
-_FAILED_NODE = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?$", re.MULTILINE)
+# not to the first space - a parametrised id holds spaces ("[a branch]"). And
+# not through the `\r` a Windows console ends the line with: pytest drops the
+# message when the id leaves no room at 80 columns, the `\r` then landed in
+# the id, and the rerun asked for a test that does not exist.
+_FAILED_NODE = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?\r?$", re.MULTILINE)
 # pytest's exit code for "tests ran and some failed". A usage error (4) or an
 # empty selection (5) is NOT a confirmation of anything.
 _TESTS_FAILED = 1
@@ -2816,14 +2840,12 @@ def main() -> int:
             not_applied.append(f"{label} (matched {original.count(old)}x)")
             print(f"{i:>2}/{len(mutations)}  NOT APPLIED  {label}")
             continue
-        with open(path, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(original.replace(old, new, 1))
+        write_source(path, original.replace(old, new, 1))
         try:
             green, flipped, stalled = run_mutant(root, args.python,
                                                  args.parallel, bound)
         finally:
-            with open(path, "w", encoding="utf-8", newline="\n") as fh:
-                fh.write(original)
+            write_source(path, original)
         (survived if green else killed).append(label)
         if flipped:
             overturned.append(label)
