@@ -63,13 +63,18 @@ STDIN_NAME = "<stdin>"
 
 def report_denominators(diag: Callable[[str], None], repo: Path, name: str,
                         examined: dict[str, int],
-                        index_incomplete: bool = False) -> int:
+                        index_incomplete: bool = False, *,
+                        entry_found: bool = True) -> tuple[int, list[str]]:
     """The counts, and everything that qualifies them. Returns the mark
     `session.report_rule_errors` hands back - how many rule errors have been
     printed so far - for the next call to continue from. It was annotated
     as a boolean from the split that made this module on 2026-08-31, while
     every caller passed it on as the mark; the type checker was the first
-    reader to notice.
+    reader to notice. And the NOTE lines it printed about zeros, so a machine
+    format says what the text said rather than working it out again.
+
+    `entry_found` is `session.holds_entry` of the document, asked by the
+    caller before validating, because it decides which rules read it.
 
     `index_incomplete` is the one qualifier the caller has to carry in: it is
     a fact of the run scope the document was examined under, read there with
@@ -87,17 +92,30 @@ def report_denominators(diag: Callable[[str], None], repo: Path, name: str,
     mode reaches for is a false claim about the boundary.
     """
     summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
-    blind = [kind for kind, n in examined.items() if n == 0]
+    # The rules that READ this document, by the predicate that selected
+    # them. The line above keeps every rule, at 0 where the caller counted
+    # only these; which of them LOOKED is what decides the explanation. A zero
+    # here used to be one sentence - "either this document makes no such
+    # claims, or the pattern is wrong" - for a rule switched off, a rule
+    # with no pattern to be wrong, an entry rule on a document holding no
+    # entry and a markdown rule on reStructuredText alike.
+    ran = {rule.kind for rule in session.RULES
+           if session.rule_applies(rule, False, True, entry_found=entry_found)}
     diag(f"checked {name}: {summary}")
     # Beside the denominators, because that is where a reader looks to
     # decide whether a quiet rule was quiet or broken.
     errors_reported = session.report_rule_errors(diag)
-    if blind:
-        diag("  NOTE: these rules matched nothing at all - either this "
-             "document makes no such claims, or the pattern is wrong: "
-             + ", ".join(blind))
-    report_repository_notes(diag, repo, index_incomplete)
-    return errors_reported
+    notes = session.zero_notes(
+        examined, ran, did="matched nothing at all",
+        claims="this document makes no such claims", primary_read=True,
+        absent="it was not read", read="checked")
+    # The checkout's notes join them, collected rather than printed, because
+    # SARIF is rendered from `notes` after this returns and says what the
+    # text said - a shallow repository's dead SHAs most of all.
+    report_repository_notes(notes.append, repo, index_incomplete)
+    for line in notes:
+        diag(line)
+    return errors_reported, notes
 
 
 def report_repository_notes(diag: Callable[[str], None], repo: Path,
@@ -276,7 +294,7 @@ def _open_baseline(
 
 def _finish(diag: Callable[[str], None], repo: Path, args: argparse.Namespace,
             found: Collector, baseline_path: Path, examined: dict[str, int],
-            exit_code: int, errors_reported: int) -> int:
+            exit_code: int, errors_reported: int, notes: list[str]) -> int:
     """Everything after the last document: formats, baseline, rule errors.
 
     Shared by both gating modes rather than written twice, because every one of
@@ -292,8 +310,13 @@ def _finish(diag: Callable[[str], None], repo: Path, args: argparse.Namespace,
         # `examined` is the primary document's denominator, the same figure
         # the `checked ...` diagnostic prints. A machine consumer of the
         # SARIF could not see it at all before.
+        # With the NOTE lines the text printed - the zeros, the checkout's,
+        # the missing path - the rules switched off, and every rule that
+        # raised: SARIF used to work these out for itself, or not at all.
         for line in render_findings(found.located, args.format, repo,
-                                    examined=examined)[0]:
+                                    examined=examined, notes=notes,
+                                    off=session.switched_off(),
+                                    errors=list(RULE_ERRORS))[0]:
             print(line)
 
     if args.write_baseline:
@@ -449,9 +472,12 @@ def run_validate(repo: Path, args: argparse.Namespace,
 
     whole_run = (session.run_scope() if mapping is None
                  else contextlib.nullcontext())
+    # Asked once, of the document as it will be read, and handed to both
+    # halves: which rules read it, and how the zeros of the rest are worded.
+    entry_found = session.holds_entry(text)
     with whole_run:
         with document_scope():
-            findings = session.validate(repo, text)
+            findings = session.validate(repo, text, entry_found=entry_found)
             exit_code = 1 if found.record(rel(repo, target), findings,
                                           primary=True) else 0
 
@@ -459,14 +485,19 @@ def run_validate(repo: Path, args: argparse.Namespace,
             # nothing print identically - the failure that recurred five
             # times in one day. A rule reporting 0 examined is either
             # genuinely absent from this document or broken, and the reader
-            # has to be able to tell.
-            examined = session.count_examined(repo, text)
+            # has to be able to tell. Counted for the rules that read it, as
+            # the sweep counts: a markdown rule on rst printed a count beside
+            # a NOTE saying it read nothing.
+            examined = session.count_examined(repo, text, functools.partial(
+                session.rule_applies, in_archive=False, has_entries=True,
+                entry_found=entry_found))
             # Read INSIDE the scope, which is the whole reason the note it
             # feeds took a year to print: the index is a fact of the scope,
             # and the notes print after the scope has closed.
             index_incomplete = session.ancestry_incomplete()
-        errors_reported = report_denominators(
-            diag, repo, Path(args.validate).name, examined, index_incomplete)
+        errors_reported, notes = report_denominators(
+            diag, repo, Path(args.validate).name, examined, index_incomplete,
+            entry_found=entry_found)
 
         # --verify/--validate used to read only their target file, so
         # content moved into the archive by --archive escaped validation
@@ -575,7 +606,12 @@ def run_validate(repo: Path, args: argparse.Namespace,
     # reading markdown as reStructuredText.
     session.install_document(entered)
     if extras_incomplete and not index_incomplete:
-        report_index_note(diag, repo)
+        # Into `notes` too, which SARIF is rendered from below.
+        index_note: list[str] = []
+        report_index_note(index_note.append, repo)
+        for line in index_note:
+            diag(line)
+        notes += index_note
 
     if args.suggest_fixes:
         # Written to stdout as a patch and never applied. In sarif mode the
@@ -600,7 +636,7 @@ def run_validate(repo: Path, args: argparse.Namespace,
                  "recorded as moved")
 
     return _finish(diag, repo, args, found, baseline_path, examined,
-                   exit_code, errors_reported)
+                   exit_code, errors_reported, notes)
 
 
 def _read_stdin(diag: Callable[[str], None]) -> str | None:
@@ -772,14 +808,20 @@ def run_check_text(repo: Path, args: argparse.Namespace,
         # status document piped in without a path still has them. If it has
         # none, those rules report 0 examined and the denominator says so,
         # which is the honest answer rather than a silently narrower run.
-        findings = session.validate(repo, text)
+        # Since Phase 59 the zero also says WHY: the text holds no entry.
+        entry_found = session.holds_entry(text)
+        findings = session.validate(repo, text, entry_found=entry_found)
         exit_code = 1 if found.record(name, findings, primary=True) else 0
-        examined = session.count_examined(repo, text)
+        examined = session.count_examined(repo, text, functools.partial(
+            session.rule_applies, in_archive=False, has_entries=True,
+            entry_found=entry_found))
         index_incomplete = session.ancestry_incomplete()
-    errors_reported = report_denominators(diag, repo, name, examined,
-                                          index_incomplete)
+    errors_reported, notes = report_denominators(
+        diag, repo, name, examined, index_incomplete, entry_found=entry_found)
     if not relative:
-        _note_the_missing_path(diag)
+        # One line, kept in `notes` for SARIF like the rest.
+        _note_the_missing_path(notes.append)
+        diag(notes[-1])
     session.set_document(link_base=None)
 
     if args.suggest_fixes:
@@ -799,4 +841,4 @@ def run_check_text(repo: Path, args: argparse.Namespace,
                      "recorded as moved")
 
     return _finish(diag, repo, args, found, baseline_path, examined,
-                   exit_code, errors_reported)
+                   exit_code, errors_reported, notes)

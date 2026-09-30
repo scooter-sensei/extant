@@ -219,4 +219,5 @@ RULE = Rule(
     falsifiable="does the referenced path exist on disk?",
     probe=probe,
     examined=examined,
+    settings=("path_pointer",),
 )

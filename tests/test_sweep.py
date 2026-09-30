@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from conftest import _install_into
+from extant.session import ZERO_DEFAULT
 
 COLLECTOR = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
              / "extant" / "payload" / "extant_collect.py")
@@ -110,10 +111,14 @@ def test_a_rule_that_read_no_document_is_not_said_to_have_examined_nothing(
     unrun = next((ln for ln in lines if "read no document here" in ln), "")
     assert "stale-live-claim" in unrun and "unknown-branch" in unrun, combined
     assert "newest entry" in unrun, unrun
-    blind = next((ln for ln in lines if "examined nothing anywhere" in ln), "")
+    blind = "\n".join(ln for ln in lines if "examined nothing anywhere" in ln)
     assert "stale-live-claim" not in blind and "unknown-branch" not in blind, blind
-    # A rule that DID read the documents and found no candidate stays there.
-    assert "false-merge-claim" in blind, blind
+    # A rule that DID read the documents and found no candidate stays there -
+    # and since Phase 59 says it ran on the shipped default, which nothing
+    # here sets, naming the key to set.
+    default = next((ln for ln in lines if ZERO_DEFAULT in ln), "")
+    assert "examined nothing anywhere" in default, combined
+    assert "false-merge-claim (merge_claim)" in default, combined
 
 
 def test_the_did_not_run_note_names_each_rule_by_its_own_scope() -> None:
@@ -124,18 +129,32 @@ def test_the_did_not_run_note_names_each_rule_by_its_own_scope() -> None:
     reads only the newest entry of the primary document. And a primary
     document that WAS read but holds no dated entry is not one that "is not
     here". Found by the review of the built tranche, 2026-09-29.
+
+    `raw-lfs-blob`, not `inconsistent-artifact`, since Phase 59: with no
+    `consistency` check configured the latter is OFF, so its reason is that
+    and the scope branch is never reached - the mutation this test exists to
+    kill survived a campaign until the example changed. `raw-lfs-blob`
+    declares no setting, so nothing can switch it off.
     """
     from extant import session as hc
 
     by_kind = {rule.kind: rule for rule in hc.RULES}
     entry = by_kind["stale-live-claim"]
-    repository = by_kind["inconsistent-artifact"]
+    repository = by_kind["raw-lfs-blob"]
+    assert repository.scope == "repository" and not repository.settings
 
     absent = hc.unrun_note([entry, repository], primary_read=False,
                            absent="none is here", read="swept") or ""
     assert "stale-live-claim read only the newest entry" in absent, absent
-    assert "inconsistent-artifact read only the newest entry" not in absent, absent
-    assert "inconsistent-artifact" in absent, absent
+    assert "raw-lfs-blob read only the newest entry" not in absent, absent
+    assert "raw-lfs-blob read only the repository as a whole" in absent, absent
+
+    # The other repository rule is off here, and says so rather than naming
+    # a scope it never reached.
+    off = hc.unrun_note([by_kind["inconsistent-artifact"]], primary_read=False,
+                        absent="none is here", read="swept") or ""
+    assert "inconsistent-artifact read nothing" in off, off
+    assert "`consistency`" in off, off
 
     present = hc.unrun_note([entry], primary_read=True,
                             absent="none is here", read="swept") or ""

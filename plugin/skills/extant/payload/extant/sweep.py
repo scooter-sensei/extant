@@ -39,7 +39,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, TextIO
+from typing import TYPE_CHECKING, Iterable
 
 from extant import refs, session
 # ALIASED, because `text` is what every function here calls the document
@@ -59,8 +59,9 @@ from extant.report import (
 )
 
 __all__ = [
-    "apply_exclusions", "excluded_documents", "partition_documents",
-    "run_sweep", "survey", "unusable_exclusion", "unusable_note",
+    "apply_exclusions", "excluded_documents", "fallback_note",
+    "partition_documents", "run_sweep", "survey", "unusable_exclusion",
+    "unusable_note",
 ]
 
 if TYPE_CHECKING:
@@ -185,8 +186,12 @@ def _validate_one(repo: Path, relative: str, is_primary: bool) -> _Result:
     # denominator counting the governed file once. `inconsistent-artifact`
     # did the same. The exclusion was already written on the denominator
     # below, by hand; this is the half the findings loop could not say.
+    # Asked of the primary document only, which is the one the entry rules
+    # read: one holding no entry is not read by them, and says so.
+    entry_found = session.holds_entry(text) if is_primary else True
     findings = session.validate(repo, text, has_entries=is_primary,
-                                repository_rules=False)
+                                repository_rules=False,
+                                entry_found=entry_found)
     # The denominator, per rule. Counted only for rules that actually READ
     # this document: a sweep skips entry-scoped rules outside the primary file
     # and markdown-only rules for `.rst`, and `count_examined` knows nothing
@@ -204,7 +209,8 @@ def _validate_one(repo: Path, relative: str, is_primary: bool) -> _Result:
     # repository rule's configuration load once per document - 0.63 s of a
     # 5.9 s sequential sweep, 11%, buying nothing that was printed.
     applies = functools.partial(session.rule_applies, in_archive=False,
-                                has_entries=is_primary, repository_rules=False)
+                                has_entries=is_primary, repository_rules=False,
+                                entry_found=entry_found)
     counted = session.count_examined(repo, text, applies)
     examined = {rule.kind: counted[rule.kind] for rule in session.RULES
                 if applies(rule)}
@@ -322,9 +328,15 @@ def _report_empty_survey(repo: Path, fmt: str) -> int:
     Found by tests/harnesses/fuzz.py on its first run.
     """
     if fmt != "text":
+        # No document, so no rule read one - said as the populated sweep says
+        # it, rather than left to a zero that reads as "looked, found none".
+        unread = session.unrun_note(list(session.RULES), primary_read=False,
+                                    absent="none is here", read="swept")
         for line in render_findings([], fmt, repo,
                                     examined={rule.kind: 0
                                               for rule in session.RULES},
+                                    notes=[unread] if unread else None,
+                                    off=session.switched_off(),
                                     run_kind="sweep")[0]:
             print(line)
     print("swept 0 markdown files: git tracks none in this repository",
@@ -516,7 +528,10 @@ def run_sweep(repo: Path, fmt: str) -> int:
             # not be repeated per document, and wrong about what "once" was
             # tied to. Running them here keeps the once and drops the document.
             for rule in session.RULES:
-                if rule.scope != "repository":
+                # `rule_applies` too, which this loop did not ask: a rule its
+                # own setting switches off ran here anyway, counted as run.
+                if (rule.scope != "repository"
+                        or not session.rule_applies(rule, False, True)):
                     continue
                 # Repository findings are surveyed and never gate - the section
                 # heading says "not gated" and the exit code honours it, so the
@@ -554,14 +569,20 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # concatenation out at each use is how the `swept ...` line and the
     # per-stratum breakdown came to be summed from different sets.
     everything = results["vetted"] + results["unvetted"] + results["repository"]
+    checkout_notes, fallback_notes, zero_notes = _survey_notes(
+        repo, examined, ran, any(is_primary for _r, is_primary in tasks),
+        index_incomplete, fallback)
     if fmt == "text":
         section_lines, entries = format_sweep_sections(results)
         for line in section_lines:
             print(line, file=out)
     else:
         entries = 0
-        for line in render_findings(everything, fmt, repo,
-                                    examined=examined, run_kind="sweep")[0]:
+        for line in render_findings(
+                everything, fmt, repo, examined=examined,
+                notes=checkout_notes + fallback_notes + zero_notes,
+                off=session.switched_off(), errors=list(RULE_ERRORS),
+                run_kind="sweep")[0]:
             print(line)
 
     # The denominator, per section. "0 findings" and "0 files looked at" print
@@ -585,10 +606,8 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # reported is if the reader can say which one they ran.
     if workers:
         print(f"  surveyed across {workers} worker process(es)", file=out)
-    if fallback is not None:
-        print(f"  NOTE: the parallel survey could not start, so every "
-              f"document was read in this process instead: {fallback}",
-              file=out)
+    for line in fallback_notes:
+        print(line, file=out)
     # Never folded into the unreadable count: a file that could not be READ
     # and a file that was dispatched and never came back are different
     # failures, and the second one means the survey lost a document rather
@@ -624,7 +643,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # ran and found nothing now says so, which is the whole point - the count
     # of rules that RAN is the denominator the silence was hiding.
     repository_rules = sum(1 for rule in session.RULES
-                           if rule.scope == "repository")
+                           if rule.scope == "repository" and rule.kind in ran)
     print(f"  {repository_rules} repository-wide rule(s) ran once "
           f"({len(results['repository'])} finding(s))", file=out)
     # One level finer, and the level that matters on a repository nobody here
@@ -646,10 +665,10 @@ def run_sweep(repo: Path, fmt: str) -> int:
     # a year - on the mode most often pointed at a repository nobody here had
     # seen, where a wall of dead SHAs from a depth-limited copy is exactly
     # what a reader needs told. 139 of the 152 corpus clones are partial.
-    report_repository_notes(lambda line: print(line, file=out), repo,
-                            index_incomplete)
-    _report_zero_counts(out, examined, ran,
-                        primary_read=any(is_primary for _r, is_primary in tasks))
+    for line in checkout_notes:
+        print(line, file=out)
+    for line in zero_notes:
+        print(line, file=out)
     if unreadable:
         print(f"  {len(unreadable)} could not be read: {', '.join(unreadable)}",
               file=out)
@@ -673,32 +692,35 @@ def run_sweep(repo: Path, fmt: str) -> int:
     return 1 if (results["vetted"] or RULE_ERRORS or unreturned) else 0
 
 
-def _report_zero_counts(out: TextIO, examined: dict[str, int],
-                        ran: set[str], primary_read: bool) -> None:
-    """The two NOTEs about zeros in the `examined:` line: rules that read
-    documents and found no candidate, and rules that read none. Out of
-    `run_sweep` since Phase 57, when splitting the second from the first
-    took that function past its ceiling."""
-    # Zero counts are REPORTED rather than filtered, and named again here. A
-    # rule examining nothing across a WHOLE repository is a far stronger signal
-    # than the same zero in one document, and it is the one a reader skimming a
-    # 13-entry line will miss.
-    #
-    # Only of a rule that READ something, though. One that no document here
-    # is for - the entry-scoped rules without a primary document - did not
-    # look, and both explanations below are wrong about it: that NOTE named
-    # them in 152 of 152 corpus sweeps (2026-09-28). Said apart, with why.
-    blind = [kind for kind, n in examined.items() if n == 0 and kind in ran]
-    if blind:
-        print("  NOTE: these rules examined nothing anywhere here - either no "
-              "document makes such claims, or the pattern does not match how "
-              "this project writes them: " + ", ".join(blind), file=out)
-    unrun = session.unrun_note(
-        [rule for rule in session.RULES
-         if rule.kind in examined and rule.kind not in ran],
-        primary_read=primary_read, absent="none is here", read="swept")
-    if unrun:
-        print(unrun, file=out)
+def _survey_notes(repo: Path, examined: dict[str, int], ran: set[str],
+                  primary_read: bool, index_incomplete: bool,
+                  fallback: str | None
+                  ) -> tuple[list[str], list[str], list[str]]:
+    """Every NOTE the survey prints - the checkout's, a parallel fallback,
+    and the zeros of the `examined:` line - worked out before any is printed,
+    because SARIF, rendered first, carries the same lines. Out of `run_sweep`,
+    which is at its ceiling.
+
+    Zero counts are REPORTED rather than filtered: a rule examining nothing
+    across a WHOLE repository is a far stronger signal than the same zero in
+    one document. Only of a rule that READ something, though; one no document
+    here is for is said apart, with why (`session.zero_notes`).
+    """
+    checkout: list[str] = []
+    report_repository_notes(checkout.append, repo, index_incomplete)
+    return checkout, fallback_note(fallback), session.zero_notes(
+        examined, ran, did="examined nothing anywhere here",
+        claims="no document makes such claims", primary_read=primary_read,
+        absent="none is here", read="swept")
+
+
+def fallback_note(reason: str | None) -> list[str]:
+    """The NOTE for a parallel survey that could not start, or none. Here for
+    `--introduced-since` too, whose SARIF carries it as this one's does."""
+    if reason is None:
+        return []
+    return [f"  NOTE: the parallel survey could not start, so every "
+            f"document was read in this process instead: {reason}"]
 
 
 def unusable_exclusion(pattern: str) -> str | None:

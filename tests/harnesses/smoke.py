@@ -276,7 +276,11 @@ def p_large_document() -> None:
 def p_pathological_regex() -> None:
     print("\n[performance] catastrophic-backtracking config")
     repo = new_repo("redos")
-    write(repo, ".extant.toml", "branch_token = '`((a+)+b)`'\n")
+    # ONE capture group, as `branch_token` needs. It was `((a+)+b)`, two
+    # groups, which the loader refuses since Phase 59 - so the probe went on
+    # reporting "ok" while the pattern never reached a matcher at all. The
+    # inner group is non-capturing now and the backtracking is unchanged.
+    write(repo, ".extant.toml", "branch_token = '`((?:a+)+b)`'\n")
     write(repo, "NEXT_SESSION.md", ENTRY.format("`" + "a" * 40 + "`"))
     commit(repo, "init")
     try:
@@ -414,19 +418,40 @@ def p_deleting_the_claim() -> None:
 
 def p_pattern_that_matches_nothing() -> None:
     print("\n[gaming] a config whose patterns match nothing")
+    # Well-formed - each carries the capture groups its rule reads - and
+    # matching nothing. The original patterns here had no group at all, and
+    # since Phase 59 the loader refuses those outright (the second half
+    # below); this half still asks what it always asked, of a pattern the
+    # loader accepts.
     repo = new_repo("blind")
     write(repo, ".extant.toml",
-          "merge_claim = 'ZZZZ_NEVER_MATCHES_{trunk}'\n"
-          "path_pointer = 'ZZZZ_NEVER'\n")
+          r"merge_claim = 'ZZZZ_NEVER_MATCHES_(\S+) at ([0-9a-f]{7,40})'" "\n"
+          r"path_pointer = 'ZZZZ_NEVER `([^`]+)`'" "\n")
     write(repo, "NEXT_SESSION.md", ENTRY.format(
         "Merged to `main` at `dead000000000000000000000000000000000000`.\n"
         "**Design:** `docs/absent.md`"))
     commit(repo, "init")
     res = tool(repo, "--validate", "NEXT_SESSION.md")
-    if "NOTE:" in res.stdout and "false-merge-claim" in res.stdout:
-        ok("blind patterns named in the denominator")
+    named = [ln for ln in res.stdout.splitlines()
+             if "NOTE:" in ln and "under a pattern set in .extant.toml" in ln]
+    if named and "false-merge-claim (merge_claim)" in named[0]:
+        ok("blind patterns named in the denominator, with their keys")
     else:
         note("SILENT", "blind patterns not surfaced", res.stdout)
+
+    # A pattern with no capture group cannot be read by its rule at all: it
+    # raised `IndexError` inside the rule on every match. Refused at load now,
+    # naming the setting rather than the rule.
+    repo = new_repo("blind-shape")
+    write(repo, ".extant.toml", "merge_claim = 'ZZZZ_NEVER_MATCHES'\n")
+    write(repo, "NEXT_SESSION.md", ENTRY.format("Nothing claimed."))
+    commit(repo, "init")
+    res = tool(repo, "--validate", "NEXT_SESSION.md")
+    said = res.stdout + res.stderr
+    if res.returncode != 0 and "merge_claim" in said and "group" in said:
+        ok("a pattern its rule cannot read is refused, naming the setting")
+    else:
+        note("SILENT", "a pattern with no capture group was accepted", said)
 
 
 def p_library_link_base() -> None:

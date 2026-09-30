@@ -570,9 +570,9 @@ def test_selftest_fires_every_probeable_rule(git_repo) -> None:
         "See [plan](docs/plan.md) and [layout](#1-layout).\n\n## 1. Layout\n"
     )
 
-    lines, fired, unprobeable, errored = selftest(repo, text)
+    lines, fired, unprobeable, errored, not_run = selftest(repo, text)
 
-    silent = len(lines) - fired - unprobeable - errored
+    silent = len(lines) - fired - unprobeable - errored - not_run
     assert errored == 0, "a probeable rule raised:\n" + "\n".join(lines)
     assert silent == 0, "a rule stayed silent after its probe:\n" + "\n".join(lines)
     assert fired >= 7, f"only {fired} rules could be exercised:\n" + "\n".join(lines)
@@ -625,7 +625,8 @@ def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> Non
         real, check=lambda _ctx, _text: [])   # corrupt anything; notice nothing
     monkeypatch.setattr(hc, "RULES", (blind,))
 
-    lines, fired, unprobeable, errored = hc.selftest(repo, "Shipped at `abc1234567890`.\n")
+    lines, fired, unprobeable, errored, _not_run = hc.selftest(
+        repo, "Shipped at `abc1234567890`.\n")
 
     assert fired == 0, "a blind rule must not be counted as firing"
     assert unprobeable == 0, "the probe had a real SHA to corrupt"

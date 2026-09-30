@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
@@ -71,6 +72,11 @@ except ModuleNotFoundError:                              # Python < 3.11
         import tomli as tomllib
     except ModuleNotFoundError:
         tomllib = None
+
+if sys.version_info >= (3, 11):     # the regex parser, for `claim` below
+    from re import _parser as _sre
+else:                               # the same module, under its older name
+    import sre_parse as _sre
 
 # `tomllib` is deliberately absent: it is an implementation detail of this
 # module's fallback, not something a sibling should reach for. One test does
@@ -284,7 +290,37 @@ DEFAULTS: dict[str, object] = {
 # default. Without this, a project with no phase cadence silently inherits this
 # project's phase regex and every commit is labelled "unknown" - a Cerene habit
 # quietly applied to a repo that never had one.
-DISABLEABLE = frozenset({"phase_task", "phase_bare", "plans_dir"})
+#
+# The five claim patterns joined on 2026-09-29. '' meant nothing working for
+# any: three raised `IndexError: no such group` in their rules every run,
+# `live_phrases` made every branch token in the newest entry a live claim, and
+# `path_pointer` reported 256 examined on a 14-line document. OFF breaks nobody.
+_PATTERN_KEYS = ("merge_claim", "live_phrases", "branch_token", "path_pointer",
+                 "release_tag")
+DISABLEABLE = frozenset({"phase_task", "phase_bare", "plans_dir",
+                         *_PATTERN_KEYS})
+
+# The fewest and most capture groups each claim pattern's rule reads, None for
+# no most: fewer raised `IndexError` in the rule every run. More is refused only
+# where a rule reads past group 1 - `merge_claim` (ref, sha) or (sha), probed at
+# its last; `path_pointer` through `findall` - and `live_phrases` reads none.
+_GROUPS: dict[str, tuple[int, int | None]] = {
+    "merge_claim": (1, 2), "path_pointer": (1, 1), "branch_token": (1, None),
+    "release_tag": (1, None),
+}
+
+
+def _switched_off(key: str) -> re.Pattern[str]:
+    """What an OFF claim pattern holds: one that never matches, with the
+    default's group count, because `commits.py` branches on `pattern.groups`.
+
+    Not None: shared machinery reads these for the rules - the commit batch,
+    the patch generator, the probes - and None needed a guard at twenty sites.
+    It IS a pattern matching nothing, installed on purpose, and not silent:
+    the key is in `off`, its rule does not run, and every run says so.
+    """
+    groups = re.compile(str(DEFAULTS[key])).groups
+    return re.compile("(?!)" + "()" * groups)
 
 
 @dataclass(frozen=True)
@@ -326,6 +362,14 @@ class StatusConfig:
     todo_markers: re.Pattern[str]
     source: str = "defaults"
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    # Where each setting came from, read off the file itself: the keys it
+    # SETS, and those it switches OFF (a disableable key set empty, or no
+    # `consistency` check at all). A key in neither is the shipped default.
+    # This lets a rule that examined nothing say which of the three it ran
+    # under - over 39 installs, every one left at least three claim patterns
+    # on a default the run never mentioned. "Set" means present in the file.
+    configured: frozenset[str] = frozenset()
+    off: frozenset[str] = frozenset()
 
 
 # Derived from `entry_prefix`, and the reason `Config` holds a build METHOD
@@ -411,6 +455,10 @@ class Config:
     # asked of it either way.
     todo_excluded_files: frozenset[str]
     todo_excluded_dir_prefix: tuple[str, ...]
+    # Copied, so the session reads where a setting came from off the same
+    # object every rule is handed. See StatusConfig.
+    configured: frozenset[str] = frozenset()
+    off: frozenset[str] = frozenset()
 
     @classmethod
     def build(cls, status: StatusConfig) -> Config:
@@ -442,6 +490,8 @@ class Config:
             section_header=_section_header(status.entry_prefix),
             todo_excluded_files=frozenset(status.todo_exclude_files),
             todo_excluded_dir_prefix=tuple(status.todo_exclude_dirs),
+            configured=status.configured,
+            off=status.off,
         )
 
 
@@ -704,12 +754,14 @@ def load_config(repo: Path) -> StatusConfig:
     values = dict(DEFAULTS)
     source = "defaults"
     warnings: list[str] = []
+    configured: frozenset[str] = frozenset()
 
     path = _find_config(repo)
     if path is not None and path.is_file():
         overrides, warnings = _read_toml(path)
         values.update(overrides)
         source = str(path)
+        configured = frozenset(overrides)
 
     # The SHAPE of each setting is checked, not coerced, and the message uses
     # TOML's names because the reader is holding a TOML file. Coercion looked
@@ -798,6 +850,29 @@ def load_config(repo: Path) -> StatusConfig:
             return None
         return compiled(key, string(key))
 
+    def claim(key: str, pattern: str, flags: int = 0) -> re.Pattern[str]:
+        """A claim pattern: empty is OFF, and one that cannot mean anything
+        is refused here, naming the key, rather than inside the rule."""
+        if pattern == "":
+            return _switched_off(key)
+        regex = compiled(key, pattern, flags)
+        # The shape `path_pointer = ''` had before it meant off. Asked of the
+        # pattern's WIDTH, not of `match("")`, which misses `\b(\w*)`.
+        if _sre.parse(regex.pattern, regex.flags).getwidth()[0] == 0:
+            raise ValueError(
+                f"{source}: {key} matches the empty string, so it would find "
+                f"a claim at every position of every document. Set it to '' "
+                f"to switch the rule off.")
+        low, high = _GROUPS.get(key, (0, None))
+        if regex.groups < low or (high is not None and regex.groups > high):
+            wanted = (f"at least {low}" if high is None
+                      else str(low) if high == low else f"{low} or {high}")
+            raise ValueError(
+                f"{source}: {key} has {regex.groups} capture group(s) and "
+                f"needs {wanted}, around the value the rule checks")
+        return regex
+
+    consistency = _compile_consistency(values["consistency"], path)
     return StatusConfig(
         # NORMALISED HERE, at the one place a configured document name is read,
         # so no consumer has to remember to. Each of them compares the name
@@ -828,20 +903,25 @@ def load_config(repo: Path) -> StatusConfig:
         todo_exclude_dirs=strings("todo_exclude_dirs"),
         exclude_paths=strings("exclude_paths"),
         extra_docs=tuple(normalise_document(d) for d in strings("extra_docs")),
-        release_tag=compiled("release_tag", string("release_tag"),
-                             re.IGNORECASE),
-        consistency=_compile_consistency(values["consistency"], path),
+        release_tag=claim("release_tag", string("release_tag"), re.IGNORECASE),
+        consistency=consistency,
         base_header=compiled("base_header", string("base_header"),
                              re.MULTILINE),
         phase_task=optional("phase_task"),
         phase_bare=optional("phase_bare"),
-        branch_token=compiled("branch_token", string("branch_token")),
-        live_phrases=compiled("live_phrases", string("live_phrases"),
-                              re.IGNORECASE),
-        merge_claim=compiled("merge_claim", merge_src, re.IGNORECASE),
-        path_pointer=compiled("path_pointer", string("path_pointer"),
-                              re.IGNORECASE),
+        branch_token=claim("branch_token", string("branch_token")),
+        live_phrases=claim("live_phrases", string("live_phrases"),
+                           re.IGNORECASE),
+        merge_claim=claim("merge_claim", merge_src, re.IGNORECASE),
+        path_pointer=claim("path_pointer", string("path_pointer"),
+                           re.IGNORECASE),
         todo_markers=compiled("todo_markers", string("todo_markers")),
         source=source,
         warnings=tuple(warnings),
+        configured=configured,
+        # An empty `consistency` is off whether or not the file says so: the
+        # default holds no check, and a guessed one would accuse a repository
+        # of disagreeing with itself.
+        off=frozenset(key for key in DISABLEABLE if values[key] in (None, ""))
+        | (frozenset() if consistency else frozenset({"consistency"})),
     )

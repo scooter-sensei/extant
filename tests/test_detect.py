@@ -220,3 +220,18 @@ def test_non_version_tags_are_ignored(tmp_path) -> None:
 
     assert obs.confidence == "default"
     assert "latest" not in str(obs.value)
+
+
+def test_no_branches_leaves_the_shipped_branch_token(tmp_path: Path) -> None:
+    """A repository with nothing to sample got a THIRD vocabulary,
+    `(?:feature|feat|fix)/`, beside the shipped `(?:claude|feature|feat)/` -
+    two homes for one default. It now leaves the key to the shipped one."""
+    import subprocess
+
+    from detect import detect_branch_pattern
+
+    repo = tmp_path / "unborn"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    obs = detect_branch_pattern(repo)
+    assert obs.value is None and obs.confidence == "default", obs

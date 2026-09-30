@@ -187,9 +187,13 @@ def detect_branch_pattern(repo: Path) -> Observation:
     names = [n for n in names if n and n not in ("HEAD", "origin")][:BRANCH_SAMPLE]
 
     if not names:
+        # None, so the key is left to the pattern extant ships. This wrote
+        # `(?:feature|feat|fix)/` - a third vocabulary beside the shipped
+        # `(?:claude|feature|feat)/`, measured from nothing, and written live
+        # so the file read as a project that had chosen it.
         return Observation(
-            "branch_token", r"`((?:feature|feat|fix)/[^`]+)`", DEFAULT,
-            "no branches found to sample",
+            "branch_token", None, DEFAULT,
+            "no branches found to sample, so the shipped pattern applies",
         )
 
     prefixes = Counter(n.split("/", 1)[0] for n in names if "/" in n)
@@ -223,6 +227,16 @@ def detect_branch_pattern(repo: Path) -> Observation:
 
 _CONVENTIONAL = re.compile(r"^(\w+)(?:\([^)]*\))?!?: ")
 _PHASEY = re.compile(r"\((\d+(?:\.\d+)+[a-z]?)\s+\w+\s*\d*\)")
+# The shipped `phase_bare`, measured rather than assumed. The installer cannot
+# import the payload, so it is written out here and pinned to DEFAULTS by
+# tests/test_install_presets.py.
+BARE_PHASE = re.compile(r"\bPhase (\d+\.\d+[a-z]?)")
+
+# Why a phase key is switched off rather than left commented. A commented key
+# is an absent one, and absent means the shipped pattern - so a project with
+# no cadence had every commit grouped as "unknown", the failure DISABLEABLE
+# (extant/config.py) exists for. 39 of 39 benchmark installs were in it.
+_PHASE_OFF = "switched off rather than inheriting another project's pattern"
 
 
 def detect_commit_convention(repo: Path) -> list[Observation]:
@@ -237,7 +251,10 @@ def detect_commit_convention(repo: Path) -> list[Observation]:
     ).splitlines() if s.strip()]
 
     if not subjects:
-        return [Observation("phase_task", None, UNKNOWN, "no commit history to sample")]
+        return [Observation("phase_task", "", UNKNOWN,
+                            f"no commit history to sample; {_PHASE_OFF}"),
+                Observation("phase_bare", "", UNKNOWN,
+                            f"no commit history to sample; {_PHASE_OFF}")]
 
     conventional = Counter(m.group(1) for s in subjects if (m := _CONVENTIONAL.match(s)))
     phasey = sum(1 for s in subjects if _PHASEY.search(s))
@@ -262,10 +279,22 @@ def detect_commit_convention(repo: Path) -> list[Observation]:
     else:
         top = ", ".join(f"{k}: x{v}" for k, v in conventional.most_common(4))
         out.append(Observation(
-            "phase_task", None, UNKNOWN,
+            "phase_task", "", UNKNOWN,
             f"no grouping key found in {n} subjects"
-            + (f" (conventional-commit types present: {top})" if top else ""),
+            + (f" (conventional-commit types present: {top})" if top else "")
+            + f"; {_PHASE_OFF}",
         ))
+        # The bare form is its own convention, and a project writing
+        # "Phase 1.2" in its subjects keeps it - measured, on the same floor.
+        bare = sum(1 for s in subjects if BARE_PHASE.search(s))
+        if bare >= max(3, n // 20):
+            out.append(Observation(
+                "phase_bare", BARE_PHASE.pattern, DERIVED,
+                f"{bare}/{n} subjects name a bare 'Phase N.N'"))
+        else:
+            out.append(Observation(
+                "phase_bare", "", UNKNOWN,
+                f"{bare}/{n} subjects name a bare 'Phase N.N'; {_PHASE_OFF}"))
     return out
 
 

@@ -257,4 +257,7 @@ RULE = Rule(
     probe=probe,
     examined=examined,
     subject_file=".extant.toml",
+    # The checks ARE the vocabulary: which files, and which pattern in each
+    # names the value. None configured, and the rule is off, not blind.
+    settings=("consistency",),
 )

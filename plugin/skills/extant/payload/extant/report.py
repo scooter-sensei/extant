@@ -294,6 +294,9 @@ def format_github(located: list[Located]) -> list[str]:
 
 def format_sarif(located: list[Located], repo: Path | None = None, *,
                  examined: dict[str, int] | None = None,
+                 notes: list[str] | None = None,
+                 off: list[str] | None = None,
+                 errors: list[tuple[str, str]] | None = None,
                  run_kind: str = "verify") -> str:
     """SARIF 2.1.0, the format code-scanning tools interchange.
 
@@ -311,6 +314,12 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
     for item in located:
         if item.finding.kind not in seen:
             seen.append(item.finding.kind)
+    # And every rule the invocation below names - switched off, or raised -
+    # which has no result to be listed by, so that each reference there
+    # resolves to a descriptor here (SARIF 2.1.0, 3.52.4).
+    for kind in [*(off or []), *(kind for kind, _message in errors or [])]:
+        if kind not in seen:
+            seen.append(kind)
 
     descriptors = []
     for kind in seen:
@@ -421,19 +430,44 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
         # clean repository from a run that checked nothing. SARIF carries it as
         # a notification rather than a result, because it is not a finding.
         summary = ", ".join(f"{kind} {n}" for kind, n in examined.items())
-        blind = [kind for kind, n in examined.items() if n == 0]
-        run["invocations"] = [{
-            "executionSuccessful": True,
+        # The NOTE lines the text output printed, word for word. This used to
+        # compute its own list - every rule with a zero - and so never learned
+        # the split the text has made since Phase 57: it named rules that read
+        # no document as rules that examined nothing, and every zero with the
+        # one explanation the text has since stopped giving. One classifier,
+        # two renderers.
+        said = [{"level": "warning",
+                 "message": {"text": line.strip().removeprefix("NOTE: ")}}
+                for line in notes or []]
+        # A rule that raised has not found nothing, and the exit code has
+        # always said so; `executionSuccessful` was hard-coded true, so a
+        # SARIF consumer saw a clean run. Each is named on its rule.
+        raised = [{"level": "error",
+                   "message": {"text": f"{kind} raised {message}. A rule "
+                                       "that raised has not found nothing, "
+                                       "it has failed to look."},
+                   "associatedRule": {"id": kind, "index": seen.index(kind)},
+                   "exception": {"kind": message.split(":", 1)[0],
+                                 "message": message}}
+                  for kind, message in errors or []]
+        invocation: dict[str, object] = {
+            "executionSuccessful": not errors,
             "toolExecutionNotifications": [
                 {"level": "note",
                  "message": {"text": f"examined: {summary}"}},
-                *([{"level": "warning",
-                    "message": {"text":
-                                "examined nothing, so these rules report "
-                                "nothing either: " + ", ".join(blind)}}]
-                  if blind else []),
+                *said, *raised,
             ],
-        }]
+        }
+        if off:
+            # SARIF's own words for a rule disabled for this run, rather than
+            # a notification a consumer has to parse (SARIF 2.1.0, 3.20.5 and
+            # 3.50.2). GitHub code scanning reads no `invocations` at all, so
+            # this is for every other reader of the file.
+            invocation["ruleConfigurationOverrides"] = [
+                {"descriptor": {"id": kind, "index": seen.index(kind)},
+                 "configuration": {"enabled": False}}
+                for kind in off]
+        run["invocations"] = [invocation]
         run["properties"] = {"examined": examined}
 
     return json.dumps({
@@ -685,6 +719,9 @@ def sweep_entry_note(entries: int, findings: int) -> list[str]:
 
 def render_findings(located: list[Located], fmt: str, repo: Path | None = None,
                     *, examined: dict[str, int] | None = None,
+                    notes: list[str] | None = None,
+                    off: list[str] | None = None,
+                    errors: list[tuple[str, str]] | None = None,
                     run_kind: str = "verify") -> tuple[list[str], bool]:
     """Render for `fmt`. Returns the lines and whether they belong on stdout.
 
@@ -692,11 +729,12 @@ def render_findings(located: list[Located], fmt: str, repo: Path | None = None,
     the caller sends every human diagnostic to stderr in that mode. Text and
     annotation output are line-oriented and mix freely.
 
-    `repo`, `examined` and `run_kind` reach SARIF only. Text and annotation
-    output already carry the denominator on their own summary lines.
+    `repo`, `examined`, `notes`, `off`, `errors` and `run_kind` reach SARIF
+    only. Text and annotation output already carry them on their own lines.
     """
     if fmt == "sarif":
-        return [format_sarif(located, repo, examined=examined,
+        return [format_sarif(located, repo, examined=examined, notes=notes,
+                             off=off, errors=errors,
                              run_kind=run_kind)], True
     if fmt == "github":
         return format_github(located), True

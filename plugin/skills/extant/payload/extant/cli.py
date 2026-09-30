@@ -378,14 +378,19 @@ def run_selftest(repo: Path, status: StatusConfig) -> int:
     previous = session.document()
     session.set_document(link_base=target.parent, doc_path=rel(repo, target),
                          doc_format=format_for(rel(repo, target)))
-    lines, fired, unprobeable, errored = session.selftest(repo, text)
+    lines, fired, unprobeable, errored, not_run = session.selftest(repo, text)
     print(f"selftest: probing {len(session.RULES)} rules against "
           f"{primary}\n")
     for line in lines:
         print(line)
-    silent = len(session.RULES) - fired - unprobeable - errored
+    silent = len(session.RULES) - fired - unprobeable - errored - not_run
+    # The fifth count only when it is not zero - which is most runs:
+    # `inconsistent-artifact` is off until a check is configured, and an
+    # entry rule on a document holding no entry, or a markdown rule on rst,
+    # is not run either.
     print(f"\n  {fired} fired, {unprobeable} had nothing to corrupt, "
-          f"{errored} could not be run, {silent} stayed silent")
+          f"{errored} could not be run, {silent} stayed silent"
+          + (f", {not_run} not run here" if not_run else ""))
     if silent:
         print("  A rule that stays silent after a real match is corrupted is "
               "not working. Check its pattern against this document.")

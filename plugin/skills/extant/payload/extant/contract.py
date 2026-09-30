@@ -98,3 +98,18 @@ class Rule:
     # than either. Left None for document-scoped rules, which carry their
     # own path already.
     subject_file: str | None = None
+    # The configuration keys this rule's VOCABULARY comes from - the patterns
+    # that decide which text is a claim at all. Empty for a rule keyed on a
+    # token shape (a SHA, a link, a manifest floor), which reads no pattern a
+    # project sets.
+    #
+    # It is what a zero means. A rule keyed on a shape that examined nothing
+    # found nothing of that shape; one keyed on a phrase may have found only
+    # that the phrase is not how this project writes, and which of the two
+    # holds decides whether "matched nothing" is news or a setting to change.
+    # Measured over 139 corpus sweeps, the NOTE that could not tell them apart
+    # blamed a pattern for 642 zeros of rules that have none. The session
+    # words each zero by this field, and switches a rule off when one of these
+    # keys is set empty. tests/test_what_a_zero_means.py reads each rule
+    # module and fails when the keys it reads differ from the keys it names.
+    settings: tuple[str, ...] = ()

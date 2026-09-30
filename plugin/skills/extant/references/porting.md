@@ -126,8 +126,13 @@ checked NEXT_SESSION.md: dead-sha 36, stale-live-claim 1, false-merge-claim 2,
 ```
 
 Read those counts before the exit code. A rule that examined zero candidates is
-called out on a `NOTE:` line, and is either genuinely absent from that project's
-prose or a broken pattern. Know which - an inert rule reports "clean" forever.
+called out on a `NOTE:` line, worded by why. A rule that reads a token shape
+found none of that shape. A rule that reads one of the patterns you derived
+either has no such claim to read, or the pattern is broken - know which, because
+an inert rule reports "clean" forever. And a rule still running on the shipped
+default is named with the key you did not set: that is the pattern this page
+exists to stop you copying. Set it, or set it to `''` to switch the rule off -
+an off rule is named as off on every run rather than left looking healthy.
 
 Then prove the rules fire: temporarily introduce a false claim - repoint a merge
 claim at a commit that is on no integration branch - and confirm it is reported.

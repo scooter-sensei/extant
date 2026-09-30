@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 from conftest import raising_rule
+from extant.session import ZERO_DEFAULT
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -117,10 +118,13 @@ def test_a_rule_that_read_no_changed_document_is_not_said_to_have_examined_nothi
 
     unrun = next((ln for ln in lines if "read no document here" in ln), "")
     assert "stale-live-claim" in unrun and "unknown-branch" in unrun, lines
-    blind = next((ln for ln in lines if "examined nothing in the changed" in ln), "")
+    blind = "\n".join(ln for ln in lines if "examined nothing in the changed" in ln)
     assert "stale-live-claim" not in blind and "unknown-branch" not in blind, blind
-    # A rule that DID read the changed document and found nothing stays there.
-    assert "false-merge-claim" in blind, blind
+    # A rule that DID read the changed document and found nothing stays
+    # there - on the shipped default since Phase 59, naming the key.
+    default = next((ln for ln in lines if ZERO_DEFAULT in ln), "")
+    assert "examined nothing in the changed" in default, lines
+    assert "false-merge-claim (merge_claim)" in default, lines
 
 
 def test_the_base_is_the_merge_base_not_the_ref(git_repo, capsys) -> None:
@@ -430,7 +434,13 @@ def test_repository_rules_are_not_run_and_the_output_says_so(git_repo, capsys) -
 
     skipped = [rule.kind for rule in hc.RULES if rule.scope == "repository"]
     assert skipped, "no repository-scoped rule exists to skip"
-    assert f"{len(skipped)} repository-wide rule(s) not run" in out, out
+    # Named as run by --verify and --sweep only if they would run it: one
+    # switched off - `inconsistent-artifact`, with no check here - is not.
+    named = [rule.kind for rule in hc.RULES if rule.scope == "repository"
+             and hc.rule_applies(rule, False, True)]
+    assert "inconsistent-artifact" not in named, named
+    assert f"{len(named)} repository-wide rule(s) not run" in out, out
+    assert f"({', '.join(named)})" in out, out
     counted = next(line for line in out.splitlines()
                    if line.strip().startswith("examined:"))
     for kind in skipped:

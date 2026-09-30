@@ -17,6 +17,74 @@ nothing else, exactly as predicted before the run. Its record is the section
 "The owed bundle: what a zero means, where a patch ends, and what a partial
 copy cannot answer" in the same file.
 
+Then Phase 59, what a zero means: no rule added or removed, no mode added,
+no exit code moved. On the same 152 clones every output changed in three
+lines and nothing else, exactly as predicted byte for byte before the run -
+no finding and no `examined:` count moved. Its record is the section "What a
+zero means: a rule names its vocabulary, and off is a state" in the design
+rationale's part on keeping the tool honest.
+
+**Every zero says why.** A rule that examined nothing used to be named with
+one sentence - either no such claims, or the pattern does not match - whatever
+the reason. Now a rule that reads a token shape is said to have found nothing
+of that shape; a rule that reads a pattern this project set keeps both
+explanations; one running on the shipped default says so and names the key to
+set. An entry rule on a primary document holding no entry, and a rule
+switched off, are named among the rules that read nothing - with
+`entry_prefix` named too when it is not set, because a document headed some
+other way than `## Phase ` holds no entry the rules can find. `--verify`,
+`--check-text`, `--sweep` and `--introduced-since` all word it the same way,
+and `--verify` and `--check-text` now count only the rules that read the
+document: a markdown rule on reStructuredText is 0 in the `examined:` line,
+not a count beside a NOTE saying it read nothing. `--introduced-since` no
+longer says `--verify` and `--sweep` run a repository rule that is off.
+
+**An empty claim pattern switches its rule off.** `merge_claim`,
+`live_phrases`, `branch_token`, `path_pointer` and `release_tag` join
+`phase_task`, `phase_bare` and `plans_dir`: set to `''`, the rules reading
+them do not run, and every run says so. Before, `''` raised inside three of
+those rules on every run and silently misbehaved in two. `inconsistent-artifact`
+is reported as off, not as blind, until a `consistency` check is configured,
+so `--sweep` without one counts one repository-wide rule run, not two.
+
+**A claim pattern that cannot mean anything is refused at load.** One that
+can match the empty string anywhere - `(x)?`, or `\b(\w*)` after a word - or
+carries the wrong number of capture groups for its rule, stops the load with
+a message naming the setting. `merge_claim` takes one or two groups,
+`path_pointer` exactly one, `branch_token` and `release_tag` at least one,
+since their rules read the first. No known configuration is refused.
+
+**`--selftest` reports a rule it does not read as NOT RUN**, with the reason:
+a rule switched off, an entry rule on a document holding no entry, a markdown
+rule on reStructuredText. An off rule used to be counted as having stayed
+silent, and failed the run. The summary adds "N not run here" when N is not 0,
+which it is in most repositories: `inconsistent-artifact` is off until a check
+is configured. And the branch probe finds its token in the prose, as the rule
+does: a first branch token inside a code fence was the one it corrupted, and
+a working rule was reported as DID NOT FIRE.
+
+**SARIF says what the text says.** The notifications carry the NOTE lines
+the text output printed - the zeros, a shallow or partial repository, the
+ancestry bound, a parallel survey's fallback, a missing `--as-path` - rather
+than a list SARIF worked out for itself; a rule switched off appears in
+`ruleConfigurationOverrides` with `enabled: false`; and a rule that raised is
+an error notification on that rule, with `executionSuccessful: false` - it
+was always `true`. Every rule those name is described in the run's rules, so
+`inconsistent-artifact` is listed wherever no consistency check is
+configured. `--deleted-since` says again when it examined no document, and
+reports a rule that raised the same way.
+
+**The installer says what an undetermined setting will do.** A claim pattern
+it cannot derive is left on the shipped default, and the file, the table it
+prints and its closing advice now say so, naming `''` as the way to switch it
+off; "Rules with no pattern check nothing" is gone, because they did check.
+A [default] value is written commented out too, so a value in the file means
+one that was measured or written by hand, and a repository with no branches
+gets the shipped branch pattern rather than a third one. When the commit
+subjects show no phase or ticket convention, `phase_task` and `phase_bare` are
+written as `''`, as `parse_phase` always said they were; `phase_bare` is kept
+when subjects say "Phase N.N".
+
 **A `--suggest-fixes` patch applies to a document with no final newline.**
 A fix landing on the last line of such a document produced a patch
 `git apply` refused as corrupt, because no `\ No newline at end of file`

@@ -1025,3 +1025,284 @@ The review's gate:
 - The pre-push chain, from a fresh extract, as before: smoke with no new or
   missing flag, scenarios 213 of 213, the fuzzer 0 violations,
   `--self-check` 23 of 23.
+
+## What a zero means: a rule names its vocabulary, and off is a state
+
+Phase 59, tranche 21 of the internals review, the scrutiny of pull request 13
+placed. Its concern was a rule whose pattern nobody set for the project,
+reporting `examined 0` in the voice of a project that makes no such claims.
+Phase 57 settled half of it - a rule that read no document is said apart -
+and left the other half: which zeros are about a PATTERN at all.
+
+**What was measured, before anything was designed.** Four instruments, each
+in extant-hardening (`m21_*.py`), outputs under `D:/repo/out-m21`:
+
+- The current installer's derivation over the 39 visible benchmark rows (the
+  11 holdout rows stayed sealed), read-only. All 39 leave at least three of
+  the five claim patterns undetermined: `merge_claim` [unknown] in 39,
+  `live_phrases` [default] in 39, `path_pointer` never observed in 39,
+  `release_tag` [default] in 1. Every one of them ran on the shipped
+  default - a commented-out key is an absent key - while the installer
+  closed with "Rules with no pattern check nothing", false in 39 of 39.
+  `phase_task` was [unknown] in 39 of 39, commented out, so the shipped phase
+  pattern grouped every commit as "unknown": the failure DISABLEABLE's own
+  comment names.
+- The five keyed rules' own `examined`, on each chosen primary document
+  under the config the installer renders: 0 in 39 of 39 for four of them,
+  `dead-path-pointer` above 0 in 3. Cross-checked through the real CLI on
+  three rows, identical. And 25 of the 39 primary documents hold no entry
+  at all - 23 because `entry_prefix` was undetermined and the default
+  `## Phase ` matched no header - where `--verify` said the entry rules had
+  "matched nothing".
+- The default live-phrase and branch-token vocabulary on the prose of 77,859
+  tracked markdown documents in the 139 de-duplicated repositories: a live
+  phrase in 3 documents of 2 repositories, a branch token in 44 of 18, both
+  in one document 0 times; the default `merge_claim` 0 times. The agent tier
+  alone (15 repositories, 28,573 documents): no live phrase, 8 branch tokens,
+  both 0. The 229-repository scan in widening.md ("the live phrase 117
+  times") could not be reproduced: that corpus was deleted after Phase 3,
+  and it counted pattern hits, not what a rule reads. It was not used.
+- The zero NOTE across the Phase 57d corpus sweeps, whose payload was
+  byte-identical to main's: printed in 139 of 139, naming 1,115 zeros. 642
+  belonged to rules keyed on a TOKEN SHAPE, which read no pattern anybody
+  sets, so "the pattern does not match" could not be the reason. 334 were
+  phrase-keyed rules on the shipped default, never set. 139 were
+  `inconsistent-artifact`, OFF until a check is configured - neither
+  explanation was true of it.
+
+And `key = ''` for the five patterns, on one synthetic repository, had no
+working meaning: `merge_claim`, `branch_token` and `release_tag` raised
+`IndexError: no such group` in their rules on every run (`merge_claim` took
+`dead-sha` down too, through the commit batch), `live_phrases` turned every
+branch token in the newest entry into a live claim, and `path_pointer`
+reported 256 examined on a 14-line document. No working configuration held
+one, which is what made OFF safe to give it.
+
+**What changed.**
+
+- `Rule.settings`: the configuration keys a rule's vocabulary comes from.
+  Six rules declare them - `false-merge-claim`, `stale-live-claim` (two:
+  `live_phrases` and `branch_token`, which is why it is a tuple rather than
+  the plan's single name), `unknown-branch`, `dead-path-pointer`,
+  `dead-release-tag`, `inconsistent-artifact` - and seven declare none. A
+  test reads every rule module and fails when what it reads and what it
+  declares differ, and a ledger names the three shared modules that read a
+  rule's vocabulary on its behalf (the commit batch, the patch generator,
+  the probes).
+- Where each setting came from, read off the file: the loaded settings carry
+  `configured`, the keys the file sets, and `off`, a disableable key set
+  empty or no `consistency` check. No `[extant.provenance]` table: the
+  presence of a key and its value already say it, and a second home for one
+  fact is how the wrong one gets read.
+- Off is a state. `DISABLEABLE` gains the five claim patterns. An off pattern
+  holds one that never matches, with the default's group count, because
+  shared machinery reads these patterns for the rules and `commits.py`
+  branches on the group count; None would have needed a guard at twenty
+  sites in eight modules. That is a pattern matching nothing, installed on
+  purpose - acceptable only because it cannot be silent: `rule_applies`
+  does not run the rule, and every output names it. The sweep's repository
+  pass and `--selftest` asked no predicate at all, so both now ask
+  `rule_applies`; `--selftest` reports NOT RUN with the reason, which also
+  settles the owed item (it probed entry rules on documents holding no entry,
+  and would have counted an off rule as SILENT and failed the run).
+- One classifier. `session.zero_note` words a zero of a rule that READ
+  something by its cause - no pattern to set; a pattern set in .extant.toml
+  (the two old explanations, now only where both can be true); the shipped
+  default, naming the key - and `session.unrun_note` words the rules that
+  read nothing, now including "switched off". `--verify`, `--check-text`,
+  `--sweep` and `--introduced-since` print it, and an entry rule on a primary
+  holding no entry is named as having read nothing in every one of them. A
+  pattern that matches the empty string, or carries the wrong number of
+  groups for its rule, is refused when the file loads, naming the key: 0 of
+  41 existing configurations are refused (the defaults, this repository's,
+  and the 39 installer outputs).
+- SARIF says what the text says. It had computed its own list of blind rules
+  from every zero, so it never learned Phase 57's split; it now carries the
+  NOTE lines word for word, states an off rule as `ruleConfigurationOverrides`
+  with `enabled: false` (SARIF 2.1.0, 3.20.5 and 3.50.2), and reports a rule
+  that raised as an error notification on that rule with its exception and
+  `executionSuccessful: false` - hard-coded true until now, so a consumer
+  saw a clean run the exit code refused. GitHub code scanning reads no
+  `invocations`, so this is for every other reader of the file.
+- The installer tells the truth about what it could not settle. The design
+  first proposed the plan's narrow form - "a key the installer marked
+  unknown is off" - and a foolproofing pass reversed it, for two reasons.
+  The installer derives a pattern from the document as it stands on install
+  day and `/extant` writes entries after it, so off would silence every
+  claim written later. And off does not fix the scrutiny's own reproduction,
+  a false claim that work landed on `master`: it exits 0 whether the rule is
+  off or on the default, and only derivation catches it, which the
+  installer's detector does for "landed". So an
+  undetermined claim pattern stays on the shipped default, and the file,
+  the derived table and the closing advice say so - SHIPPED DEFAULT, OFF,
+  NOT VERIFIED, LOW CONFIDENCE - with '' named as the way off. A [default]
+  value is written commented too, so "set" means measured or hand-written;
+  a repository with no branches no longer gets a third branch vocabulary;
+  and the phase keys ARE switched off when no convention is found, because
+  there the default did visible harm and `parse_phase` already said that was
+  the intent. `phase_bare` is kept when the subjects say "Phase N.N".
+
+**A vacuous test, found on the way.** `test_fuzz_findings.py` filtered the
+sweep's STDERR for the zero NOTE, which a text-format sweep prints to stdout,
+so its negative assertion could never fail. Found because rewording the NOTE
+would otherwise have survived it; it reads stdout now and asserts the line
+exists first. The new tests find every line by the phrase constants the
+session prints them with, and assert it exists before asserting on it.
+
+**Recorded, not built.**
+
+- Installer guesses are not carried into the run: `branch_token` is guessed
+  in 11 of the 39, `entry_prefix` in 16, and "set" means present in the
+  file. A table that recorded each guessed value's hash, so an edit clears
+  the mark, would carry it without drift. Not built: on those 39 primaries
+  the rules those guesses feed examine 0 anyway.
+- The NOTE as `::notice` annotations: GitHub caps annotations per step and
+  at 50 per job, shared with the findings they would crowd out.
+- A distinct exit code for a wholly vacuous run, as pytest's 5 is for "no
+  tests collected": 0 of 139 sweeps were wholly vacuous, and it would fail
+  a fresh install.
+- `off` inside the `examined:` line: it would break every parser of that
+  line; the NOTE and SARIF carry it.
+- `stale-live-claim`'s gate is the whole entry: any live phrase in the
+  newest entry makes every branch token in it a claim - seen on a synthetic
+  entry naming a second branch "while here". Undocumented until now, and a
+  precision question for a later bundle.
+- Re-running the 229-repository scan needs clones, a network step.
+
+**The gate.**
+
+- The suite: 1,502 tests across 78 files, of which 1,494 pass and 8 skip on
+  this machine. `python -m mypy`: no issues in 44 files.
+- 357 mutation anchors match: 21 new, and 2 retargeted when the reasons
+  moved into `unread_reason`. All 23 were run for real on a copy. 22 were
+  killed in the campaign; one survived - "the did-not-run note keys entry
+  scope on in_archive" - because its test used `inconsistent-artifact` as the
+  repository-scoped example, and that rule is now off by default, so its
+  reason never reached the scope branch the mutation breaks. The test uses
+  `raw-lfs-blob` now, which declares no setting, and a rerun killed it.
+- Identity: the after-side of the 152 visible corpus clones was predicted
+  byte for byte before the run, from the Phase 57d outputs, whose payload is
+  byte-identical to main's; 152 of 152 matched. Every output changed in the
+  same three lines - the repository-rule count from 2 to 1, the zero NOTE
+  split by cause, `inconsistent-artifact` added as switched off - and no
+  finding and no `examined:` count moved.
+- The pre-push chain, from an extract of the working tree: scenarios 213 of
+  213, the fuzzer 0 violations over 35 repositories, `--self-check` 23 of
+  23, `--verify` 0, `--selftest` 7 fired and 0 silent. Smoke failed first,
+  and was right to: two of its probes had changed meaning under the
+  load-time refusal. The "patterns that match nothing" probe wrote patterns
+  with no capture group, refused now before any NOTE, so it is two
+  observations - a well-formed pattern that matches nothing is named with
+  its key, and a malformed one is refused, naming the setting. And the
+  backtracking probe's pattern carried two groups, so it was refused before
+  it reached a matcher while the probe went on saying "ok": its tolerated
+  HANG flag simply stopped being raised, which the harness cannot see,
+  because a tolerated flag is allowed to be absent. With one group the flag
+  is back. Smoke then: 48 observations, 0 new flags, 0 missing.
+
+**The review of the pull request, 2026-09-30.** A review of the two commits
+above found twelve things, and the commit after them fixes all twelve. Five
+were defects this tranche brought in, four were records or wording that said
+more than the code did, and three were the shape this project keeps paying
+for: one fact written in more than one place.
+
+The five defects:
+
+- The group-count refusal was stricter than any rule. `branch_token` and
+  `release_tag` are read by group 1 alone, so a pattern with a nested group
+  had worked, and refused it stopped every mode at load - `--collect`,
+  `--archive` and the hooks, not only its rule. The smoke probe above that
+  was rewritten to one group is exactly that shape, and would load again.
+  The counts are a range now: `merge_claim` one or two, because its probe
+  splices the last group; `path_pointer` exactly one, because the patch
+  generator reads it with `findall`, which returns tuples past one; the
+  other two at least one.
+- The empty-string refusal asked `match("")`, which tries one position of an
+  empty string. `\b([\w/.-]*)` passed it and reported 24 examined on a
+  7-line document, the failure the refusal exists to stop. It asks the
+  pattern's minimum width now, from the standard library's own regex
+  parser - private in both of its spellings, `re._parser` from 3.11 and
+  `sre_parse` before, chosen by version so the type checker, at its 3.10
+  target, reads the second with no suppression. The 41 known configurations
+  were loaded again through the new refusals: 0 refused.
+- `--verify` and `--check-text` counted every rule and then named the ones
+  that had not run, so a markdown rule on an rst primary printed
+  `dead-md-link 1` beside a NOTE saying it read nothing. They count only the
+  rules that read the document, as the sweep has since 2026-09-15: a rule
+  that did not run is 0 in the `examined:` line.
+- SARIF named rules it did not describe. The descriptors were built from the
+  results, and a switched-off rule has none, so every
+  `ruleConfigurationOverrides` entry referred to nothing (SARIF 2.1.0,
+  3.52.4), and so did the `associatedRule` of a rule that raised. Both are
+  described now and both references carry the index. The visible cost:
+  `inconsistent-artifact` is a descriptor in every SARIF file from a
+  repository with no consistency check.
+- `--deleted-since` handed SARIF no NOTE and no rule errors. SARIF had worked
+  out its own zero warning, so when it stopped, this mode lost the one it
+  had. It says "no changed document was examined" again, and a rule that
+  raised makes `executionSuccessful` false here as well.
+
+The records and wording that said more than the code:
+
+- "SARIF carries the NOTE lines the text printed" held for the zeros only.
+  The shallow, partial and ancestry-bound notes, the parallel survey's
+  fallback and `--check-text`'s missing path reached the text alone - on a
+  shallow checkout, the one note that says what a dead SHA there means.
+  Each mode gathers them before SARIF is rendered now, and prints them where
+  it always did, so the sentence holds as written.
+- `--introduced-since` said "--verify and --sweep run them" of every
+  repository rule, `inconsistent-artifact` included, which neither runs
+  while it is off. It lists only the rules they would run.
+- The NOTE for a primary document holding no entry said "which has none" and
+  stopped there. On this tranche's own measurement, 23 of the 25 installs
+  with no entry had entries the default `## Phase ` did not match, so when
+  `entry_prefix` is not set the NOTE now names it - "headed by the shipped
+  default `entry_prefix` '## Phase '" - the lever the rest of this section
+  gives every other zero.
+- A comment in `--selftest` said its fifth count appears only when something
+  is switched off. It appears in most runs, because `inconsistent-artifact`
+  is off until a check is configured.
+
+One fact in more than one place:
+
+- `rule_applies` refused a rule, a second function worked out in words which
+  clause had refused it, and the off test was written a third time for
+  SARIF. `session.why_not_read` holds the clauses and their reasons
+  together; `rule_applies` asks whether it returned None, and the off test is
+  one function. A NOTE covering a whole run asks it at the one position its
+  rules share.
+- Three modes carried the same block of zero NOTE lines. `session.zero_notes`
+  is that block now, and the three anchors that probed the copies each probe
+  the set of rules that ran, which its mode hands in.
+- `session.holds_entry` made a fourth reader of the newest entry, beside the
+  two entry rules and their probe - one claim, one scanner, broken. The one
+  reader is `newest_entry` in extant/entries.py now, and unifying them found
+  a defect of the kind Phase 57 fixed in `sub_group`: the branch probe split
+  the RAW text, so a first branch token inside a fence was the one
+  corrupted, the rule read the prose, and a working rule was reported as
+  DID NOT FIRE. The probe finds the entry in the prose and splices at its
+  offset.
+
+**The gate of the review.**
+
+- The suite: 1,510 tests across 78 files, of which 1,502 pass and 8 skip on
+  this machine; `python -m mypy`: no issues in 44 files. Eight tests are
+  new. Five of the defects were reproduced on the tranche's head before they
+  were fixed - the group refusal, the zero-width pattern, the rst count, the
+  fenced probe and the zero-document SARIF.
+- 357 mutation anchors match, 13 of them retargeted at the code that
+  replaced what they named, and none added. The 13 were run for real on a
+  copy: all 13 killed, none by the hang bound alone. The fuzzer's 23
+  breakage anchors match.
+- Identity, predicted before the run from the Phase 59 outputs: 0 of 152
+  would differ, because the one sweep wording the fixes change is the lever
+  after "which has none", and no corpus sweep reads a primary document -
+  every one says "and none is here", so the entry rules never ran there and
+  `newest_entry` could not differ either. Observed: 152 compared, 0 differ.
+- The chain, from an extract of the working tree: smoke 48 observations,
+  0 new flags and 0 missing; scenarios 213 of 213; the fuzzer 0 violations
+  over 35 repositories; `--self-check` 23 of 23. `--verify` 0, and
+  `--selftest` 7 fired and 0 silent.
+- extant/config.py stands at the 927-line module ceiling and `run_sweep` at
+  the 303-line function ceiling. Both were held by moving work out and by
+  shortening comments this tranche had written, not by raising a number.

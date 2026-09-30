@@ -127,8 +127,10 @@ def test_a_rule_that_examined_nothing_anywhere_is_named(three_documents) -> None
     output = sweep(three_documents)
     reported = counts(output)
     assert reported["false-merge-claim"] == 0, reported
-    assert "examined nothing" in output, output
-    assert "false-merge-claim" in output.split("examined nothing")[1], output
+    # On one of the zero lines, which since Phase 59 are one per cause.
+    zeros = [ln for ln in output.splitlines() if "examined nothing" in ln]
+    assert zeros, output
+    assert any("false-merge-claim" in ln for ln in zeros), output
 
 
 def test_a_markdown_only_rule_is_not_counted_for_an_rst_document(git_repo) -> None:

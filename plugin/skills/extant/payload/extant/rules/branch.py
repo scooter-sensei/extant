@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from extant.contract import Rule
-from extant.entries import split_entries
+from extant.entries import newest_entry
 from extant.finding import Finding
 from extant.probes import branch_in_newest
 from extant.refs import branch_exists, named_in_merge_history
@@ -47,27 +47,22 @@ def _branch_sites(ctx: Context, text: str) -> list[tuple[int, str]]:
     an entry making a live claim, and this one reads every branch named.
 
     Only the NEWEST phase entry, for the same reason live claims are: older
-    entries name branches that were correct when written. The walk still
-    advances over every segment before it so the line numbers stay right.
+    entries name branches that were correct when written. `newest_entry` counts
+    its offset past every segment before it, so the line numbers stay right.
     A path-shaped token is not returned and so is neither judged nor counted.
     """
     # Claims inside code are examples, not promises. See prose.
     text = prose(ctx.doc, text)
-    _, segments, _ = split_entries(text, ctx.config)
     sites: list[tuple[int, str]] = []
-    cursor = 0
-    for kind, entry in segments:
-        start = text.index(entry, cursor)
-        cursor = start + len(entry)
-        if kind != "phase":
-            continue
+    newest = newest_entry(text, ctx.config)
+    if newest is not None:
+        start, entry = newest
         for match in ctx.config.branch_token.finditer(entry):
             branch = match.group(1)
             if looks_like_a_path(ctx, branch):
                 continue  # a file reference caught by a path-shaped pattern
             sites.append(
                 (text.count("\n", 0, start + match.start()) + 1, branch))
-        break        # the newest phase entry, and never another
     return sites
 
 
@@ -103,4 +98,5 @@ RULE = Rule(
     falsifiable="does the branch exist, or appear in any merge commit?",
     probe=probe,
     examined=examined,
+    settings=("branch_token",),
 )
