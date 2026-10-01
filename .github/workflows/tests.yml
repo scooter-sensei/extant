@@ -47,6 +47,31 @@ jobs:
           python --version
           git --version
 
+      # WHICH git THE SUITE STARTS, and what `-n auto` and every tmp_path are
+      # built from. Git for Windows' `Git\bin\git.exe` and `Git\cmd\git.exe`
+      # are a 46 KB launcher that starts the real `mingw64\bin\git.exe` as a
+      # second process - 59.7 against 33.3 ms per call on the development
+      # machine on 2026-10-01 - and the runner image's install script puts
+      # `Git\bin` first on PATH. This prints every git on PATH, in order, with
+      # its size, so the CI timing study reads what a leg actually got rather
+      # than what the image script implies. `shell: python` so one script
+      # serves both platforms AND sees the PATH the suite step sees: a
+      # `shell: bash` step on Windows would see Git Bash's PATH instead. A git
+      # started INSIDE a hook sees git's own exec path first, so this is not
+      # the git a hook gets.
+      - name: Show what the suite will start
+        shell: python
+        run: |
+          import os, tempfile
+          name = "git.exe" if os.name == "nt" else "git"
+          for entry in os.environ["PATH"].split(os.pathsep):
+              exe = os.path.join(entry, name)
+              if entry and os.path.isfile(exe):
+                  print(f"git on PATH: {exe} ({os.path.getsize(exe)} bytes)")
+          print(f"cpu_count: {os.cpu_count()}")
+          print(f"temp: {tempfile.gettempdir()}")
+          print(f"RUNNER_TEMP: {os.environ.get('RUNNER_TEMP')}")
+
       # The TOOL has no third-party dependencies. The test suite is a separate
       # question and needs pytest, which is not in the standard library. This
       # step was originally missing, under a comment asserting that nothing
@@ -244,12 +269,26 @@ jobs:
           mkdir -p "${{ matrix.pkg }}"
           git archive HEAD | tar -x -C "${{ matrix.pkg }}"
 
+      # The git, and the cores, the harness inherits: under Git Bash, as the
+      # step below runs, rather than the runner's own PATH the tests job's
+      # step of this kind reads.
+      - name: Show which git the harness will start
+        run: |
+          type -a git
+          nproc
+
       # Exits 1 on a property violation and 2 when the generator reached no
       # rules at all, which is the harness reporting itself broken rather
       # than reporting the tool clean.
+      #
+      # `-u`, so each repository's line reaches the log when that repository
+      # finishes, and the log's timestamps give each one's cost. Buffered, all
+      # 35 lines arrived together at the end of the step, and a step cancelled
+      # at its timeout would have shown none of them. What is printed is
+      # unchanged.
       - name: Build hostile repositories
         run: >
-          python tests/harnesses/fuzz.py "${{ matrix.pkg }}" "${{ matrix.arena }}"
+          python -u tests/harnesses/fuzz.py "${{ matrix.pkg }}" "${{ matrix.arena }}"
           --seed 20260824 --repos 35 --save "${{ matrix.fail }}"
 
       - name: Keep the recipe of anything that failed
