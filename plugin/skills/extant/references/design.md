@@ -24,7 +24,7 @@ rule, and the part its subject belongs to before changing anything else.
 | [Performance](design/performance.md) | run and document scopes, caches, batches, and the indexes measured and refused |
 | [Reading a range](design/gates.md) | `--deleted-since`, `--introduced-since`, its replay, and the differential refused |
 | [Code blocks](design/code-blocks.md) | indented code and fences, and the renderers they are judged against |
-| [Keeping the tool honest](design/quality.md) | the suite's own denominator, the type checker, CI, and the review bundles |
+| [Keeping the tool honest](design/quality.md) | the suite's own denominator, the type checker, CI, the review bundles, and what a mutation campaign costs |
 
 Where each section went, by its title:
 
@@ -88,6 +88,7 @@ Where each section went, by its title:
 - CI honesty: the version the maintainer runs, the surfaces adopters run, and a third order
 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer
 - What a zero means: a rule names its vocabulary, and off is a state
+- The mutation campaign, made cheaper without moving a verdict
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 

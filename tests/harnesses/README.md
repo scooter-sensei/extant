@@ -43,17 +43,27 @@ So those two stay hand-run, and CI takes the one measurement that needs no
 threshold: it prints the median `--verify` time as an annotation, where a human
 reading a PR sees it and nothing fails on it.
 
-`mutate.py` sits between the two. The full campaign is HOURS - 165 mutations
-took 5h53m here, an average of 128 seconds each, measured on Windows against a
-1,035-test suite. It read "half an hour" for a long time, and the drift is
-mechanical rather than careless: `pytest -x` stops at the first failing test,
-so a mutation killed late costs most of a suite run, and both the mutation
-count and the suite have grown since. The figure lives here alone and the
-other mentions say "hours", because a number repeated in five places is a
-number that goes stale in four of them. Far too slow per commit, but
-`--check-only` asks a verdict question in under a second:
-does every mutation still match the code it names? That catches mutation rot
-at the commit causing it, which is how it is in CI while the campaign is not.
+`mutate.py` sits between the two. The full campaign is HOURS. On 2026-09-30,
+timed on Windows on five of its 357 mutations against a 1,510-test suite, a
+serial run took 242 seconds per kill and 736 for a survivor: about a day for
+all 357, by extrapolation. 165 mutations had taken 5h53m against 1,035
+tests. On the same machine, the environment `mutate.py` has given each suite
+since then took about a third off two things: a serial run of 60 kill checks,
+and a whole ledger-driven campaign. A full `mutate.py` campaign with it has
+not been timed.
+
+The figure read "half an hour" for a long time, and the drift is mechanical
+rather than careless:
+- `pytest -x` stops at the first failing test, so a mutation killed late
+  costs most of a suite run;
+- both the mutation count and the suite have grown since.
+
+The figure lives here alone and the other mentions say "hours", because a
+number repeated in five places is a number that goes stale in four of them.
+Far too slow per commit, but `--check-only` asks a verdict question in under
+a second: does every mutation still match the code it names? That catches
+mutation rot at the commit causing it, which is how it is in CI while the
+campaign is not.
 
 Between them they found every defect fixed in 0.3.0. The unit suite found none
 of those, because the unit suite was the thing being audited.

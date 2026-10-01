@@ -253,6 +253,23 @@ suite is green, the behaviour is correct, and one of the two checks has quietly
 stopped meaning anything. When you add a function that overlaps an existing
 one, run the existing one's mutation.
 
+It happened again, found on 2026-09-30.
+- **The guard.** `inside()`, added to the anchor rule's target lookup so it
+  could never read a file outside the repository, refuses such a file on its
+  own.
+- **What it covered.** The test written for "the anchor rule resolves a
+  cross-file target itself" asked about exactly such a file, so it passed
+  against the mutant, and the mutation survived.
+
+A new test pins the case-only half the mutation still changes. When you add a
+guard, run the mutations of the code it now stands in front of.
+
+**Pin an anchor with a test built on a fixture.** A test that reads the
+checkout's own history kills on one clone and not on another. The
+spawn-budget test's run against this checkout killed "the ancestry index is
+unbounded again" on one clone. On a fresh clone it passed against the same
+mutant, so another test had to be found for it.
+
 They are worth running before a release, because between them they found every
 defect fixed in 0.3.0 and the unit suite found none of them. This sentence said
 "two more" for as long as it took the last two to be written, which is the drift

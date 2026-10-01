@@ -2,8 +2,9 @@
 
 Part of the design rationale; [its core](../design.md) maps every part and
 section. How the tool's own checks are checked: what the suite counts, what
-the type checker can and cannot see, what CI runs and on which surfaces, and
-the review bundles that closed what earlier tranches owed. The sections are in
+the type checker can and cannot see, what CI runs and on which surfaces, the
+review bundles that closed what earlier tranches owed, and what a mutation
+campaign costs and why that cost does not move a verdict. The sections are in
 the order they were written.
 
 ## The suite's own denominator, and the number the review could not see
@@ -1306,3 +1307,182 @@ One fact in more than one place:
 - extant/config.py stands at the 927-line module ceiling and `run_sweep` at
   the 303-line function ceiling. Both were held by moving work out and by
   shortening comments this tranche had written, not by raising a number.
+
+## The mutation campaign, made cheaper without moving a verdict
+
+Phase 60. Two studies, on 2026-09-30 and 2026-10-01, asked how to run
+`tests/harnesses/mutate.py` faster on the Windows machine where campaigns
+run, without weakening what a verdict proves. Their throwaway scripts and
+every log stay outside the repository, under `D:/repo/internals/Timings` and
+`D:/repo/logs`, as the corpus instruments do. Each number below is one
+laptop on one day.
+
+**What a verdict needs, and what it does not.** A KILL is proved by one named
+test that fails alone against the mutant (pytest exit 1) and passes alone on
+the clean tree. Only SURVIVED needs the whole suite. Nearly every anchor is
+killed, so trying first the tests a previous campaign recorded as killers -
+a ledger - turns most anchors from minutes into seconds. The ledger may
+choose the ORDER, never the verdict: a recorded killer that no longer fails
+falls through to the whole suite. Reusing an old result without rerunning
+it, as PIT's history file and Stryker's incremental mode do, would have
+hidden both survivors this project has found. "slug keeps punctuation"
+appeared because a different function began producing the same output, and
+"the anchor rule resolves a cross-file target itself" (#190, below) because a
+guard added 17 days after its test took the test over. In neither did the
+mutated line or its killing test change.
+
+A throwaway runner built that way settled all 357 anchors:
+
+| Run | Wall |
+|---|---|
+| WSL, with no history | 19.0 min |
+| Windows, confirming WSL's killers | 14.4 min |
+| WSL, from its own ledger | 2.7 min |
+
+Every run gave 356 killed and 1 survived. The harness as it stood, timed on
+five anchors, needed 727 s for a serial baseline, 242 s per kill and 736 s
+for the survivor: about 24 hours for 357, an extrapolation. That runner is
+not in `mutate.py`. Building it in is the open item.
+
+**Windows defines a verdict.** WSL ran the same suite in 27.7-47.7 s against
+212-357 s natively, so it may FIND killers. A killer it finds counts only
+once it has failed alone on Windows, and an anchor it reports SURVIVED is
+re-decided by a Windows whole suite. The two platforms skip different tests:
+Windows the symlink ones, Linux the case-folding ones. #190 can be seen only
+where the filesystem folds case. 354 of WSL's 356 killers held on Windows,
+the other two had Windows killers of their own, and no verdict differed.
+
+**What the first study found in the harness.** Each fix had a test watched
+failing first.
+
+- **Stale bytecode.** CPython trusts a cached .pyc while a source keeps its
+  size and its whole-second mtime (bpo-31772, still open). 13 anchors keep
+  the size. Written and restored inside one second, a mutant was never run
+  in 29 cycles of 50, and the restored source ran the mutant in 21. Every
+  rewrite now goes through `write_source`, which sets a strictly later
+  whole-second mtime. Only minutes-long suites had kept this latent, so
+  anything that makes a campaign faster would have exposed it.
+- **A carriage return in a node id.** `_FAILED_NODE` kept the `\r` a Windows
+  console ends a line with, whenever pytest had no room for the message: 84
+  per cent of this suite's ids. The `--parallel` rerun-alone then exited 4,
+  not 1, and every such kill paid for a whole serial suite as well. On five
+  anchors `--parallel` took 42.4 minutes against 40.5 serially, and 25.0
+  after the fix. Its "overturned: 0" was true and said nothing.
+- **#190 SURVIVED.** The mutation swaps `resolve_reference` for a bare
+  `is_file()` in the anchor rule. Its test, written with it, asked about a
+  file outside the repository, and Phase 54's read guard (`inside()` in
+  `_target_anchors`) now refuses that file on its own. The guard fixed a
+  different defect and quietly took the test over. The mutation still
+  changes CASE: on a case-folding filesystem the mutant judges
+  `[x](readme.md#nope)` against `README.md`. A test now pins that a
+  case-only mismatch is left to `dead-md-link`. It can fail only where the
+  filesystem folds case; on Linux it passes against the mutant, as its
+  docstring says.
+
+**What the second study found: the cost is per process.** One instrumented
+run of the suite started 8,370 git processes:
+
+- 6,042 started directly by the tests or the tool. 4,222 of those built
+  fixture repositories (831 s inside git), against 1,820 that asked the
+  questions under test (116 s).
+- 1,580 more were `git maintenance run --auto` children of `commit`.
+
+On the first study's Windows run, 354 ledger kill checks took 1,198 s, of
+which their killing tests took 420 s. The rest, a median of 2.1 s per check,
+was pytest starting, collecting, building fixtures and cleaning up. Four
+changes take that down, and `mutate.py` makes all four itself
+(`child_environment` and `run_suite`):
+
+- **Plugin autoload off.** The suite needs no plugin, and importing the
+  operator's cost 0.44 s per pytest start. `--parallel` names
+  `xdist.plugin`, because without autoload `-n` is a usage error.
+- **No auto-maintenance.** `maintenance.auto=false` is appended to the
+  operator's `GIT_CONFIG_COUNT` by the rules `environment()` in
+  extant/git.py follows. In a test-sized repository the maintenance child
+  never acts (`gc.auto` wants 6,700 loose objects): 60 commits and 60 tags
+  leave the same repository shape with or without it. A commit took 95 ms
+  with it and 60 ms without. The detached child also writes inside `.git`
+  while a fixture is being removed, which other projects disable it for.
+- **The real git on Windows.** Git for Windows' `cmd\git.exe` is a launcher
+  that sets a few variables and starts `mingw64\bin\git.exe` as a second
+  process: 59 ms against 33 ms per call, about 6,000 calls per suite. A
+  campaign started from PowerShell got the launcher; Git Bash puts the real
+  binary first. When the first `git.exe` on PATH is a launcher, its
+  `mingw64\bin` and `usr\bin` now go first, with the `MSYSTEM` and
+  `PLINK_PROTOCOL` the launcher sets (from `git-wrapper.c`). That also puts
+  `sh` on PATH, so a PowerShell launch no longer reads as an already-red
+  suite.
+- **A temp root per run.** pytest keeps its three newest `pytest-N`
+  directories, and the next process to EXIT deletes the oldest. After a
+  whole suite that was 36-65 s, inside whichever run exited next, a single
+  kill check included. Each run now gets its own `--basetemp`, removed on a
+  thread afterwards. Git writes loose objects read-only and Windows' `rmtree`
+  refuses them (WinError 5), so the removal clears the bit and retries. With
+  `ignore_errors` the refusal is silent: a measuring script written that way
+  left 6,074 files of every whole-suite tree behind, and looked cheaper than
+  it was.
+
+Measured together, against the same commit on the same evening:
+
+| Run | Before | After | Change |
+|---|---|---|---|
+| 60 kill checks, serial | 165 s | 112 s | -32% |
+| The whole suite, `-n auto`, mean | 406 s | 281 s | -31% |
+| A whole ledger-driven campaign, 357 anchors | 1,700 s | 1,160 s | -32% |
+
+The suite row is the first three changes with longest-first ordering
+(below); the campaign row is all four with it, the temp root reaching only
+its whole-suite runs; the checks row is autoload, maintenance and git. Both
+campaigns gave the same verdicts and the same killers. None of the four
+can move a verdict unseen, because the baseline runs in the same
+environment. A test that depended on any of them would show as a red
+baseline.
+
+**Measured and refused.**
+
+- **More xdist workers.** `-n auto` is 6 here, not 12: with `psutil`
+  installed xdist counts physical cores. At `-n 8` every test got slower and
+  the wall did not move.
+- **Handing out the longest files first.** Under `--dist loadfile` xdist
+  orders files by how many TESTS they hold. Replaying its scheduler on
+  measured durations, longest-first saves 1-5% at 6 workers and up to 22% at
+  12. Not built while campaigns run at 6.
+- **An empty git template.** No measurable gain, and the hook tests would run
+  on a repository shape no user has.
+- **`core.fsync=none` and `GIT_CONFIG_NOSYSTEM`.** No effect.
+- **Reusing a result whose dependencies did not change.** File-level test
+  selection (Chen and Zhang, ICST 2018) is the one form of reuse that
+  survives both counterexamples above. It still lets history decide a
+  verdict, so it was refused.
+
+**The next limit is the machine.** Defender used 1.2 to 1.8 cores on
+average during every suite run, about a fifth of all the CPU the suite
+used. Free
+memory fell below 900 MB in 11 runs of 16. Both are the operator's settings,
+and neither was changed. Microsoft names a Dev Drive's asynchronous
+performance mode as the safer lever than a folder exclusion.
+
+**A killer that reads the checkout is not a stable killer.** #7, "the
+ancestry index is unbounded again", was recorded as killed by the
+`as-checked-out` arm of the spawn-budget test, which runs `--verify` against
+the checkout itself. On a fresh clone it passed against the mutant, and the
+whole suite found `test_a_hit_is_proof_and_a_miss_asks_only_past_the_bound`
+instead. The ledger ordered the work and the whole suite decided, as
+designed, and it cost one whole suite. Three more entries had leaned on the
+same test. For each, the suite was run against the mutant without it, and a
+killer built on a fixture was found and certified. That also showed one
+docstring had outlived its claim: the spawn-budget test is no longer the
+only test that sees the run's scope dropped from `--verify`. A ledger should
+prefer killers built on fixtures.
+
+**The gate.**
+- 1,521 tests across 78 files, of which 1,513 pass and 8 skip on this
+  machine; `python -m mypy` reports no issues in 44 files.
+- 8 tests are new for the environment, each watched failing first, and 3 for
+  the first study's fixes. The harness tests pass on Linux (WSL) with the one
+  Windows-only test skipped.
+- 357 anchors match, and none was added: the changes are in the harness,
+  which no anchor targets.
+- `mutate.py --parallel`, launched from PowerShell with nothing prepended to
+  PATH, ran a green baseline and killed both anchors it was given, #190
+  included. It restored the source and left no temp root behind.

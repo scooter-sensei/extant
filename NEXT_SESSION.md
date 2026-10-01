@@ -6,6 +6,73 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 60 - The mutation campaign, made cheaper without moving a verdict (unreleased, 2026-10-01)
+
+**Status.** Built and gated.
+- 1,521 tests across 78 files, of which 1,513 pass and 8 skip on this
+  machine. On Linux, through WSL, the harness tests pass with the one
+  Windows-only test skipped.
+- `python -m mypy`: no issues in 44 files.
+- 357 mutation anchors match, none added or moved: the change is in the
+  harness, which no anchor targets.
+- No rule added or removed, thirteen as before; no mode added; no shipped
+  file changed. The tool remained released as 0.29.0.
+
+**What it answers.** A full campaign of the 357 anchors would take about a
+day serially on this machine: 242 s per kill and 736 s for a survivor, timed
+on five. `--parallel` was slower still. Two studies asked how much of that
+cost a verdict actually needs.
+
+**What changed.**
+
+- **Two harness defects**, found by the first study and each fixed with a
+  test watched failing:
+  - a mutant written and restored inside one second could run the other
+    version's cached bytecode;
+  - `--parallel` confirmed its kills by a node id that kept the console's
+    carriage return, so every such kill paid for a serial suite as well.
+- **A real gap.** "the anchor rule resolves a cross-file target itself"
+  SURVIVED, because Phase 54's read guard took over the test written for it.
+  A test now pins the case-only half, which the mutation still changes on a
+  filesystem that folds case.
+- **An environment of the harness's own.** Every suite `mutate.py` starts now
+  runs with no plugin autoload and with `maintenance.auto=false` appended to
+  git's injected config. On Windows the real git goes ahead of Git for
+  Windows' launcher, and every run gets a temp root of its own, removed off
+  the critical path. On one ledger-driven campaign over all 357 anchors this
+  took the wall from 1,700 s to 1,160 s, with identical verdicts. A
+  PowerShell launch now runs a green baseline without `usr\bin` prepended.
+- **A stale docstring.** The spawn-budget test said it alone could see the
+  run's scope dropped from `--verify`. A fixture-based test in
+  `tests/test_repository_notes.py` sees it too, and the docstring now says
+  so.
+
+**Decided.** Windows defines a campaign's verdict. WSL runs the suite
+several times faster and may find killers, but each counts only once it
+fails alone on Windows.
+
+**Found on the way.**
+
+- **A killer that reads the checkout is not a stable killer.** The
+  spawn-budget test's `as-checked-out` arm killed "the ancestry index is
+  unbounded again" on one clone and not on a fresh one. The whole suite
+  found a fixture-based killer, as designed, at the cost of one whole suite.
+- **Whole-suite wall times had included pytest's deletion** of an older
+  run's temp tree, 36-65 s, which is part of why they varied as they did.
+- **The machine is now the limit.** Defender used 1.2 to 1.8 cores during
+  every suite run, and memory ran short. Both are the operator's to change.
+
+**Not built.**
+- The ledger-driven runner itself.
+- The suite's fixture-building cost: 4,222 of its 6,042 directly started git
+  processes.
+- Longest-file-first ordering, worth 1-5% at the 6 workers `-n auto` gives
+  here.
+
+Everything is in the section "The mutation campaign, made cheaper without
+moving a verdict", in the design rationale's part on keeping the tool
+honest.
+
 ## Phase 59 - What a zero means: a rule names its vocabulary, and off is a state (shipped, 2026-09-29)
 
 **Status.** Built, gated, reviewed and fixed. 1,510 tests across 78 files,
