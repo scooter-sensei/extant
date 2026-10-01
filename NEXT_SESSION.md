@@ -179,18 +179,18 @@ For CI:
   it.
 - **A new host.** The Windows 3.9 leg now depends on nuget.org as well. It
   fails on purpose the day the image carries 3.9, naming the step to remove.
-- **Undocumented elsewhere.** `AGENTS.md` does not say the Windows legs run
-  with the real git first and temp on D:, which anyone reproducing a Windows
-  CI failure locally needs. The design rationale has no section on the CI
-  changes.
 - **One equivalence check.** `fuzz.py --jobs` was compared with a serial
   run on one seed. A run that shrinks a violation does it while other
   repositories are still being built.
 
-The campaign work is in the section "The mutation campaign, made cheaper
-without moving a verdict", in the design rationale's part on keeping the
-tool honest. The CI work is in this entry, in the comments of
-`.github/workflows/tests.yml`, and in pull requests #24 and #25.
+The audit also found two things undocumented: `AGENTS.md` did not say what
+the Windows legs run in, and the design rationale had no section on the CI
+changes. Both are written now.
+
+Everything is in two sections of the design rationale's part on keeping
+the tool honest: "The mutation campaign, made cheaper without moving a
+verdict" and "CI, made cheaper without moving a verdict". Each CI change's
+reasons are also in the comments beside it in `.github/workflows/tests.yml`.
 
 ## Phase 59 - What a zero means: a rule names its vocabulary, and off is a state (shipped, 2026-09-29)
 

@@ -1486,3 +1486,132 @@ prefer killers built on fixtures.
 - `mutate.py --parallel`, launched from PowerShell with nothing prepended to
   PATH, ran a green baseline and killed both anchors it was given, #190
   included. It restored the source and left no temp root behind.
+
+## CI, made cheaper without moving a verdict
+
+Phase 60, the same day as the campaign above and the same question: how much
+of a run's time does a verdict actually need? A run took 6 to 7.5 minutes and
+50 to 56 job-minutes, and was always exactly as long as its slowest job: the
+Windows fuzz job or a Windows test leg. On `a0d85d8` it took 3.1 minutes and
+1,913 job-seconds, with every job, matrix leg, Python and check kept.
+
+**Measured before anything changed.** Pull request #24 added only
+instruments. Each test leg prints every git on PATH with its size, the cores
+and the temp directory; the fuzz legs print theirs under Git Bash and run
+the harness with `-u`, so each repository's cost is in the log. They showed:
+- The Windows test legs started `Git\bin\git.exe`, a 43,352-byte launcher
+  that starts the real git as a second process (59.7 against 33.3 ms a call
+  on the development machine). Git Bash already put the real one first for
+  the fuzz job.
+- Every runner has four cores.
+- Windows TEMP was on C:, the image's system drive, while D: holds the
+  workspace.
+- A Windows fuzz repository cost 2.3 to 18.9 s, and the 35 took 362 s one
+  after another.
+- `fuzz.py --self-check` spent 181 of its 206 s on the HANG breakage alone.
+- Python 3.9 on Windows spent 31 of its 46 s of setup in python.org's
+  installer.
+
+**What changed, and why none of it can move a verdict.** Each change is one
+commit in pull request #25, and its reasons sit beside it in
+`.github/workflows/tests.yml` or in the module it touched.
+- **The HANG breakage's red half runs under `red_budget`**, in
+  `tests/harnesses/fuzz_selfcheck.py`: three times the clean half of the
+  same pair, never under 10 s nor over the corpus's 90.
+  - The clean half keeps the full budget, so a slow machine cannot make it
+    fire. Only a red half that did NOT hang could be cut short, and the
+    margin against that is about six times a healthy run.
+  - The step went from 201-206 s to 38-46 s, with 23 of 23 properties still
+    going red.
+- **`fuzz.py --jobs N` builds and checks repositories side by side.**
+  - Every plan is drawn first, in order, from the seed, so the corpus is the
+    same however many run at once.
+  - Results print in plan order, and everything a worker touches is its own
+    index's directories, so the output does not depend on N: 77 identical
+    lines locally with one job and with four, and in CI 76 per leg
+    identical to the serial run's.
+  - The Windows job went from 375 s to 114-154 s.
+- **No automatic git maintenance**, in the runner's global config in the six
+  jobs that build repositories. In a test-sized repository it never acts.
+  Global config rather than `GIT_CONFIG_COUNT`, so the environment the tool
+  and its environment tests see is the runner's own. The remote fast path
+  was checked not to decline on a `[maintenance]` section.
+- **The Windows test legs run with the real git first**, as
+  `child_environment` in `tests/harnesses/mutate.py` arranges it - the
+  launcher's two directories, MSYSTEM, and PLINK_PROTOCOL when unset - **and
+  with TEMP on `RUNNER_TEMP`** rather than C:. The binary is the same; the
+  shipped package and the installer read neither MSYSTEM nor TEMP; and every
+  Windows leg kept its 4 skips and its pass count.
+- **Python 3.9 on Windows comes from python.org's NuGet package**, not its
+  installer.
+  - 3.9.13 is the last 3.9 python.org built for Windows. Its NuGet binaries
+    are byte-identical to python.org's embeddable zip, and the SHA-512 NuGet
+    publishes is pinned.
+  - The step does everything setup-python's install script does except run
+    the installer, and a later step fails unless setup-python used its tree.
+  - Setup on that leg went from 44-54 s to 16 s.
+- **The 3.13 leg runs its file-order and shuffled suites side by side**,
+  both still serial, with separate temp roots: 187 s became 100-104 s.
+- **The test legs install `requirements-test.txt`**, which holds what the
+  suite needs. `requirements-dev.txt` includes it and adds coverage and
+  mypy, which no test imports.
+- **Two fixture histories are copied rather than rebuilt.**
+  - `tests/test_ancestry_bound.py` built the same history in 18 tests; that
+    file went from 52-56 s to 16-18 s serially.
+  - `make_repo` in `tests/test_install_presets.py` copies its initialised
+    project; its gain is inside that file's noise.
+  - A test guards each template by comparing a copy with one built the long
+    way. The history is compared as a set of commits, because its branches
+    commit within one second and `git log --all` can list two builds of it
+    in different orders.
+
+**Decided.** The Windows test legs run in the environment Git Bash gives the
+suite - the real git first, MSYSTEM set, temp on D: - and not the one an
+adopter's PowerShell gives it. `AGENTS.md` says so, for anyone reproducing a
+Windows failure. The system-config walk is pinned for both layouts in
+process, by `tests/test_remote_from_disk.py`.
+
+**Measured and refused.**
+- **More jobs or shards.** The twenty jobs are the Free plan's concurrent
+  limit, so more would queue rather than run.
+- **The Linux legs under `-n auto`.** The serial run is the definition of
+  correctness.
+- **Path filters, or selecting tests by what a change touched.** Either lets
+  history decide a verdict.
+- **`--dist load` on Windows.** It gives up the per-file isolation
+  `AGENTS.md` chose `loadfile` for, which "CI honesty" above already
+  refused to trade.
+- **`git fast-import` for fixtures.** It writes packs, and two test files
+  work on loose objects.
+- **A template for the partial-clone fixture.** Its clone writes its
+  source's absolute path into its config.
+- **uv's standalone builds for 3.9.** They are a different build from the
+  one the leg exists to run.
+- **Caching the installed 3.9 with actions/cache.** It keeps the exact tree,
+  but restores of many small files on Windows runners are reported in tens
+  of seconds. It was not measured, since the NuGet route measured about
+  10 s.
+- **A Dev Drive for TEMP.** pip's own CI measured it slower than plain D:.
+
+**Still open.**
+- The maintenance setting's effect in CI is unmeasured, because one
+  Windows runner varied more than it can move: an unchanged fuzz step took
+  98 s on one run and 132 s on the next.
+- No CI leg now starts git through the launcher an adopter's PowerShell
+  resolves.
+- The Windows legs no longer run under the system drive's long, short-named
+  temp path.
+- The 3.9 leg depends on nuget.org, and fails on purpose the day the image
+  carries 3.9.
+- `--jobs` was checked against a serial run on one seed.
+- Each job's `timeout-minutes` waits for five runs under the change, by the
+  workflow's own rule.
+
+**The gate.**
+- Locally: 1,537 tests across 80 files, of which 1,529 pass and 8 skip;
+  `python -m mypy` reports no issues in 44 files; 359 anchors match.
+- Against a `git archive` extract: smoke clean, scenarios 213 of 213, and
+  `fuzz.py --self-check` 23 of 23.
+- `--verify` exits 0 on the checkout and on a clone holding only `main` and
+  the pull request, and `--selftest` leaves no rule silent.
+- CI on `a0d85d8`: 21 of 21 checks green.

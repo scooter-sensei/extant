@@ -89,6 +89,7 @@ Where each section went, by its title:
 - The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer
 - What a zero means: a rule names its vocabulary, and off is a state
 - The mutation campaign, made cheaper without moving a verdict
+- CI, made cheaper without moving a verdict
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 
