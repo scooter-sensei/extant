@@ -72,6 +72,27 @@ jobs:
           print(f"temp: {tempfile.gettempdir()}")
           print(f"RUNNER_TEMP: {os.environ.get('RUNNER_TEMP')}")
 
+      # NO AUTOMATIC GIT MAINTENANCE, in every job that builds repositories.
+      # Every `git commit` starts a detached `git maintenance run --auto`:
+      # 1,580 of them in one run of the suite on the development machine on
+      # 2026-09-30, and a commit took 95 ms with it against 60 ms without. In
+      # a test-sized repository it never acts - `gc.auto` waits for 6,700
+      # loose objects, and 60 commits and 60 tags left the same shape either
+      # way - and the detached child writes inside `.git` while a fixture is
+      # being removed. tests/harnesses/mutate.py already sets the same key for
+      # a campaign; design/quality.md has the measurement.
+      #
+      # GLOBAL CONFIG rather than GIT_CONFIG_COUNT, so the environment the
+      # tool and tests/test_git_environment.py see is the runner's own. The
+      # remote fast path does read this file, and declines only on a rewrite,
+      # an include or a remote, none of which `[maintenance]` is. `--get`
+      # fails the step if the setting did not take, and `--show-origin`
+      # prints the file it landed in.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
+
       # The TOOL has no third-party dependencies. The test suite is a separate
       # question and needs pytest, which is not in the standard library. This
       # step was originally missing, under a comment asserting that nothing
@@ -138,6 +159,12 @@ jobs:
         with:
           python-version: "3.13"
 
+      # The tests job says why.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
+
       # Against a `git archive` extract rather than the working tree, so what
       # is exercised is what would actually ship. A file that is present
       # locally but untracked would otherwise pass here and be missing for
@@ -176,6 +203,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+
+      # The tests job says why.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
 
       - name: Build a shippable extract
         run: |
@@ -264,6 +297,13 @@ jobs:
         with:
           python-version: "3.13"
 
+      # The tests job says why. Under Git Bash on Windows, as the harness
+      # runs, so the setting lands in the HOME the harness's git reads.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
+
       - name: Build a shippable extract
         run: |
           mkdir -p "${{ matrix.pkg }}"
@@ -334,6 +374,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+
+      # The tests job says why: `--self-check` below builds a repository.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
 
       # --format=github turns each finding into a workflow annotation, so a
       # false claim is highlighted on the offending line in the pull request
@@ -473,6 +519,12 @@ jobs:
               print("::error::not a free-threaded interpreter with the GIL off")
               sys.exit(1)
           PY
+
+      # The tests job says why.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
 
       - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
