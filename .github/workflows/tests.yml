@@ -22,7 +22,10 @@ jobs:
     # verdict for GitHub's default of six hours. Here: 1.1 to 1.9 minutes on
     # Linux, and 3.0 to 5.1 on Windows since it went parallel - 9.8 serially
     # before that, which twenty still covers twice. The one Linux leg that
-    # also runs the shuffled suite below takes about one run longer.
+    # also runs the shuffled suite below took about one run longer until
+    # 2026-10-01, when the two began running side by side. The Windows legs
+    # took 2.0 to 3.1 minutes in the two runs after that day's changes; these
+    # timeouts were sized before them.
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 20 || 10 }}
     strategy:
       fail-fast: false
@@ -418,9 +421,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # 6.1 to 7.4 minutes on Windows - the slowest job in the file since the
-    # Windows tests went parallel, and so the length of a run - and 1.4 to
-    # 2.0 on Linux; the tests job states the rule.
+    # 6.1 to 7.4 minutes on Windows - then the slowest job in the file, and
+    # so the length of a run - and 1.4 to 2.0 on Linux, before 2026-10-01,
+    # when the harness began building repositories side by side (`--jobs`)
+    # and the Windows arena moved to D:. The two runs after took 1.9 and 2.6
+    # minutes on Windows and 0.6 and 0.8 on Linux. The timeout below was sized
+    # before that change; the tests job states the rule.
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 25 || 10 }}
     defaults:
       run:
