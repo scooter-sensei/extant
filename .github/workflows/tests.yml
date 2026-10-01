@@ -22,7 +22,10 @@ jobs:
     # verdict for GitHub's default of six hours. Here: 1.1 to 1.9 minutes on
     # Linux, and 3.0 to 5.1 on Windows since it went parallel - 9.8 serially
     # before that, which twenty still covers twice. The one Linux leg that
-    # also runs the shuffled suite below takes about one run longer.
+    # also runs the shuffled suite below took about one run longer until
+    # 2026-10-01, when the two began running side by side. The Windows legs
+    # took 2.0 to 3.1 minutes in the two runs after that day's changes; these
+    # timeouts were sized before them.
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 20 || 10 }}
     strategy:
       fail-fast: false
@@ -38,23 +41,181 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # PYTHON 3.9 ON WINDOWS FROM python.org's NUGET PACKAGE, not from its
+      # installer. 3.9 is the one version the Windows image does not carry,
+      # so setup-python fetched it every run: a median of 46 s over nine runs
+      # to 2026-10-01, the slowest setup in the file, and 31 s of it the
+      # python.org installer running silently - the download took half a
+      # second. 3.9.13 is the last 3.9 python.org built for Windows, so what
+      # this installs never changes.
+      #
+      # The NuGet package `python` is the same build without the installer:
+      # published by the Python Software Foundation, its python.exe,
+      # python39.dll, _ssl, _sqlite3, libcrypto and vcruntime byte-identical
+      # to python.org's embeddable zip of 3.9.13, and the SHA-512 below is the
+      # one NuGet publishes for it. This does what setup-python's install
+      # script does - its directory in the tool cache, the `python3.exe`
+      # link, ensurepip and the pip upgrade, and `x64.complete` last - except
+      # run the installer, so setup-python finds 3.9.13 cached and installs
+      # nothing. What the installer adds and this does not - tkinter,
+      # CPython's own test suite, the `py` launcher, registry entries - the
+      # suite does not use: it passed 1,529 tests with 8 skipped on this build
+      # on the development machine, as it does on 3.14 there.
+      #
+      # The marker file is for the step after setup-python, which fails
+      # unless it is still there - setup-python reinstalling would have
+      # deleted the directory - so this cannot fall back to the installer
+      # without saying so.
+      - name: Python 3.9 on Windows, without its installer
+        if: matrix.os == 'windows-latest' && matrix.python-version == '3.9'
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $version = "3.9.13"
+          $published = "v138Fa+4B/wtiRX8515aIAUO6ntZK0Qw1TffSh7MeaBtkDgfudx4ELe9Hf3lXNlMaj6eNsHj5jcVI3gAZCNVwA=="
+          $package = Join-Path $env:RUNNER_TEMP "python.$version.nupkg"
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/python/$version/python.$version.nupkg" -OutFile $package
+          $sha512 = [Security.Cryptography.SHA512]::Create()
+          $actual = [Convert]::ToBase64String($sha512.ComputeHash([IO.File]::ReadAllBytes($package)))
+          if ($actual -ne $published) {
+            throw "python.$version.nupkg is not the package NuGet published: SHA-512 $actual"
+          }
+          $versionPath = Join-Path $env:RUNNER_TOOL_CACHE "Python\$version"
+          $archPath = Join-Path $versionPath "x64"
+          if (Test-Path $archPath) {
+            throw "$archPath exists already: the image carries 3.9 now, and this step can go"
+          }
+          # Unpacked beside its destination: the tool cache is on C: and
+          # RUNNER_TEMP on D:, and a directory cannot be moved across drives.
+          $unpacked = Join-Path $versionPath "nuget"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::ExtractToDirectory($package, $unpacked)
+          Move-Item -Path (Join-Path $unpacked "tools") -Destination $archPath
+          Remove-Item -Path $unpacked -Recurse -Force
+          New-Item -Path "$archPath\python3.exe" -ItemType SymbolicLink -Value "$archPath\python.exe" | Out-Null
+          $env:PIP_ROOT_USER_ACTION = "ignore"
+          & "$archPath\python.exe" -m ensurepip
+          if ($LASTEXITCODE -ne 0) { throw "ensurepip failed" }
+          & "$archPath\python.exe" -m pip install --upgrade --force-reinstall pip --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "the pip upgrade failed" }
+          New-Item -ItemType File -Path (Join-Path $archPath "installed-from-nuget") | Out-Null
+          New-Item -ItemType File -Path $versionPath -Name "x64.complete" | Out-Null
+
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+
+      # FAILS unless setup-python took the tree the step above installed: an
+      # installer run would have replaced the directory and its marker. Then
+      # says which interpreter `python` and `python3` are, since a hook that
+      # calls `python3` must get the same 3.9.
+      - name: Did setup-python take that tree?
+        if: matrix.os == 'windows-latest' && matrix.python-version == '3.9'
+        run: |
+          if (-not (Test-Path (Join-Path $env:pythonLocation "installed-from-nuget"))) {
+            throw "setup-python did not use the NuGet tree at $env:pythonLocation"
+          }
+          python -c "import sys; print(sys.version); print(sys.executable)"
+          python3 -c "import sys; print(sys.executable)"
 
       - name: Show versions
         run: |
           python --version
           git --version
 
+      # NO AUTOMATIC GIT MAINTENANCE, in every job that builds repositories.
+      # Every `git commit` starts a detached `git maintenance run --auto`:
+      # 1,580 of them in one run of the suite on the development machine on
+      # 2026-09-30, and a commit took 95 ms with it against 60 ms without. In
+      # a test-sized repository it never acts - `gc.auto` waits for 6,700
+      # loose objects, and 60 commits and 60 tags left the same shape either
+      # way - and the detached child writes inside `.git` while a fixture is
+      # being removed. tests/harnesses/mutate.py already sets the same key for
+      # a campaign; design/quality.md has the measurement.
+      #
+      # GLOBAL CONFIG rather than GIT_CONFIG_COUNT, so the environment the
+      # tool and tests/test_git_environment.py see is the runner's own. The
+      # remote fast path does read this file, and declines only on a rewrite,
+      # an include or a remote, none of which `[maintenance]` is. `--get`
+      # fails the step if the setting did not take, and `--show-origin`
+      # prints the file it landed in.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
+
+      # The TOOL has no third-party dependencies. The test suite is a separate
+      # question and needs pytest, which is not in the standard library. This
+      # step was originally missing, under a comment asserting that nothing
+      # needed installing, and every matrix job failed identically.
+      #
+      # requirements-test.txt, not requirements-dev.txt: the second adds mypy
+      # and coverage, which no test imports. In run 36810678088 the install
+      # took 7 s on the Windows 3.9 leg, where mypy's marker leaves it out,
+      # against 15 to 27 s on the other Windows legs.
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-test.txt
+
+      # TEMP ON THE WORK DRIVE, on Windows. TEMP is
+      # `C:\Users\RUNNER~1\AppData\Local\Temp`, on the image's system drive,
+      # while the workspace and RUNNER_TEMP are on D:, and every tmp_path the
+      # suite builds a repository in lands under TEMP. pip's Windows CI got 10
+      # to 28 per cent faster from this move alone (sichard.ca, March 2025).
+      # RUNNER_TEMP rather than a written-out D:, because GitHub removed D:
+      # from its Windows Server 2025 image once (actions/runner-images#12416)
+      # and restored it: wherever the runner keeps its temp, this follows.
+      - name: Temp on the work drive
+        if: matrix.os == 'windows-latest'
+        run: |
+          Add-Content -Path $env:GITHUB_ENV -Value "TEMP=$env:RUNNER_TEMP"
+          Add-Content -Path $env:GITHUB_ENV -Value "TMP=$env:RUNNER_TEMP"
+
+      # THE REAL GIT FIRST, on Windows, arranged the way its launcher would
+      # arrange it. The image puts `Git\bin` first on PATH and its git.exe is
+      # a launcher, so every git the suite started outside a hook paid a
+      # second process: 59.7 against 33.3 ms a call on the development
+      # machine, about 6,000 calls in a run of the suite. What the launcher
+      # sets for the git it starts - its `mingw64\bin` and `usr\bin` first,
+      # MSYSTEM, and PLINK_PROTOCOL when unset - is what `child_environment`
+      # in tests/harnesses/mutate.py already arranges for a campaign, so this
+      # asks it rather than keeping a second copy. It is also what Git Bash
+      # gives a suite run on the development machine. The runner puts the
+      # LAST line of GITHUB_PATH first (Handler.cs in actions/runner), hence
+      # the reversal.
+      #
+      # Not the git an adopter's PowerShell resolves, which stays the
+      # launcher, but the one the launcher would have started. The tool's
+      # lookup of the system config from the first git on PATH reaches the
+      # same `etc\gitconfig` from either, and tests/test_remote_from_disk.py
+      # pins both layouts.
+      - name: The real git first
+        if: matrix.os == 'windows-latest'
+        shell: python
+        run: |
+          import os, sys
+          sys.path.insert(0, os.path.join("tests", "harnesses"))
+          import mutate
+          before = os.environ["PATH"]
+          after = mutate.child_environment(platform="win32")
+          if after["PATH"] == before:
+              print("the first git on PATH is not a launcher; nothing to move")
+              sys.exit(0)
+          assert after["PATH"].endswith(os.pathsep + before), after["PATH"]
+          ahead = after["PATH"][: -len(before) - 1].split(os.pathsep)
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as fh:
+              for entry in reversed(ahead):
+                  fh.write(entry + "\n")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              for key in ("MSYSTEM", "PLINK_PROTOCOL"):
+                  if key in after and after[key] != os.environ.get(key):
+                      fh.write(f"{key}={after[key]}\n")
+          print("ahead of the launcher: " + ", ".join(ahead))
+
       # WHICH git THE SUITE STARTS, and what `-n auto` and every tmp_path are
-      # built from. Git for Windows' `Git\bin\git.exe` and `Git\cmd\git.exe`
-      # are a 46 KB launcher that starts the real `mingw64\bin\git.exe` as a
-      # second process - 59.7 against 33.3 ms per call on the development
-      # machine on 2026-10-01 - and the runner image's install script puts
-      # `Git\bin` first on PATH. This prints every git on PATH, in order, with
-      # its size, so the CI timing study reads what a leg actually got rather
-      # than what the image script implies. `shell: python` so one script
+      # built from, printed last before the suite so a leg's log shows what
+      # the steps above arranged rather than what the image implies:
+      # every git on PATH in order, with its size - the launcher was 43,352
+      # bytes on the runner in run 36829093473, the real binary over 4 MB -
+      # the cores, and the temp directory. `shell: python` so one script
       # serves both platforms AND sees the PATH the suite step sees: a
       # `shell: bash` step on Windows would see Git Bash's PATH instead. A git
       # started INSIDE a hook sees git's own exec path first, so this is not
@@ -71,13 +232,7 @@ jobs:
           print(f"cpu_count: {os.cpu_count()}")
           print(f"temp: {tempfile.gettempdir()}")
           print(f"RUNNER_TEMP: {os.environ.get('RUNNER_TEMP')}")
-
-      # The TOOL has no third-party dependencies. The test suite is a separate
-      # question and needs pytest, which is not in the standard library. This
-      # step was originally missing, under a comment asserting that nothing
-      # needed installing, and every matrix job failed identically.
-      - name: Install test dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+          print(f"MSYSTEM: {os.environ.get('MSYSTEM')}")
 
       # Serially on Linux, which stays the definition of correctness (AGENTS.md,
       # "It is an invocation, not a default"); in parallel on Windows, where a
@@ -94,6 +249,7 @@ jobs:
       # where the workers contend for the runner's cores - an overstatement,
       # which is the safe side for a timeout.
       - name: Run the suite
+        if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.13'
         run: python -m pytest --durations=15 ${{ matrix.os == 'windows-latest' && '-n auto --dist loadfile' || '' }}
 
       # A THIRD ORDER, on one leg. Linux runs file order and Windows each
@@ -110,9 +266,33 @@ jobs:
       # command. The order still moves, since adding one test reshuffles all
       # of them, so a dependency older than a commit can surface on it; the
       # pair of tests the failure names is real either way.
-      - name: Run the suite again, shuffled
+      #
+      # SIDE BY SIDE with that leg's file-order run, since 2026-10-01, rather
+      # than after it: back to back they took 97 and 91 s of a 204 s job in
+      # run 36810678088, the longest of the Linux test legs. Both are still
+      # serial runs, one process each, on a four-core runner. The shuffled
+      # one gets a temp root of its own and no cache plugin, so the two never
+      # write the same `pytest-N` directory or `.pytest_cache` file. The
+      # file-order run prints as it goes and the shuffled run's output
+      # follows it; either failing fails the step, and the last line says
+      # which.
+      - name: Run the suite, and again shuffled, side by side
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
-        run: python -m pytest --order-seed=20260928
+        run: |
+          python -m pytest --order-seed=20260928 -p no:cacheprovider \
+            --basetemp=/tmp/pytest-shuffled > /tmp/shuffled.log 2>&1 &
+          shuffled=$!
+          set +e
+          python -m pytest --durations=15
+          in_order=$?
+          wait "$shuffled"
+          reordered=$?
+          set -e
+          echo
+          echo "=== the shuffled run: python -m pytest --order-seed=20260928 ==="
+          cat /tmp/shuffled.log
+          echo "file order exited $in_order; shuffled exited $reordered"
+          test "$in_order" -eq 0 && test "$reordered" -eq 0
 
   scenarios:
     # The end-to-end matrix: a fresh repository per scenario, the tool
@@ -137,6 +317,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+
+      # The tests job says why.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
 
       # Against a `git archive` extract rather than the working tree, so what
       # is exercised is what would actually ship. A file that is present
@@ -176,6 +362,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+
+      # The tests job says why.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
 
       - name: Build a shippable extract
         run: |
@@ -227,33 +419,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            pkg: /tmp/fuzzpkg
-            arena: /tmp/fuzzarena
-            fail: /tmp/fuzzfail
-          # SHORT, NATIVE, AND ON C:. Both halves are load-bearing and both
-          # were learned the hard way. A generated repository carries
-          # `tools/extant/rules/*.py` and a full object store, so past roughly
-          # 260 characters git starts failing individual writes and the build
-          # produces repositories with no commits - measured at 2 of 12
-          # collapsing at a 183-character arena path. And an MSYS-style
-          # `/tmp/...` path is one Python on Windows cannot open at all, which
-          # makes the harness report an empty run that reads exactly like a
-          # clean one.
-          - os: windows-latest
-            pkg: C:/fzpkg
-            arena: C:/fzarena
-            fail: C:/fzfail
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # 6.1 to 7.4 minutes on Windows - the slowest job in the file since the
-    # Windows tests went parallel, and so the length of a run - and 1.4 to
-    # 2.0 on Linux; the tests job states the rule.
+    # 6.1 to 7.4 minutes on Windows - then the slowest job in the file, and
+    # so the length of a run - and 1.4 to 2.0 on Linux, before 2026-10-01,
+    # when the harness began building repositories side by side (`--jobs`)
+    # and the Windows arena moved to D:. The two runs after took 1.9 and 2.6
+    # minutes on Windows and 0.6 and 0.8 on Linux. The timeout below was sized
+    # before that change; the tests job states the rule.
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 25 || 10 }}
     defaults:
       run:
         # git bash on the Windows leg, so one set of steps serves both. The
-        # paths above are native either way; only the shell is shared.
+        # paths are native either way; only the shell is shared.
         shell: bash
     steps:
       - uses: actions/checkout@v7
@@ -264,10 +442,43 @@ jobs:
         with:
           python-version: "3.13"
 
+      # The tests job says why. Under Git Bash on Windows, as the harness
+      # runs, so the setting lands in the HOME the harness's git reads.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
+
+      # WHERE THE HARNESS BUILDS: SHORT, AND NATIVE. Both are load-bearing and
+      # both were learned the hard way. A generated repository carries
+      # `tools/extant/rules/*.py` and a full object store, so past roughly 260
+      # characters git starts failing individual writes and the build produces
+      # repositories with no commits - measured at 2 of 12 collapsing at a
+      # 183-character arena path. And an MSYS-style `/tmp/...` path is one
+      # Python on Windows cannot open at all, which makes the harness report an
+      # empty run that reads exactly like a clean one.
+      #
+      # On Windows, under RUNNER_TEMP, written with forward slashes: on the D:
+      # drive that holds the workspace rather than C:, the image's system drive,
+      # where the arena was until 2026-10-01 - the tests job's temp step gives
+      # the reason and the source. `D:/a/_temp/fzarena` is 18 characters. On
+      # Linux, /tmp as before.
+      - name: Where the harness builds
+        shell: python
+        run: |
+          import os, pathlib
+          root = (pathlib.Path(os.environ["RUNNER_TEMP"]).as_posix()
+                  if os.name == "nt" else "/tmp")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              for key, leaf in (("FUZZ_PKG", "fzpkg"), ("FUZZ_ARENA", "fzarena"),
+                                ("FUZZ_FAIL", "fzfail")):
+                  fh.write(f"{key}={root}/{leaf}\n")
+                  print(f"{key}={root}/{leaf}")
+
       - name: Build a shippable extract
         run: |
-          mkdir -p "${{ matrix.pkg }}"
-          git archive HEAD | tar -x -C "${{ matrix.pkg }}"
+          mkdir -p "$FUZZ_PKG"
+          git archive HEAD | tar -x -C "$FUZZ_PKG"
 
       # The git, and the cores, the harness inherits: under Git Bash, as the
       # step below runs, rather than the runner's own PATH the tests job's
@@ -288,8 +499,8 @@ jobs:
       # unchanged.
       - name: Build hostile repositories
         run: >
-          python -u tests/harnesses/fuzz.py "${{ matrix.pkg }}" "${{ matrix.arena }}"
-          --seed 20260824 --repos 35 --save "${{ matrix.fail }}"
+          python -u tests/harnesses/fuzz.py "$FUZZ_PKG" "$FUZZ_ARENA"
+          --seed 20260824 --repos 35 --save "$FUZZ_FAIL"
 
       - name: Keep the recipe of anything that failed
         if: failure()
@@ -298,7 +509,7 @@ jobs:
           # Per leg, or the second upload collides with the first and the
           # surviving artifact describes whichever platform finished last.
           name: fuzz-failures-${{ matrix.os }}
-          path: ${{ matrix.fail }}
+          path: ${{ env.FUZZ_FAIL }}
           if-no-files-found: ignore
 
   self-check:
@@ -311,8 +522,12 @@ jobs:
     # annotations appear on the offending line of a PR diff, and no PR was ever
     # annotated. A document broken by a PR was only caught after merging it.
     runs-on: ubuntu-latest
-    # 3.6 to 4.3 minutes, most of it `fuzz.py --self-check`; the tests job
-    # states the rule.
+    # 3.6 to 4.3 minutes, most of it `fuzz.py --self-check`, and three of
+    # those its HANG breakage waiting out the corpus's 90-second TIMEOUT
+    # twice. That was before 2026-10-01, when the red half began running
+    # under a budget derived from its clean half (`red_budget` in
+    # tests/harnesses/fuzz_selfcheck.py); the timeout below was sized before
+    # that change. The tests job states the rule.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -330,6 +545,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+
+      # The tests job says why: `--self-check` below builds a repository.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
 
       # --format=github turns each finding into a workflow annotation, so a
       # false claim is highlighted on the offending line in the pull request
@@ -410,8 +631,8 @@ jobs:
       # jobs stayed green over it. No job could have caught that, because this
       # mode ran nowhere in CI.
       #
-      # LAST, because it is the slowest step here by an order of magnitude and
-      # every cheaper diagnostic above should report before it starts. Exits 1
+      # LAST, because it is the slowest step here, and every cheaper
+      # diagnostic above should report before it starts. Exits 1
       # while any property is unconfirmed and 2 on a harness fault - a stale
       # anchor or a repository that would not build - which is the harness
       # reporting itself broken rather than the tool clean.
@@ -470,8 +691,15 @@ jobs:
               sys.exit(1)
           PY
 
+      # The tests job says why.
+      - name: No automatic git maintenance
+        run: |
+          git config --global maintenance.auto false
+          git config --global --show-origin --get maintenance.auto
+
+      # The tests job says why this file.
       - name: Install test dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+        run: python -m pip install --disable-pip-version-check -r requirements-test.txt
 
       # Serially, as on the other Linux legs. An import in the test process
       # that turns the GIL back on raises a RuntimeWarning, and

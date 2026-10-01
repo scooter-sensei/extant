@@ -1,28 +1,15 @@
 # Development only. The tool itself has NO third-party dependencies: everything
 # installed into your repository runs on the standard library alone.
 #
-# This file exists because the test suite is a different question from the tool,
-# and conflating the two put a comment reading "no dependencies to install" above
-# a CI step that ran `python -m pytest` on a runner with no pytest. All six jobs
-# failed identically before a single test ran.
-pytest>=8
-# Parallel test runs, and it is on the correct side of the line drawn above: the
-# TOOL still has no dependencies, and this is never imported by anything under
-# `plugin/skills/extant/payload/`. It is not enabled by default - `pytest.ini`
-# is deliberately left alone, so the serial run stays the definition of
-# correctness - and it earns its place on the invocation `AGENTS.md` documents:
-# 6m26s to 1m58s on 12 cores, 963 tests, same result.
-pytest-xdist>=3
-# The SUITE parses TOML to check what the installer wrote. On 3.11+ that is
-# `tomllib` in the standard library; below it, the same parser under its
-# original name. The TOOL still needs neither: it falls back, and works on
-# defaults when no parser is present at all.
-tomli>=2; python_version < "3.11"
+# Everything the test suite needs to run is in requirements-test.txt, included
+# here; what this file adds is the tooling around the suite, which no test
+# imports. Install this one to develop, that one to run the suite.
+-r requirements-test.txt
 # The suite's denominator. Coverage of `payload/extant/` is measured with every
 # process the suite and the harnesses spawn instrumented - the tool runs as a
 # subprocess in most of the tests that drive a mode - and the number is
 # recorded in tests/harnesses/README.md rather than gated on: 95.9 per cent
-# on 2026-09-15. Dev-side only, like pytest-xdist above; the TOOL still has no
+# on 2026-09-15. Dev-side only, like pytest-xdist; the TOOL still has no
 # dependencies and nothing under `plugin/skills/extant/payload/` imports this.
 coverage>=7
 # The type checker, and the one entry here that IS a gate: the self-check job
@@ -31,8 +18,8 @@ coverage>=7
 # 2.0 moved three defaults - and a gate that reddens `main` on a release
 # nobody committed is the failure `mutate.py --check-only` exists to catch
 # for the anchors; the bump is a deliberate commit with the new count in it.
-# Marked for 3.10 and up because mypy 2 does not run on 3.9, which the test
-# matrix still installs this file on; the 3.9 leg runs the suite, and the
-# check runs once, on the self-check runner. Dev-side only, like everything
-# above: the TOOL still has no dependencies.
+# Marked for 3.10 and up because mypy 2 does not run on 3.9, the floor a
+# developer may install this file on; the check runs once, on the self-check
+# runner, which installs this file. Dev-side only, like everything above: the
+# TOOL still has no dependencies.
 mypy>=2.3,<3; python_version >= "3.10"

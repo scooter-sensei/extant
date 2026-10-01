@@ -3,6 +3,8 @@
     python tests/harnesses/fuzz.py <extracted-package> <scratch-dir> [options]
       --seed N       reproduce one run exactly (printed by every run)
       --repos N      how many repositories to build (default 24)
+      --jobs N       how many to build and check at once (default: the
+                     cores, at most 4); what is printed does not depend on it
       --save DIR     write a failing repository's PLAN here, replayable
       --replay FILE  rebuild one repository from a saved plan and recheck it
       --no-shrink    report a violation at full size, without ddmin
@@ -142,6 +144,8 @@ a store nobody reads.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import contextlib
 import json
 import os
 import random
@@ -1684,6 +1688,23 @@ def run_mode(repo: Path, mode: list[str]):
         return None
 
 
+@contextlib.contextmanager
+def bounded(seconds: float):
+    """Every `run_mode` inside the block waits at most `seconds`.
+
+    By swapping the module's TIMEOUT rather than passing a bound down, so a
+    shorter budget travels the one path every run already takes, and the
+    path the HANG property is judged by stays the path that is exercised.
+    Put back however the block ends.
+    """
+    global TIMEOUT
+    full, TIMEOUT = TIMEOUT, seconds
+    try:
+        yield
+    finally:
+        TIMEOUT = full
+
+
 def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     """Every property that must hold, whatever the right answer is."""
     faults: list[tuple[str, str]] = []
@@ -2420,7 +2441,9 @@ def run_self_check(pkg: Path, arena: Path) -> int:
         covered.add(item.prop)
         mode = list(item.mode)
         print(f"  [{item.prop}] ...", flush=True)
+        started = time.perf_counter()
         clean = observe(mode)
+        clean_took = time.perf_counter() - started
         if selfcheck.observed(clean, item.prop):
             # The breakage proves nothing here: the property is already firing
             # on the clean payload, so its firing afterwards says nothing about
@@ -2430,8 +2453,14 @@ def run_self_check(pkg: Path, arena: Path) -> int:
             print(f"  [{item.prop}] CANNOT JUDGE - fires before the breakage")
             continue
         saved = selfcheck.apply(repo, item)
+        budget = TIMEOUT
+        if item.outlasts_the_budget:
+            budget = selfcheck.red_budget(clean_took, TIMEOUT)
+            print(f"  [{item.prop}] red half bounded at {budget:.0f} s, "
+                  f"from a clean half of {clean_took:.1f} s", flush=True)
         try:
-            broken = observe(mode)
+            with bounded(budget):
+                broken = observe(mode)
         finally:
             selfcheck.restore(saved)
         if selfcheck.observed(broken, item.prop):
@@ -2450,12 +2479,43 @@ def run_self_check(pkg: Path, arena: Path) -> int:
 
 # --- driver -----------------------------------------------------------
 
+def examined_in_order(items: list, examine, jobs: int):
+    """`examine(item)` for every item, `jobs` at a time, yielded in ORDER.
+
+    A repository's build and check are almost all waiting on git and extant
+    processes, so threads are enough to overlap them: in CI each Windows
+    repository took 2.3 to 18.9 s and the 35 took 362 s one after another
+    (run 36829093473), on a runner with four cores. Everything one examine
+    touches is its own - `fuzz{index}` and its `sub`, `wt`, `sh` and `empty`
+    siblings in the arena - and nothing it calls prints, so what the driver
+    prints, in the order it prints it, does not depend on `jobs`. That is
+    checked by running one seed both ways and comparing the output.
+
+    One job is the old loop exactly: lazily, in this thread, so a shrink
+    after a violation still runs with nothing else in flight. Closed early -
+    the driver raised - the queued repositories are cancelled rather than
+    built for nobody.
+    """
+    if jobs <= 1:
+        yield from map(examine, items)
+        return
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
+    try:
+        yield from pool.map(examine, items)
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("pkg", type=Path)
     ap.add_argument("arena", type=Path)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--repos", type=int, default=24)
+    ap.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1),
+                    help="repositories built and checked at once; what is "
+                         "printed does not depend on it (default: the cores, "
+                         "at most 4)")
     ap.add_argument("--save", type=Path, default=None)
     ap.add_argument("--replay", type=Path, default=None,
                     help="rebuild one repository from a saved plan and recheck")
@@ -2532,12 +2592,32 @@ def main() -> int:
     pairs_possible = len(GIT_STATES) * len(MODES)
     pairs_seen: set[tuple[str, str]] = set()
 
-    for index, (state, planned_mode) in enumerate(plan):
-        # Decide, then build. The plan is written down before anything touches
-        # the disk, so a repository that fails can be handed back as a file
-        # rather than as a position in this loop.
-        repo_plan = draw_plan(rng, index, state, planned_mode, payload)
+    # Decide, then build. Every plan is written down before anything touches
+    # the disk, so a repository that fails can be handed back as a file
+    # rather than as a position in this loop - and ALL of them are drawn
+    # first, in order, from the one generator, so the seed names the same
+    # corpus however many repositories are then built at once.
+    plans = [draw_plan(rng, index, state, planned_mode, payload)
+             for index, (state, planned_mode) in enumerate(plan)]
+
+    def examine(drawn):
+        planned_mode, repo_plan = drawn
         repo, recipe = build_from_plan(args.pkg, args.arena, repo_plan)
+        if recipe.broken:
+            return repo, recipe, None
+        # Axis evidence is judged inside `all_faults`, against the SWEEP
+        # PROBE rather than the drawn mode: the probe is the one run every
+        # repository makes whatever it drew, so an axis is judged by the same
+        # instrument everywhere. Judging it against the drawn mode would make
+        # `--collect`, which executes no rule, report every axis unconfirmed.
+        return repo, recipe, all_faults(repo, planned_mode, recipe)
+
+    results = examined_in_order(
+        [(planned_mode, repo_plan)
+         for (_state, planned_mode), repo_plan in zip(plan, plans)],
+        examine, args.jobs)
+    for index, ((state, planned_mode), repo_plan, (repo, recipe, judged)) in \
+            enumerate(zip(plan, plans, results)):
         for note in recipe.skipped:
             key = note.split(" (")[0]
             unbuildable[key] = unbuildable.get(key, 0) + 1
@@ -2560,13 +2640,7 @@ def main() -> int:
         key = " ".join(mode)
         modes_seen[key] = modes_seen.get(key, 0) + 1
         modes_run += 1
-        # Axis evidence is judged inside `all_faults`, against the SWEEP
-        # PROBE rather than the drawn mode: the probe is the one run every
-        # repository makes whatever it drew, so an axis is judged by the same
-        # instrument everywhere. Judging it against the drawn mode would make
-        # `--collect`, which executes no rule, report every axis unconfirmed.
-        found, probed, probe_out, skipped, verdicts = all_faults(
-            repo, mode, recipe)
+        found, probed, probe_out, skipped, verdicts = judged
         # COUNTED FROM THE VERDICTS, NOT FROM `recipe.axes`, so a repository
         # whose run REFUSED contributes nothing here - `all_faults` returns
         # before judging any axis there, and rightly, since a run that

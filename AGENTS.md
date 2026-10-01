@@ -97,6 +97,22 @@ what it costs on Linux and the suite starts thousands: serially they took 5.5 to
 9.4 minutes against about 1.5 on Linux, measured on 2026-09-28, and every pull
 request waited on the slowest.
 
+**The Windows legs run in the environment Git Bash gives the suite**, not the
+one PowerShell gives it, since 2026-10-01. So a Windows failure from CI is
+reproduced from Git Bash. The legs run with:
+- The real git ahead of Git for Windows' launcher, and MSYSTEM set: what
+  `child_environment` in `tests/harnesses/mutate.py` arranges for a campaign,
+  and what Git Bash already gives a suite.
+- TEMP under the runner's work drive rather than its system drive.
+- On the 3.9 leg, python.org's 3.9.13 from its NuGet package: the same build
+  as its installer, without tkinter or CPython's own test suite.
+
+Two more CI settings change no verdict and need not be copied: every job that
+builds repositories turns git's automatic maintenance off in the runner's
+global config, and the 3.13 leg runs its file-order and shuffled suites side
+by side. The reasons, and what was refused, are in "CI, made cheaper without
+moving a verdict" in `plugin/skills/extant/references/design/quality.md`.
+
 One test deserves naming: `tests/test_consistency_timeout.py` asserts a
 wall-clock bound, which is the kind of assertion most likely to go intermittent
 under twelve workers competing for CPU. It has been soaked rather than trusted -

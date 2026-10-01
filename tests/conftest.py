@@ -380,6 +380,35 @@ def _head_sha(repo: Path) -> str:
     return _run(repo, "rev-parse", "HEAD").strip()
 
 
+def described(repo: Path) -> dict[str, str]:
+    """Everything about a repository that any rule here can ask git.
+
+    Here rather than in tests/test_fixture_templates.py, which wrote it, so
+    a file that builds a template of its own compares its copies by the same
+    properties rather than by a second list that could drift from this one.
+    """
+    def git(*args: str) -> str:
+        return _run(repo, *args).strip()
+
+    return {
+        "head": git("rev-parse", "HEAD"),
+        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+        "refs": git("for-each-ref",
+                    "--format=%(refname)\t%(objectname)\t%(objecttype)"),
+        # Trees and subjects, not parents: two commits made a moment apart are
+        # different objects, so their ids and therefore their children's parent
+        # ids differ between any two builds - copied or not. What a rule reads
+        # is the CONTENT and the shape, so those are what is compared, with the
+        # shape reduced to how many parents each commit has.
+        "log": git("log", "--all", "--format=%T %s"),
+        "graph": " ".join(
+            str(len(line.split()))
+            for line in git("log", "--all", "--format=%P").splitlines()),
+        "tree": git("ls-tree", "-r", "HEAD", "--name-only"),
+        "status": git("status", "--porcelain"),
+    }
+
+
 @pytest.fixture(scope="session")
 def empty_repo_template(tmp_path_factory) -> Path:
     """The three git spawns every `git_repo` used to pay, paid once.

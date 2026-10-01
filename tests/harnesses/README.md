@@ -447,8 +447,17 @@ beside its target and passed against the very bug it was written to catch.
 ## `fuzz.py` - what about the cases nobody thought of?
 
 ```sh
-python tests/harnesses/fuzz.py <extracted-package> <scratch-dir> [--seed N] [--repos N]
+python tests/harnesses/fuzz.py <extracted-package> <scratch-dir> [--seed N] [--repos N] [--jobs N]
 ```
+
+**`--jobs N` builds and checks N repositories at once**, by default the
+cores, at most 4. A repository's build and check are almost all waiting on
+git and extant processes, so threads overlap them. Every plan is still drawn
+first, in order, from the seed, and the results are printed in plan order, so
+what a run prints does not depend on N. Seed 20260824 at 35 repositories
+printed the same 77 lines with `--jobs 1` and `--jobs 4` on the development
+machine on 2026-10-01, in 810 s and 280 s. `--jobs 1` is the old loop, in one
+thread.
 
 Every other harness here checks a case somebody wrote down. This one generates
 them: hostile repositories combining awkward Unicode paths, symlinks,
