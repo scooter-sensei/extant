@@ -38,9 +38,81 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # PYTHON 3.9 ON WINDOWS FROM python.org's NUGET PACKAGE, not from its
+      # installer. 3.9 is the one version the Windows image does not carry,
+      # so setup-python fetched it every run: a median of 46 s over nine runs
+      # to 2026-10-01, the slowest setup in the file, and 31 s of it the
+      # python.org installer running silently - the download took half a
+      # second. 3.9.13 is the last 3.9 python.org built for Windows, so what
+      # this installs never changes.
+      #
+      # The NuGet package `python` is the same build without the installer:
+      # published by the Python Software Foundation, its python.exe,
+      # python39.dll, _ssl, _sqlite3, libcrypto and vcruntime byte-identical
+      # to python.org's embeddable zip of 3.9.13, and the SHA-512 below is the
+      # one NuGet publishes for it. This does what setup-python's install
+      # script does - its directory in the tool cache, the `python3.exe`
+      # link, ensurepip and the pip upgrade, and `x64.complete` last - except
+      # run the installer, so setup-python finds 3.9.13 cached and installs
+      # nothing. What the installer adds and this does not - tkinter,
+      # CPython's own test suite, the `py` launcher, registry entries - the
+      # suite does not use: it passed 1,529 tests with 8 skipped on this build
+      # on the development machine, as it does on 3.14 there.
+      #
+      # The marker file is for the step after setup-python, which fails
+      # unless it is still there - setup-python reinstalling would have
+      # deleted the directory - so this cannot fall back to the installer
+      # without saying so.
+      - name: Python 3.9 on Windows, without its installer
+        if: matrix.os == 'windows-latest' && matrix.python-version == '3.9'
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $version = "3.9.13"
+          $published = "v138Fa+4B/wtiRX8515aIAUO6ntZK0Qw1TffSh7MeaBtkDgfudx4ELe9Hf3lXNlMaj6eNsHj5jcVI3gAZCNVwA=="
+          $package = Join-Path $env:RUNNER_TEMP "python.$version.nupkg"
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/python/$version/python.$version.nupkg" -OutFile $package
+          $sha512 = [Security.Cryptography.SHA512]::Create()
+          $actual = [Convert]::ToBase64String($sha512.ComputeHash([IO.File]::ReadAllBytes($package)))
+          if ($actual -ne $published) {
+            throw "python.$version.nupkg is not the package NuGet published: SHA-512 $actual"
+          }
+          $versionPath = Join-Path $env:RUNNER_TOOL_CACHE "Python\$version"
+          $archPath = Join-Path $versionPath "x64"
+          if (Test-Path $archPath) {
+            throw "$archPath exists already: the image carries 3.9 now, and this step can go"
+          }
+          # Unpacked beside its destination: the tool cache is on C: and
+          # RUNNER_TEMP on D:, and a directory cannot be moved across drives.
+          $unpacked = Join-Path $versionPath "nuget"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::ExtractToDirectory($package, $unpacked)
+          Move-Item -Path (Join-Path $unpacked "tools") -Destination $archPath
+          Remove-Item -Path $unpacked -Recurse -Force
+          New-Item -Path "$archPath\python3.exe" -ItemType SymbolicLink -Value "$archPath\python.exe" | Out-Null
+          $env:PIP_ROOT_USER_ACTION = "ignore"
+          & "$archPath\python.exe" -m ensurepip
+          if ($LASTEXITCODE -ne 0) { throw "ensurepip failed" }
+          & "$archPath\python.exe" -m pip install --upgrade --force-reinstall pip --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "the pip upgrade failed" }
+          New-Item -ItemType File -Path (Join-Path $archPath "installed-from-nuget") | Out-Null
+          New-Item -ItemType File -Path $versionPath -Name "x64.complete" | Out-Null
+
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+
+      # FAILS unless setup-python took the tree the step above installed: an
+      # installer run would have replaced the directory and its marker. Then
+      # says which interpreter `python` and `python3` are, since a hook that
+      # calls `python3` must get the same 3.9.
+      - name: Did setup-python take that tree?
+        if: matrix.os == 'windows-latest' && matrix.python-version == '3.9'
+        run: |
+          if (-not (Test-Path (Join-Path $env:pythonLocation "installed-from-nuget"))) {
+            throw "setup-python did not use the NuGet tree at $env:pythonLocation"
+          }
+          python -c "import sys; print(sys.version); print(sys.executable)"
+          python3 -c "import sys; print(sys.executable)"
 
       - name: Show versions
         run: |
