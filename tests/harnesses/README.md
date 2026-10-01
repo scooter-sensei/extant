@@ -125,6 +125,33 @@ code confirms a kill - a malformed node id is a usage error, not a failure - and
 every parallel campaign prints how many kills the serial check overturned, zero
 included.
 
+**Every suite runs in an environment of the harness's own**
+(`child_environment`), built to start processes cheaply without changing what
+a test sees:
+
+- **No plugin autoload.** The suite needs no plugin, and `--parallel` names
+  xdist itself.
+- **No auto-maintenance.** Every git child gets `maintenance.auto=false`,
+  appended to whatever `GIT_CONFIG_COUNT` the operator set. A commit then no
+  longer starts a `git maintenance run --auto`, which never does anything in
+  a test-sized repository.
+- **The real git on Windows.** When the first `git` on PATH is Git for
+  Windows' launcher - which a campaign started from PowerShell gets - the
+  real binary in `mingw64\bin` goes first. It brings `usr\bin` and the
+  `MSYSTEM` the launcher would have set. That also puts on PATH the `sh` the
+  hook tests need, so a PowerShell launch no longer reads as an already-red
+  suite.
+- **A temp root per run.** Each run gets a `--basetemp` of its own, removed
+  on a thread afterwards, read-only git objects included. pytest's shared root
+  would otherwise have the next process to exit delete the oldest of its
+  numbered directories, which after a whole suite took 36-65 s inside
+  whatever ran next.
+
+The same changes took a ledger-driven campaign over all the anchors from
+1,700 s to 1,160 s on 2026-10-01, with identical verdicts. The baseline runs
+in this environment too, so a test that depended on any of it shows as a red
+baseline, not as a moved verdict.
+
 Write the indentation out in full when adding one. A shorter string is a
 substring of the real line once a block moves inward, so it keeps matching and
 mutates something adjacent. That happened when `validate()` gained a

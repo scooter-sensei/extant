@@ -25,12 +25,16 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
+from typing import Callable, Mapping
 
 
 def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, str]]:
@@ -2632,8 +2636,12 @@ def install_restore_guard(backups: dict[Path, str]) -> None:
 _SERIAL = ["-x", "-q", "--no-header", "-p", "no:cacheprovider"]
 # The suite split across every core, one file per worker. Opt-in (--parallel):
 # the serial run stays the definition of correctness, so this may only ever
-# make a campaign FASTER, never change a verdict - see `run_mutant`.
-_PARALLEL = [*_SERIAL, "-rfE", "-n", "auto", "--dist", "loadfile"]
+# make a campaign FASTER, never change a verdict - see `run_mutant`. xdist is
+# named because `child_environment` turns plugin autoload off: without it `-n`
+# is a usage error (exit 4), which the baseline reports as a red suite.
+# `xdist.plugin` rather than `xdist`, which needs the package's metadata.
+_PARALLEL = [*_SERIAL, "-rfE", "-p", "xdist.plugin", "-n", "auto",
+             "--dist", "loadfile"]
 # A short-summary line: the node id runs to pytest's " - " before the message,
 # not to the first space - a parametrised id holds spaces ("[a branch]"). And
 # not through the `\r` a Windows console ends the line with: pytest drops the
@@ -2643,6 +2651,78 @@ _FAILED_NODE = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?\r?$", re.MULTILINE
 # pytest's exit code for "tests ran and some failed". A usage error (4) or an
 # empty selection (5) is NOT a confirmation of anything.
 _TESTS_FAILED = 1
+
+
+def child_environment(environ: Mapping[str, str] | None = None,
+                      platform: str = sys.platform) -> dict[str, str]:
+    """The environment every suite runs in: the operator's, made cheaper to
+    start processes in without changing what any test sees.
+
+    Measured on 2026-10-01 against the same commit, same evening: a whole
+    steady-state campaign went from 1,700 s to 1,160 s with identical
+    verdicts, and each change below was also measured as a step of its own.
+
+    - No plugin autoload. The suite needs no plugin; importing the operator's
+      cost 0.44 s per pytest start. `--parallel` names xdist itself.
+    - `maintenance.auto=false`, appended to the operator's `GIT_CONFIG_COUNT`
+      as `environment()` in extant/git.py appends its own. Every commit
+      otherwise starts `git maintenance run --auto`, which in a repository
+      this size never does anything (`gc.auto` wants 6,700 loose objects):
+      1,580 processes per suite, and 95 ms against 60 ms per commit.
+    - On Windows, the real git ahead of Git for Windows' launcher. Its
+      `cmd\\git.exe` only sets the variables below and starts
+      `mingw64\\bin\\git.exe` as a second process: 59 ms against 33 ms per
+      call, about 6,000 calls per suite. A campaign launched from PowerShell
+      gets the launcher; Git Bash already puts the real binary first, and
+      then nothing here changes.
+
+    The baseline runs in this same environment, so a test that depended on
+    any of it would turn the baseline red rather than move a verdict.
+    """
+    env = dict(os.environ if environ is None else environ)
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    if platform == "win32":
+        root = _git_launcher_root(env.get("PATH", ""))
+        if root is not None:
+            # What the launcher sets for the git it starts (git-wrapper.c in
+            # git-for-windows/MINGW-packages): its two directories first,
+            # which also puts the `sh` the hook tests need on PATH, MSYSTEM
+            # always, PLINK_PROTOCOL only when unset. HOME git derives
+            # itself when it is unset.
+            env["PATH"] = os.pathsep.join([str(root / "mingw64" / "bin"),
+                                           str(root / "usr" / "bin"),
+                                           env.get("PATH", "")])
+            env["MSYSTEM"] = "MINGW64"
+            env.setdefault("PLINK_PROTOCOL", "ssh")
+    try:
+        count = int(env.get("GIT_CONFIG_COUNT") or "0")
+    except ValueError:
+        return env      # git refuses it in the parent too; leave it as it is
+    if count < 0:
+        return env
+    env[f"GIT_CONFIG_KEY_{count}"] = "maintenance.auto"
+    env[f"GIT_CONFIG_VALUE_{count}"] = "false"
+    env["GIT_CONFIG_COUNT"] = str(count + 1)
+    return env
+
+
+def _git_launcher_root(path: str) -> Path | None:
+    """The Git for Windows install whose LAUNCHER is the first `git.exe` on
+    `path`, or None when the first one is already the real binary, or is not
+    part of such an install at all. `cmd\\git.exe` and `bin\\git.exe` are
+    both launchers; the real one is `mingw64\\bin\\git.exe`."""
+    for entry in path.split(os.pathsep):
+        if not entry:
+            continue
+        found = Path(entry) / "git.exe"
+        if not found.is_file():
+            continue
+        real = found.parent.parent / "mingw64" / "bin" / "git.exe"
+        if (not real.is_file() or os.path.normcase(str(found.parent))
+                == os.path.normcase(str(real.parent))):
+            return None
+        return found.parent.parent
+    return None
 
 
 def run_suite(root: Path, python: str, extra: list[str] | None = None,
@@ -2663,22 +2743,80 @@ def run_suite(root: Path, python: str, extra: list[str] | None = None,
     end, which comes when the last holder exits - and a worker stuck in the
     hung test never does. A file has no end to wait for, and the tree goes
     with its root.
+
+    Each run gets a temp root of its own (`--basetemp`), removed afterwards
+    on a thread so the next run need not wait. pytest's shared root keeps its
+    three newest `pytest-N` directories and the next process to EXIT deletes
+    the oldest - after a whole suite, thousands of repositories, which cost
+    36-65 s on 2026-09-30 inside whichever run exited next, a single kill
+    check's included.
     """
-    with tempfile.TemporaryFile() as sink:
-        proc = subprocess.Popen(
-            [python, "-m", "pytest", *(extra if extra is not None else _SERIAL),
-             *(targets or [])],
-            cwd=root, stdout=sink, stderr=subprocess.DEVNULL,
-            start_new_session=sys.platform != "win32",
-        )
-        code: int | None
-        try:
-            code = proc.wait(timeout=bound)
-        except subprocess.TimeoutExpired:
-            _end_tree(proc)
-            code = None
-        sink.seek(0)
-        return code, sink.read().decode("utf-8", "replace")
+    holder = Path(tempfile.mkdtemp(prefix="mutate-"))
+    try:
+        with tempfile.TemporaryFile() as sink:
+            proc = subprocess.Popen(
+                [python, "-m", "pytest",
+                 *(extra if extra is not None else _SERIAL),
+                 f"--basetemp={holder / 'tmp'}", *(targets or [])],
+                cwd=root, env=child_environment(), stdout=sink,
+                stderr=subprocess.DEVNULL,
+                start_new_session=sys.platform != "win32",
+            )
+            code: int | None
+            try:
+                code = proc.wait(timeout=bound)
+            except subprocess.TimeoutExpired:
+                _end_tree(proc)
+                code = None
+            sink.seek(0)
+            return code, sink.read().decode("utf-8", "replace")
+    finally:
+        _remove_later(holder)
+
+
+# Removals still running. Not daemon threads: the interpreter waits for them
+# at exit, and `finish_cleanup` waits for them before a campaign reports.
+_REMOVALS: list[threading.Thread] = []
+
+
+def _remove_later(path: Path) -> None:
+    worker = threading.Thread(target=_remove_tree, args=(path,),
+                              name=f"remove {path.name}")
+    worker.start()
+    _REMOVALS.append(worker)
+
+
+def finish_cleanup() -> None:
+    """Wait for every temp root `run_suite` handed off to be removed."""
+    while _REMOVALS:
+        _REMOVALS.pop().join()
+
+
+def _remove_tree(path: Path) -> None:
+    """`shutil.rmtree` through git's READ-ONLY loose objects.
+
+    On Windows `rmtree` refuses a read-only file (WinError 5), and git writes
+    every loose object read-only. With `ignore_errors` the refusal is silent:
+    on 2026-09-30 that left 6,074 files of every whole-suite tree behind and
+    made their removal look cheaper than it was. So the bit is cleared and
+    the call retried, as pytest's own removal does. Anything still in the way
+    is said, never swallowed - a temp tree is not a verdict, but a disk
+    filling with them should not be a surprise.
+    """
+    def writable_then_retry(func: Callable[..., object], target: str,
+                            _exc: object) -> None:
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    if not path.exists():
+        return
+    try:
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=writable_then_retry)
+        else:   # `onexc` arrived in 3.12, and `onerror` warns from it on
+            shutil.rmtree(path, onerror=writable_then_retry)
+    except OSError as exc:
+        print(f"mutate.py: could not remove {path}: {exc}", file=sys.stderr)
 
 
 def _end_tree(proc: subprocess.Popen[bytes]) -> None:
@@ -2876,6 +3014,7 @@ def main() -> int:
         for label in not_applied:
             print(f"  - {label}")
 
+    finish_cleanup()
     restored = all(p.read_text(encoding="utf-8") == b for p, b in backups.items())
     print(f"\nsource restored: {'clean' if restored else '** NOT RESTORED **'}")
     if not restored:
