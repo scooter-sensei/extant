@@ -6,22 +6,28 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 60 - The mutation campaign, made cheaper without moving a verdict (unreleased, 2026-10-01)
+## Phase 60 - The mutation campaign and CI, made cheaper without moving a verdict (unreleased, 2026-10-01)
 
 **Status.** Built and gated.
-- 1,521 tests across 78 files, of which 1,513 pass and 8 skip on this
-  machine. On Linux, through WSL, the harness tests pass with the one
-  Windows-only test skipped.
+- 1,537 tests across 80 files, of which 1,529 pass and 8 skip on this
+  machine. In CI each Linux leg passes 1,535 with 2 skipped and each Windows
+  leg 1,533 with 4 skipped. On Linux, through WSL, the mutation harness's
+  tests passed with the one Windows-only test skipped.
 - `python -m mypy`: no issues in 44 files.
-- 357 mutation anchors match, none added or moved: the change is in the
-  harness, which no anchor targets.
-- No rule added or removed, thirteen as before; no mode added; no shipped
-  file changed. The tool remained released as 0.29.0.
+- 359 mutation anchors match. `11ab893` added two; nothing else here added
+  or moved one, since the rest of the change is in the harnesses and CI.
+- No rule added or removed, thirteen as before; no mode added. One shipped
+  file changed, `plugin/skills/extant/payload/extant/git.py`, in `11ab893`.
+  The tool remained released as 0.29.0.
 
 **What it answers.** A full campaign of the 357 anchors would take about a
 day serially on this machine: 242 s per kill and 736 s for a survivor, timed
 on five. `--parallel` was slower still. Two studies asked how much of that
 cost a verdict actually needs.
+
+A third asked the same of CI. A run took 6 to 7.5 minutes and 50 to 56
+job-minutes, and was always exactly as long as its slowest job: the Windows
+fuzz job, or one of the Windows test legs.
 
 **What changed.**
 
@@ -46,10 +52,83 @@ cost a verdict actually needs.
   run's scope dropped from `--verify`. A fixture-based test in
   `tests/test_repository_notes.py` sees it too, and the docstring now says
   so.
+- **A guard a hook's git walked past.** Inside a hook, git puts its exec
+  path first on PATH, so the git the remote fast path finds sits one
+  directory deeper than its walk up to git's system config file reached,
+  and every hook missed Git for Windows' system file. `11ab893` starts the
+  walk one parent higher from git's own exec directory, and pins five
+  install layouts in `tests/test_remote_from_disk.py`. Found because this
+  study's audit asked which test reached that walk: none did.
+- **CI, one commit per change**, every job, matrix leg, Python and check
+  kept, and still twenty jobs:
+  - **What each leg runs, printed** (pull request #24, merged as
+    `879644e`). Every test leg prints each git on PATH with its size, the
+    cores and the temp directory. The fuzz legs print theirs under Git Bash
+    and run the harness with `-u`, so each repository's cost is in the log.
+    This is how the Windows test legs were seen starting Git for Windows'
+    43,352-byte launcher instead of the real git.
+  - **The self-check's HANG breakage** (`3aef4cb`) runs its red half under
+    `red_budget` in `tests/harnesses/fuzz_selfcheck.py`: three times the
+    clean half, never under 10 s nor over the corpus's 90. Until then it
+    waited out 90 s twice, for the mode and for the sweep probe. The step
+    went from 201-206 s to 38-46 s, and 23 of 23 properties still go red.
+  - **No automatic git maintenance** (`a7f15a1`), set in the runner's
+    global config in the six jobs that build repositories. The remote fast
+    path declines only on a rewrite, an include or a remote, and was checked
+    not to decline on a `[maintenance]` section.
+  - **The test legs install `requirements-test.txt`** (`03e9125`), which
+    holds what the suite needs. `requirements-dev.txt` includes it and adds
+    coverage and mypy, which no test imports. The install step went from 4-24
+    s to 2-10 s.
+  - **The 3.13 leg runs its two suites side by side** (`58092ad`): the
+    file-order one and the shuffled one, both still serial, with separate
+    temp roots. Either failing fails the step. The leg went from 187 s to
+    100-104 s.
+  - **Windows temp on D:** (`5e410a5`). TEMP, and the Windows fuzz arena,
+    follow `RUNNER_TEMP` rather than C:, the image's system drive.
+  - **The real git first on the Windows test legs** (`4d6b22d`), arranged as
+    its launcher arranges it. The step asks `child_environment` in
+    `tests/harnesses/mutate.py` rather than keeping a second copy.
+  - **Two fixture histories copied, not rebuilt** (`2138876`).
+    - `tests/test_ancestry_bound.py` built the same history from scratch in
+      each of its 18 tests. It now copies one template: 52-56 s became
+      16-18 s serially here.
+    - `make_repo` in `tests/test_install_presets.py` copies its initialised
+      project. Its gain is inside that file's noise.
+    - A test guards each template by comparing a copy with one built the
+      long way.
+  - **`fuzz.py --jobs N`** (`27aab55`) builds and checks repositories side by
+    side, by default on the cores and at most 4, and prints in plan order.
+    Seed 20260824 printed the same 77 lines with one job and with four here,
+    in 810 s and 280 s. In CI its output matched the earlier serial run's,
+    76 lines on each leg.
+  - **Python 3.9 on Windows from python.org's NuGet package** (`a0d85d8`),
+    instead of the installer, which took 31 of the step's 46 s.
+    - The package is the same build: its binaries are byte-identical to
+      python.org's embeddable 3.9.13, and the SHA-512 NuGet publishes is
+      pinned.
+    - A later step fails unless setup-python used the NuGet copy.
+    - Python setup on that leg went from 44-54 s to 16 s.
+  - **The result:** CI on `a0d85d8` took 3.1 minutes and 1,913 job-seconds.
+    The seven runs before took a median of 6.3 minutes and 3,154.
+    - The Windows fuzz job went from 375 s to 114-154 s.
+    - The self-check went from 222 s to 53-61 s.
+    - The Windows test legs went from 227-275 s to 122-184 s.
+    - The reasons for each change are in the comments beside it in
+      `.github/workflows/tests.yml`.
 
 **Decided.** Windows defines a campaign's verdict. WSL runs the suite
 several times faster and may find killers, but each counts only once it
 fails alone on Windows.
+
+For CI:
+- **The Windows test legs run in the environment Git Bash gives the suite**:
+  the real git first, MSYSTEM set and temp on D:. That is not the one an
+  adopter's PowerShell gives it. Neither the shipped package nor the
+  installer reads MSYSTEM, PLINK_PROTOCOL, TEMP or TMP, and
+  `tests/test_remote_from_disk.py` pins the launcher's layout in process.
+- **The fuzz job names lost their paths.** Nothing requires a check by name,
+  because `main` has no branch protection or ruleset.
 
 **Found on the way.**
 
@@ -61,17 +140,57 @@ fails alone on Windows.
   run's temp tree, 36-65 s, which is part of why they varied as they did.
 - **The machine is now the limit.** Defender used 1.2 to 1.8 cores during
   every suite run, and memory ran short. Both are the operator's to change.
+- **Defender is off on GitHub's Windows runners**, whose image script turns
+  real-time monitoring off. So that limit is this machine's, not CI's.
+- **The two 3.9 legs run different patches.** Windows runs 3.9.13, the last
+  python.org built for Windows, and Linux runs 3.9.25.
+- **Twenty jobs is the Free plan's concurrent limit**, so more jobs or
+  shards would queue rather than run in parallel. The account's plan could
+  not be read to confirm it.
+- **A Windows runner varies more than most changes here move.** An
+  unchanged fuzz harness step took 98 s on one run and 132 s on the next, so
+  one run cannot separate a small change from noise. That is why the
+  maintenance setting's effect in CI is not stated.
 
 **Not built.**
 - The ledger-driven runner itself.
-- The suite's fixture-building cost: 4,222 of its 6,042 directly started git
-  processes.
+- Most of the suite's fixture-building cost, 4,222 of its 6,042 directly
+  started git processes on 2026-09-30. Two files were converted, above.
+  - `git fast-import` was refused. It writes packs, and
+    `tests/test_fuzz_findings.py` and `tests/test_repository_notes.py` work
+    on loose objects.
+  - So was a template for `tests/test_partial_repository.py`, whose clone
+    writes its source's absolute path into its config.
 - Longest-file-first ordering, worth 1-5% at the 6 workers `-n auto` gives
   here.
+- Resizing each CI job's `timeout-minutes`. The workflow's rule takes the
+  slowest of five runs under the change, and its comments say the current
+  values were sized before it.
 
-Everything is in the section "The mutation campaign, made cheaper without
-moving a verdict", in the design rationale's part on keeping the tool
-honest.
+**Gaps left open**, from an audit of the CI work:
+- **Proposal 4's effect.** The maintenance setting's effect in CI is
+  unmeasured; only the local measurement above argues for it.
+- **The launcher route.** No CI leg now starts git through the launcher an
+  adopter's PowerShell resolves. The system-config walk is pinned in
+  process; nothing else about that route runs in CI.
+- **Long temp paths.** With temp on D:, the Windows legs no longer run
+  under the system drive's long, short-named temp path, and any implicit
+  coverage that path gave went with it. Nothing is known to have depended on
+  it.
+- **A new host.** The Windows 3.9 leg now depends on nuget.org as well. It
+  fails on purpose the day the image carries 3.9, naming the step to remove.
+- **Undocumented elsewhere.** `AGENTS.md` does not say the Windows legs run
+  with the real git first and temp on D:, which anyone reproducing a Windows
+  CI failure locally needs. The design rationale has no section on the CI
+  changes.
+- **One equivalence check.** `fuzz.py --jobs` was compared with a serial
+  run on one seed. A run that shrinks a violation does it while other
+  repositories are still being built.
+
+The campaign work is in the section "The mutation campaign, made cheaper
+without moving a verdict", in the design rationale's part on keeping the
+tool honest. The CI work is in this entry, in the comments of
+`.github/workflows/tests.yml`, and in pull requests #24 and #25.
 
 ## Phase 59 - What a zero means: a rule names its vocabulary, and off is a state (shipped, 2026-09-29)
 
