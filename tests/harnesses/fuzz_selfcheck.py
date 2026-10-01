@@ -131,10 +131,41 @@ class Breakage:
     edits: tuple            # ((path, old, new), ...), applied together
     mode: tuple = ("--verify",)
     contrived: bool = False
+    # Its red half runs longer than any budget, so what it costs is the
+    # budget: `run_self_check` runs that half under `red_budget` rather than
+    # under the corpus's TIMEOUT.
+    outlasts_the_budget: bool = False
 
     @property
     def paths(self) -> str:
         return ", ".join(path for path, _o, _n in self.edits)
+
+
+# The least a red half that outlasts the budget is given, in seconds.
+RED_FLOOR = 10.0
+
+
+def red_budget(clean_seconds: float, ceiling: float) -> float:
+    """The bound for the red half of a breakage that outlasts every budget.
+
+    The corpus's TIMEOUT is sized for the slowest hostile repository on the
+    slowest runner, and a breakage that sleeps past it pays it in full for
+    every hung run - two for HANG, the mode and the sweep probe, which was
+    181 of the 206 seconds `--self-check` took in CI on 2026-10-01. A
+    deadline still has to be missed to be seen, but it only has to be long
+    enough that a run which did NOT hang cannot reach it.
+
+    So it is derived from the CLEAN half of the same pair, on the same
+    repository, moments earlier: three times what that half took - the
+    headroom `mutate.py` gives a mutant's suite - never under `RED_FLOOR`,
+    and never over `ceiling`. The clean half is two runs and the bound
+    applies to each run of the red half, so the margin per run is nearer
+    six. That margin is what matters, and only in one direction: if the
+    breakage stopped biting, its red half would be healthy, and only a run
+    slower than the bound could pass for a hang. The clean half itself still
+    runs under the full TIMEOUT, so a slow machine cannot make it fire.
+    """
+    return min(ceiling, max(RED_FLOOR, 3 * clean_seconds))
 
 
 BREAKAGES = (
@@ -421,9 +452,10 @@ BREAKAGES = (
         why="the tool does not answer inside the budget, which is what an "
             "unbounded scan on a large document looks like from outside",
         # SLOWER THAN THE BUDGET ON PURPOSE, so this breakage costs the whole
-        # timeout to observe. That is the honest price of watching a timeout
+        # budget to observe. That is the honest price of watching a timeout
         # property fire: there is no way to see a deadline missed without
-        # missing it.
+        # missing it. What the price is NOT is the corpus's TIMEOUT, twice:
+        # the red half runs under `red_budget`, derived from the clean half.
         edits=(("extant/session.py",
                 "def count_examined(repo: Path, text: str,\n"
                 "                   applies: Callable[[Rule], bool] | None = None,\n"
@@ -433,6 +465,7 @@ BREAKAGES = (
                 "                   ) -> dict[str, int]:\n"
                 "    import time; time.sleep(600)"),),
         contrived=True,
+        outlasts_the_budget=True,
     ),
 
     Breakage(

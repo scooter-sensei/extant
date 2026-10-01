@@ -142,6 +142,7 @@ a store nobody reads.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import random
@@ -1684,6 +1685,23 @@ def run_mode(repo: Path, mode: list[str]):
         return None
 
 
+@contextlib.contextmanager
+def bounded(seconds: float):
+    """Every `run_mode` inside the block waits at most `seconds`.
+
+    By swapping the module's TIMEOUT rather than passing a bound down, so a
+    shorter budget travels the one path every run already takes, and the
+    path the HANG property is judged by stays the path that is exercised.
+    Put back however the block ends.
+    """
+    global TIMEOUT
+    full, TIMEOUT = TIMEOUT, seconds
+    try:
+        yield
+    finally:
+        TIMEOUT = full
+
+
 def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     """Every property that must hold, whatever the right answer is."""
     faults: list[tuple[str, str]] = []
@@ -2420,7 +2438,9 @@ def run_self_check(pkg: Path, arena: Path) -> int:
         covered.add(item.prop)
         mode = list(item.mode)
         print(f"  [{item.prop}] ...", flush=True)
+        started = time.perf_counter()
         clean = observe(mode)
+        clean_took = time.perf_counter() - started
         if selfcheck.observed(clean, item.prop):
             # The breakage proves nothing here: the property is already firing
             # on the clean payload, so its firing afterwards says nothing about
@@ -2430,8 +2450,14 @@ def run_self_check(pkg: Path, arena: Path) -> int:
             print(f"  [{item.prop}] CANNOT JUDGE - fires before the breakage")
             continue
         saved = selfcheck.apply(repo, item)
+        budget = TIMEOUT
+        if item.outlasts_the_budget:
+            budget = selfcheck.red_budget(clean_took, TIMEOUT)
+            print(f"  [{item.prop}] red half bounded at {budget:.0f} s, "
+                  f"from a clean half of {clean_took:.1f} s", flush=True)
         try:
-            broken = observe(mode)
+            with bounded(budget):
+                broken = observe(mode)
         finally:
             selfcheck.restore(saved)
         if selfcheck.observed(broken, item.prop):
