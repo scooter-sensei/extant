@@ -20,7 +20,7 @@ import sys
 import tempfile
 try:
     import tomllib
-except ModuleNotFoundError:      # Python < 3.11, see requirements-dev.txt
+except ModuleNotFoundError:      # Python < 3.11, see requirements-test.txt
     import tomli as tomllib
 from pathlib import Path
 
