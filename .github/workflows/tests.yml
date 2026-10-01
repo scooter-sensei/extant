@@ -120,6 +120,7 @@ jobs:
       # where the workers contend for the runner's cores - an overstatement,
       # which is the safe side for a timeout.
       - name: Run the suite
+        if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.13'
         run: python -m pytest --durations=15 ${{ matrix.os == 'windows-latest' && '-n auto --dist loadfile' || '' }}
 
       # A THIRD ORDER, on one leg. Linux runs file order and Windows each
@@ -136,9 +137,33 @@ jobs:
       # command. The order still moves, since adding one test reshuffles all
       # of them, so a dependency older than a commit can surface on it; the
       # pair of tests the failure names is real either way.
-      - name: Run the suite again, shuffled
+      #
+      # SIDE BY SIDE with that leg's file-order run, since 2026-10-01, rather
+      # than after it: back to back they took 97 and 91 s of a 204 s job in
+      # run 36810678088, the longest of the Linux test legs. Both are still
+      # serial runs, one process each, on a four-core runner. The shuffled
+      # one gets a temp root of its own and no cache plugin, so the two never
+      # write the same `pytest-N` directory or `.pytest_cache` file. The
+      # file-order run prints as it goes and the shuffled run's output
+      # follows it; either failing fails the step, and the last line says
+      # which.
+      - name: Run the suite, and again shuffled, side by side
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
-        run: python -m pytest --order-seed=20260928
+        run: |
+          python -m pytest --order-seed=20260928 -p no:cacheprovider \
+            --basetemp=/tmp/pytest-shuffled > /tmp/shuffled.log 2>&1 &
+          shuffled=$!
+          set +e
+          python -m pytest --durations=15
+          in_order=$?
+          wait "$shuffled"
+          reordered=$?
+          set -e
+          echo
+          echo "=== the shuffled run: python -m pytest --order-seed=20260928 ==="
+          cat /tmp/shuffled.log
+          echo "file order exited $in_order; shuffled exited $reordered"
+          test "$in_order" -eq 0 && test "$reordered" -eq 0
 
   scenarios:
     # The end-to-end matrix: a fresh repository per scenario, the tool
