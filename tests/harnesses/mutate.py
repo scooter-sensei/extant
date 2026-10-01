@@ -2106,6 +2106,29 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          collect.parent / "extant/git.py",
          '    if _unsettled_elsewhere():\n        return None',
          '    pass'),
+        # The system file under the install prefix of the `git` on PATH, read
+        # one parent short. `C:/Program Files/Git/etc/gitconfig` sits two
+        # directories above `mingw64/bin/git.exe`, the first git on PATH in
+        # Git Bash, and every other test either names its system file through
+        # GIT_CONFIG_SYSTEM or reads an ambient one with nothing in it to find.
+        # Watched on two copies on 2026-10-01: it survived the whole suite
+        # without the `mingw64-bin` row of test_remote_from_disk.py, and that
+        # row killed it.
+        ("the system file two directories above the git on PATH is not read",
+         git_mod,
+         '                          for parent in list(spelling.parents)[skip:skip + 3]]',
+         '                          for parent in list(spelling.parents)[skip:skip + 2]]'),
+        # The same file seen from inside a hook, where git puts its exec path
+        # first on PATH and the git found is `mingw64/libexec/git-core`, one
+        # directory deeper. Without the step the walk stops one parent short
+        # of `Git/etc/gitconfig`, which is how every hook on Git for Windows
+        # missed it until 2026-10-01. Watched on two copies that day: the
+        # `hook-exec-path` row killed it, and without that row it survived
+        # the whole suite.
+        ("a hook's git in libexec/git-core reads the system file one parent short",
+         git_mod,
+         '                skip = 1 if spelling.parent.name.lower() == "git-core" else 0',
+         '                skip = 0'),
         # `--repo` at a subdirectory, said nothing about: git answers about the
         # checkout above while every path resolves against the subdirectory.
         ("a --repo below the repository root is not named", cli,

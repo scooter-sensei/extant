@@ -217,6 +217,24 @@ path declines. The denominator beside them: with every other scope pinned
 empty, the plain spelling is still answered from disk, because a guard that
 declines everywhere passes the seven rows and buys nothing.
 
+**The walk to the install prefix missed the file in every hook.** The seven
+rows name the system file through `GIT_CONFIG_SYSTEM`, so the walk from the
+`git` on PATH ran only ambiently - through whatever git the suite found,
+against a system file with nothing in it to find - and cutting it from three
+parents to two left the whole suite green on a copy. Writing the table that
+pins it, with a fake `git` on PATH and the variable unset, turned up the
+layout it had never been asked about. git puts its exec path first on PATH
+for every hook it runs, so in a real post-commit hook the first `git.exe` was
+`C:/Program Files/Git/mingw64/libexec/git-core/git.exe`: three directories
+below the prefix holding the system file, one further than the walk reached.
+A shell found the file and the hook did not - and a hook is where the
+installer runs the shim. git strips `libexec/git-core` and `bin` alike to find
+its prefix, so from a `git-core` directory the walk now starts one parent
+higher, and the same hook finds it. Measured on 2026-10-01. A Homebrew git
+inside a hook is unmeasured, with no macOS here, and by reading is still
+missed: its exec path is in the keg under `Cellar`, and its system file in the
+`etc` of the prefix the keg is linked into.
+
 **Three costs, stated.** The read went from 0.19 ms to 1.41 ms (median of
 200) - ten candidate files, most of them absent, opened and read; the walk
 along PATH for git is 0.09 ms of it, and `shutil.which` was not used for it

@@ -30,6 +30,7 @@ quoted-value case returned a wrong `owner/name`.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -563,3 +564,97 @@ def test_the_rule_answers_the_mirror_through_git_when_a_scope_rewrites_it(
     assert any("remote get-url origin" in c for c in spawns), (
         "the fast path answered instead of falling back to git")
     assert answered == "widgets/widget", answered
+
+
+# --- the system file nothing names --------------------------------------------
+#
+# With `GIT_CONFIG_SYSTEM` unset, git reads `etc/gitconfig` under its own
+# install prefix, and `_other_config_files` finds that prefix by walking up
+# from the `git` on PATH. Each row: the directory that `git` sits in, the
+# prefix whose `etc/gitconfig` carries the rewrite - both relative to one fake
+# install root - and whether the walk reaches it.
+
+INSTALL_LAYOUTS = [
+    # Git for Windows: the `cmd` and `bin` launchers sit one directory below
+    # `C:/Program Files/Git`, whose `etc/gitconfig` is the file
+    # `git config --system --show-origin --list` names.
+    pytest.param("Git/cmd", "Git", True, id="Git-cmd-launcher"),
+    pytest.param("Git/bin", "Git", True, id="Git-bin-launcher"),
+    # The real binary, two below, and the first `git.exe` on PATH in Git Bash.
+    pytest.param("Git/mingw64/bin", "Git", True, id="mingw64-bin"),
+    # Three below, and the first `git.exe` on PATH inside every hook, because
+    # git puts its exec path there - a real post-commit hook found this one
+    # whether the commit was made from Git Bash or through `Git/cmd`.
+    pytest.param("Git/mingw64/libexec/git-core", "Git", True,
+                 id="hook-exec-path"),
+    # From any other directory, the fourth parent is the first one the walk
+    # leaves out.
+    pytest.param("prefix/a/b/bin", "prefix", False, id="beyond-three-parents"),
+]
+
+
+@pytest.mark.parametrize("launcher, prefix, read", INSTALL_LAYOUTS)
+def test_the_system_file_under_the_prefix_of_the_git_on_path_is_read(
+        clean_config_scopes, monkeypatch, tmp_path, launcher, prefix,
+        read) -> None:
+    """A regression in the install-prefix arm of `_other_config_files`,
+    which nothing else here can see.
+
+    With `GIT_CONFIG_SYSTEM` unset, git reads `etc/gitconfig` under its own
+    install prefix - `C:/Program Files/Git/etc/gitconfig` for Git for
+    Windows - and an `insteadOf` an administrator writes there moves `origin`
+    exactly as one in `~/.gitconfig` does. The `system-file` row of SCOPES
+    names its file through `GIT_CONFIG_SYSTEM`, so this arm ran only
+    ambiently: through whatever git the suite found on PATH, against a system
+    file with no remote, rewrite or include in it, which answers the same
+    whether or not it is read. Cutting the slice from three parents to two
+    left the whole suite green, measured on a copy on 2026-10-01, while the
+    fast path answered past a rewrite in the file the `mingw64-bin` row plants.
+
+    The `hook-exec-path` row is the layout the walk itself missed, found by
+    writing this table: inside a hook the git on PATH is the one in
+    `libexec/git-core`, three directories below the prefix holding the
+    system file and one further than the walk reached - so a rewrite there
+    went unseen in exactly the hooks the installer writes, while a shell
+    found it.
+
+    The last row is the other edge: the walk stops at three parents, so it
+    cannot quietly become a climb to the root that reads every ancestor's
+    `etc/gitconfig` and declines wherever one carries an include.
+
+    Each row first sees False with no system file in the layout, so a True is
+    the planted file's doing. Without that, an ambient `/etc/gitconfig`
+    carrying an include - which this cannot redirect - would pass the first
+    three rows with the arm deleted.
+    """
+    from extant.git import _git_on_path, _unsettled_elsewhere
+
+    monkeypatch.delenv("GIT_CONFIG_SYSTEM", raising=False)
+    # The one other system file Windows names without the walk. Gone, so the
+    # last row's False is the walk's answer and not this machine's.
+    monkeypatch.delenv("ProgramData", raising=False)
+    root = tmp_path / "install"
+    directory = root / launcher
+    directory.mkdir(parents=True)
+    exe = directory / ("git.exe" if os.name == "nt" else "git")
+    exe.write_bytes(b"")
+    exe.chmod(0o755)
+    # REPLACED rather than prepended: a fake the lookup skipped would hand the
+    # question to the real git, and the rows would pass or fail on wherever
+    # that one happens to be installed.
+    monkeypatch.setenv("PATH", str(directory))
+    assert _git_on_path() == str(exe), (
+        f"the lookup did not find the fake git: {_git_on_path()!r}")
+    assert _unsettled_elsewhere() is False, (
+        "unsettled before the install's system file exists: the ambient "
+        "`/etc/gitconfig` mentions a remote, a rewrite or an include, so on "
+        "this machine the rows cannot tell the walk working from it broken")
+
+    system = root / prefix / "etc" / "gitconfig"
+    system.parent.mkdir(parents=True)
+    system.write_text(REWRITE, encoding="utf-8")
+    got = _unsettled_elsewhere()
+    print(f"git={exe} system={system} unsettled={got}")
+    assert got is read, (
+        f"a rewrite in {prefix}/etc/gitconfig beside a git in {launcher}/ was "
+        f"{'missed' if read else 'read'}")

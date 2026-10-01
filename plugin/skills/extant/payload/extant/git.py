@@ -554,10 +554,22 @@ def _other_config_files() -> list[Path]:
     of the `git` on PATH, which is where a Git for Windows or a Homebrew git
     keeps its system file - measured here: `C:/Program Files/Git/etc/gitconfig`
     beside a `git.exe` two directories below it. Finding that git is stats
-    along PATH, not a process. A build whose system directory is somewhere
-    else entirely - Apple's git keeps its under `usr/share/git-core` - is the
-    residual this cannot see, and the reason the repository's own file stays
-    the guard's first question.
+    along PATH, not a process.
+
+    INSIDE A HOOK the first git on PATH is a different one, because git puts
+    its exec path ahead of everything for every hook it runs: there it is
+    `mingw64/libexec/git-core/git.exe`, three directories below the same
+    file. git strips `libexec/git-core` and `bin` alike to find its prefix,
+    so from a `git-core` directory the walk starts one parent higher. Before
+    it did, a post-commit hook - which is where the installed hooks run the
+    shim - missed Git for Windows' system file, measured on 2026-10-01.
+
+    A build whose system directory is somewhere else entirely - Apple's git
+    keeps its under `usr/share/git-core` - is the residual this cannot see,
+    and the reason the repository's own file stays the guard's first
+    question. A Homebrew git inside a hook is probably another, by reading
+    rather than measurement: its exec path is in the keg under `Cellar`, and
+    its system file is in the `etc` of the prefix the keg is linked into.
     """
     env = os.environ
     files: list[Path] = []
@@ -580,8 +592,9 @@ def _other_config_files() -> list[Path]:
         exe = _git_on_path()
         if exe:
             for spelling in (Path(exe), Path(os.path.realpath(exe))):
+                skip = 1 if spelling.parent.name.lower() == "git-core" else 0
                 files += [parent / "etc" / "gitconfig"
-                          for parent in list(spelling.parents)[:3]]
+                          for parent in list(spelling.parents)[skip:skip + 3]]
         if env.get("ProgramData"):
             files.append(Path(env["ProgramData"]) / "Git" / "config")
     return files
