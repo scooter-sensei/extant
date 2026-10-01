@@ -94,6 +94,47 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "TEMP=$env:RUNNER_TEMP"
           Add-Content -Path $env:GITHUB_ENV -Value "TMP=$env:RUNNER_TEMP"
 
+      # THE REAL GIT FIRST, on Windows, arranged the way its launcher would
+      # arrange it. The image puts `Git\bin` first on PATH and its git.exe is
+      # a launcher, so every git the suite started outside a hook paid a
+      # second process: 59.7 against 33.3 ms a call on the development
+      # machine, about 6,000 calls in a run of the suite. What the launcher
+      # sets for the git it starts - its `mingw64\bin` and `usr\bin` first,
+      # MSYSTEM, and PLINK_PROTOCOL when unset - is what `child_environment`
+      # in tests/harnesses/mutate.py already arranges for a campaign, so this
+      # asks it rather than keeping a second copy. It is also what Git Bash
+      # gives a suite run on the development machine. The runner puts the
+      # LAST line of GITHUB_PATH first (Handler.cs in actions/runner), hence
+      # the reversal.
+      #
+      # Not the git an adopter's PowerShell resolves, which stays the
+      # launcher, but the one the launcher would have started. The tool's
+      # lookup of the system config from the first git on PATH reaches the
+      # same `etc\gitconfig` from either, and tests/test_remote_from_disk.py
+      # pins both layouts.
+      - name: The real git first
+        if: matrix.os == 'windows-latest'
+        shell: python
+        run: |
+          import os, sys
+          sys.path.insert(0, os.path.join("tests", "harnesses"))
+          import mutate
+          before = os.environ["PATH"]
+          after = mutate.child_environment(platform="win32")
+          if after["PATH"] == before:
+              print("the first git on PATH is not a launcher; nothing to move")
+              sys.exit(0)
+          assert after["PATH"].endswith(os.pathsep + before), after["PATH"]
+          ahead = after["PATH"][: -len(before) - 1].split(os.pathsep)
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as fh:
+              for entry in reversed(ahead):
+                  fh.write(entry + "\n")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              for key in ("MSYSTEM", "PLINK_PROTOCOL"):
+                  if key in after and after[key] != os.environ.get(key):
+                      fh.write(f"{key}={after[key]}\n")
+          print("ahead of the launcher: " + ", ".join(ahead))
+
       # WHICH git THE SUITE STARTS, and what `-n auto` and every tmp_path are
       # built from, printed last before the suite so a leg's log shows what
       # the steps above arranged rather than what the image implies:
