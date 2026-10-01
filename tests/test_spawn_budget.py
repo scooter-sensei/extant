@@ -304,15 +304,16 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
 
     The two tests above open `hc.run_scope()` themselves and call `validate()`
     and `count_examined()` directly, so they pin the CONTEXT MANAGER working
-    correctly - never whether `main()` actually opens one around its own two
+    correctly - never whether `--verify` actually opens one around its own
     call sites (the primary document, and each extra document in its loop).
-    That is a real hole, demonstrated by hand: delete `with run_scope():`
-    from `main()` and both tests above stay green while `--verify` on this
-    repository regresses. Only a test that drives `main()` itself can see
-    that regression, so this one does - against the repository this checkout
-    actually is, `--repo "."`, rather than a fixture, because the point is
-    `main()`'s real argument parsing and control flow, not a synthetic
-    document built to reach every rule.
+    That scope is `whole_run` in `run_validate()` in extant/gate.py, which
+    `main()` reaches for `--verify`. It was a real hole, demonstrated by hand:
+    open no scope there and both tests above stay green while `--verify` on
+    this repository regresses. Only a test that drives `main()` itself can
+    see that regression, and this one does - against the repository this
+    checkout actually is, `--repo "."`, rather than a fixture, because its
+    point is `main()`'s real argument parsing and control flow, not a
+    synthetic document built to reach every rule.
 
     Tied to this repository's own git history as a result - its tags, its
     `extra_docs`, how many documents --verify touches - so it will need
@@ -322,6 +323,15 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
     checks README.md, SKILL.md and pyproject.toml directly); this test
     extends the same idea to a spawn count instead of a document. Measured
     at the time of writing: 12 spawns.
+
+    It is not the only test that sees the dropped scope any more.
+    `test_verify_notes_an_index_past_the_bound_without_a_commit_graph` in
+    test_repository_notes.py drives `main()` on a fixture and asserts the
+    commit-graph note is printed once per run; with no scope across the run,
+    each document builds its own index and notes it again. On 2026-10-01 it
+    killed mutate.py's "the scope across --verify is dropped" by itself.
+    Built on a fixture, its answer cannot depend on which clone runs it;
+    this test's depends on the clone's own history and refs.
 
     `conftest.py`'s `neutral_config` is autouse and has already pointed
     `CONFIG` at an empty temp directory by the time this test body runs -
@@ -365,11 +375,11 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
         print(f"    git {cmd}")
     _explain_the_remote(spawns)
     # 24, with no spare margin, for the same measured reason CEILING carries
-    # none above: with a spare, this exact regression - a `with run_scope():`
-    # quietly deleted from main() - left the budget green. If this grows
-    # because of a genuine new question, raise the number here and say why in
-    # the commit; if it grows because a run_scope() was removed, that is the
-    # regression this test exists to catch.
+    # none above: with a spare, this exact regression - the run's scope
+    # quietly dropped from the `--verify` path - left the budget green. If
+    # this grows because of a genuine new question, raise the number here and
+    # say why in the commit; if it grows because a run_scope() was removed,
+    # that is the regression this test exists to catch.
     #
     # 23 since 0.24.1, and the jump is a DECISION rather than drift. Ten
     # entries used to say "This work is version X.Y.Z", which `release_tag`
