@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import committer, init_repo
+from conftest import committer, described, init_repo
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PACKAGE_ROOT / "plugin" / "skills" / "extant" / "payload"))
@@ -31,27 +31,6 @@ def git(repo: Path, *args: str) -> str:
         ["git", *args], cwd=repo, capture_output=True, text=True,
         encoding="utf-8", check=True,
     ).stdout.strip()
-
-
-def described(repo: Path) -> dict[str, str]:
-    """Everything about a repository that any rule here can ask git."""
-    return {
-        "head": git(repo, "rev-parse", "HEAD"),
-        "branch": git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
-        "refs": git(repo, "for-each-ref",
-                    "--format=%(refname)\t%(objectname)\t%(objecttype)"),
-        # Trees and subjects, not parents: two commits made a moment apart are
-        # different objects, so their ids and therefore their children's parent
-        # ids differ between any two builds - copied or not. What a rule reads
-        # is the CONTENT and the shape, so those are what is compared, with the
-        # shape reduced to how many parents each commit has.
-        "log": git(repo, "log", "--all", "--format=%T %s"),
-        "graph": " ".join(
-            str(len(line.split()))
-            for line in git(repo, "log", "--all", "--format=%P").splitlines()),
-        "tree": git(repo, "ls-tree", "-r", "HEAD", "--name-only"),
-        "status": git(repo, "status", "--porcelain"),
-    }
 
 
 def test_a_copied_repository_answers_what_a_built_one_answers(

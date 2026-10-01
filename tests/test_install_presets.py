@@ -13,8 +13,11 @@ run.
 """
 from __future__ import annotations
 
+import atexit
+import shutil
 import subprocess
 import sys
+import tempfile
 try:
     import tomllib
 except ModuleNotFoundError:      # Python < 3.11, see requirements-dev.txt
@@ -22,6 +25,7 @@ except ModuleNotFoundError:      # Python < 3.11, see requirements-dev.txt
 from pathlib import Path
 
 import pytest
+from conftest import described
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -35,20 +39,79 @@ def run_installer(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+_SETUP = (["init", "-b", "main"], ["config", "user.email", "t@t"],
+          ["config", "user.name", "T"])
+_EMPTY: Path | None = None
+
+
+def _empty_project() -> Path:
+    """`_SETUP` run once per process, for every `make_repo` to copy.
+
+    Three of the five git processes `make_repo` started were the same for
+    every repository it built, in a file that builds dozens - 415 of the
+    suite's git processes on 2026-09-30, the second most of any file. Built
+    lazily and removed at exit, as conftest.py's staged payload is, because
+    `make_repo` is called with a `tmp_path` rather than taken as a fixture.
+    `test_make_repo_builds_what_it_built_the_long_way` is the guard.
+    """
+    global _EMPTY
+    if _EMPTY is None:
+        root = Path(tempfile.mkdtemp(prefix="extant-proj-"))
+        empty = root / "proj"
+        empty.mkdir()
+        for cmd in _SETUP:
+            subprocess.run(["git", *cmd], cwd=empty, capture_output=True,
+                           check=True)
+        atexit.register(shutil.rmtree, str(root), True)
+        _EMPTY = empty
+    return _EMPTY
+
+
 def make_repo(tmp_path: Path, **files: str) -> Path:
     """A git repo containing exactly `files` and no status document."""
     repo = tmp_path / "proj"
-    repo.mkdir()
+    shutil.copytree(_empty_project(), repo)
     for name, body in files.items():
         path = repo / name.replace("__", "/")
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(body)
-    for cmd in (["init", "-b", "main"], ["config", "user.email", "t@t"],
-                ["config", "user.name", "T"], ["add", "-A"],
-                ["commit", "-m", "init"]):
+    for cmd in (["add", "-A"], ["commit", "-m", "init"]):
         subprocess.run(["git", *cmd], cwd=repo, capture_output=True, check=True)
     return repo
+
+
+def test_make_repo_builds_what_it_built_the_long_way(tmp_path) -> None:
+    """Catches the copied project drifting from the one `_SETUP` builds.
+
+    Compared on what tests/test_fixture_templates.py compares, and on the
+    identity, which that file's templates do not set and this one does.
+    """
+    files = {"README.md": "# x\n", "src__lib.py": "x = 1\n"}
+    copied = make_repo(tmp_path / "copied", **files)
+
+    built = tmp_path / "built" / "proj"
+    built.mkdir(parents=True)
+    for name, body in files.items():
+        path = built / name.replace("__", "/")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(body)
+    for cmd in (*_SETUP, ["add", "-A"], ["commit", "-m", "init"]):
+        subprocess.run(["git", *cmd], cwd=built, capture_output=True, check=True)
+
+    one, other = described(copied), described(built)
+    differing = {k: (one[k], other[k]) for k in one
+                 if one[k] != other[k] and k not in ("head", "refs")}
+    assert not differing, differing
+
+    def identity(repo: Path) -> list[str]:
+        return [subprocess.run(["git", "config", "--local", key], cwd=repo,
+                               capture_output=True, text=True,
+                               check=True).stdout.strip()
+                for key in ("user.email", "user.name")]
+
+    assert identity(copied) == identity(built) == ["t@t", "T"]
 
 
 def config_of(repo: Path) -> dict:

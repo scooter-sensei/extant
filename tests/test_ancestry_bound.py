@@ -18,10 +18,12 @@ is a path no test exercises. So the tests exercise it.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import committer, described, init_repo
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
@@ -42,13 +44,12 @@ def _entry(body: str) -> str:
             f"{body}\n\n## 1. Layout\n")
 
 
-def _history(git_repo) -> tuple[Path, dict[str, str]]:
+def _build_history(repo: Path, commit) -> dict[str, str]:
     """main: c1 c2 c3 [merge topic: t1 t2] c4 c5; side: s1 s2 s3, never merged.
 
     Ancestors of main include the root, a second-parent commit and the tip -
     the three shapes a date-ordered walk and a prefix cut treat differently.
     """
-    repo, commit = git_repo
     ids: dict[str, str] = {}
     for n in (1, 2, 3):
         ids[f"c{n}"] = commit(f"c{n}.py", f"c = {n}\n", f"feat: c{n}")
@@ -64,7 +65,75 @@ def _history(git_repo) -> tuple[Path, dict[str, str]]:
     for n in (1, 2, 3):
         ids[f"s{n}"] = commit(f"s{n}.py", f"s = {n}\n", f"feat: s{n}")
     git(repo, "checkout", "-q", "main")
-    return repo, ids
+    return ids
+
+
+@pytest.fixture(scope="session")
+def history_template(tmp_path_factory) -> tuple[Path, dict[str, str]]:
+    """The history above, BUILT ONCE - per worker under `-n`.
+
+    Every test in this file asked the same questions of the same shape and
+    built it from scratch first: ten commits, a merge, four checkouts and a
+    rev-parse, 26 git processes, for each of 18 tests - 464 of the suite's
+    git processes on 2026-09-30, the most of any file. Copied as
+    tests/test_multi_trunk.py copies its gitflow, and its ids stay valid in
+    every copy because a copy carries the same objects;
+    `test_a_copied_history_answers_what_a_built_one_answers` checks that
+    rather than assuming it.
+    """
+    repo = tmp_path_factory.mktemp("history-template") / "repo"
+    init_repo(repo)
+    return repo, _build_history(repo, committer(repo))
+
+
+@pytest.fixture
+def history(tmp_path, history_template) -> tuple[Path, dict[str, str]]:
+    """One test's own copy of the history, where `git_repo` would have put it."""
+    template, ids = history_template
+    repo = tmp_path / "repo"
+    shutil.copytree(template, repo)
+    return repo, dict(ids)
+
+
+def test_a_copied_history_answers_what_a_built_one_answers(
+        history, tmp_path) -> None:
+    """Catches the template drifting from the shape every test here reads.
+
+    Built the long way with the same helper, then compared on the properties
+    tests/test_fixture_templates.py compares - content and shape, not ids,
+    since two builds a moment apart are different objects - and on what the
+    ids NAME: each one is the same commit subject in both.
+    """
+    copied, ids = history
+    built = tmp_path / "built"
+    init_repo(built)
+    built_ids = _build_history(built, committer(built))
+
+    one, other = described(copied), described(built)
+    # `log` and `graph` are in `git log --all` order, which is date order, and
+    # this history has branches whose commits land in the same second: two
+    # builds - copied or not - can list them in different orders. So the
+    # history is compared as a SET of commits, each by tree, subject and
+    # parent count, and the rest exactly.
+    differing = {k: (one[k], other[k]) for k in one
+                 if one[k] != other[k]
+                 and k not in ("head", "refs", "log", "graph")}
+    assert not differing, differing
+
+    def commits(repo: Path) -> list[str]:
+        return sorted(f"{tree} {len(parents.split())} {subject}"
+                      for tree, parents, subject in (
+                          line.split("|", 2) for line in git(
+                              repo, "log", "--all",
+                              "--format=%T|%P|%s").splitlines()))
+
+    assert commits(copied) == commits(built)
+    names = [line.split("\t")[0] for line in one["refs"].splitlines()]
+    assert names == [line.split("\t")[0] for line in other["refs"].splitlines()]
+    assert sorted(ids) == sorted(built_ids)
+    for name in ids:
+        assert (git(copied, "log", "-1", "--format=%s", ids[name])
+                == git(built, "log", "-1", "--format=%s", built_ids[name])), name
 
 
 def _spawns(monkeypatch) -> list[tuple[list[str], bytes | str | None]]:
@@ -98,10 +167,10 @@ def _bound(monkeypatch, value):
 
 # --- the index itself --------------------------------------------------------
 
-def test_a_hit_is_proof_and_a_miss_asks_only_past_the_bound(git_repo, monkeypatch) -> None:
+def test_a_hit_is_proof_and_a_miss_asks_only_past_the_bound(history, monkeypatch) -> None:
     from extant import refs
     from extant import session as hc
-    repo, ids = _history(git_repo)
+    repo, ids = history
     seen = _spawns(monkeypatch)
 
     _bound(monkeypatch, 2)
@@ -123,10 +192,10 @@ def test_a_hit_is_proof_and_a_miss_asks_only_past_the_bound(git_repo, monkeypatc
         ["rev-list", "-n", "3", "main"]], "one bounded rev-list per ref per scope"
 
 
-def test_the_default_bound_indexes_a_small_history_completely(git_repo, monkeypatch) -> None:
+def test_the_default_bound_indexes_a_small_history_completely(history, monkeypatch) -> None:
     from extant import refs
     from extant import session as hc
-    repo, ids = _history(git_repo)
+    repo, ids = history
     seen = _spawns(monkeypatch)
     with hc.run_scope():
         ctx = hc.context(repo)
@@ -143,10 +212,10 @@ def test_the_default_bound_indexes_a_small_history_completely(git_repo, monkeypa
 # --- the rules, under every bound -------------------------------------------
 
 @pytest.mark.parametrize("bound", BOUNDS)
-def test_the_merge_rule_answers_the_same_under_every_bound(git_repo, monkeypatch, bound) -> None:
+def test_the_merge_rule_answers_the_same_under_every_bound(history, monkeypatch, bound) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
-    repo, ids = _history(git_repo)
+    repo, ids = history
     _bound(monkeypatch, bound)
     text = (f"- Merged to `main` at `{ids['c1'][:9]}`.\n"
             f"- Merged to `main` at `{ids['t1'][:9]}`.\n"
@@ -159,10 +228,10 @@ def test_the_merge_rule_answers_the_same_under_every_bound(git_repo, monkeypatch
 
 
 @pytest.mark.parametrize("bound", BOUNDS)
-def test_the_release_rule_answers_the_same_under_every_bound(git_repo, monkeypatch, bound) -> None:
+def test_the_release_rule_answers_the_same_under_every_bound(history, monkeypatch, bound) -> None:
     from extant import session as hc
     from extant.rules import release_tag as rule_release
-    repo, ids = _history(git_repo)
+    repo, ids = history
     git(repo, "tag", "-a", "-m", "one", "v1.0.0", ids["c2"])
     git(repo, "tag", "v1.1.0", ids["t2"])
     git(repo, "tag", "v9.9.9", ids["s3"])
@@ -175,10 +244,10 @@ def test_the_release_rule_answers_the_same_under_every_bound(git_repo, monkeypat
 
 
 @pytest.mark.parametrize("bound", BOUNDS)
-def test_the_live_claim_rule_answers_the_same_under_every_bound(git_repo, monkeypatch, bound) -> None:
+def test_the_live_claim_rule_answers_the_same_under_every_bound(history, monkeypatch, bound) -> None:
     from extant import session as hc
     from extant.rules import live_claim as rule_live
-    repo, ids = _history(git_repo)
+    repo, ids = history
     _bound(monkeypatch, bound)
     text = _entry("`feature/topic` is NOT yet merged, and `feature/side` is "
                   "NOT yet merged either.")
@@ -191,11 +260,11 @@ def test_the_live_claim_rule_answers_the_same_under_every_bound(git_repo, monkey
 
 # --- the batch: one per rule and ref, full SHAs, none when nothing misses ----
 
-def test_one_batch_per_rule_and_ref_fed_full_shas(git_repo, monkeypatch) -> None:
+def test_one_batch_per_rule_and_ref_fed_full_shas(history, monkeypatch) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     from extant.rules import release_tag as rule_release
-    repo, ids = _history(git_repo)
+    repo, ids = history
     git(repo, "tag", "v1.0.0", ids["c2"])
     git(repo, "tag", "v9.9.9", ids["s3"])
     _bound(monkeypatch, 1)
@@ -221,10 +290,10 @@ def test_one_batch_per_rule_and_ref_fed_full_shas(git_repo, monkeypatch) -> None
         "the abbreviated claims were widened to the full SHAs cat-file returned")
 
 
-def test_nothing_is_fed_that_the_index_already_holds(git_repo, monkeypatch) -> None:
+def test_nothing_is_fed_that_the_index_already_holds(history, monkeypatch) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
-    repo, ids = _history(git_repo)
+    repo, ids = history
     _bound(monkeypatch, 1)
     seen = _spawns(monkeypatch)
     with hc.run_scope():
@@ -234,10 +303,10 @@ def test_nothing_is_fed_that_the_index_already_holds(git_repo, monkeypatch) -> N
     assert _batches(seen) == [], "the tip is the first line of the bounded index"
 
 
-def test_a_settled_answer_is_not_asked_twice_in_one_run(git_repo, monkeypatch) -> None:
+def test_a_settled_answer_is_not_asked_twice_in_one_run(history, monkeypatch) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
-    repo, ids = _history(git_repo)
+    repo, ids = history
     _bound(monkeypatch, 1)
     seen = _spawns(monkeypatch)
     text = f"Merged to `main` at `{ids['c1'][:9]}` and at `{ids['s1'][:9]}`.\n"
@@ -250,11 +319,11 @@ def test_a_settled_answer_is_not_asked_twice_in_one_run(git_repo, monkeypatch) -
 
 # --- the abort, the memo's key, and the token memo --------------------------
 
-def test_an_aborted_batch_falls_back_to_one_merge_base_per_miss(git_repo, monkeypatch) -> None:
+def test_an_aborted_batch_falls_back_to_one_merge_base_per_miss(history, monkeypatch) -> None:
     from extant import refs
     from extant import session as hc
     from extant.git import CountingGit, SubprocessGit
-    repo, ids = _history(git_repo)
+    repo, ids = history
     _bound(monkeypatch, 1)
     real = subprocess.run
 
@@ -276,13 +345,13 @@ def test_an_aborted_batch_falls_back_to_one_merge_base_per_miss(git_repo, monkey
         "the fallback is one merge-base per miss, and it answered")
 
 
-def test_settled_answers_are_keyed_by_repository(git_repo, tmp_path, monkeypatch) -> None:
+def test_settled_answers_are_keyed_by_repository(history, tmp_path, monkeypatch) -> None:
     """Two repositories with a `main` each, one run scope, a commit only one
     of them holds: the first repository's yes must not leak into the second."""
     import shutil
     from extant import refs
     from extant import session as hc
-    repo, ids = _history(git_repo)
+    repo, ids = history
     other = tmp_path / "other"
     shutil.copytree(repo, other)
     (other / "z.py").write_text("z = 1\n", encoding="utf-8")
@@ -295,10 +364,10 @@ def test_settled_answers_are_keyed_by_repository(git_repo, tmp_path, monkeypatch
         assert refs.reachable_from(hc.context(repo), only_there, "main") is False
 
 
-def test_tokens_are_memoised_as_the_full_sha_git_returned(git_repo) -> None:
+def test_tokens_are_memoised_as_the_full_sha_git_returned(history) -> None:
     from extant import refs
     from extant import session as hc
-    repo, ids = _history(git_repo)
+    repo, ids = history
     git(repo, "tag", "-a", "-m", "one", "v1.0.0", ids["c2"])
     with hc.run_scope():
         ctx = hc.context(repo)
@@ -315,12 +384,12 @@ def test_tokens_are_memoised_as_the_full_sha_git_returned(git_repo) -> None:
 
 
 def test_a_token_not_yet_resolved_is_resolved_the_way_dead_sha_resolves_it(
-        git_repo, monkeypatch) -> None:
+        history, monkeypatch) -> None:
     """One token, one resolver: a SHA-shaped rev that no batch has seen goes
     through `cat-file --batch-check`, never through the ref table."""
     from extant import refs
     from extant import session as hc
-    repo, ids = _history(git_repo)
+    repo, ids = history
     seen = _spawns(monkeypatch)
     with hc.run_scope():
         ctx = hc.context(repo)
