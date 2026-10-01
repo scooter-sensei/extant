@@ -97,8 +97,13 @@ jobs:
       # question and needs pytest, which is not in the standard library. This
       # step was originally missing, under a comment asserting that nothing
       # needed installing, and every matrix job failed identically.
+      #
+      # requirements-test.txt, not requirements-dev.txt: the second adds mypy
+      # and coverage, which no test imports. In run 36810678088 the install
+      # took 7 s on the Windows 3.9 leg, where mypy's marker leaves it out,
+      # against 15 to 27 s on the other Windows legs.
       - name: Install test dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+        run: python -m pip install --disable-pip-version-check -r requirements-test.txt
 
       # Serially on Linux, which stays the definition of correctness (AGENTS.md,
       # "It is an invocation, not a default"); in parallel on Windows, where a
@@ -526,8 +531,9 @@ jobs:
           git config --global maintenance.auto false
           git config --global --show-origin --get maintenance.auto
 
+      # The tests job says why this file.
       - name: Install test dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+        run: python -m pip install --disable-pip-version-check -r requirements-test.txt
 
       # Serially, as on the other Linux legs. An import in the test process
       # that turns the GIL back on raises a RuntimeWarning, and

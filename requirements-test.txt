@@ -1,0 +1,29 @@
+# What the test SUITE needs to run, and nothing else. The tool itself has NO
+# third-party dependencies: everything installed into your repository runs on
+# the standard library alone.
+#
+# This file exists because the test suite is a different question from the tool,
+# and conflating the two put a comment reading "no dependencies to install" above
+# a CI step that ran `python -m pytest` on a runner with no pytest. All six jobs
+# failed identically before a single test ran.
+#
+# SPLIT FROM requirements-dev.txt on 2026-10-01, which includes this file and
+# adds the tooling around the suite - the coverage instrument and the type
+# checker - that no test imports. The CI test legs and the free-threaded job
+# install this file, so they no longer install a type checker only the
+# self-check job runs and a coverage tool only a hand-run uses.
+pytest>=8
+# Parallel test runs, and it is on the correct side of the line drawn above: the
+# TOOL still has no dependencies, and this is never imported by anything under
+# `plugin/skills/extant/payload/`. It is not enabled by default - `pytest.ini`
+# is deliberately left alone, so the serial run stays the definition of
+# correctness - and it earns its place on the invocation `AGENTS.md` documents:
+# 6m26s to 1m58s on 12 cores, 963 tests, same result. A SUITE need as well as
+# an invocation: tests/test_mutate_harness.py starts a suite under `-n`, and
+# skips without it.
+pytest-xdist>=3
+# The SUITE parses TOML to check what the installer wrote. On 3.11+ that is
+# `tomllib` in the standard library; below it, the same parser under its
+# original name. The TOOL still needs neither: it falls back, and works on
+# defaults when no parser is present at all.
+tomli>=2; python_version < "3.11"
