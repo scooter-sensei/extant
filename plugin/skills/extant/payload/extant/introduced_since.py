@@ -62,7 +62,7 @@ from extant.finding import Located
 from extant.gate import report_repository_notes
 from extant.git import environment
 from extant.registry import RULE_ERRORS
-from extant.report import render_findings
+from extant.report import render_findings, sarif_overflow_note
 from extant.sweep import apply_exclusions, fallback_note, survey, unusable_note
 
 __all__ = ["introduced_lines", "merge_base", "run_introduced_since",
@@ -396,6 +396,9 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     checkout_notes: list[str] = []
     report_repository_notes(checkout_notes.append, repo, index_incomplete)
 
+    # GitHub's SARIF result limit, when the gate's findings pass it: carried
+    # with the NOTE lines into the file and printed with them below.
+    overflow = sarif_overflow_note(len(gating)) if fmt == "sarif" else []
     if fmt == "text":
         for line in render_findings(gating, fmt)[0]:
             print(line, file=out)
@@ -405,7 +408,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         # rather than reading "no results".
         for line in render_findings(gating, fmt, repo, examined=examined,
                                     notes=notes + checkout_notes
-                                    + fallback_note(fallback),
+                                    + fallback_note(fallback) + overflow,
                                     off=session.switched_off(),
                                     errors=list(RULE_ERRORS),
                                     run_kind="introduced-since")[0]:
@@ -462,7 +465,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
         print(f"  {len(binary_documents)} changed document(s) git reads as "
               f"binary and were not examined: {', '.join(binary_documents)}",
               file=out)
-    for line in checkout_notes:
+    for line in checkout_notes + overflow:
         print(line, file=out)
     if workers:
         print(f"  surveyed across {workers} worker process(es)", file=out)

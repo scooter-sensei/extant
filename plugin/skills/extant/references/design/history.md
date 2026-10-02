@@ -220,7 +220,9 @@ appends each pair it is handed to `extant/rewrites` under the shared git
 directory - beside the filter-repo map, because a rewrite belongs to the
 repository and a linked worktree shares it - as the two ids only, since
 git's line may carry a third field. `git.rewrite_journal_path` finds it
-with a stat, like the map; `commits._read_rewrite_map` reads both records
+with a stat, like the map; `_read_rewrite_map` (in the `extant.commits`
+module then, in `extant.rewrites` since 2026-10-01, when it left a module at
+its ceiling - not to be confused with the journal file) reads both records
 into one mapping, so the `dead-sha` hint and `--sha-map` explain a rebase
 exactly the way they explained a filter-repo, through the one lookup they
 already shared. (1) *The append lives in the hook, not the installer's

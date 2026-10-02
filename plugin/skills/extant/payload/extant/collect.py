@@ -50,7 +50,8 @@ from extant.git import CountingGit, Git, SubprocessGit    # noqa: F401
 # A module-level import is safe here where it was not for session.py's CONFIG:
 # these are classes, fixed for the life of the process, not a name that
 # extant/session.py's `reload_config` rebinds. extant/config.py imports
-# nothing from this package, so there is no cycle either.
+# only extant/config_errors.py, which imports nothing from this package, so
+# there is no cycle either.
 from extant.config import Config, StatusConfig
 
 # Installed, not imported at each call site, so a test can replace it. See the
@@ -167,8 +168,15 @@ def changed_files(repo: Path, boundary: str) -> list[str]:
     return [line for line in out.splitlines() if line.strip()]
 
 
-def scan_todos(repo: Path, boundary: str, config: Config) -> list[dict[str, object]]:
-    """TODO/FIXME/XXX markers in files changed since `boundary`."""
+def scan_todos(repo: Path, boundary: str, config: Config, *,
+               unread: list[dict[str, str]] | None = None
+               ) -> list[dict[str, object]]:
+    """TODO/FIXME/XXX markers in files changed since `boundary`.
+
+    A code file that cannot be read is passed over here and, when `unread`
+    is given, named there with why - so "no markers" and "not read" stop
+    looking alike in the bundle, which is the distinction `_scan_one` in
+    extant/sweep.py keeps for documents."""
     markers = config.todo_marker
     excluded_files = config.todo_excluded_files
     excluded_dirs = config.todo_excluded_dir_prefix
@@ -179,13 +187,24 @@ def scan_todos(repo: Path, boundary: str, config: Config) -> list[dict[str, obje
         path = repo / rel
         # GA-5: code files only. Including .md makes the tool report its own
         # plan's example markers and every TODO written inside a spec as a
-        # finding - noise that trains the reader to ignore the section.
-        if not path.is_file() or path.suffix not in {".py", ".qml"}:
+        # finding - noise that trains the reader to ignore the section. Which
+        # suffixes are code is `code_suffixes`, `.py` and `.qml` by default;
+        # this read a hard-coded copy of that default until 2026-10-01, so
+        # the setting changed nothing.
+        if not path.is_file() or path.suffix not in config.todo_suffixes:
             continue
         try:
             with open(path, encoding="utf-8", newline="") as fh:
                 lines = fh.read().splitlines()
-        except (OSError, UnicodeDecodeError):
+        except UnicodeDecodeError as exc:
+            if unread is not None:
+                unread.append({"file": rel, "why": f"not valid UTF-8 "
+                               f"({exc.reason} at byte {exc.start})"})
+            continue
+        except OSError as exc:
+            if unread is not None:
+                unread.append({"file": rel, "why": f"could not be read "
+                               f"({exc.__class__.__name__})"})
             continue
         for number, text in enumerate(lines, start=1):
             if markers.search(text):
@@ -357,12 +376,15 @@ def collect(repo: Path, suite_json: str | None, config: Config,
                            config.trunk).replace("*", "").split())
     all_branches = set(_GIT.soft(repo, "branch", "--format=%(refname:short)").split())
     commits = commits_since(repo, boundary, config)
+    unread: list[dict[str, str]] = []
     return {
         "boundary_sha": boundary,
         "commits": commits,
         "nothing_to_hand_off": not commits,
         "suite": run_suite(repo, suite_json, status),
-        "todos": scan_todos(repo, boundary, config),
+        "todos": scan_todos(repo, boundary, config, unread=unread),
+        # Filled by the call above - a dict display evaluates in order.
+        "todos_unread": unread,
         "plan": read_plan(repo, status),
         "git": {
             "branch": branch,

@@ -6,6 +6,159 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 61 - An audit of the whole package and of its own gaps: eighteen repairs, two of them measured over the corpus first (unreleased, 2026-10-01)
+
+**Status.** Built and gated.
+- 1,574 tests across 80 files, of which 1,566 pass and 8 skip on this
+  machine - the same 8 skips as before.
+- `python -m mypy`: no issues in 46 files.
+- 391 mutation anchors match. 32 are new and 7 retargeted, and all 39 were
+  killed by five `--only` campaigns on a clone: 0 survived, 0 hung, 0
+  overturned by the serial check.
+- `config.py` is at 918 of its 927 lines and `sweep.py` at 926; a change
+  to either splits first.
+- No rule added or removed, thirteen as before; no mode added.
+- Two shipped modules are new, each moved byte for byte out of a module at
+  its 927-line ceiling. `plugin/skills/extant/payload/extant/config_errors.py`
+  holds the TOML error hints that were in `config.py`.
+  `plugin/skills/extant/payload/extant/rewrites.py` holds the rewrite-map
+  reading that was in `commits.py`.
+- The tool remained released as 0.29.0.
+
+**What it answers.** Does the package still hold anything a careful reader
+would call a defect? The rationale records most such questions as already
+measured, fixed or refused, and this audit checked each candidate against it
+first. Every shipped module was read in full except the code-block, anchor
+and site-detection readers. Those were fuzzed instead, and that fuzz found no
+crash, hang or length change in 20,000 documents. 400 more documents went
+through every rule, its denominator and its probe, and none of those raised
+either.
+
+**What changed.** Thirteen repairs.
+- Nine are the shape this project already names: one reader learned
+  something its sibling did not.
+- Two are crashes found while making them.
+- Two were measured over the corpus before they were built, because each
+  changes what a user receives.
+- **`--verify` reports an undecodable archive or extra document as a
+  `missing-document` finding.** It used to end the run with a traceback;
+  only the primary document's read had the guard.
+- **The post-commit hook no longer reports "0 unverified claim(s)" for a run
+  that did not finish.** That covers an unreadable configuration and a
+  crash. It now says it could not finish, and shows the end of the output,
+  where the cause is.
+- **`--archive` writes its pointer at the entries' own heading level, under
+  the `pointer_prefix` it strips.**
+  - With `### ` entries the old fixed `## ` pointer stuck to the oldest
+    entry kept and was carried into the archive with it, one stale block
+    per run.
+  - A configured `pointer_prefix` stacked pointers in the live document.
+  - The default is unchanged.
+- **`--deleted-since` reads each old version under its own path.**
+  `manifest-floor-mismatch` read None for every old version, and so could
+  report no removed claim.
+- **`code_suffixes` is read.** It was documented and parsed, and the TODO
+  scan ignored it.
+- **The link and path-pointer memos key on the document path too.** An
+  `.mdx` reading of one text object was answered from its `.md` reading.
+- **The installer escapes the TOML strings it writes.** A quote in a
+  detected header produced a configuration that did not parse.
+- **The pointer half of the patch invariant has a test and an anchor.** It
+  was the third open lead of the 2026-09-12 review.
+- **`tests.yml` states `permissions: contents: read`.** `publish.yml`
+  already did. The repository's default was read-only, so nothing moved.
+- **The target repository's unreadable configuration exits 2.** It reached
+  the console script - what pip, pre-commit and the GitHub Action run - as
+  a traceback and exit 1. The shim had only ever caught the configuration
+  it found beside itself.
+- **A blank `entry_prefix` is refused by the loader, naming the key.** It
+  raised IndexError at import, on every run.
+
+**Measured first.**
+- **`--sha-map` names the rewrites it makes in another repository's links,
+  and never rewrites a UUID.**
+  - The plan was to stop translating what `dead-sha` does not report. 82,802
+    corpus documents refused that. Most of that population is wanted: 87,585
+    tokens in URLs to the repository's own commits, and 528 astro changeset
+    ids that are commit ids.
+  - Links to other repositories mix renamed repositories (about 513 tokens)
+    with absorbed upstreams (about 169), and git cannot tell them apart.
+    So their rewrites are kept and their lines are named.
+  - Old and new translator ran over the whole corpus under full-history
+    maps: 181,562 rewrites, not one document different.
+- **A SARIF run stops at GitHub's 25,000-result limit, and says so.**
+  - Above the limit GitHub rejects the whole file. One corpus repository is
+    over it: bazel's sweep, at 40,868 results.
+  - That run now keeps the findings that gate and the ordinary documents
+    first, at 25,000 results.
+  - The next three largest are byte-identical before and after.
+
+**Then an audit of the audit's gaps, 2026-10-02: five more repairs.** It
+asked whether every claim above held of the code that is there, whether each
+repair reached every sibling reader, and whether a test held each changed
+path.
+- **`--archive` deleted a section a person wrote, with exit 0.** This
+  predates the audit and is the worst defect either pass found. The archive
+  pointer was recognised by its header alone. Under the default prefixes,
+  a section headed "## Archive pointer format" was therefore taken for the
+  last run's pointer. It was stripped from the live document, written to
+  neither file, and subtracted from the conservation guard's baseline, as
+  the guard is told to subtract the pointer.
+  - It is now recognised by its header and by the one line the tool writes
+    under it, which has been worded the same since the first commit.
+  - The same reader decides what `split_entries` counts. That repaired the
+    gap's own finding: under a non-heading `entry_prefix` such as `Phase `,
+    the derived `Phase Archive pointer` had been counted as an entry. After
+    a `retain_entries = 0` archive it was the newest entry the live-claim
+    rules read.
+  - A pointer somebody adds a line to is kept as theirs. The next run writes
+    a fresh pointer beside it.
+- **The line-pointer memo keys on the document path**, a third memo of the
+  shape AUD-6 repaired in two.
+- **`code_suffixes` is refused without its dot.** `"py"` matched no file, so
+  the bundle read as a tree with no TODOs. A changed code file the scan
+  cannot read is now listed in the bundle's `todos_unread`, with why, and the
+  `/extant` command template says not to report it as clean.
+- **Four lines of the SARIF limit are held by a test.** Each was removed by
+  hand and the whole suite stayed green: the stderr NOTE in `--verify`,
+  `--introduced-since` and `--deleted-since`, and the check that says the cut
+  once in the file. The behaviour was right; nothing held it.
+- **Measured again, nothing moved.**
+  - The SARIF corpus check, re-run on the final tree, came out identical.
+    It had first run before the `--sha-map` code landed.
+  - Linux in CI's serial and shuffled orders: green.
+  - Every configuration key given eight wrong values: 240 of 240 refused
+    cleanly or accepted, with no traceback.
+
+**What a user will see change, for the release note.**
+- **Exit codes.** A malformed `.extant.toml` read by the console script (pip,
+  pre-commit, the GitHub Action) exits 2 with "cannot read configuration";
+  it was a traceback and exit 1. So does a blank `entry_prefix`, and now a
+  dotless `code_suffixes` value.
+- **Output.**
+  - An undecodable archive or extra document is a `missing-document`
+    finding, at the same exit 1 the traceback had.
+  - The post-commit hook says a check could not finish rather than "0
+    unverified claim(s)".
+  - A SARIF run over 25,000 results is cut and says so.
+  - `--sha-map` leaves UUID groups alone and names its rewrites in other
+    repositories' links.
+  - The bundle gains `todos_unread`.
+- **Defaults and settings.**
+  - `code_suffixes` is honoured.
+  - The archive pointer is written at the entries' own heading level, which
+    is unchanged for `## ` entries.
+
+**Upgrading from 0.29.0.** A project whose entries are not `## ` headings,
+and that has run `--archive`, holds one `## Archive pointer` block glued
+inside its oldest kept entry. That is where 0.29.0's fixed header landed.
+The next archive run carries it into the archive inside that entry, once,
+and never again. Delete it by hand first to keep the archive clean.
+Nothing is lost either way.
+
+The numbers are in "The 2026-10-01 audit" and "The gap audit of that audit"
+in `plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 60 - The mutation campaign and CI, made cheaper without moving a verdict (unreleased, 2026-10-01)
 
 **Status.** Built and gated.

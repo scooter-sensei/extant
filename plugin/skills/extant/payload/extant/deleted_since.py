@@ -28,7 +28,7 @@ from extant.config import normalise_document
 from extant.files import inside
 from extant.finding import Located
 from extant.git import environment, is_partial
-from extant.report import render_findings
+from extant.report import render_findings, sarif_overflow_note
 
 __all__ = ["deleted_claims", "run_deleted_since"]
 
@@ -311,19 +311,23 @@ def deleted_claims(repo: Path, ref: str) -> tuple[list[Located], int, int, int]:
             if previous is None:
                 continue
             examined += 1
-            # `base` is a parameter; the FORMAT is not, so it is the one piece
-            # of document state this has to set - and it is restored in
-            # `finally`, because a rule raising part-way would otherwise leave
-            # the process reading every later document in the wrong markup
-            # language.
-            previous_format = session.document().doc_format
-            session.set_document(doc_format=markup.format_for(relative))
+            # `base` is a parameter; the FORMAT and the PATH are not, so they
+            # are the document state this has to set - and the whole document
+            # is put back in `finally`, because a rule raising part-way would
+            # otherwise leave the process reading every later document in the
+            # wrong markup language. The path was missing until 2026-10-01: a
+            # rule keying on WHICH file it reads - `manifest-floor-mismatch`
+            # reads only a README or an install document - read None for every
+            # old version and so could report no removed claim at all.
+            previous_document = session.document()
+            session.set_document(doc_format=markup.format_for(relative),
+                                 doc_path=relative)
             try:
                 was = session.validate(
                     repo, previous, base=(repo / relative).parent,
                     has_entries=(relative == _normalise(session.CONFIG.primary_doc)))
             finally:
-                session.set_document(doc_format=previous_format)
+                session.install_document(previous_document)
             for finding in was:
                 if finding.subject is None:
                     skipped += 1
@@ -349,6 +353,9 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
     """
     gone, examined, skipped, undecodable = deleted_claims(repo, ref)
     out = sys.stderr if fmt == "sarif" else sys.stdout
+    # GitHub's SARIF result limit, when the report passes it: carried with the
+    # NOTE lines into the file, and printed beside the summary below.
+    overflow = sarif_overflow_note(len(gone)) if fmt == "sarif" else []
 
     if fmt == "text":
         if gone:
@@ -375,7 +382,7 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
                    "could be found removed")
         for line in render_findings(
                 gone, fmt, examined={"documents": examined},
-                notes=[] if examined else [nothing],
+                notes=([] if examined else [nothing]) + overflow,
                 errors=list(session.RULE_ERRORS),
                 run_kind="deleted-since")[0]:
             print(line)
@@ -386,6 +393,8 @@ def run_deleted_since(repo: Path, ref: str, fmt: str) -> int:
     print(f"\nexamined {examined} changed document(s) since {ref}: "
           f"{len(gone)} claim(s) removed while still false, "
           f"{skipped} skipped for carrying no subject", file=out)
+    for line in overflow:
+        print(line, file=out)
     # Beside the denominator, for the reason `report_rule_errors` (session.py)
     # gives: a rule that crashed reports no findings, which is what a clean
     # run looks like here too, since this mode has no findings at all when it

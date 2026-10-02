@@ -1010,6 +1010,47 @@ def test_a_document_that_is_not_utf8_is_reported_not_crashed(git_repo) -> None:
     assert "Traceback" not in result.stderr
 
 
+@pytest.mark.parametrize("fmt", ["text", "sarif"])
+@pytest.mark.parametrize("where", ["archive", "extra"])
+def test_an_undecodable_archive_or_extra_document_is_a_finding_not_a_crash(
+        git_repo, where, fmt) -> None:
+    """The primary document's read reported this; the archive's and every
+    extra document's, twelve and a hundred and fifty lines further down the
+    same function, let `UnicodeDecodeError` out as a traceback - so `--verify`
+    printed no denominator for anything after it, a machine format emitted
+    nothing at all, and the exit code was 1 only because Python's was. A
+    UTF-16 CLAUDE.md is what PowerShell 5.1's `>` writes.
+
+    Reported as the `missing-document` finding a configured document the run
+    will not read already gets, naming the reason, and gating like it."""
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "## Phase 1\n\nWork.\n", "docs: status")
+    if where == "archive":
+        name = "docs/status-archive.md"
+        commit(".extant.toml", "retain_entries = 3\n", "chore: config")
+    else:
+        name = "CLAUDE.md"
+        commit(".extant.toml", 'extra_docs = ["CLAUDE.md"]\n', "chore: config")
+    (repo / name).parent.mkdir(parents=True, exist_ok=True)
+    (repo / name).write_bytes("caf\u00e9 notes\n".encode("utf-16"))
+
+    result = run_tool(repo, "--verify", f"--format={fmt}")
+
+    assert "Traceback" not in result.stderr, result.stderr
+    assert result.returncode == 1, (result.stdout, result.stderr)
+    if fmt == "sarif":
+        import json
+        results = json.loads(result.stdout)["runs"][0]["results"]
+        assert [r["ruleId"] for r in results] == ["missing-document"], results
+        message = results[0]["message"]["text"]
+    else:
+        message = result.stdout
+    assert "missing-document" in result.stdout or fmt == "sarif"
+    assert "not valid UTF-8" in message, message
+    # The rest of the run still reports: the primary document's denominator.
+    assert "checked NEXT_SESSION.md" in (result.stdout + result.stderr)
+
+
 def test_library_callers_can_resolve_links_against_the_document(git_repo) -> None:
     """A relative link resolves against its own file, not the repository root.
 
@@ -1804,6 +1845,40 @@ def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> No
     )
 
     assert patches.suggest_renames(repo, repo, body, "DOC.md", findings) == ""
+
+
+def test_a_pointer_patch_is_only_offered_for_a_finding_that_was_reported(
+        git_repo) -> None:
+    """THE INVARIANT's other half, which no test reached until 2026-10-01.
+
+    The rule resolves a pointer from the root AND from beside its document;
+    the patch generator asks only the root before asking git where the path
+    went. So a pointer that works beside its document - and so is no
+    finding - names, from the root, a file git recorded as renamed. Without
+    the invariant that is a patch repointing a working pointer at a
+    different file, on the authority of a finding that does not exist.
+    """
+    from extant import patches
+    from extant import session as hc
+    repo, commit = git_repo
+    commit("notes.md", "# root notes\n", "docs: root notes")
+    git(repo, "mv", "notes.md", "archive-notes.md")
+    git(repo, "commit", "-qm", "docs: rename the root notes")
+    commit("docs/notes.md", "# docs notes\n", "docs: docs notes")
+    hc._SCOPE = hc.RunScope()
+
+    body = "Read `notes.md` for the plan.\n"
+    findings = hc.validate(repo, body, base=repo / "docs", doc="docs/a.md")
+    assert not [f for f in findings if f.kind == "dead-path-pointer"], (
+        "the pointer resolves beside its document, so the rule reports nothing; "
+        "if it now does, this test is pinning the wrong thing")
+    from extant.refs import renamed_to
+    assert renamed_to(hc.context(repo), "notes.md") == "archive-notes.md", (
+        "git must record the root rename, or no patch could be built at all "
+        "and this would prove nothing")
+
+    assert patches.suggest_renames(repo, repo / "docs", body, "docs/a.md",
+                                   findings) == ""
 
 
 def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:

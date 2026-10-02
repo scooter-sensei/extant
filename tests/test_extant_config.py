@@ -249,6 +249,35 @@ def test_an_unrecognised_toml_error_gets_a_generic_hint(tmp_path):
     assert "basic* string" not in message, message
 
 
+def test_the_target_repositorys_unreadable_config_exits_2_not_a_traceback(
+        git_repo) -> None:
+    """The shim catches a ValueError from the configuration it loads at
+    IMPORT - the one beside it, which is the target only when the tool is
+    installed in the repository it checks. `main()` re-reads the TARGET's
+    configuration from `--repo`, and nothing caught that: a malformed
+    `.extant.toml` came out of the console script - the path pip, the
+    pre-commit framework and the GitHub Action all run - as a traceback and
+    exit 1, which in CI reads as "findings". Exit 2 is "this run cannot
+    proceed", and the explanation is the loader's own, without the stack.
+    """
+    import subprocess
+    import sys
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "## Phase 1\n\nWork.\n", "docs: status")
+    (repo / ".extant.toml").write_text('trunk = "main\n', encoding="utf-8")
+    tool = (PACKAGE_ROOT / "plugin" / "skills" / "extant" / "payload"
+            / "extant_collect.py")
+
+    done = subprocess.run([sys.executable, str(tool), "--verify", "--repo",
+                           str(repo)], capture_output=True, text=True,
+                          encoding="utf-8")
+
+    assert "Traceback" not in done.stderr, done.stderr
+    assert done.returncode == 2, (done.returncode, done.stderr)
+    assert "cannot read configuration" in done.stderr, done.stderr
+    assert "not valid TOML" in done.stderr or "Illegal" in done.stderr, done.stderr
+
+
 def test_top_level_keys_survive_a_status_subtable(tmp_path):
     """Writing [extant.consistency.x] must not discard settings above it.
 
@@ -485,6 +514,29 @@ def test_a_string_where_an_array_is_documented_is_refused(tmp_path) -> None:
         assert name in message, message
         assert ".extant.toml" in message, message
         assert "array of strings" in message, message
+
+
+def test_an_entry_prefix_naming_no_heading_is_refused(tmp_path) -> None:
+    """`entry_prefix = ""` raised IndexError at import, out of the section
+    header the Config derives from its first word - a traceback naming
+    `split()[0]` for a setting typed into `.extant.toml`, on every run,
+    where the loader names the key and the file for every other bad shape.
+    `entry_prefix` is not one of the keys an empty value switches off: an
+    entry is what the archive and the newest-entry rules are built on."""
+    for line in ['entry_prefix = ""', 'entry_prefix = "   "']:
+        message = _refused(tmp_path, line)
+        assert "entry_prefix" in message and ".extant.toml" in message, message
+
+
+def test_a_code_suffix_without_its_dot_is_refused(tmp_path) -> None:
+    """The TODO scan compares `Path.suffix`, which carries the dot, so `"py"`
+    matched no file and the bundle reported no TODOs - which reads exactly as
+    a tree with none. Harmless while nothing read `code_suffixes`; since
+    2026-10-01 the scan does, so the value is checked where it is read in."""
+    for line in ['code_suffixes = ["py"]', 'code_suffixes = [".py", "qml"]',
+                 'code_suffixes = [""]']:
+        message = _refused(tmp_path, line)
+        assert "code_suffixes" in message and ".extant.toml" in message, message
 
 
 def test_an_array_holding_a_non_string_is_refused(tmp_path) -> None:

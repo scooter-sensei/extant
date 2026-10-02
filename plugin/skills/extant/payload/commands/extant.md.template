@@ -71,6 +71,9 @@ You are producing the end-of-phase status for {{PROJECT}}.
    an unmaintained file, not outstanding work - it MUST NOT be reported as
    such. Derive Next Tasks from the plan's prose and from `commits` instead.
 
+   If `todos_unread` names files, the TODO scan could not read them: say so,
+   and do not report those files as free of TODOs.
+
 3. Run the archiver, AFTER drafting: `$PY tools/extant_collect.py --archive`
 
    Order matters. Archiving before the new entry exists means the entry does

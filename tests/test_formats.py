@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 
@@ -508,3 +510,122 @@ def test_sarif_refuses_a_document_outside_the_repository(git_repo, tmp_path,
     # same document is still checkable in the formats that can express it.
     assert cli.main(["--validate", str(outside), "--repo", str(repo),
                      "--format=text"]) in (0, 1)
+
+
+# --- the SARIF result limit ----------------------------------------------------
+#
+# GitHub code scanning rejects a SARIF file any of whose objects exceeds its
+# maximum, and the maximum for results in one run is 25,000. Measured on
+# 2026-10-01 over the 152 visible corpus clones: one exceeds it, bazel, whose
+# sweep emitted 40,868 results in one run - every one a non-gating note,
+# 39,519 of them in per-release snapshot copies - so the whole upload was
+# refused and code scanning received nothing. Splitting into several runs is
+# refused by GitHub too since July 2025, when they share a tool and category.
+
+def _stratified(stratum: str, n: int, gating: bool = False):
+    from extant import finding
+    from extant.session import Finding
+    return finding.Located(f"{stratum}/doc{n}.md", Finding(n, "dead-md-link",
+                           f"links to `x{n}.md`, which does not exist"),
+                           primary=False, gating=gating, stratum=stratum)
+
+
+def test_a_run_over_the_limit_keeps_what_a_reader_needs_first(monkeypatch) -> None:
+    """Past the limit the run keeps the findings that gate, then ordinary
+    documents, then historical-record, generated, version-snapshot and
+    vendored ones - the strata in the reverse of their classification
+    precedence - in the order they were found, and SAYS how many it left
+    out, in the file a consumer reads. Exercised at a limit of 4 rather than
+    25,000, because the selection is the subject, not the number."""
+    from extant import report
+    monkeypatch.setattr(report, "SARIF_RESULT_LIMIT", 4)
+    found = [_stratified("vendored", 1), _stratified("version-snapshot", 2),
+             _stratified("ordinary", 3), _stratified("generated", 4),
+             _stratified("version-snapshot", 5, gating=True),
+             _stratified("historical-record", 6), _stratified("ordinary", 7)]
+
+    doc = json.loads(report.format_sarif(found, examined={"dead-md-link": 7}))
+    run = doc["runs"][0]
+
+    kept = [r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            for r in run["results"]]
+    assert kept == ["ordinary/doc3.md", "version-snapshot/doc5.md",
+                    "historical-record/doc6.md", "ordinary/doc7.md"], kept
+    assert run["properties"]["omitted"] == 3, run["properties"]
+    notes = [n["message"]["text"]
+             for n in run["invocations"][0]["toolExecutionNotifications"]]
+    assert any("3 of 7 results" in text for text in notes), notes
+    # Every result still names a descriptor that exists.
+    rules = run["tool"]["driver"]["rules"]
+    assert all(rules[r["ruleIndex"]]["id"] == r["ruleId"] for r in run["results"])
+
+
+def test_a_run_at_or_under_the_limit_is_untouched(monkeypatch) -> None:
+    """The limit binds one corpus repository in 152; every other run must be
+    exactly what it was. No result dropped, reordered, or annotated, and no
+    `omitted` property or notification added."""
+    from extant import report
+    found = [_stratified("vendored", 1), _stratified("ordinary", 2),
+             _stratified("version-snapshot", 3)]
+    before = report.format_sarif(found, examined={"dead-md-link": 3})
+    monkeypatch.setattr(report, "SARIF_RESULT_LIMIT", 3)
+    at_limit = report.format_sarif(found, examined={"dead-md-link": 3})
+
+    assert at_limit == before
+    run = json.loads(at_limit)["runs"][0]
+    assert "omitted" not in run["properties"], run["properties"]
+    assert [r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            for r in run["results"]] == [
+        "vendored/doc1.md", "ordinary/doc2.md", "version-snapshot/doc3.md"]
+    assert report.sarif_overflow_note(3) == []
+
+
+def test_a_sweep_over_the_limit_says_so_beside_its_summary(
+        git_repo, monkeypatch, capsys) -> None:
+    """The person reading the job log is told as well as the file: on
+    stderr, where SARIF mode puts every human line."""
+    from extant import report, sweep
+    repo, commit = git_repo
+    commit("a.md", "See [one](gone1.md) and [two](gone2.md).\n", "docs: a")
+    commit("b.md", "See [three](gone3.md).\n", "docs: b")
+    monkeypatch.setattr(report, "SARIF_RESULT_LIMIT", 2)
+
+    sweep.run_sweep(repo, "sarif")
+
+    printed = capsys.readouterr()
+    run = json.loads(printed.out)["runs"][0]
+    assert len(run["results"]) == 2, run["results"]
+    assert run["properties"]["omitted"] == 1, run["properties"]
+    assert "1 of 3 results" in printed.err, printed.err
+
+
+@pytest.mark.parametrize("mode", [
+    ["--verify"], ["--introduced-since", "HEAD~1"], ["--deleted-since", "HEAD~1"],
+], ids=["verify", "introduced-since", "deleted-since"])
+def test_every_sarif_mode_says_the_cut_once_in_the_file_and_on_stderr(
+        git_repo, monkeypatch, capsys, mode) -> None:
+    """The three modes beside `--sweep` that write SARIF each hand the NOTE to
+    the human stream themselves and pass it into the file with their other
+    NOTE lines, where `format_sarif` would otherwise add its own. A gap audit
+    removed each of those four lines in turn and the whole suite stayed
+    green: only `--sweep`'s copy was held. So: the person reading the log
+    is told, and the file says it exactly once."""
+    from extant import cli, report
+    repo, commit = git_repo
+    claims = "# S\n\nSee [a](gone1.md), [b](gone2.md) and [c](gone3.md).\n"
+    commit("NEXT_SESSION.md", "# S\n\nok\n", "docs: s")
+    commit("NEXT_SESSION.md", claims, "docs: three dead links")
+    if mode[0] == "--deleted-since":
+        commit("NEXT_SESSION.md", "# S\n\nok\n", "docs: the links removed")
+    monkeypatch.setattr(report, "SARIF_RESULT_LIMIT", 1)
+
+    cli.main([*mode, "--repo", str(repo), "--format=sarif"])
+
+    printed = capsys.readouterr()
+    run = json.loads(printed.out)["runs"][0]
+    assert len(run["results"]) == 1, run["results"]
+    assert run["properties"]["omitted"] == 2, run["properties"]
+    notes = [n["message"]["text"]
+             for n in run["invocations"][0]["toolExecutionNotifications"]]
+    assert sum("2 of 3 results" in text for text in notes) == 1, notes
+    assert "2 of 3 results" in printed.err, printed.err

@@ -836,6 +836,14 @@ warning naming any rule that examined nothing. Zero results with a full
 denominator means the documentation is clean; zero results with zeros
 everywhere means nothing was checked, and those two must never look alike.
 
+**A run holds at most 25,000 results**, because GitHub code scanning rejects
+a whole file whose run holds more. Past that, the run keeps the findings that
+gate first, then ordinary documents, then historical, generated,
+version-snapshot and vendored ones. It says how many it left out in
+`properties.omitted`, in a notification, and on stderr. The text format still
+lists every finding. Of 152 measured repositories, one sweep exceeds the
+limit: bazel's, at 40,868 results.
+
 A sweep upload and a verify upload use different `automationDetails.id` values
 (`extant/sweep`, `extant/verify`), so uploading both does not silently replace
 one with the other.
@@ -915,6 +923,19 @@ anything extant inferred. Reading the map to *explain* a finding happens on
 every run; rewriting a document never happens unless you ask. A prefix that two
 old commits share is left alone rather than resolved by guess - a wrong SHA
 reads as correct, where a dead one is visibly broken.
+
+It rewrites more than `dead-sha` reports, on purpose. The URL behind a
+changelog link to your own commit moves with the link text. A rewrite inside a
+link to ANOTHER repository is made too, and its lines are named:
+
+```console
+translated 4 stale SHA reference(s) in NEXT_SESSION.md
+  NOTE: 2 of them sit in a link or URL naming another repository, or one this cannot tie to origin (up/stream), where the old id may still be the right one. Check line(s) 2 before committing.
+```
+
+That might be this repository under an older name, where the rewrite is the
+repair. Or it might be an upstream it absorbed, where the old id still works
+and the rewrite breaks the link. git cannot tell the two apart, and you can.
 
 That path does not exist until somebody has actually run `git filter-repo`, so
 naming a map that is not there is the ordinary way to get this flag wrong. It

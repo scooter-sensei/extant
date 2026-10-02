@@ -447,9 +447,22 @@ STATUS=$?
 
 if [ "$STATUS" -ne 0 ]; then
     extant_findings_summary "$OUTPUT"
-    echo "[extant] $DOC_NAME has $COUNT unverified claim(s):"
-    printf '%s' "$LISTING"
-    if [ "$COUNT" -gt 5 ]; then
+    # Exit 1 WITH findings is the report this hook exists for. Anything else -
+    # exit 2 for a configuration that cannot be read, a traceback, a rule that
+    # raised and reported no claim - checked less than it says, and was printed
+    # here as "has 0 unverified claim(s)" above the FIRST five lines, which cut
+    # off the line naming the cause. Said as what it is, with the END of the
+    # output, where the cause is. One `tail` on this path only; a clean run and
+    # a run with findings spawn nothing more than before.
+    if [ "$STATUS" -eq 1 ] && [ "$COUNT" -gt 0 ]; then
+        echo "[extant] $DOC_NAME has $COUNT unverified claim(s):"
+        printf '%s' "$LISTING"
+        if [ "$COUNT" -gt 5 ]; then
+            echo "  ... run: \"$PY\" tools/extant_collect.py --verify"
+        fi
+    else
+        echo "[extant] could not finish checking $DOC_NAME (exit $STATUS); the end of its output:"
+        printf '%s\n' "$OUTPUT" | tail -n 5 | sed 's/^/  /'
         echo "  ... run: \"$PY\" tools/extant_collect.py --verify"
     fi
 fi

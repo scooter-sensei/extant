@@ -113,6 +113,54 @@ def test_scan_todos_ignores_markdown(git_repo):
     assert collect.scan_todos(repo, collect.find_boundary(repo, session._ACTIVE), session._ACTIVE) == []
 
 
+def test_scan_todos_reads_the_configured_suffixes(git_repo):
+    """`code_suffixes` - "Extensions scanned for TODOs" in config.md - was
+    parsed, type-checked and documented, and read by nothing: the scan kept
+    a hard-coded `.py` and `.qml`, so a project setting `[".ts"]` had its
+    TypeScript markers dropped and its Python ones reported. The setting
+    nothing reads is one of the five failures registry.py names. Through a
+    real `.extant.toml` and `reload_config`, so the test follows the setting
+    from the file a project writes to the scan that must obey it."""
+    from extant import session
+    from extant import collect
+    repo, commit = git_repo
+    commit(".extant.toml", 'code_suffixes = [".ts"]\n', "chore: config")
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
+    commit("app.ts", "// TODO: wire this up\n", "feat: ts")
+    commit("app.py", "# TODO: not a configured suffix\n", "feat: py")
+    session.reload_config(repo)
+    config = session.config()
+
+    todos = collect.scan_todos(repo, collect.find_boundary(repo, config), config)
+
+    assert [t["file"] for t in todos] == ["app.ts"], todos
+
+
+def test_a_code_file_the_todo_scan_cannot_read_is_named_not_skipped(
+        git_repo, tmp_path):
+    """An undecodable code file was passed over in silence, so the bundle's
+    `todos` read the same for "no markers here" and "this file was not read"
+    - the conflation `_scan_one` in sweep.py refuses for documents. It is
+    listed under `todos_unread` with the reason, and `todos` is unchanged."""
+    import json
+    from extant import session
+    from extant import collect
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", "status\n", "docs: status - base")
+    commit("ok.py", "# TODO: readable\n", "feat: ok")
+    (repo / "latin.py").write_bytes(b"# TODO: caf\xe9\n")
+    subprocess.run(["git", "add", "latin.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "feat: latin-1"], cwd=repo, check=True)
+    supplied = tmp_path / "suite.json"
+    supplied.write_text(json.dumps({"passed": 1, "failed": 0, "duration_s": 1.0}))
+
+    bundle = collect.collect(repo, str(supplied), session._ACTIVE, session.CONFIG)
+
+    assert [t["file"] for t in bundle["todos"]] == ["ok.py"], bundle["todos"]
+    assert [u["file"] for u in bundle["todos_unread"]] == ["latin.py"], bundle
+    assert "UTF-8" in bundle["todos_unread"][0]["why"], bundle["todos_unread"]
+
+
 def test_scan_todos_ignores_unchanged_files(git_repo):
     from extant import session
     from extant import collect
@@ -654,10 +702,10 @@ def test_bare_dead_sha_inside_backticks_is_not_double_reported(git_repo):
 
 
 def test_translate_shas_rewrites_using_the_commit_map(tmp_path):
-    from extant import commits
+    from extant import commits, rewrites
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("7544a63aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa f7d48c3bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n")
-    mapping = commits.load_sha_map(str(map_file))
+    mapping = rewrites.load_sha_map(str(map_file))
     text, count = commits.translate_shas("merged at `7544a63` today\n", mapping)
     assert count == 1
     assert "`f7d48c3`" in text
@@ -665,13 +713,13 @@ def test_translate_shas_rewrites_using_the_commit_map(tmp_path):
 
 def test_translate_shas_leaves_ambiguous_prefixes_alone(tmp_path):
     """GA-6: two old SHAs share the prefix, so neither may win."""
-    from extant import commits
+    from extant import commits, rewrites
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text(
         "abc1234aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1111111ccccccccccccccccccccccccccccccccc\n"
         "abc1234bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 2222222ddddddddddddddddddddddddddddddddd\n"
     )
-    mapping = commits.load_sha_map(str(map_file))
+    mapping = rewrites.load_sha_map(str(map_file))
     text, count = commits.translate_shas("see `abc1234` here\n", mapping)
     assert count == 0
     assert "`abc1234`" in text
@@ -682,10 +730,10 @@ def test_sha_map_translates_a_bare_dead_sha(tmp_path):
     repairable by --sha-map, not just flaggable. Kept BARE (no backticks
     added) and at its original length, since translate_shas repairs the
     reference, it does not add styling the author never wrote."""
-    from extant import commits
+    from extant import commits, rewrites
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("dead0001" + "a" * 32 + " f00d0001" + "b" * 32 + "\n")
-    mapping = commits.load_sha_map(str(map_file))
+    mapping = rewrites.load_sha_map(str(map_file))
     text, count = commits.translate_shas("merged at dead0001 without backticks today\n", mapping)
     assert count == 1
     assert "f00d0001" in text
@@ -697,16 +745,80 @@ def test_translate_shas_leaves_ambiguous_bare_prefix_alone(tmp_path):
     """I-1(c): the bare path must honour the same GA-6 ambiguity rule as the
     backticked path -- two old SHAs sharing the bare token's prefix, so
     neither translation may win."""
-    from extant import commits
+    from extant import commits, rewrites
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text(
         "abc1234aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1111111ccccccccccccccccccccccccccccccccc\n"
         "abc1234bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 2222222ddddddddddddddddddddddddddddddddd\n"
     )
-    mapping = commits.load_sha_map(str(map_file))
+    mapping = rewrites.load_sha_map(str(map_file))
     text, count = commits.translate_shas("see abc1234 here, bare and ambiguous\n", mapping)
     assert count == 0
     assert "abc1234" in text
+
+
+# --- what `--sha-map` rewrites beyond what `dead-sha` reports (AUD-3) --------
+#
+# Measured on 2026-10-01 over 82,802 documents of the visible corpus, under a
+# full-history map of each clone: the translator's population is far wider
+# than the scanner's, and almost all of the difference is wanted. 87,585
+# tokens inside URLs to the repository's own commits translate - the URL
+# behind a changelog link whose text the scanner reads, which a repair has to
+# move with it - and so do 5,363 in code blocks and 528 astro changeset ids,
+# which are commit ids. Two classes are not: 1,282 UUID fragments, none a
+# commit and none translated, and 674 tokens in links or URLs naming another
+# repository, a mix git cannot separate - a renamed repository's own commits
+# (node's io.js, unraid's old name) beside an absorbed upstream's (moveit,
+# rust-clippy, acorn), where the old id is still valid upstream.
+
+_UUID_TEXT = "ContentId: dd7207b0-cf8b-4ed6-8c75-941834179dca\n"
+
+
+def test_translate_shas_never_rewrites_a_uuid_fragment() -> None:
+    """A UUID is never a commit reference, whatever its groups look like.
+
+    The scanner skips the whole UUID; the translator read its 8- and
+    12-character groups as bare tokens, so a map holding an old id that began
+    with one rewrote the middle of an identifier. None of the corpus's 1,282
+    UUID fragments did - the shape is closed rather than measured into
+    being, the way the scanner closed it."""
+    from extant import commits
+    mapping = {"dd7207b0" + "a" * 32: "1111111" + "b" * 33,
+               "941834179dca" + "c" * 28: "2222222" + "d" * 33}
+
+    text, count = commits.translate_shas(_UUID_TEXT, mapping)
+
+    assert (text, count) == (_UUID_TEXT, 0), text
+
+
+def test_translate_shas_names_the_rewrites_another_repository_may_still_hold() -> None:
+    """Translated as before, and named: every rewrite inside a link or URL
+    that does not name this repository's origin, by line.
+
+    git cannot say whether `github.com/up/stream/commit/<id>` is this
+    repository under an older name - a repair - or an upstream it absorbed,
+    where the old id is still valid and the rewrite breaks a working link.
+    The person applying the map can, so the run says which lines to read.
+    The repository's own links are not named: those repairs are the point.
+    """
+    from extant import commits
+    ours, theirs, pinned = ("a1" * 20, "b2" * 20, "c3" * 20)
+    mapping = {ours: "d4" * 20, theirs: "e5" * 20, pinned: "f6" * 20}
+    text = (
+        f"own [{ours[:7]}](https://github.com/me/repo/commit/{ours})\n"
+        f"upstream [{theirs[:7]}](https://github.com/up/stream/commit/{theirs})\n"
+        f"pin up/stream@{pinned} and a bare {ours[:9]}\n"
+    )
+
+    plain, plain_count = commits.translate_shas(text, mapping)
+    noted: list[tuple[int, str, str]] = []
+    named, named_count = commits.translate_shas(text, mapping, noted=noted,
+                                                own=lambda: "me/repo")
+
+    assert (named, named_count) == (plain, plain_count), "naming changed a rewrite"
+    assert plain_count == 6, plain
+    assert noted == [(2, theirs[:7], "up/stream"), (2, theirs, "up/stream"),
+                     (3, pinned, "up/stream")], noted
 
 
 def test_live_claim_flags_a_branch_that_actually_merged(git_repo):
@@ -947,6 +1059,41 @@ def test_sha_map_translates_a_dead_sha_inside_the_archive_file(git_repo, tmp_pat
     assert "dead0001" not in content
 
 
+def test_sha_map_names_the_lines_it_rewrote_in_another_repositorys_link(
+        git_repo, tmp_path, capsys):
+    """The repair says which of its rewrites git cannot vouch for.
+
+    A rewrite inside a link to ANOTHER repository is right when that is this
+    repository under an older name and wrong when it is an upstream this one
+    absorbed, whose old id still works there. Both are in the corpus, 513 to
+    169 under a full-history map, and nothing git holds tells them apart - so
+    the rewrite is made, as before, and the lines are named for the person
+    who can. A link to this repository's own commit is not named.
+    """
+    import subprocess
+    from extant import cli
+    repo, commit = git_repo
+    subprocess.run(["git", "remote", "add", "origin",
+                    "https://github.com/me/repo.git"], cwd=repo, check=True)
+    ours, theirs = "a1" * 20, "b2" * 20
+    commit("NEXT_SESSION.md",
+           f"Own [{ours[:7]}](https://github.com/me/repo/commit/{ours}).\n"
+           f"Upstream [{theirs[:7]}](https://github.com/up/stream/commit/{theirs}).\n",
+           "docs: status")
+    map_file = tmp_path / "commit-map.txt"
+    map_file.write_text(f"{ours} {'c3' * 20}\n{theirs} {'d4' * 20}\n")
+
+    cli.main(["--verify", "--repo", str(repo), "--sha-map", str(map_file)])
+
+    printed = capsys.readouterr()
+    said = printed.out + printed.err
+    assert "translated 4 stale SHA reference(s)" in said, said
+    assert "2 of them sit in a link or URL naming another repository" in said, said
+    assert "cannot tie to origin" in said, said
+    assert "up/stream" in said and "line(s) 2 " in said, said
+    assert "me/repo" not in said.split("naming another repository", 1)[1], said
+
+
 def test_translate_shas_finds_a_sha_after_an_odd_backtick_line(tmp_path):
     """Regression for the whole-text/per-line phase-shift defect found against
     the real NEXT_SESSION.md. `_BACKTICKED`'s `[^`]+` matches newlines, so the
@@ -966,12 +1113,12 @@ def test_translate_shas_finds_a_sha_after_an_odd_backtick_line(tmp_path):
     assertions below FAIL against it (count == 0, no translation) and PASS
     against the per-line fix.
     """
-    from extant import commits
+    from extant import commits, rewrites
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text(
         "123456aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa f7d48c3bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
     )
-    mapping = commits.load_sha_map(str(map_file))
+    mapping = rewrites.load_sha_map(str(map_file))
     # A letter in the token: an all-digit run is now read as a number.
     text = (
         "line one has a stray backtick here: `\n"
@@ -992,7 +1139,7 @@ def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(tmp_path):
     same red herring as test_find_sha_candidates_requires_backticks_and_a_digit)
     among three real SHA-shaped tokens.
     """
-    from extant import commits
+    from extant import commits, rewrites
 
     doc = (
         "Odd backtick trap number one: `\n"
@@ -1022,7 +1169,7 @@ def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(tmp_path):
     }
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("\n".join(f"{old_shas[t]} {new_shas[t]}" for t in tokens) + "\n")
-    mapping = commits.load_sha_map(str(map_file))
+    mapping = rewrites.load_sha_map(str(map_file))
 
     new_text, count = commits.translate_shas(doc, mapping)
 
@@ -1047,7 +1194,7 @@ def test_bare_candidates_and_translation_agree_on_tokenization(tmp_path):
     test_find_bare_sha_candidates_requires_digit_and_letter), and two real
     bare SHA-shaped tokens on different lines.
     """
-    from extant import commits
+    from extant import commits, rewrites
 
     doc = (
         "Backticked `abc1234` must be ignored by bare scanning.\n"
@@ -1070,7 +1217,7 @@ def test_bare_candidates_and_translation_agree_on_tokenization(tmp_path):
     }
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("\n".join(f"{old_shas[t]} {new_shas[t]}" for t in tokens) + "\n")
-    mapping = commits.load_sha_map(str(map_file))
+    mapping = rewrites.load_sha_map(str(map_file))
 
     new_text, count = commits.translate_shas(doc, mapping)
 

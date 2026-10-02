@@ -923,6 +923,27 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], detect.DocumentIn
     return obs, info
 
 
+def _basic(value: object) -> str:
+    """`value` as a TOML BASIC string, escaped so it reads back as itself.
+
+    Written as `"value"` with nothing escaped until 2026-10-01, at three sites
+    below. A `"` in a detected header or a refname ended the string early and
+    the file did not parse - the "installer writes a config the tool refuses
+    to read" shape this function's comments record three times already - and
+    a backslash parsed into a DIFFERENT value, `\\n` a newline. TOML's own
+    list: the backslash, the quote, and every control character but tab.
+    """
+    out = []
+    for char in str(value):
+        if char in '\\"':
+            out.append("\\" + char)
+        elif (ord(char) < 0x20 and char != "\t") or ord(char) == 0x7F:
+            out.append(f"\\u{ord(char):04X}")
+        else:
+            out.append(char)
+    return '"' + "".join(out) + '"'
+
+
 def render_config(obs: list[Observation]) -> str:
     """Emit TOML. Undetermined values are commented out, never guessed."""
     lines = [
@@ -981,7 +1002,7 @@ def render_config(obs: list[Observation]) -> str:
             else:
                 lines.append(f"{o.key} = '{value}'")
         elif o.key in plain:
-            lines.append(f'{o.key} = "{o.value}"')
+            lines.append(f"{o.key} = {_basic(o.value)}")
         elif isinstance(o.value, list):
             # ONE PATH PER LINE past a handful. This branch was written for
             # `["CONTRIBUTING.md"]` and `--wide-docs` can hand it two hundred
@@ -992,10 +1013,10 @@ def render_config(obs: list[Observation]) -> str:
             # things - and an unreviewable extra_docs is exactly that.
             if len(o.value) > 3:
                 lines.append(f"{o.key} = [")
-                lines += [f'  "{item}",' for item in o.value]
+                lines += [f"  {_basic(item)}," for item in o.value]
                 lines.append("]")
             else:
-                rendered = ", ".join(f'"{item}"' for item in o.value)
+                rendered = ", ".join(_basic(item) for item in o.value)
                 lines.append(f"{o.key} = [{rendered}]")
         elif o.value == "":
             # An empty string is how a feature is switched OFF, and it has to be
@@ -1032,9 +1053,9 @@ def render_config(obs: list[Observation]) -> str:
                 # consistency block did not, so one apostrophe in a measured
                 # pattern would have shipped a broken file.
                 if "'" in pattern:
-                    lines.append(f'"{file_path}" = \'\'\'{pattern}\'\'\'')
+                    lines.append(f"{_basic(file_path)} = '''{pattern}'''")
                 else:
-                    lines.append(f'"{file_path}" = \'{pattern}\'')
+                    lines.append(f"{_basic(file_path)} = '{pattern}'")
             lines.append("")
     return "\n".join(lines)
 

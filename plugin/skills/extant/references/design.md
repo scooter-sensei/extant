@@ -90,6 +90,8 @@ Where each section went, by its title:
 - What a zero means: a rule names its vocabulary, and off is a state
 - The mutation campaign, made cheaper without moving a verdict
 - CI, made cheaper without moving a verdict
+- The 2026-10-01 audit: thirteen repairs, two of them measured first
+- The gap audit of that audit: five repairs, one of them a deletion
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 

@@ -449,3 +449,36 @@ def test_a_name_with_a_space_that_was_present_at_the_ref_is_read(git_repo) -> No
     assert (examined, unreadable) == (1, 0), (examined, unreadable)
     assert {f.finding.subject for f in gone} >= {DEAD, "docs/gone.md"}, (
         [f.finding for f in gone])
+
+
+def test_an_old_version_is_read_as_the_document_it_was(git_repo) -> None:
+    """Every previous version was validated with no document PATH installed,
+    only its markup language - so every rule that keys on which file it is
+    reading read None.
+
+    `manifest-floor-mismatch` is the one with a finding to lose: it reads only
+    a README or an install document, and against a path of None it reads
+    nothing at all. A README claiming a floor the manifest contradicts, then
+    deleted, was reported by `--verify` before the deletion and by nothing
+    after it - the shape AGENTS.md records for `--sweep` as "a caller can lose
+    the claim the same way", in the third survey mode.
+    """
+    from extant import session as hc
+    from extant import deleted_since
+    repo, commit = git_repo
+    commit("pyproject.toml", '[project]\nname = "x"\nrequires-python = ">=3.10"\n',
+           "build: floor")
+    commit(".extant.toml", 'primary_doc = "README.md"\n', "chore: config")
+    commit("README.md", "# X\n\nThis project requires Python 3.8 or later.\n",
+           "docs: claim")
+    commit("README.md", "# X\n\nNothing about versions here.\n", "docs: remove")
+    hc.reload_config(repo)
+
+    gone, examined, _skipped, _bad = deleted_since.deleted_claims(repo, "HEAD~1")
+
+    assert examined == 1, examined
+    assert [(f.path, f.finding.kind, f.finding.subject) for f in gone] == [
+        ("README.md", "manifest-floor-mismatch", "Python 3.8")], (
+        [f.finding for f in gone])
+    # And the ambient document is put back whole, path included.
+    assert hc.document().doc_path is None, hc.document()

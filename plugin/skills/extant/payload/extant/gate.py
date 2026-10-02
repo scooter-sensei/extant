@@ -38,15 +38,17 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, TextIO
 
 from extant import refs, session
-from extant.commits import load_sha_map, translate_shas
+from extant.commits import translate_shas
 from extant.config import StatusConfig
 from extant.files import refusal
 from extant.finding import Finding, rel
 from extant.git import has_commit_graph, is_partial, is_shallow
 from extant.patches import suggest_renames
 from extant.registry import RULE_ERRORS
+from extant.rewrites import load_sha_map
 from extant.report import (
-    BASELINE_NAME, Collector, load_baseline, render_findings, write_baseline,
+    BASELINE_NAME, Collector, load_baseline, render_findings,
+    sarif_overflow_note, write_baseline,
 )
 from extant.scope import RunScope
 from extant.text import format_for
@@ -260,6 +262,63 @@ def _sha_map(args: argparse.Namespace) -> tuple[dict[str, str] | None, bool]:
         return None, False
 
 
+class _Unread(Exception):
+    """A configured document this run will not read, carrying why."""
+
+
+def _read_configured(repo: Path, path: Path) -> str:
+    """The archive or an extra document, or `_Unread` saying why it was not
+    read - which the caller records as a `missing-document` finding.
+
+    ONE reader for both, because the primary document's read had learned to
+    report an undecodable file and these two, further down the same mode, had
+    not: a UTF-16 CLAUDE.md - what PowerShell 5.1's `>` writes - took
+    `--verify` down with a traceback, so no denominator after it printed, a
+    machine format emitted nothing, and the exit code was 1 only because
+    Python's was. Reported in the primary document's words, and gating like
+    every other configured document this run cannot read.
+    """
+    why = refusal(repo, path)
+    if why is not None:
+        raise _Unread(why)
+    try:
+        with open(path, encoding="utf-8", newline="") as fh:
+            return fh.read()
+    except UnicodeDecodeError as exc:
+        raise _Unread(f"not valid UTF-8 ({exc.reason} at byte {exc.start})"
+                      ) from exc
+    except OSError as exc:
+        # REPORTS WHAT IT CAUGHT: a permission refused is a document not read.
+        raise _Unread(f"could not be read ({exc.__class__.__name__})") from exc
+
+
+def _translated(repo: Path, text: str, mapping: dict[str, str],
+                 diag: Callable[[str], None], what: str) -> tuple[str, int]:
+    """`--sha-map` over one document, saying what it rewrote and which of
+    those rewrites git cannot vouch for: the ones inside a link, URL or pin
+    naming a repository other than origin. A renamed repository's own commit
+    and an absorbed upstream's look the same from here, and in the second the
+    old id still works where the link points - so the lines are named for the
+    person applying the map. `what` completes "translated N ... in"."""
+    noted: list[tuple[int, str, str]] = []
+    text, changed = translate_shas(
+        text, mapping, noted=noted,
+        own=lambda: refs.own_remote(session.context(repo)))
+    if changed:
+        diag(f"translated {changed} stale SHA reference(s) in {what}")
+    if noted:
+        names = sorted({repository for _line, _token, repository in noted})
+        lines = sorted({line for line, _token, _repository in noted})
+        diag(f"  NOTE: {len(noted)} of them sit in a link or URL naming another "
+             f"repository, or one this cannot tie to origin "
+             f"({', '.join(names[:3])}"
+             f"{', ...' if len(names) > 3 else ''}), where the old id may "
+             f"still be the right one. Check line(s) "
+             f"{', '.join(str(n) for n in lines[:10])}"
+             f"{', ...' if len(lines) > 10 else ''} before committing.")
+    return text, changed
+
+
 def _open_baseline(
     repo: Path, args: argparse.Namespace
 ) -> tuple[dict[str, dict[str, str]] | None, Path]:
@@ -313,8 +372,14 @@ def _finish(diag: Callable[[str], None], repo: Path, args: argparse.Namespace,
         # With the NOTE lines the text printed - the zeros, the checkout's,
         # the missing path - the rules switched off, and every rule that
         # raised: SARIF used to work these out for itself, or not at all.
+        # And GitHub's result limit, when the run passes it: said beside the
+        # summary and carried with the other NOTE lines, once.
+        overflow = (sarif_overflow_note(len(found.located))
+                    if args.format == "sarif" else [])
+        for line in overflow:
+            diag(line)
         for line in render_findings(found.located, args.format, repo,
-                                    examined=examined, notes=notes,
+                                    examined=examined, notes=notes + overflow,
                                     off=session.switched_off(),
                                     errors=list(RULE_ERRORS))[0]:
             print(line)
@@ -420,11 +485,10 @@ def run_validate(repo: Path, args: argparse.Namespace,
     if not readable:
         return 2
     if mapping is not None:
-        text, changed = translate_shas(text, mapping)
+        text, changed = _translated(repo, text, mapping, diag, str(target))
         if changed:
             with open(target, "w", encoding="utf-8", newline="") as fh:
                 fh.write(text)
-            diag(f"translated {changed} stale SHA reference(s) in {target}")
     baselined, baseline_path = _open_baseline(repo, args)
     if baselined is None:
         return 2
@@ -510,26 +574,25 @@ def run_validate(repo: Path, args: argparse.Namespace,
         extras_incomplete = False
         archive_doc = session.config().archive_doc
         archive_path = repo / archive_doc
-        why = refusal(repo, archive_path) if archive_path.exists() else None
-        if why is not None:
-            # Named, and gating: a configured document this will not read is
-            # the same fact as one that is missing, and says why.
-            if found.record(archive_doc, [Finding(
-                    1, "missing-document",
-                    f"archive_doc is not read: {why}")], primary=False):
-                exit_code = 1
-        elif archive_path.exists():
-            with open(archive_path, encoding="utf-8", newline="") as fh:
-                archive_text = fh.read()
+        archive_text: str | None = None
+        if archive_path.exists():
+            try:
+                archive_text = _read_configured(repo, archive_path)
+            except _Unread as why:
+                # Named, and gating: a configured document this will not read
+                # is the same fact as one that is missing, and says why.
+                if found.record(archive_doc, [Finding(
+                        1, "missing-document",
+                        f"archive_doc is not read: {why}")], primary=False):
+                    exit_code = 1
+        if archive_text is not None:
             if mapping is not None:
-                archive_text, archive_changed = translate_shas(archive_text,
-                                                               mapping)
+                archive_text, archive_changed = _translated(
+                    repo, archive_text, mapping, diag, archive_doc)
                 if archive_changed:
                     with open(archive_path, "w", encoding="utf-8",
                               newline="") as fh:
                         fh.write(archive_text)
-                    diag(f"translated {archive_changed} stale SHA "
-                         f"reference(s) in {archive_doc}")
             session.set_document(doc_path=archive_doc,
                                  doc_format=format_for(archive_doc))
             # Opened after the rewrite above, when it is a scope of its own,
@@ -561,16 +624,15 @@ def run_validate(repo: Path, args: argparse.Namespace,
                 )], primary=False):
                     exit_code = 1
                 continue
-            why = refusal(repo, extra)
-            if why is not None:
+            try:
+                extra_text = _read_configured(repo, extra)
+            except _Unread as why:
                 if found.record(relative, [Finding(
                         1, "missing-document",
                         f"listed in extra_docs and not read: {why}")],
                         primary=False):
                     exit_code = 1
                 continue
-            with open(extra, encoding="utf-8", newline="") as fh:
-                extra_text = fh.read()
             session.set_document(link_base=extra.parent, doc_path=relative,
                                  doc_format=format_for(relative))
             # The rules that read this document, asked of the ONE predicate
@@ -786,10 +848,9 @@ def run_check_text(repo: Path, args: argparse.Namespace,
     if not readable:
         return 2
     if mapping is not None:
-        text, changed = translate_shas(text, mapping)
-        if changed:
-            diag(f"translated {changed} stale SHA reference(s) in {name} "
-                 f"(in memory; --check-text writes no file)")
+        text, _changed = _translated(
+            repo, text, mapping, diag,
+            f"{name} (in memory; --check-text writes no file)")
 
     baselined, baseline_path = _open_baseline(repo, args)
     if baselined is None:

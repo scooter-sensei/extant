@@ -31,6 +31,7 @@ silently truncated status document.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -66,13 +67,54 @@ def _normalise_breaks(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+# The one line `archive` writes under its pointer header - worded this way
+# since the first commit - and the pattern that knows it again. Beside each
+# other so the writer and the reader cannot drift apart.
+def _pointer_line(retain: int, archive_doc: str) -> str:
+    return f"> Entries older than the newest {retain} live in `{archive_doc}`."
+
+
+def _pointer_pattern(archive_doc: str) -> re.Pattern[str]:
+    """Any count - a negative one is accepted by the loader, and an earlier
+    run may have kept a different number - but THIS archive, escaped: a
+    greedy `.*` there would take a line a person extended for the pointer.
+    A pointer naming an archive the project has since renamed is kept as a
+    section, which is visible, rather than deleted."""
+    return re.compile(r"> Entries older than the newest -?\d+ live in `"
+                      + re.escape(archive_doc) + r"`\.")
+
+
+def _is_pointer(chunk: str, config: Config) -> bool:
+    """Whether a section is a pointer `archive` wrote: its header, and under
+    it nothing but the generated line.
+
+    The header alone was the test until 2026-10-02, and it decided two
+    things wrongly. `archive` strips a pointer and subtracts its lines from
+    the conservation guard's baseline, so a section a PERSON wrote whose
+    heading starts with the prefix - "## Archive pointer format", a section
+    of its own under the default prefixes - was deleted from both files with
+    exit 0. And `split_entries` classified by `entry_prefix` alone, so under
+    `entry_prefix = "Phase "` the derived `Phase Archive pointer` was an
+    ENTRY in every count, and after a `retain_entries = 0` archive the newest
+    one. A pointer somebody wrote into is kept as their section; the next
+    run writes a fresh one beside it, which is visible, and loses nothing.
+    """
+    if not chunk.startswith(config.pointer_prefix):
+        return False
+    _header, _newline, body = chunk.partition("\n")
+    line_written = _pointer_pattern(config.archive_doc)
+    return all(not line.strip() or line_written.fullmatch(line.strip())
+               for line in body.splitlines())
+
+
 def split_entries(text: str,
                   config: Config) -> tuple[str, list[tuple[str, str]], str]:
     """Split a status doc into (preamble, [(kind, text)], reference base).
 
     GA-4: splits on EVERY top-level section, not just `## Phase `. Sections
     classified "other" are reference material interleaved among the phase
-    entries, and archiving them as history would lose them.
+    entries, and archiving them as history would lose them. The archive
+    pointer is "other" whatever it starts with - see `_is_pointer`.
     """
     if not isinstance(config, Config):
         # The two configuration types are structurally similar enough that
@@ -106,7 +148,8 @@ def split_entries(text: str,
     segments: list[tuple[str, str]] = []
     for index in range(len(starts)):
         chunk = body[bounds[index]: bounds[index + 1]]
-        kind = "phase" if chunk.startswith(config.phase_prefix) else "other"
+        kind = ("phase" if chunk.startswith(config.phase_prefix)
+                and not _is_pointer(chunk, config) else "other")
         segments.append((kind, chunk))
     return preamble, segments, base
 
@@ -177,16 +220,19 @@ def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:
     # Idempotency: the pointer this function writes below is tool-generated
     # bookkeeping, not content - a PRIOR run's pointer must never survive
     # into this run's output, kept inline or archived. split_entries files
-    # it under "other" (GA-6's own top-level header), and GA-4 keeps every
+    # it under "other" (a section of its own, below), and GA-4 keeps every
     # "other" segment inline forever, so without this a stale pointer would
     # ride along unchanged while a fresh one gets appended alongside it: N
-    # runs, N stacked pointer blocks, none ever removed.
+    # runs, N stacked pointer blocks, none ever removed. Recognised by
+    # `_is_pointer` - header AND generated line - because whatever is taken
+    # for the pointer here is deleted, and the guard below is told not to
+    # count it.
     live_segments = [
         (kind, chunk) for kind, chunk in segments
-        if not chunk.startswith(config.pointer_prefix)
+        if not _is_pointer(chunk, config)
     ]
     stale_pointer_text = "".join(
-        chunk for _, chunk in segments if chunk.startswith(config.pointer_prefix)
+        chunk for _, chunk in segments if _is_pointer(chunk, config)
     )
 
     phase_count = sum(1 for kind, _ in live_segments if kind == "phase")
@@ -203,15 +249,17 @@ def archive(repo: Path, retain: int | None, config: Config) -> dict[str, int]:
         (kept if seen < retain else moved).append(chunk)
         seen += 1
 
-    # GA-6: the pointer gets its own top-level `## ` header so a later
-    # split_entries() classifies it as a standalone "other" segment instead
-    # of gluing it onto the tail of whichever phase chunk precedes it - an
-    # un-headered pointer would otherwise end up embedded inside that
-    # entry's body once the entry itself is archived.
+    # GA-6: the pointer gets a header of its own so a later split_entries()
+    # classifies it as a standalone "other" segment instead of gluing it onto
+    # the tail of whichever phase chunk precedes it - an un-headered pointer
+    # would otherwise end up embedded inside that entry's body once the entry
+    # itself is archived. That header is `config.pointer_prefix`, at the
+    # entries' own heading level (see `_pointer_prefix` in extant/config.py):
+    # a fixed `## ` one was no section boundary under `### ` entries, and
+    # was glued onto them exactly as this paragraph warns.
     pointer = (
-        "## Archive pointer\n\n"
-        f"> Entries older than the newest {retain} live in "
-        f"`{config.archive_doc}`.\n\n"
+        f"{config.pointer_prefix}\n\n"
+        f"{_pointer_line(retain, config.archive_doc)}\n\n"
     )
     remaining = preamble + "".join(kept) + pointer + base
 

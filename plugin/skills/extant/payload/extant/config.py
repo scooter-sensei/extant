@@ -44,6 +44,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
 
+from extant.config_errors import explain
+
 # `tomllib` arrived in 3.11, and enterprise distributions are years behind it:
 # RHEL 9 and Debian 11 ship 3.9, Ubuntu 22.04 LTS ships 3.10. Nothing else here
 # needs 3.11, so requiring it would exclude those for one import.
@@ -390,6 +392,22 @@ def _section_header(prefix: str) -> re.Pattern[str]:
     return re.compile("^" + re.escape(prefix.split()[0]) + " ", re.MULTILINE)
 
 
+# The header `--archive` writes its pointer under, and so the one it strips on
+# the next run: COMPUTED, beside `_section_header`, because it has to sit at
+# the same heading level the entries are cut at. It was written as a fixed
+# `## Archive pointer` and recognised by `pointer_prefix`, so with `### `
+# entries - which the installer derives from any `#` to `####` header - the
+# pointer was no section of its own, was glued onto the oldest entry kept, and
+# was carried into the archive inside it, one stale block per run; and a
+# configured `pointer_prefix` was never what got written, so it stacked in the
+# live document. The default entry prefix gives the same `## Archive pointer`
+# as before. A configured one is used as written.
+def _pointer_prefix(status: StatusConfig) -> str:
+    if "pointer_prefix" in status.configured:
+        return status.pointer_prefix
+    return status.entry_prefix.split()[0] + " Archive pointer"
+
+
 @dataclass(frozen=True)
 class Config:
     """Everything derived from a StatusConfig, built in one place.
@@ -455,6 +473,10 @@ class Config:
     # asked of it either way.
     todo_excluded_files: frozenset[str]
     todo_excluded_dir_prefix: tuple[str, ...]
+    # The suffixes the TODO scan reads, beside its other two inputs. Parsed
+    # and documented from the first release and read by nothing until
+    # 2026-10-01: the scan hard-coded `.py` and `.qml` instead.
+    todo_suffixes: frozenset[str]
     # Copied, so the session reads where a setting came from off the same
     # object every rule is handed. See StatusConfig.
     configured: frozenset[str] = frozenset()
@@ -477,7 +499,7 @@ class Config:
             archive_header=status.archive_header,
             base_header=status.base_header,
             phase_prefix=status.entry_prefix,
-            pointer_prefix=status.pointer_prefix,
+            pointer_prefix=_pointer_prefix(status),
             phase_task=status.phase_task,
             phase_bare=status.phase_bare,
             todo_marker=status.todo_markers,
@@ -490,6 +512,7 @@ class Config:
             section_header=_section_header(status.entry_prefix),
             todo_excluded_files=frozenset(status.todo_exclude_files),
             todo_excluded_dir_prefix=tuple(status.todo_exclude_dirs),
+            todo_suffixes=frozenset(status.code_suffixes),
             configured=status.configured,
             off=status.off,
         )
@@ -499,55 +522,6 @@ _UNKNOWN_HINT = (
     "unknown key {key!r} in {path} - check for a typo; unknown keys are ignored "
     "rather than defaulted silently"
 )
-
-
-_ESCAPE_HINT = """Most likely cause: a regex written in a TOML *basic* string
-(double quotes). TOML processes escapes there, and `\\d` / `\\s` / `\\(` are not
-valid ones, so the whole file fails to parse.
-
-Put regex values in LITERAL strings (single quotes), which perform no escape
-processing at all:
-
-    branch_token = '`((?:feature|fix)/[^`]+)`'      correct
-    branch_token = "`((?:feature|fix)/[^`]+)`"      fails if it contains a backslash
-
-Use ''' triple quotes ''' if the pattern itself contains a single quote."""
-
-
-_DUPLICATE_HINT = """Cause: the same key is set twice, and TOML refuses to let a
-later line overwrite an earlier one.
-
-Check for a key that appears both in the generated block near the top and again
-lower down, which is what appending to this file rather than editing it in place
-produces."""
-
-
-_GENERIC_HINT = """The file is not valid TOML. The position above is where the
-parser gave up, which is usually at or just after the offending line.
-
-See references/config.md for the shape of every key."""
-
-
-# EVERY hint here must fit the error it is attached to. This dispatch exists
-# because the escape hint used to be unconditional: a duplicate key produced
-# "Cannot overwrite a value" followed by a confident paragraph about regex
-# quoting, which is not merely unhelpful but actively misleading. Someone would
-# check their quotes, find them correct, and have no next move.
-#
-# A wrong cause is worse than no cause: it gets believed, acted on, and repeated.
-_HINTS = (
-    ("cannot overwrite", _DUPLICATE_HINT),
-    ("escape", _ESCAPE_HINT),
-    ("invalid literal", _ESCAPE_HINT),
-    ("unterminated", _ESCAPE_HINT),
-)
-
-
-def _explain(path: Path, exc: Exception) -> str:
-    """Attach the hint that actually matches this decoder error."""
-    text = str(exc).lower()
-    hint = next((h for needle, h in _HINTS if needle in text), _GENERIC_HINT)
-    return f"{path}: {exc}\n\n{hint}"
 
 
 def _toml_name(value: object) -> str:
@@ -587,7 +561,7 @@ def _read_toml(path: Path) -> tuple[dict[str, object], list[str]]:
         # The bare decoder error names a line and column and nothing else, which
         # is useless to someone hand-writing a regex - and porting.md explicitly
         # asks them to. Re-raise with the cause that fits THIS error.
-        raise ValueError(_explain(path, exc)) from exc
+        raise ValueError(explain(path, exc)) from exc
     # MERGED, not chosen between. Writing a sub-table such as
     # [extant.consistency.version] creates a `status` key, and picking that
     # over the top level silently discarded every setting written above it -
@@ -873,6 +847,23 @@ def load_config(repo: Path) -> StatusConfig:
         return regex
 
     consistency = _compile_consistency(values["consistency"], path)
+    # Refused here, naming the key: the Config cuts entries at this prefix's
+    # first word, and a blank one raised IndexError at import instead.
+    if not string("entry_prefix").split():
+        raise ValueError(
+            f"{source}: entry_prefix must name an entry header such as "
+            f"'## Phase ', and an empty one is not off: entries are what the "
+            f"archive and the newest-entry rules read")
+    # And a suffix without its dot: the TODO scan compares `Path.suffix`, so
+    # "py" matched nothing and the bundle read as a tree with no TODOs.
+    # `ascii()`, because the value is echoed to a console that may be cp437.
+    undotted = [s for s in strings("code_suffixes") if not s.startswith(".")
+                or len(s) < 2]
+    if undotted:
+        raise ValueError(
+            f"{source}: code_suffixes holds {ascii(undotted)}; each is an extension "
+            f"with its dot, such as '.py', because that is what a file name "
+            f"is compared with")
     return StatusConfig(
         # NORMALISED HERE, at the one place a configured document name is read,
         # so no consumer has to remember to. Each of them compares the name
