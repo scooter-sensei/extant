@@ -225,6 +225,26 @@ def test_grouping_never_loses_or_duplicates_a_finding():
     assert sorted(map(id, flat)) == sorted(map(id, located))
 
 
+def test_a_directory_named_star_holds_one_finding_not_two():
+    """A path segment that IS `*` is a directory name, and its finding is one.
+
+    The key that wildcards that segment came out equal to the key that keeps
+    it, so the finding was filed twice under one key and grouped with itself:
+    printed as "2 occurrences in 1 document" over `*/a.md:3, 3`. Found by the
+    partition property in tests/test_properties.py on its first run, Phase
+    62. git tracks such a name wherever a filesystem can hold it; Windows
+    cannot check one out, and none of the 152 corpus sweeps names one.
+    """
+    for located in ([at("*/a.md", 3)],
+                    [at("docs/*/a.md", 3), at("docs/en/a.md", 3)]):
+        groups = group_parallel(located)
+        flat = [item for group in groups for item in group]
+        assert sorted(map(id, flat)) == sorted(map(id, located)), [
+            [item.path for item in group] for group in groups]
+    lines = format_text_grouped(group_parallel([at("*/a.md", 3)]))
+    assert lines == format_text([at("*/a.md", 3)]), lines
+
+
 def test_an_empty_sweep_renders_nothing():
     lines, entries = format_sweep_sections(
         {"vetted": [], "unvetted": [], "repository": []})

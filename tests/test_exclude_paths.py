@@ -88,6 +88,55 @@ def test_a_double_star_spans_segments() -> None:
     assert "packages/app/test/fixtures/content/entry.mdx" not in kept
 
 
+# What `git check-ignore --no-index` (2.53.0, `core.ignorecase=false`)
+# answered for each pattern over STAR_PATHS, recorded rather than reasoned:
+# an expectation written from the rule would prove the rule's paraphrase.
+STAR_PATHS = ["a", "ab", "axb", "xa", "a/b", "a/a", "aa/a", "aaa", "a/xb",
+              "a/x/b", "a/x/yb", "a/x/y/b", "b", "x/b", "b/a", "fixtures/x.md",
+              "a/fixtures/b.md", "docs/a/fixtures", "docs/fixtures"]
+GIT_STAR_RUNS = {
+    # A run of stars no separator bounds is ONE `*` to git.
+    "a/**b": {"a/b", "a/xb"},
+    "a**b": {"ab", "axb"},
+    "a**/a": {"a/a", "aa/a"},
+    "aa**/a": {"aa/a"},
+    "/**a": {"a", "xa", "a/b", "a/a", "aa/a", "aaa", "a/xb", "a/x/b",
+             "a/x/yb", "a/x/y/b", "a/fixtures/b.md"},
+    # A bounded run of three is `**`.
+    "***/b": {"b", "x/b", "a/b", "a/x/b", "a/x/y/b", "b/a"},
+    "a/***/b": {"a/b", "a/x/b", "a/x/y/b"},
+    # The bounded shapes the matcher always read right, held beside them.
+    "**/fixtures/**": {"fixtures/x.md", "a/fixtures/b.md"},
+    "a/**": {"a/b", "a/a", "a/xb", "a/x/b", "a/x/yb", "a/x/y/b",
+             "a/fixtures/b.md"},
+    "docs/**/fixtures": {"docs/a/fixtures", "docs/fixtures"},
+    "**": set(STAR_PATHS),
+}
+
+
+def test_a_star_run_spans_segments_only_where_git_says_it_does() -> None:
+    """`**` crosses separators only as a whole segment - `**/`, `/**/`, a
+    trailing `/**` - and is a plain `*` anywhere else, as in gitignore.
+
+    This matcher let every `**` cross them: `a/**b` took `a/x/b`, `a**/a`
+    missed `a/a`, `aa**/a` was wrong both ways - it took `aaa` and missed
+    `aa/a` - and a bounded `***` was read as `**` followed by `*`. Seven of
+    the eleven patterns below disagreed with git, one cause, found by
+    holding the matcher beside `git check-ignore` in tests/test_properties.py
+    (Phase 62). None was in any configuration the project knows of.
+    """
+    from extant import exclusions
+    wrong = {}
+    for pattern, expected in GIT_STAR_RUNS.items():
+        regex = exclusions._exclusion_regex(pattern)
+        assert regex is not None, pattern
+        ours = {path for path in STAR_PATHS if regex.match(path)}
+        if ours != expected:
+            wrong[pattern] = (sorted(ours - expected), sorted(expected - ours))
+    print(f"checked {len(GIT_STAR_RUNS)} patterns over {len(STAR_PATHS)} paths")
+    assert not wrong, wrong
+
+
 def test_an_anchored_pattern_is_rooted_at_the_repository() -> None:
     """`docs/guide.md` is that file, not any `guide.md` anywhere."""
     kept, counts = _split(["docs/guide.md"])
