@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only, stated here rather than inherited. No job below uses the token for
+# anything but the checkout, and the repository's default happened to be read
+# when this was written (2026-10-01); a default lives in settings, where a
+# change or a fork can widen it without this file saying so. publish.yml has
+# declared its own since it was written.
+permissions:
+  contents: read
+
 jobs:
   tests:
     # Both platforms, because the git hooks are shell scripts and the tests run
