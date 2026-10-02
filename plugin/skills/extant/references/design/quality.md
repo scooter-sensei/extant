@@ -1852,3 +1852,258 @@ holds it, and four anchors name the lines.
   next archive run carries it into the archive with that entry, once.
   Nothing is lost.
 - Phase 61 in `NEXT_SESSION.md` lists the rest.
+
+## Six invariants held as properties: two defects, and the generator that decides what a property can find
+
+The internals review's 9.2 row named Hypothesis, and the plan gave it the
+invariants the package states about every input rather than about the cases
+somebody wrote down. Phase 62 holds six of them in `tests/test_properties.py`:
+
+1. `strip_code` and `prose` keep every offset: same length, same breaks, every
+   character either the original or a space, and `strip_code` blanks all
+   that `prose` does. Markdown with no path, `.md`, `.mdx` and
+   reStructuredText.
+2. The two line numberings agree: `line_number_at` with `splitlines()` at
+   every offset except the `\n` of a CRLF, and with `line_breaks` everywhere,
+   the eight breaks only `splitlines()` honours included. The plan expected
+   a bare `\r` to need excluding; it does not - both read it as a break.
+3. The `exclude_paths` matcher agrees with `git check-ignore`.
+4. `percent_decoded` undoes percent-encoding, and leaves a target with no
+   escape exactly as written. Mostly the standard library's behaviour; kept
+   because it costs a second and rides every Python leg.
+5. `group_parallel` is a partition, each group one rule, one stratum, one
+   side of `primary`, with one path segment allowed to vary.
+6. Every SHA-shaped run in prose is examined by one of the two scanners in
+   `extant/commits.py`, or skipped for a NAMED reason - the scrutiny's
+   "0 unaccounted".
+
+**Two defects, in the pilot runs, that 1,566 example tests had not found.**
+- **A finding grouped with itself.** A path segment that is literally `*`
+  made the key wildcarding that segment equal the key keeping it, so the
+  finding was filed twice under one key. `*/a.md` printed as "2 occurrences
+  in 1 document" over `*/a.md:3, 3`. git tracks such a name wherever a
+  filesystem holds one; Windows cannot check one out, and none of the 152
+  corpus sweeps names one. Repaired by filing each key once.
+- **A `**` that crossed separators where git reads a `*`.** git's wildmatch
+  treats a run of stars as "any depth" only where a `/` or an end bounds it
+  on both sides - `**/x`, `x/**/y`, `x/**`, and a bounded `***` - and as
+  one `*` everywhere else. The matcher let every `**` cross. Asked of git
+  2.53 directly, seven of the eleven shapes recorded disagreed: `a/**b` took
+  `a/x/b`, `a**b` took `a/b`, `aa**/a` took `aaa` and missed `aa/a`, `/**a`
+  took `b/a`, `a**/a` missed `a/a`, and `***/b` and `a/***/b` missed `b` and
+  `a/b`. One cause. No configuration
+  this project knows of writes any of them. config.md said "`**` spans
+  them" and that every row agreed with git; both were true only of the rows.
+  The repair needed room `sweep.py` did not have - 926 of 927 lines - so the
+  matcher moved first, byte for byte, to `extant/exclusions.py` (sweep.py
+  796). A candidate rule was explored against git before it was built: three
+  random runs of 400 examples, up to 24,000 patterns, 0 disagreements.
+- **One divergence documented, not changed.** The matcher trims spaces from
+  both ends of a pattern and git trims only the trailing ones, so `" docs"`
+  excludes `docs` here and names a space-prefixed directory to git. The plan
+  had called it documented; config.md did not say it, and now does.
+
+**The generator decides what a property can find.** The first generator for
+the matcher drew paths independently of each pattern. It ran 300 random
+examples without building one defective shape, and as a derandomized,
+CI-sized set it stayed green at every budget tried. It found the class only
+at 1,000 random examples a run - three runs, three reds - with `x` and `xb`
+added to the names it drew paths from, which is how the defect was first
+seen. Paths built FROM the pattern - every star run and `?` replaced by a
+fill that may or may not cross a separator - found it in a derandomized set
+of 25, which a suite can afford. The blanking property met the same thing:
+generated as strung-together fragments it never put a `>>> ` at the start of
+a line ending in CRLF, so a breakage of the rst loop's terminator handling
+stayed green; generated as lines, it went red. So every strategy in the
+module says where it aims and why.
+
+**A property was watched failing before it was trusted.** Nineteen
+breakages of the code the six guard were tried, each against the property
+module alone. Sixteen turned a property red. Of the other three, one was
+the rst doctest breakage above, red once the generator built lines; one was
+equivalent - `normalise_remote` never answers None for a link's head, so an
+unsettled origin cannot read a link as ours; and one changed nothing a
+property claims: `prose` blanking inline code as `strip_code` does keeps
+every offset, and what `prose` keeps is the example tests' question. The
+seventeen red ones then ran against every OTHER test in the suite, the
+property module left out, each kill confirmed alone:
+- **Six survived, so only a property catches them**, and each is now an
+  anchor in `tests/harnesses/mutate.py`: a `?` that crosses a separator; an
+  rst doctest line that rebuilds its terminator; a `+` in a link target
+  decoded as a space; a group's findings not sorted by line; one document's
+  groups not sorted by their first line; a hex run one character longer than
+  an object name read as a commit.
+- **Eleven were already caught by an example test**, the two repairs'
+  reverts among them - pinned since by the two example tests written red
+  first beside each repair, and kept as anchors because they are the
+  defects. The line-numbering properties have no breakage of their own that
+  the example tests miss: `tests/test_line_numbering.py` already soaks every
+  offset of 300 seeded texts, and both properties went red against both
+  breakages tried there.
+
+**The sixth, over the corpus.** The model the property holds the scanners
+to - written from their docstrings, one name per skip the code makes - was
+run over the corpus too (m22_sha_reasons.py in the measurement apparatus):
+139 repositories de-duplicated, 82,912 documents, 138,175 prose lines with a
+run of seven hex characters. The scanners examined 94,918 tokens, 72,368
+backticked and 22,550 bare, and every other token had a name - 0
+unaccounted. The largest names: inside a URL 102,977; longer than a full
+object name 9,925; a bare number 4,715; part of a longer code span 3,953; a
+commit link to another repository 2,342; part of a UUID 1,292. The scrutiny
+listed five reasons. The corpus run named sixteen; the property names
+twenty, telling a relative commit link from one to another repository on
+both sides, and adding the two the corpus never showed. One is a backticked
+word spelled in hex. The other is a run joined to a non-ASCII word
+character: `\w` is Unicode, so a commit id written
+against Chinese text with no space between is no token at all - neither
+examined nor skipped. Named rather than changed: 0 such lines in 82,912
+documents is no evidence for a widening, and a property with one non-ASCII
+character in its alphabet finds the class at once, so it is held.
+
+**How they run.** Derandomized and without a database: the `ci` profile
+`tests/conftest.py` derives from Hypothesis's own, with a budget of its own.
+That is the fuzz job's fixed seed and `--order-seed` again: a red that
+moves between runs cannot be handed to whoever must fix it, and a verdict
+must depend on the commit and nothing else, as `mutate.py` requires of a
+kill. Hypothesis is pinned exactly, because which examples a derandomized
+run tries is a function of its version. Derandomizing was not enough on its
+own: Hypothesis also mines constants from every module the process has
+imported, so the draws moved with import order until `tests/conftest.py`
+held that pool empty (the gap audit below). With it held, the examples are
+a function of the commit, the pinned version and - for 4a alone, which
+draws from `st.characters` - the Python version's Unicode tables.
+`--hypothesis-profile=explore` searches ten times as far at random, and what
+it finds becomes an `@example`. Hypothesis dropped 3.9 in 6.142.0
+(2025-10-16), so the module skips there and says why; on 3.10 and up a
+missing install is a collection error, never a skip, and a guard outside
+the module fails if the skip is taken. Budgets: 500 examples for each
+pure property, 25 for the git one at up to twenty patterns per
+`check-ignore`. On this machine the module takes 12 seconds run alone,
+its slowest property 3.1 - well inside `faulthandler_timeout`'s 60.
+
+**What the properties cannot see.**
+- The sixth checks how the skips COMPOSE - which scanner reads a token,
+  which span sets it aside, that nothing falls between. Whether each span's
+  pattern is right stays the corpus's question.
+- A behaviour no property claims. Making `prose` blank inline code as
+  `strip_code` does keeps every offset, so no property here goes red on it.
+- The free-threaded leg: no free-threaded interpreter here, and Hypothesis
+  declares no free-threading classifier. The pinned version does ship
+  free-threaded wheels, so the 3.14t job installs it; whether it runs
+  clean there is that job's first answer.
+
+**Gated.** 1,585 tests: on Windows 1,577 pass and 8 skip, on Linux 1,583
+and 2, serially and in CI's shuffled order. mypy clean on 47 files. 399
+anchors, and the 16 new or moved were killed in one campaign: 0 survived,
+0 hung, 0 overturned. The identity gate over the 152 visible clones, main
+against this tree: 0 of 152 outputs differ, as predicted in writing
+before it ran - none of the 866,696 paths the 152 track has a `*` segment,
+and no corpus sweep sets `exclude_paths`, because the identity harness
+applies each clone's own configuration and none of the 152 has one. smoke
+0 new flags, scenarios 213 of 213, fuzz 0 violations, its self-check 23 of
+23.
+
+## The gap audit of the properties: nine findings, and a derandomized run that was not
+
+On 2026-10-02, before anything was committed, the tranche was audited for
+gaps with the three questions the 2026-10-01 audit asked: is each claim true
+of the code that is there; did each repair reach every reader; does a test
+or an anchor hold each changed path. Its write-up is `GAP-AUDIT.md`, outside
+the repository. Nine findings, all repaired.
+
+**Derandomized was not deterministic.** The worst finding, because it
+falsified the claim the module's settings were chosen to make.
+- **The mechanism.** Hypothesis 6.131.1 and later mines the literal constants
+  of every local, non-test module in `sys.modules`, and draws one of them
+  with probability 0.05 per choice. So a derandomized property drew
+  different examples depending on what the process had imported before it.
+- **Measured.** One derandomized property, 500 examples, digested:
+  `1f686a69...` with no payload module loaded, `f8496e9f...` with all 44,
+  each stable on repeat.
+- **What it moved.** Under `-n auto` the examples depended on which files a
+  worker had run first; `--order-seed` changed them; the module run alone
+  tried other examples than the suite did; and `mutate.py`'s confirm-alone
+  run tried a property in another import state than the suite run whose
+  kill it confirmed - all sixteen were confirmed regardless. In WSL, where
+  the packages arrive on `PYTHONPATH`, Hypothesis took them for local code
+  as well.
+- **The repair.** No setting turns it off: the issue that asked for one,
+  HypothesisWorks/hypothesis#4627, was closed by a change that only
+  re-attributed its cost. `tests/conftest.py` replaces the private
+  `providers._get_local_constants` with one returning an empty pool, and
+  stops at import if a Hypothesis has renamed it - which the exact pin makes
+  a deliberate bump. Both digests are then `1f686a69...`. A test imports a
+  fresh module of constants between two derandomized runs of one property
+  and asserts the same draws; with the pool mined, 122 of its 200 moved.
+- **What stays.** 4a draws from `st.characters`, which reads the
+  interpreter's Unicode tables, and 3.10's differ from 3.14's, so "the same
+  examples on every machine" was false across legs even with the pool held.
+  The claim now names what the examples depend on: the commit, the pinned
+  version, and for 4a the Python version.
+
+**Our `ci` replaced Hypothesis's.** Hypothesis registers a `ci` profile of
+its own - derandomized, no database, no deadline, `print_blob`, and the
+timing-based `too_slow` health check suppressed - and loads it by itself on
+a CI runner. A `ci` registered here replaced it without the suppression,
+putting a timing check back on exactly the slow runners it is suppressed
+for. Never seen failing; a regression against the library's own CI default
+all the same. `ci` now derives from Hypothesis's profile, and `explore` from
+`ci`.
+
+**Three lines nothing held.** Run as mutations against the whole suite,
+three survived: `ci` registered and never loaded; `ci` drawing at random;
+and the module's version bound moved to (3, 99), which skipped every
+property on every Python with the suite green - only `-ra`'s SKIPPED line
+said so. A guard cannot live inside the module it guards, so
+`tests/test_property_settings.py` holds them from outside: the module skips
+below 3.10 and imports from 3.10 on, and the loaded profile is `ci` -
+derandomized, no database, 500 examples, `too_slow` suppressed - unless a
+run asks for another. Five anchors name the lines: the three survivors, the
+dropped suppression, and the pool mined again.
+
+**Statements that were wrong.**
+- **The release that left 3.9** was 6.142.0 (2025-10-16), not 6.145.0:
+  PyPI's `requires_python` reads `>=3.10` from 6.142.0 on, and 6.141.1 is
+  the last release for 3.9.
+- **Seven shapes, not six.** Under main's matcher seven of the eleven
+  patterns `tests/test_exclude_paths.py` records disagree with git,
+  `aa**/a` in both directions. The list in the section above always named
+  seven; the count beside it said six, and so did five other places.
+- **The overstatement config.md lost lived on beside it.** "`*` stops at a
+  separator and `**` spans them" was still the comment on `exclude_paths`
+  in `config.py` and the sentence in README.md. `SKILL.md` says only
+  "gitignore-shaped", which is true.
+- **The generator story.** The matcher defect was not found on the first
+  run: 300 random examples passed. Three random runs of 1,000 found it with
+  paths still drawn apart from the pattern, and paths built from the
+  pattern found it in a derandomized set of 25. Six places had said "first
+  run", or credited the runs of 1,000 to the pattern-derived generator.
+- **The identity prediction's reasons.** The chain script said the corpus
+  sweeps run without configuration; the identity harness applies each
+  clone's own, and none of the 152 has one. "No corpus path has a `*`
+  segment" had been read off the sweep outputs; counted with `git
+  ls-files`, it is 0 of 866,696 tracked paths. The audit's own 866,848
+  counted the empty field after each clone's last NUL, one per clone.
+
+**Held, and checked.** The star-run repair is held at every part: five
+sub-mutations - either bound unasked, a run not collapsed, an unbounded run
+dropped, a bounded run keeping its slash - each killed by the example
+tests. `_identity_keys` has one reader; `apply_exclusions` serves both
+surveys, and the package holds no other gitignore-shaped matcher.
+`--hypothesis-profile=explore` overrides `ci`. Every CI job that runs
+pytest installs `requirements-test.txt` or `requirements-dev.txt`.
+Hypothesis writes its cache by temporary file and rename, and swallows a
+failure, so the 3.13 leg's two suites at once are safe; `.hypothesis/`
+ignores itself.
+
+**Gated.** 1,588 tests: on Windows 1,580 pass and 8 skip, on Linux 1,586
+and 2, serially and in CI's shuffled order. mypy clean on 47 files. 404
+anchors match. Thirteen were run for real in one campaign of 35 minutes -
+the five above, and the eight Phase 62 anchors again, because an empty pool
+changes what a derandomized property draws and their kills had been earned
+on other draws: 13 killed, 0 survived, 0 hung, 0 overturned. The payload's
+code is unchanged since the identity gate and the harness chain ran: only
+comments and docstrings in `config.py` and `exclusions.py` moved, and every
+module compares equal as a syntax tree with its docstrings set aside, so
+both results stand. `--verify` exits 0, and `--selftest` fires 7 rules with
+0 silent.

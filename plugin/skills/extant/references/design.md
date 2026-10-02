@@ -92,6 +92,8 @@ Where each section went, by its title:
 - CI, made cheaper without moving a verdict
 - The 2026-10-01 audit: thirteen repairs, two of them measured first
 - The gap audit of that audit: five repairs, one of them a deletion
+- Six invariants held as properties: two defects, and the generator that decides what a property can find
+- The gap audit of the properties: nine findings, and a derandomized run that was not
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 

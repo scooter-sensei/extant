@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.29.0, unreleased: Phases 60 and 61. No rule added or removed,
+Above 0.29.0, unreleased: Phases 60 to 62. No rule added or removed,
 thirteen as before; no mode added. Three exit codes moved, each to 2, and
 one `--archive` defect that deleted a person's section is repaired.
 
@@ -16,6 +16,22 @@ Phase 61 is an audit of the whole package and then a gap audit of that
 audit: eighteen repairs. Its record is Phase 61 in NEXT_SESSION.md, and the
 sections "The 2026-10-01 audit" and "The gap audit of that audit" in the
 design rationale's part on keeping the tool honest.
+
+Phase 62 holds six invariants the package states about every input as
+Hypothesis properties, and their pilot runs found two defects the example
+tests had not. Its record is Phase 62 in NEXT_SESSION.md, and "Six
+invariants held as properties" and "The gap audit of the properties" in the
+same part of the design rationale.
+
+**`exclude_paths` reads a run of stars the way git does.** A `**` spans
+directories only as a whole segment - `**/`, `/**/`, a trailing `/**` - and
+is one `*` anywhere else, so `a/**b` matches `a/xb` and no longer `a/x/b`,
+and `docs/**.md` means `docs/*.md`. A bounded `***` is a `**`. Every `**`
+used to span directories; seven of eleven shapes asked of git disagreed,
+none of them in a configuration this project knows of.
+
+**A finding under a directory named `*` is reported once.** A grouped report
+listed it twice, as "2 occurrences in 1 document".
 
 **`--archive` no longer deletes a section you wrote.** It recognised its own
 pointer by the header alone. Under the default prefixes, a section headed
