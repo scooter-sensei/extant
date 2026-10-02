@@ -189,8 +189,8 @@ A rule that examined nothing is named, with the reason:
 |---|---|---|
 | `entry_prefix` | `## Phase ` | Identifies an ENTRY. Must not match reference sections interleaved among entries, or archiving will move reference material out of the live document. |
 | `base_header` | `^## \d+[a-z]?\. ` | Where per-entry history stops and permanent reference begins. Never archived. |
-| `pointer_prefix` | `## Archive pointer` | The tool-generated pointer. Stripped and regenerated each run, so it cannot accumulate. |
-| `archive_header` | *(project name)* | Header written at the top of the archive. |
+| `pointer_prefix` | the `entry_prefix` heading marker + ` Archive pointer` (`## Archive pointer` for the default) | The tool-generated pointer, written at the entries' own heading level so it is a section of its own. Stripped and regenerated each run, so it cannot accumulate. Recognised by this header AND the one line the tool writes under it, so a section you wrote under a similar heading is never removed, and a pointer you add a line to is kept as yours, with a fresh one written beside it. Set it at the same heading level as `entry_prefix`, or it is not a section boundary there. |
+| `archive_header` | `# Cerene - Status Archive` and a "newest first" line | Header written at the top of a NEW archive - the default is the name of the project these defaults were measured on, so set your own before the first `--archive`. An existing archive keeps the header it was created with: the next run looks for this exact text to keep it on top. |
 | `trunk` | `main` | The integration branch. Merge claims check the ref the CLAIM names, so this is no longer interpolated into `merge_claim`; it is the branch `stale-live-claim` and `dead-release-tag` fall back to, alongside whichever of `main`, `master`, `develop`, `development`, `trunk` exist. |
 
 ## Quoting: regexes need SINGLE quotes
@@ -224,7 +224,7 @@ Each was measured against one project's real prose. See `porting.md`.
 | `path_pointer` | Paths introduced by `Plan:`, `Design:`, `see`, `read`. Keyed on operative use, never on path shape. |
 | `release_tag` | "released in v2.1". Checks the tag exists AND is on an integration branch. Measured as ABSENT from the corpus this was built on, so its denominator reads 0 here; it is the common shape in CHANGELOG-keeping projects. |
 | `todo_markers` | `TODO`/`FIXME`/`XXX`. |
-| `code_suffixes` | Extensions scanned for TODOs. Excludes docs deliberately - a spec discussing TODO is not a TODO. |
+| `code_suffixes` | Extensions scanned for TODOs, `.py` and `.qml` by default, each written with its dot - `"py"` is refused, because it would match no file. Excludes docs deliberately - a spec discussing TODO is not a TODO. A changed file the scan cannot read is listed in the bundle's `todos_unread`, not passed over. |
 | `todo_exclude_files` / `todo_exclude_dirs` | Paths exempt from the TODO scan, so the tool does not report its own source. |
 | `exclude_paths` | Documents `--sweep` and `--introduced-since` should not read at all. Empty by default. See below - this is the one setting that can make a repository look clean by not looking at it. |
 

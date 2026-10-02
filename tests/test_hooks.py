@@ -681,6 +681,38 @@ def test_the_verify_hook_reports_findings_it_actually_found(git_repo) -> None:
 
 
 @requires_sh
+def test_the_verify_hook_does_not_count_a_check_that_did_not_finish(
+        git_repo) -> None:
+    """A run that exits 2 checked nothing, and the hook said it had found 0.
+
+    Every non-zero exit used to be read as findings: "[extant] STATUS.md has
+    0 unverified claim(s):" above the first five lines of whatever came out -
+    for an unreadable `.extant.toml` the opening of its error, for a crashed
+    run the denominators, with the traceback's last line, the one naming the
+    cause, cut off. "0 findings" printed for "nothing was checked" is the
+    conflation this project exists to refuse, on the path that runs after
+    every commit. The END of the output is where the cause is, so that is
+    what is shown.
+    """
+    repo, commit = git_repo
+    commit("a.py", "a = 1\n", "chore: init")
+    _install_into(repo)
+    commit("STATUS.md", "# Status\n", "docs: status")
+    # An unterminated string: the configuration cannot be read at all.
+    (repo / ".extant.toml").write_text('primary_doc = "STATUS.md"\ntrunk = "main\n',
+                                       encoding="utf-8")
+
+    result = run_verify_hook(repo)
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, "advisory only: the commit already happened"
+    assert "unverified claim" not in combined, combined
+    assert "could not finish checking STATUS.md (exit 2)" in combined, combined
+    # The cause is on the last lines, and the last lines are what is shown.
+    assert "references/config.md" in combined, combined
+
+
+@requires_sh
 def test_the_verify_hook_says_nothing_about_a_clean_document(git_repo) -> None:
     """The other direction, so the test above cannot pass by always reporting.
 

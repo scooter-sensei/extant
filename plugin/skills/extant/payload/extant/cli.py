@@ -535,7 +535,19 @@ def main(argv: list[str] | None = None) -> int:
     # visible corpus repositories carry a `.extant.toml`, 0 a `[tool.extant]`,
     # so neither has a population, and a second place for one setting is how
     # a setting nobody reads gets written.
-    session.reload_config(repo)
+    #
+    # Refused in the shim's own words and with its exit code. The shim catches
+    # a bad file only at IMPORT, which is the target's file only when the tool
+    # is installed in it; the console script - pip, pre-commit, the GitHub
+    # Action - reaches the target's file HERE, and it came out as a traceback
+    # and exit 1, which CI reads as findings.
+    try:
+        session.reload_config(repo)
+    except ValueError as exc:
+        print("extant: cannot read configuration", file=sys.stderr)
+        print("", file=sys.stderr)
+        print(exc, file=sys.stderr)
+        return 2
     # Read once, here, AFTER the reload, so every reader below wants the SAME
     # settings object rather than one re-read per line. Named `status`, not
     # `config` - matching extant/collect.py's convention of `config: Config`

@@ -904,7 +904,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "        qualified = [m.span(1) for m in _LINKED_SHA.finditer(line)]\n"),
 
         # --- config errors -----------------------------------------------------
-        ("every TOML error blamed on regex quoting again", collect.parent / "extant/config.py",
+        ("every TOML error blamed on regex quoting again", collect.parent / "extant/config_errors.py",
          "    hint = next((h for needle, h in _HINTS if needle in text), _GENERIC_HINT)",
          "    hint = _ESCAPE_HINT"),
 
@@ -1134,6 +1134,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a patch is offered with no finding behind it", patches,
          "        if target not in linked or resolve_reference(ctx, base, target)[0]:",
          "        if resolve_reference(ctx, base, target)[0]:"),
+        # The other half, open since the 2026-09-12 review: the rule resolves
+        # a pointer beside its document as well, the generator only from the
+        # root, so the guard is what stops a working pointer being "repaired".
+        ("a pointer patch is offered with no finding behind it", patches,
+         "        if raw not in pointed or resolve_reference(ctx, repo, raw)[0]:",
+         "        if resolve_reference(ctx, repo, raw)[0]:"),
         # The two strings the shared scanner returns are not interchangeable:
         # one RESOLVES and one is REPLACED. Swapping them makes the patch look
         # for a string the document does not contain.
@@ -1684,11 +1690,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    if text is None:\n"
          "        return 0"),
         ("--check-text with an unreadable baseline exits clean", gate,
-         "                 f\"(in memory; --check-text writes no file)\")\n\n"
+         "            f\"{name} (in memory; --check-text writes no file)\")\n\n"
          "    baselined, baseline_path = _open_baseline(repo, args)\n"
          "    if baselined is None:\n"
          "        return 2",
-         "                 f\"(in memory; --check-text writes no file)\")\n\n"
+         "            f\"{name} (in memory; --check-text writes no file)\")\n\n"
          "    baselined, baseline_path = _open_baseline(repo, args)\n"
          "    if baselined is None:\n"
          "        return 0"),
@@ -2265,8 +2271,18 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # pattern from the old one.
         ("the link memo ignores the document format", links,
          "    if (_LINK_SITES is not None and _LINK_SITES[0] is text\n"
-         "            and _LINK_SITES[1] == doc.doc_format):",
-         "    if (_LINK_SITES is not None and _LINK_SITES[0] is text):"),
+         "            and _LINK_SITES[1] == doc.doc_format\n",
+         "    if (_LINK_SITES is not None and _LINK_SITES[0] is text\n"),
+        # The third input, the PATH, which the blanking has read since
+        # `.mdx` lost its indented code (2026-09-22) and these two keys went
+        # without until 2026-10-01: an `.mdx` reading answered from an `.md`.
+        ("the link memo ignores the document path", links,
+         "            and _LINK_SITES[2] == doc.doc_path):",
+         "            and True):"),
+        ("the path-pointer memo ignores the document path",
+         rules / "path_pointer.py",
+         "            and _PATH_SITES[3] == ctx.doc.doc_path):",
+         "            and True):"),
         ("the release memo ignores the pattern", rules / "release_tag.py",
          "    if (_RELEASE_CLAIMS is not None and _RELEASE_CLAIMS[0] is prose_text\n"
          "            and _RELEASE_CLAIMS[1] is config.release_tag):",
@@ -2285,13 +2301,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '    return candidate if candidate.is_file() else None',
          '    candidate = shared / "extant" / "rewrites"\n'
          '    return None'),
-        ("a rewrite chain is hinted one hop short", commits,
+        ("a rewrite chain is hinted one hop short", collect.parent / "extant/rewrites.py",
          "    settled = (_settled_value(new, mapping) for new in hits)",
          "    settled = iter(hits)"),
-        ("a disputed id is resolved by reading order", commits,
+        ("a disputed id is resolved by reading order", collect.parent / "extant/rewrites.py",
          "    for old in disputed:\n        del mapping[old]",
          "    for old in ():\n        del mapping[old]"),
-        ("a journal line with git's third field maps nothing", commits,
+        ("a journal line with git's third field maps nothing", collect.parent / "extant/rewrites.py",
          "            if len(parts) >= 2:\n                mapping[parts[0]] = parts[1]",
          "            if len(parts) == 2:\n                mapping[parts[0]] = parts[1]"),
         ("the hook drops the pairs git tells it", hooks_verify,
@@ -2334,10 +2350,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # Settings come from the repository being checked, through the one
         # reload both entry points share; without it the shim's path checks
         # the tool's own configuration against somebody else's repository.
+        # Retargeted 2026-10-01, when the reload gained the handler that turns
+        # the target's unreadable configuration into exit 2: same mutation,
+        # the reload removed, at the call's new indentation.
         ("the shim reads the tool's own settings", cli,
-         "    session.reload_config(repo)\n"
-         "    # Read once, here, AFTER the reload, so every reader below wants the SAME",
-         "    # Read once, here, AFTER the reload, so every reader below wants the SAME"),
+         "    try:\n        session.reload_config(repo)\n    except ValueError",
+         "    try:\n        pass\n    except ValueError"),
         # --- tranche 10 of the internals review ---------------------------
         # The rename hint is a `repair`, outside the baseline's identity;
         # dropped, the finding is still reported and the reader is no longer
@@ -2598,6 +2616,154 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("no branches to sample invents a third vocabulary", detect,
          '            "branch_token", None, DEFAULT,',
          '            "branch_token", r"`((?:feature|feat|fix)/[^`]+)`", DEFAULT,'),
+
+        # --- the 2026-10-01 audit ---------------------------------------------
+        # One per repair, each watched red against the test written for it
+        # before the repair was made. The ledger is outside the repository,
+        # beside the earlier reviews: D:/repo/audit-20261001/LEDGER.md.
+        #
+        # An undecodable archive or extra document reached `--verify` as a
+        # traceback (AUD-1); the configured-document reader reports it now.
+        ("an undecodable configured document takes --verify down again", gate,
+         "    except UnicodeDecodeError as exc:\n"
+         "        raise _Unread(f\"not valid UTF-8",
+         "    except ZeroDivisionError as exc:\n"
+         "        raise _Unread(f\"not valid UTF-8"),
+        # The archive pointer at the entries' heading level (AUD-2): written
+        # as a fixed `## ` header, it glued itself to a `### ` entry and rode
+        # into the archive; a configured pointer was never what was written.
+        ("the archive pointer is written as a fixed level-2 header again",
+         entries_mod,
+         '        f"{config.pointer_prefix}\\n\\n"',
+         '        "## Archive pointer\\n\\n"'),
+        ("the derived pointer ignores the entries' heading level",
+         collect.parent / "extant/config.py",
+         '    return status.entry_prefix.split()[0] + " Archive pointer"',
+         '    return "## Archive pointer"'),
+        ("a configured pointer_prefix is not the pointer written",
+         collect.parent / "extant/config.py",
+         '    if "pointer_prefix" in status.configured:',
+         "    if False:"),
+        # Old versions read with no document path (AUD-4): every rule keying
+        # on which file it reads went silent in --deleted-since.
+        ("--deleted-since reads an old version with no document path",
+         deleted_since,
+         "            session.set_document(doc_format=markup.format_for(relative),\n"
+         "                                 doc_path=relative)",
+         "            session.set_document(doc_format=markup.format_for(relative))"),
+        # `code_suffixes`, read by nothing until this audit (AUD-5).
+        ("the TODO scan ignores code_suffixes again",
+         collect.parent / "extant/collect.py",
+         "        if not path.is_file() or path.suffix not in config.todo_suffixes:",
+         '        if not path.is_file() or path.suffix not in {".py", ".qml"}:'),
+        # The installer's strings escaped so they read back as themselves (AUD-7).
+        ("the installer writes a quote or backslash unescaped again",
+         detect.parent / "install.py",
+         "        if char in '\\\\\"':",
+         "        if False:"),
+        # A run that did not finish is not "0 unverified claims" (AUD-8).
+        ("the hook counts a check that did not finish as findings",
+         hooks_verify,
+         '    if [ "$STATUS" -eq 1 ] && [ "$COUNT" -gt 0 ]; then',
+         "    if true; then"),
+        # Two pre-existing crashes found while repairing the pointer (AUD-12,
+        # AUD-13): a blank entry_prefix raised IndexError at import, and the
+        # target repository's unreadable configuration left main() as a
+        # traceback and exit 1 on the console-script path.
+        ("a blank entry_prefix reaches the Config build again",
+         collect.parent / "extant/config.py",
+         '    if not string("entry_prefix").split():',
+         "    if False:"),
+        ("the target's unreadable configuration is a traceback again", cli,
+         "    except ValueError as exc:\n"
+         '        print("extant: cannot read configuration", file=sys.stderr)',
+         "    except ZeroDivisionError as exc:\n"
+         '        print("extant: cannot read configuration", file=sys.stderr)'),
+        # AUD-3, measured before it was built: --sha-map translates far more
+        # than dead-sha reports, and almost all of it is wanted, so the
+        # repair changed in two places only - a UUID group is never a commit,
+        # and a rewrite inside another repository's link is NAMED.
+        ("--sha-map rewrites a UUID group again", commits,
+         "            if spans_overlap(match.span(), backticked_spans + uuid_spans):",
+         "            if spans_overlap(match.span(), backticked_spans):"),
+        ("a rewrite in another repository's link goes unnamed", commits,
+         "        if repository is None or repository != own:\n"
+         "            spans.append((*match.span(), repository or match.group(0)[:60]))",
+         "        if False:\n"
+         "            spans.append((*match.span(), repository or match.group(0)[:60]))"),
+        ("this repository's own link is named as another's", commits,
+         "                continue        # relative: this repository's own\n"
+         "            repository = normalise_remote(head)\n"
+         "            if repository is None or repository != own:",
+         "                continue        # relative: this repository's own\n"
+         "            repository = normalise_remote(head)\n"
+         "            if True:"),
+        ("--sha-map says nothing about what it named", gate,
+         "    if noted:\n        names = sorted(",
+         "    if False:\n        names = sorted("),
+        # AUD-10: GitHub rejects a SARIF run over 25,000 results.
+        ("a SARIF run over GitHub's limit is emitted whole again", report,
+         "    if len(located) <= SARIF_RESULT_LIMIT:\n        return located",
+         "    if True:\n        return located"),
+        ("the SARIF cut keeps the wrong results first", report,
+         "        not located[i].gating, rank.get(located[i].stratum, len(rank)), i))",
+         "        located[i].gating, -rank.get(located[i].stratum, len(rank)), i))"),
+        ("the SARIF cut is not said in the file", report,
+         "    omitted = {\"omitted\": total - len(located)} if overflow else {}",
+         "    omitted = {}"),
+
+        # --- the gap audit of that audit, 2026-10-02 --------------------------
+        # GAP-AUDIT.md beside the ledger. Four SARIF-limit lines survived the
+        # whole suite when removed by hand: three modes' stderr NOTE, and the
+        # check that keeps the cut said once in the file.
+        ("--verify's SARIF NOTE is not printed", gate,
+         "        for line in overflow:\n            diag(line)\n",
+         "        for line in overflow:\n            pass\n"),
+        ("--introduced-since's SARIF NOTE is not printed", introduced_since,
+         "    for line in checkout_notes + overflow:\n",
+         "    for line in checkout_notes:\n"),
+        ("--deleted-since's SARIF NOTE is not printed", deleted_since,
+         "    for line in overflow:\n        print(line, file=out)\n",
+         "    for line in overflow:\n        pass\n"),
+        ("the SARIF cut is said twice in the file", report,
+         "           for line in overflow if line not in (notes or [])]",
+         "           for line in overflow]"),
+        # The pointer known by its header AND its generated line. By header
+        # alone, a section a person wrote under "## Archive pointer ..." was
+        # deleted from both files with exit 0, and under a non-heading
+        # entry_prefix the derived pointer was counted as an entry.
+        ("the pointer is recognised by its header alone again", entries_mod,
+         "    return all(not line.strip() or line_written.fullmatch(line.strip())",
+         "    return True or all(not line.strip() or line_written.fullmatch(line.strip())"),
+        ("a pointer under a non-heading prefix is an entry again", entries_mod,
+         "                and not _is_pointer(chunk, config) else \"other\")",
+         "                and True else \"other\")"),
+        ("the pointer's reader is narrower than its writer again", entries_mod,
+         "the newest -?\\d+ live in `\"\n",
+         "the newest \\d+ live in `\"\n"),
+        ("the pointer's reader accepts any archive name again", entries_mod,
+         "+ re.escape(archive_doc) + r\"`\\.\")",
+         "+ \".*\" + r\"`\\.\")"),
+        ("archive strips any section starting with the pointer prefix again",
+         entries_mod,
+         "        if not _is_pointer(chunk, config)\n",
+         "        if not chunk.startswith(config.pointer_prefix)\n"),
+        # The third memo of AUD-6's shape, missed by it.
+        ("the line-pointer memo ignores the document path", rules / "line_pointer.py",
+         "            and _POINTER_SITES[3] == ctx.doc.doc_path):",
+         "            and True):"),
+        # `code_suffixes`, live since AUD-5: a dotless value matched nothing,
+        # and an unreadable code file was skipped in silence.
+        ("a code suffix without its dot is accepted again",
+         collect.parent / "extant/config.py",
+         "    if undotted:\n",
+         "    if False:\n"),
+        ("an undecodable code file leaves the TODO scan unnamed again",
+         collect.parent / "extant/collect.py",
+         "        except UnicodeDecodeError as exc:\n"
+         "            if unread is not None:\n",
+         "        except UnicodeDecodeError as exc:\n"
+         "            if False:\n"),
     ]
 
 

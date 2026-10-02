@@ -132,9 +132,14 @@ def _line_count(ctx: Context, relative: str) -> int | None:
 # never asked. `_STRIPPED` (extant/text.py) reads the format too, through
 # _blank_uncached, and compares it since 2026-09-16; for months it did not,
 # and this cache's format comparison was the shape that one was missing.
+# The PATH too, since 2026-10-02: the blanking has read it since `.mdx` lost
+# its indented code (2026-09-22), and this key went without it after the two
+# beside it in extant/links.py and extant/rules/path_pointer.py gained it -
+# the argument above named everything this read except that.
 # Measured on pytest's 308 documents: 617 calls, 1.19s.
 _POINTER_SITES: (
-    "tuple[str, Path, str, list[tuple[int, str, int, int, int | None]]] | None"
+    "tuple[str, Path, str, str | None, "
+    "list[tuple[int, str, int, int, int | None]]] | None"
 ) = None
 
 
@@ -177,10 +182,11 @@ def _line_pointer_sites(
     global _POINTER_SITES
     if (_POINTER_SITES is not None and _POINTER_SITES[0] is text
             and _POINTER_SITES[1] == ctx.repo
-            and _POINTER_SITES[2] == ctx.doc.doc_format):
-        return _POINTER_SITES[3]
+            and _POINTER_SITES[2] == ctx.doc.doc_format
+            and _POINTER_SITES[3] == ctx.doc.doc_path):
+        return _POINTER_SITES[4]
     sites = _line_pointer_sites_uncached(ctx, text)
-    _POINTER_SITES = (text, ctx.repo, ctx.doc.doc_format, sites)
+    _POINTER_SITES = (text, ctx.repo, ctx.doc.doc_format, ctx.doc.doc_path, sites)
     return sites
 
 

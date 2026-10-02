@@ -55,8 +55,12 @@ _LINKED_PATH = re.compile(r"\[\s*`([^`]+)`\s*\]\(\s*([^)\s]+)")
 # Pure given those three, so it needs no invalidation and is NOT registered in
 # `registry.forget_memos` - unlike `_POINTER_SITES` next door in
 # extant/rules/line_pointer.py, which reads the filesystem and must be dropped.
+# The PATH as well, since 2026-10-01, for the reason `_LINK_SITES` in
+# extant/links.py gives: `prose()` reads it for `.mdx`, and a key without it
+# answered an `.mdx` document from an `.md` one's scan.
 _PATH_SITES: (
-    "tuple[str, re.Pattern[str], str, list[tuple[int, str, list[str]]]] | None"
+    "tuple[str, re.Pattern[str], str, str | None, "
+    "list[tuple[int, str, list[str]]]] | None"
 ) = None
 
 
@@ -78,10 +82,12 @@ def _path_pointer_sites(
     global _PATH_SITES
     if (_PATH_SITES is not None and _PATH_SITES[0] is text
             and _PATH_SITES[1] is ctx.config.path_pointer
-            and _PATH_SITES[2] == ctx.doc.doc_format):
-        return _PATH_SITES[3]
+            and _PATH_SITES[2] == ctx.doc.doc_format
+            and _PATH_SITES[3] == ctx.doc.doc_path):
+        return _PATH_SITES[4]
     sites = _path_pointer_sites_uncached(ctx, text)
-    _PATH_SITES = (text, ctx.config.path_pointer, ctx.doc.doc_format, sites)
+    _PATH_SITES = (text, ctx.config.path_pointer, ctx.doc.doc_format,
+                   ctx.doc.doc_path, sites)
     return sites
 
 

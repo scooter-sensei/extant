@@ -292,6 +292,50 @@ def format_github(located: list[Located]) -> list[str]:
     return lines
 
 
+# The most results one run may hold before GitHub code scanning REJECTS the
+# whole file: "If any of these objects exceeds its maximum value the SARIF file
+# is rejected", 25,000 results per run (docs.github.com, "SARIF support for code
+# scanning", read 2026-10-01). Several runs is no way round it: since July 2025
+# runs sharing a tool and category in one upload are refused as well, and
+# separate categories would move alerts between them as the split shifts.
+#
+# Measured over the 152 visible corpus clones: ONE exceeds it - bazel's sweep,
+# 40,868 results, every one a non-gating note and 39,519 in per-release
+# snapshot copies - and its upload received nothing at all. 0.95 MB gzipped,
+# so the 10 MB size limit is not the one that binds. Every other run is under
+# it and is left exactly as it was.
+SARIF_RESULT_LIMIT = 25_000
+
+
+def _sarif_kept(located: list[Located]) -> list[Located]:
+    """What one run carries: everything, up to the limit; past it, the
+    findings that gate, then by stratum in the reverse of the order strata
+    are classified in - ordinary documents first, vendored ones last - and
+    within each in the order they were found, which is also the order they
+    are written in."""
+    if len(located) <= SARIF_RESULT_LIMIT:
+        return located
+    rank = {name: index for index, name in enumerate(reversed(strata.ORDER))}
+    best = sorted(range(len(located)), key=lambda i: (
+        not located[i].gating, rank.get(located[i].stratum, len(rank)), i))
+    return [located[i] for i in sorted(best[:SARIF_RESULT_LIMIT])]
+
+
+def sarif_overflow_note(count: int) -> list[str]:
+    """The NOTE for a run of `count` results that the limit cut, or none.
+
+    One wording for the SARIF notification and the human stream, so the two
+    cannot describe one cut differently."""
+    if count <= SARIF_RESULT_LIMIT:
+        return []
+    order = ", ".join(reversed(strata.ORDER))
+    return [f"  NOTE: {count - SARIF_RESULT_LIMIT:,} of {count:,} results are "
+            f"left out of the SARIF, because GitHub code scanning rejects a "
+            f"run holding more than {SARIF_RESULT_LIMIT:,}. Kept first: the "
+            f"findings that gate, then by document stratum ({order}). The text "
+            f"format lists every one."]
+
+
 def format_sarif(located: list[Located], repo: Path | None = None, *,
                  examined: dict[str, int] | None = None,
                  notes: list[str] | None = None,
@@ -310,6 +354,11 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
     presentation and the denominator, never correctness.
     """
     kinds = {rule.kind: rule for rule in _registry.RULES}
+    # Past GitHub's per-run limit, the results a reader needs first; at or
+    # under it, `located` itself. See `SARIF_RESULT_LIMIT`.
+    overflow = sarif_overflow_note(len(located))
+    total = len(located)
+    located = _sarif_kept(located)
     seen: list[str] = []
     for item in located:
         if item.finding.kind not in seen:
@@ -424,6 +473,13 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
         "columnKind": "utf16CodeUnits",
         "results": results,
     }
+    # The cut, said in the file a consumer reads as well as in the log: as a
+    # notification, and as a count beside the denominator. A mode that printed
+    # the NOTE hands it in with the rest, and it is said once, as they are.
+    cut = [{"level": "warning",
+            "message": {"text": line.strip().removeprefix("NOTE: ")}}
+           for line in overflow if line not in (notes or [])]
+    omitted = {"omitted": total - len(located)} if overflow else {}
     if examined is not None:
         # THE DENOMINATOR. Every other output states what was examined, and
         # this one did not: a consumer seeing zero results could not tell a
@@ -455,7 +511,7 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
             "toolExecutionNotifications": [
                 {"level": "note",
                  "message": {"text": f"examined: {summary}"}},
-                *said, *raised,
+                *said, *raised, *cut,
             ],
         }
         if off:
@@ -468,7 +524,11 @@ def format_sarif(located: list[Located], repo: Path | None = None, *,
                  "configuration": {"enabled": False}}
                 for kind in off]
         run["invocations"] = [invocation]
-        run["properties"] = {"examined": examined}
+        run["properties"] = {"examined": examined, **omitted}
+    elif cut:
+        run["invocations"] = [{"executionSuccessful": not errors,
+                               "toolExecutionNotifications": cut}]
+        run["properties"] = dict(omitted)
 
     return json.dumps({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",

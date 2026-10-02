@@ -967,6 +967,58 @@ def test_the_link_scan_is_not_answered_across_a_format_change() -> None:
         "second reading from the first")
 
 
+def test_the_link_and_pointer_scans_are_not_answered_across_a_path_change(
+        git_repo) -> None:
+    """The third input of the blanking, missing from two memos above it.
+
+    Since 2026-09-22 the blanking reads the document's PATH - `.mdx` has no
+    indented code block - and `_STRIPPED` carries it in its key. `_LINK_SITES`
+    (extant/links.py) and `_PATH_SITES` (extant/rules/path_pointer.py) compute
+    over that blanking keyed on the text and the format alone, so one text
+    object read as `a.md` and then as `a.mdx` was answered from the first
+    reading: the indented line is code in markdown and a claim in MDX.
+    """
+    from extant import links
+    from extant import session as hc
+    from extant.rules import path_pointer as rule_path_pointer
+    from extant.scope import DocScope
+    repo, _commit = git_repo
+
+    linked = "intro\n\n    [x](missing.md)\n"
+    as_md = links.link_sites(DocScope(doc_path="a.md"), linked)
+    as_mdx = links.link_sites(DocScope(doc_path="a.mdx"), linked)
+    assert ([t for _n, _r, t, _h in as_md], [t for _n, _r, t, _h in as_mdx]) == (
+        [], ["missing.md"]), (as_md, as_mdx)
+
+    pointed = "intro\n\n    see `docs/plan.md` for it\n"
+    hc.set_document(doc_path="a.md")
+    in_md = rule_path_pointer.examined(hc.context(repo), pointed)
+    hc.set_document(doc_path="a.mdx")
+    in_mdx = rule_path_pointer.examined(hc.context(repo), pointed)
+    hc.set_document(doc_path=None)
+    assert (in_md, in_mdx) == (0, 1), (in_md, in_mdx)
+
+
+def test_the_line_pointer_scan_is_not_answered_across_a_path_change(
+        git_repo) -> None:
+    """The third memo of that shape, which the two above were repaired
+    without: `_POINTER_SITES` (extant/rules/line_pointer.py) blanks through
+    `prose`, which reads the path, and kept the text, the repository and the
+    format in its key - its comment argued those were everything it read."""
+    from extant import session as hc
+    from extant.rules import line_pointer as rule_line_pointer
+    repo, commit = git_repo
+    commit("a.py", "one\ntwo\nthree\n", "feat: a")
+
+    pointed = "intro\n\n    see `a.py:2` for it\n"
+    hc.set_document(doc_path="a.md")
+    in_md = rule_line_pointer.examined(hc.context(repo), pointed)
+    hc.set_document(doc_path="a.mdx")
+    in_mdx = rule_line_pointer.examined(hc.context(repo), pointed)
+    hc.set_document(doc_path=None)
+    assert (in_md, in_mdx) == (0, 1), (in_md, in_mdx)
+
+
 def test_the_release_scan_runs_once_per_document_not_once_per_caller(
         git_repo, reconfigure) -> None:
     """The same question, for the release-claim scan `check` and `examined`

@@ -223,18 +223,18 @@ def test_the_map_is_read_once_per_run_not_once_per_document(git_repo,
     a map with one line per commit once per file is the cost `--sweep` already
     took ownership of the directory listings to avoid.
     """
-    from extant import commits, session as hc
+    from extant import rewrites, session as hc
     repo, commit = git_repo
     live = commit("a.py", "a = 1\n", "feat: a").strip()
     write_map(repo / ".git", [("abc1234" + "0" * 33, live)])
     reads = []
-    real = commits.load_sha_map
+    real = rewrites.load_sha_map
 
     def counting(path):
         reads.append(path)
         return real(path)
 
-    monkeypatch.setattr(commits, "load_sha_map", counting)
+    monkeypatch.setattr(rewrites, "load_sha_map", counting)
     with hc.run_scope():
         for _ in range(3):
             hc.validate(repo, "Merged the fix in `abc1234`.\n", has_entries=False)
@@ -248,12 +248,12 @@ def test_the_map_is_not_read_when_no_sha_is_dead(git_repo, monkeypatch) -> None:
     nothing. This is what makes the size of the map somebody else's problem
     only on runs that already have findings.
     """
-    from extant import commits, session as hc
+    from extant import rewrites, session as hc
     repo, commit = git_repo
     live = commit("a.py", "a = 1\n", "feat: a").strip()
     write_map(repo / ".git", [("abc1234" + "0" * 33, live)])
     reads = []
-    monkeypatch.setattr(commits, "load_sha_map",
+    monkeypatch.setattr(rewrites, "load_sha_map",
                         lambda path: reads.append(path) or {})
     with hc.run_scope():
         hc.validate(repo, f"Merged the fix in `{live[:7]}`.\n", has_entries=False)
@@ -369,7 +369,8 @@ def test_a_rewrite_chain_is_followed_to_its_end(git_repo) -> None:
     `b` reads as correct and is as dead as `a`, which is the failure the
     ambiguity rule exists to refuse - so the chain is followed to `c`, by
     the one reader the hint and `--sha-map` share."""
-    from extant.commits import load_sha_map, translate_shas
+    from extant.commits import translate_shas
+    from extant.rewrites import load_sha_map
     repo, commit = git_repo
     live = commit("a.py", "a = 1\n", "feat: a").strip()
     dead, middle = "abc1234", "b" * 40

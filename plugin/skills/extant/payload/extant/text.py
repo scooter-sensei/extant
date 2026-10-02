@@ -494,17 +494,18 @@ def line_number_at(text: str, offset: int) -> int:
     through every offset of every terminator spelling rather than sampling.
 
     THIS IS NOT THE ONLY LINE NUMBERING IN THE PACKAGE, and a reader who has
-    got this far deserves telling rather than discovering it. Twelve sites
-    number lines with `enumerate(..., start=1)`, and two number them from an
-    offset through this function. Eleven of the twelve cut by `splitlines()`:
-    two in extant/commits.py, one each in the line-pointer, manifest-floor,
-    md-anchor, path-pointer and pinned-ref rules, the md-link scanner in
-    extant/links.py, `code_lines` in extant/blocks.py with the blanking loop
-    here that reads it, and the TODO scan in extant/collect.py. The twelfth,
-    the SARIF snippet in extant/report.py, iterates a file opened with
-    `newline=""`, which cuts at `\\n`, `\\r` and `\\r\\n` - LINE_BREAK's set.
+    got this far deserves telling rather than discovering it. Thirteen sites
+    number lines with `enumerate(..., start=1)`, and two number them from
+    an offset through this function. Twelve of the thirteen cut by
+    `splitlines()`: three in extant/commits.py, one each in the line-pointer,
+    manifest-floor, md-anchor, path-pointer and pinned-ref rules, the md-link
+    scanner in extant/links.py, `code_lines` in extant/blocks.py with the
+    blanking loop here that reads it, and the TODO scan in extant/collect.py.
+    The thirteenth, the SARIF snippet in extant/report.py, iterates a file
+    opened with `newline=""`, which cuts at `\\n`, `\\r` and `\\r\\n` -
+    LINE_BREAK's set.
     tests/test_line_numbering.py keeps the ledger, read from the syntax tree,
-    so a thirteenth is a decision rather than a drift.
+    so a fourteenth is a decision rather than a drift.
 
     `splitlines()` breaks on a larger set than `LINE_BREAK` does: form feed,
     vertical tab, the file separators and the Unicode line separators are all

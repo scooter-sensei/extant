@@ -55,7 +55,8 @@ from extant.finding import Finding, Located
 from extant.gate import report_repository_notes
 from extant.registry import RULE_ERRORS
 from extant.report import (
-    format_sweep_sections, render_findings, sweep_entry_note,
+    format_sweep_sections, render_findings, sarif_overflow_note,
+    sweep_entry_note,
 )
 
 __all__ = [
@@ -571,7 +572,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
     everything = results["vetted"] + results["unvetted"] + results["repository"]
     checkout_notes, fallback_notes, zero_notes = _survey_notes(
         repo, examined, ran, any(is_primary for _r, is_primary in tasks),
-        index_incomplete, fallback)
+        index_incomplete, fallback, fmt, len(everything))
     if fmt == "text":
         section_lines, entries = format_sweep_sections(results)
         for line in section_lines:
@@ -694,7 +695,7 @@ def run_sweep(repo: Path, fmt: str) -> int:
 
 def _survey_notes(repo: Path, examined: dict[str, int], ran: set[str],
                   primary_read: bool, index_incomplete: bool,
-                  fallback: str | None
+                  fallback: str | None, fmt: str = "text", found: int = 0
                   ) -> tuple[list[str], list[str], list[str]]:
     """Every NOTE the survey prints - the checkout's, a parallel fallback,
     and the zeros of the `examined:` line - worked out before any is printed,
@@ -705,10 +706,16 @@ def _survey_notes(repo: Path, examined: dict[str, int], ran: set[str],
     across a WHOLE repository is a far stronger signal than the same zero in
     one document. Only of a rule that READ something, though; one no document
     here is for is said apart, with why (`session.zero_notes`).
+
+    The SARIF result limit's NOTE rides with the fallback's, for the same two
+    readers - the log and the file - and only in SARIF, the one format it
+    cuts: printed beside the summary, and carried as a notification. `fmt`
+    and `found` are what it needs; `run_sweep` sits at its line ceiling.
     """
     checkout: list[str] = []
     report_repository_notes(checkout.append, repo, index_incomplete)
-    return checkout, fallback_note(fallback), session.zero_notes(
+    overflow = sarif_overflow_note(found) if fmt == "sarif" else []
+    return checkout, fallback_note(fallback) + overflow, session.zero_notes(
         examined, ran, did="examined nothing anywhere here",
         claims="no document makes such claims", primary_read=primary_read,
         absent="none is here", read="swept")

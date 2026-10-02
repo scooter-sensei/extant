@@ -147,6 +147,151 @@ def test_archive_mode_never_stacks_a_second_pointer(git_repo) -> None:
     assert archived.index("## Phase 3") < archived.index("## Phase 2"), archived
 
 
+@pytest.mark.parametrize("config, entry, pointer", [
+    # The installer derives `entry_prefix` from `^(#{1,4})\s+(\S+)`, so every
+    # heading level is installer output rather than exotic configuration.
+    ('entry_prefix = "### Session "\n', "### Session", "### Archive pointer"),
+    ('entry_prefix = "# Day "\n', "# Day", "# Archive pointer"),
+    ('entry_prefix = "#### Week "\n', "#### Week", "#### Archive pointer"),
+    # A configured pointer is what is WRITTEN, so it is what is stripped.
+    ('pointer_prefix = "## Older entries"\n', "## Phase", "## Older entries"),
+], ids=["level-3", "level-1", "level-4", "configured-pointer"])
+def test_the_pointer_never_travels_into_the_archive(git_repo, config, entry,
+                                                    pointer) -> None:
+    """The pointer is written at the entries' own heading level, and is the
+    one `pointer_prefix` names.
+
+    It was written as a hard-coded `## Archive pointer` and recognised by
+    `pointer_prefix`, while `split_entries` cuts at the heading level
+    `entry_prefix` names. With `### ` entries the `## ` pointer is no section
+    boundary there: it was glued onto the oldest entry kept, never seen as the
+    last run's pointer, and carried into the archive inside that entry when it
+    retired - one more stale block per run. A configured `pointer_prefix` was
+    never what got written, so it was never stripped either.
+    """
+    repo, commit = git_repo
+    body = "".join(f"{entry} {n} - entry {n} (2026-0{n}-01)\n\nbody {n}\n\n"
+                   for n in range(5, 0, -1))
+    commit(".extant.toml", config, "chore: config")
+    commit("NEXT_SESSION.md", "# Status\n\n" + body, "docs: five entries")
+
+    first = run_tool(repo, "--archive")
+    assert "retained=3 archived=2" in first.stdout, (first.stdout, first.stderr)
+    staged = _read(repo / "NEXT_SESSION.md").replace(
+        f"{entry} 5 ", f"{entry} 6 - entry 6 (2026-06-01)\n\nbody 6\n\n{entry} 5 ", 1)
+    commit("NEXT_SESSION.md", staged, "docs: a sixth entry")
+    second = run_tool(repo, "--archive")
+    assert "archived=1" in second.stdout, (second.stdout, second.stderr)
+
+    live = _read(repo / "NEXT_SESSION.md")
+    archived = _read(repo / "docs" / "status-archive.md")
+    assert live.count(f"\n{pointer}\n") == 1, live
+    assert "pointer" not in archived.lower(), archived
+    # And it is still the newest-first archive the plain case produces.
+    assert archived.index(f"{entry} 3 ") < archived.index(f"{entry} 2 "), archived
+
+
+def test_a_section_a_person_wrote_is_never_taken_for_the_pointer(git_repo) -> None:
+    """The pointer is recognised by its header AND by the one line `archive`
+    writes under it, never by the header alone.
+
+    It was any section whose heading STARTS WITH `pointer_prefix`. With the
+    default prefixes every `## ` heading is a section, so a reference section
+    a person titled "Archive pointer format" was the stale pointer: stripped
+    from the live document, put in neither file, and subtracted from the
+    conservation guard's baseline as the guard is told to subtract the stale
+    pointer - so the one irreversible write deleted it and exited 0.
+    """
+    repo, commit = git_repo
+    written = "How we write pointers: by hand, and only here."
+    doc = FIVE_ENTRIES.replace(
+        "## Phase 3 ", f"## Archive pointer format\n\n{written}\n\n## Phase 3 ", 1)
+    commit("NEXT_SESSION.md", doc, "docs: five entries and a section")
+
+    done = run_tool(repo, "--archive")
+    assert "archived=2" in done.stdout, (done.stdout, done.stderr)
+    live = _read(repo / "NEXT_SESSION.md")
+    archived = _read(repo / "docs" / "status-archive.md")
+    assert written in live + archived, (live, archived)
+
+
+@pytest.mark.parametrize("joiner, added", [
+    ("\n", "> And the 2025 entries are in the wiki."),
+    # On the generated line itself, ending as it does in a backtick and a
+    # full stop - which a reader matching any archive name greedily took
+    # for the generated line, and deleted.
+    (" ", "Older ones: see `wiki/archive`."),
+], ids=["own-line", "same-line"])
+def test_a_line_added_under_the_pointer_is_kept(git_repo, joiner, added) -> None:
+    """A pointer somebody wrote into is no longer only the tool's output, so
+    it is kept rather than regenerated over: the next run writes a fresh
+    pointer beside it, which is visible, where stripping it deleted a line a
+    person wrote. Every pointer this tool has ever written carries exactly
+    the one generated line, so recognising that line costs no old pointer."""
+    repo, commit = git_repo
+    commit("NEXT_SESSION.md", FIVE_ENTRIES, "docs: five entries")
+    run_tool(repo, "--archive")
+    staged = _read(repo / "NEXT_SESSION.md").replace(
+        "live in `docs/status-archive.md`.\n",
+        f"live in `docs/status-archive.md`.{joiner}{added}\n", 1).replace(
+        "## Phase 5 ", "## Phase 6 - sixth (2026-06-01)\n\nbody six\n\n## Phase 5 ", 1)
+    commit("NEXT_SESSION.md", staged, "docs: a sixth entry and a note")
+
+    done = run_tool(repo, "--archive")
+    assert "archived=1" in done.stdout, (done.stdout, done.stderr)
+    live = _read(repo / "NEXT_SESSION.md")
+    archived = _read(repo / "docs" / "status-archive.md")
+    assert added in live + archived, (live, archived)
+
+
+@pytest.mark.parametrize("prefix", ["Phase ", "**Phase "])
+def test_a_pointer_under_a_non_heading_prefix_is_never_an_entry(
+        git_repo, prefix) -> None:
+    """`entry_prefix` need not be a heading, and the pointer is derived from
+    its first word: `Phase Archive pointer`, which starts with the entry
+    prefix itself. Classified by that prefix alone, it was an ENTRY - one
+    more in every count, and after a `retain_entries = 0` archive the only
+    one, so the newest-entry rules read the pointer as the newest entry. It
+    is classified as the pointer first, by the one reader every count uses.
+    """
+    from extant import config, entries
+    repo, commit = git_repo
+    body = "".join(f"{prefix}{n} - entry {n}\n\nbody {n}\n\n" for n in (3, 2, 1))
+    commit(".extant.toml", f'entry_prefix = "{prefix}"\nretain_entries = 1\n',
+           "chore: config")
+    commit("NEXT_SESSION.md", "# Status\n\n" + body, "docs: three entries")
+
+    run_tool(repo, "--archive")
+    searched = run_tool(repo, "--search", "body")
+    assert "in 3 entries" in searched.stdout, (searched.stdout, searched.stderr)
+
+    commit(".extant.toml", f'entry_prefix = "{prefix}"\nretain_entries = 0\n',
+           "chore: keep none")
+    run_tool(repo, "--archive")
+    built = config.Config.build(config.load_config(repo))
+    live = _read(repo / "NEXT_SESSION.md")
+    assert built.pointer_prefix in live, live
+    assert entries.newest_entry(live, built) is None, live
+
+
+@pytest.mark.parametrize("retain, archive_doc", [
+    (3, "docs/status-archive.md"), (0, "a.md"), (-1, "a.md"),
+    (12, "docs/odd `name`.md"),
+], ids=["default", "zero", "negative", "backtick"])
+def test_every_pointer_the_writer_can_produce_is_recognised(
+        retain, archive_doc) -> None:
+    """The writer and the reader of the pointer's line sit side by side in
+    extant/entries.py, and must agree on everything the writer can produce:
+    a pointer the reader misses is kept as a person's section and a fresh
+    one is stacked beside it on every run. A negative `retain_entries` is
+    accepted by the loader, and nothing stops a backtick in `archive_doc`."""
+    import dataclasses
+    from extant import entries, session
+    built = dataclasses.replace(session._ACTIVE, archive_doc=archive_doc)
+    chunk = f"{built.pointer_prefix}\n\n{entries._pointer_line(retain, archive_doc)}\n\n"
+    assert entries._is_pointer(chunk, built), chunk
+
+
 def test_archive_without_a_retain_reads_the_configured_value(git_repo,
                                                              reconfigure) -> None:
     """`retain=None` means "however many this project keeps".

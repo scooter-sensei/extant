@@ -834,6 +834,44 @@ def test_every_value_type_the_installer_can_emit_round_trips() -> None:
     assert parsed["a_string"] == "plain words", rendered
 
 
+def test_every_string_the_installer_writes_round_trips_intact() -> None:
+    """A parse is not enough: the value has to come back as itself.
+
+    Plain keys, list items and consistency file names were written as
+    `"value"` with nothing escaped. `entry_prefix` is the first word of a
+    repeated header - `detect._HEADER` takes `(\\S+)` - so a header like
+    `## "Sprint" 3` wrote `entry_prefix = "## "Sprint" "`, which does not
+    parse, and every later run exited 2. A backslash parsed and was WORSE:
+    `\\n` in a basic string is a newline, so the value read back was not
+    the one detected, and nothing said so. A git refname may hold `"` too.
+    """
+    import sys
+
+    sys.path.insert(0, str(SKILL_ROOT))
+    from detect import DERIVED, Observation
+    from install import render_config
+
+    awkward = ['## "Sprint" ', "### C:\\notes ", 'odd"trunk', "tab\there"]
+    rendered = render_config([
+        Observation("primary_doc", "README.md", DERIVED, "measured"),
+        Observation("entry_prefix", awkward[0], DERIVED, "a quoted header"),
+        Observation("pointer_prefix", awkward[1], DERIVED, "a backslash"),
+        Observation("trunk", awkward[2], DERIVED, "a legal refname"),
+        Observation("extra_docs", [f"docs/{a}.md" for a in awkward], DERIVED,
+                    "listed"),
+        Observation("consistency", {"version": {'say "hi".txt': r"v(\d+)",
+                                                "b.txt": r"v(\d+)"}},
+                    DERIVED, "a quoted file name"),
+    ])
+
+    parsed = tomllib.loads(rendered)["extant"]
+    assert parsed["entry_prefix"] == awkward[0], rendered
+    assert parsed["pointer_prefix"] == awkward[1], rendered
+    assert parsed["trunk"] == awkward[2], rendered
+    assert parsed["extra_docs"] == [f"docs/{a}.md" for a in awkward], rendered
+    assert set(parsed["consistency"]["version"]) == {'say "hi".txt', "b.txt"}, rendered
+
+
 def test_the_installer_asserts_release_claims_are_local() -> None:
     """Installing extant INTO a repository is the assertion the setting wants.
 

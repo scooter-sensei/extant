@@ -17,12 +17,13 @@ from __future__ import annotations
 import re
 
 from extant.commits import (
-    document_shas, find_bare_sha_candidates, find_sha_candidates, rewrite_hint,
+    document_shas, find_bare_sha_candidates, find_sha_candidates,
 )
 from extant.contract import Rule
 from extant.finding import Finding
 from extant.probes import sub_group
 from extant.refs import own_remote
+from extant.rewrites import rewrite_hint
 from extant.scope import Context
 from extant.text import prose
 

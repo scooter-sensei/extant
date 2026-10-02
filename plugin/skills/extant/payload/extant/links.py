@@ -191,23 +191,29 @@ EXTERNAL = re.compile(
 # document FORMAT beside the text, because `strip_code` blanks markdown and
 # reStructuredText differently and the sites depend on which; keyed on the
 # text alone this would be `_STRIPPED` in extant/text.py again, whose key
-# omits the format while its value reads it. Complete, so it lives here and
-# not in `registry.forget_memos`: a changed input misses.
-_LINK_SITES: "tuple[str, str, list[tuple[int, str, str, bool]]] | None" = None
+# omits the format while its value reads it. The document PATH joined the key
+# on 2026-10-01: the blanking has read it since 2026-09-22 (`.mdx` has no
+# indented code), and this key went on without it - the same omission, a
+# third time. Complete now, so it lives here and not in
+# `registry.forget_memos`: a changed input misses.
+_LINK_SITES: (
+    "tuple[str, str, str | None, list[tuple[int, str, str, bool]]] | None"
+) = None
 
 
 def link_sites(doc: DocScope, text: str) -> list[tuple[int, str, str, bool]]:
     """Every link a caller will TRY to decide: (line, raw, target, html).
 
-    Memoised on the text object and the document format; the scan itself is
+    Memoised on the text object, the format and the path; the scan itself is
     `_link_sites_uncached` below, and its docstring is the record.
     """
     global _LINK_SITES
     if (_LINK_SITES is not None and _LINK_SITES[0] is text
-            and _LINK_SITES[1] == doc.doc_format):
-        return _LINK_SITES[2]
+            and _LINK_SITES[1] == doc.doc_format
+            and _LINK_SITES[2] == doc.doc_path):
+        return _LINK_SITES[3]
     sites = _link_sites_uncached(doc, text)
-    _LINK_SITES = (text, doc.doc_format, sites)
+    _LINK_SITES = (text, doc.doc_format, doc.doc_path, sites)
     return sites
 
 

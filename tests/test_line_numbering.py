@@ -152,6 +152,10 @@ LINE_NUMBERING_SITES = {
     "text.py:_blank_uncached": "splitlines, against code_lines",
     "commits.py:_find_sha_candidates": "splitlines",
     "commits.py:_find_bare_sha_candidates": "splitlines",
+    # Since 2026-10-01: the line `--sha-map` names a rewrite on, counted by
+    # the same cut as the two scanners beside it, so it names the line they
+    # would report a finding on.
+    "commits.py:translate_shas": "splitlines",
     "links.py:_link_sites_uncached": "splitlines",
     "rules/line_pointer.py:_line_pointer_sites_uncached": "splitlines",
     "rules/manifest_floor.py:_floor_claims": "splitlines",
@@ -166,7 +170,7 @@ LINE_NUMBERING_SITES = {
 
 
 def test_every_line_numbering_site_is_on_the_ledger() -> None:
-    """Catches a thirteenth `enumerate(..., start=1)`, or a site that went.
+    """Catches a fourteenth `enumerate(..., start=1)`, or a site that went.
 
     The plan that asked for this ledger counted ten, and the count taken for
     it by grep counted nine: a grep for `enumerate(...splitlines())` cannot
