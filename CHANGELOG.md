@@ -1,5 +1,88 @@
 # Changelog
 
+## Unreleased
+
+Above 0.29.0, unreleased: Phases 60 and 61. No rule added or removed,
+thirteen as before; no mode added. Three exit codes moved, each to 2, and
+one `--archive` defect that deleted a person's section is repaired.
+
+Phase 60 made CI and the mutation campaign cheaper without moving a verdict,
+and fixed one shipped thing on the way. Inside a git hook, the remote guard
+now reads Git for Windows' system gitconfig. git puts its own exec path first
+on PATH for every hook it runs, so the guard had walked to the wrong prefix
+and could not see an `insteadOf` rewrite written there.
+
+Phase 61 is an audit of the whole package and then a gap audit of that
+audit: eighteen repairs. Its record is Phase 61 in NEXT_SESSION.md, and the
+sections "The 2026-10-01 audit" and "The gap audit of that audit" in the
+design rationale's part on keeping the tool honest.
+
+**`--archive` no longer deletes a section you wrote.** It recognised its own
+pointer by the header alone. Under the default prefixes, a section headed
+"## Archive pointer ..." was therefore taken for the last run's pointer and
+deleted from both files, with exit 0; the conservation guard is told to
+discount the pointer, so it did not fire. This predates the audit. The
+pointer is now recognised by its header and by the one line the tool writes
+under it, which has read the same since the first commit. A line you add
+under the pointer is kept, and a fresh pointer is written beside it.
+
+**Exit codes.** Each of these now exits 2 with "cannot read configuration",
+naming the setting:
+- a malformed `.extant.toml` read by the console script - what pip,
+  pre-commit and the GitHub Action run - which was a traceback and exit 1;
+- a blank `entry_prefix`, which raised IndexError on every run;
+- a `code_suffixes` value without its dot, such as `"py"`, which matched no
+  file and so read as a tree with no TODOs.
+
+**`--verify` reports an archive or extra document it cannot decode** as a
+`missing-document` finding, at exit 1, instead of ending the run with a
+traceback. A UTF-16 file, which is what PowerShell 5.1's `>` writes, was
+enough.
+
+**The post-commit hook tells a run that did not finish from one with
+findings.** It used to print "has 0 unverified claim(s)" above the first
+lines of an error, which cut off the line naming the cause. It now says it
+could not finish, and shows the end of the output.
+
+**A SARIF run stops at 25,000 results**, the most GitHub code scanning
+accepts in one run; above that it rejects the whole file. Past the limit the
+run keeps the findings that gate first, then ordinary documents, then
+historical, generated, version-snapshot and vendored ones. It says how many
+it left out in `properties.omitted`, in a notification, and on stderr. The
+text format still lists every finding. Of 152 measured repositories, one
+sweep is over the limit: bazel's, at 40,868.
+
+**`--sha-map` never rewrites a UUID**, and names the lines where it rewrote
+inside a link to another repository. That may be this repository under an
+older name, where the rewrite is the repair, or an upstream it absorbed,
+where the old id still works. git cannot tell the two apart, so the person
+applying the map is told where to look.
+
+**`--archive` writes its pointer at the entries' own heading level.** A fixed
+`## Archive pointer` was no section of its own under `### ` entries. It stuck
+to the oldest entry kept and rode into the archive with it, one stale block
+per run. Nothing changes for `## ` entries. A configured `pointer_prefix` is
+now the header actually written, so it is the one stripped, and a pointer
+under a non-heading `entry_prefix` is no longer counted as an entry.
+
+**Upgrading from 0.29.0.** A project whose entries are not `## ` headings,
+and that has run `--archive`, holds one `## Archive pointer` block inside
+its oldest kept entry. The next archive run carries it into the archive with
+that entry, once. Delete it by hand first to keep the archive clean. Nothing
+is lost either way.
+
+**Smaller repairs:**
+- `--deleted-since` reads each old version under its own path, so
+  `manifest-floor-mismatch` can report a removed claim.
+- `code_suffixes` is honoured by the TODO scan, which had a hard-coded copy
+  of its default.
+- A code file the TODO scan cannot read is listed in the bundle's new
+  `todos_unread`.
+- The installer escapes the TOML strings it writes; a quote in a detected
+  header wrote a configuration that did not parse.
+- Through the library API, the link, path-pointer and line-pointer scans no
+  longer answer an `.mdx` reading of one text from its `.md` reading.
+
 ## 0.29.0 (2026-09-30)
 
 The five tranches of the internals review that followed 0.28.0, Phases 55
