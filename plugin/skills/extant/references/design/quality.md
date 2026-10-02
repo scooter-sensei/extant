@@ -1615,3 +1615,240 @@ process, by `tests/test_remote_from_disk.py`.
 - `--verify` exits 0 on the checkout and on a clone holding only `main` and
   the pull request, and `--selftest` leaves no rule silent.
 - CI on `a0d85d8`: 21 of 21 checks green.
+
+## The 2026-10-01 audit: thirteen repairs, two of them measured first
+
+An audit of the whole package on 2026-10-01, Phase 61, covered every shipped
+module in full except the code-block, anchor and site-detection readers, and
+fuzzed those three instead. Its ledger is outside the repository, beside the
+earlier reviews', under `D:\repo\audit-20261001\`. Each repair below was
+written against a test that failed first, and each carries a mutation anchor,
+except the one line of CI configuration (AUD-11), which only a CI run can
+check.
+
+**Two fuzzers found nothing, and that is recorded as a result.** 20,000 random
+documents went through the pure readers: fences, lists, quotes, HTML, MDX,
+links, CR-only and mixed endings, and the Unicode separators. None raised, and
+every blanking kept its length. 400 more went through every rule, its
+denominator and its probe, under seven paths. None raised either. The one slow
+shape was a line of 20,000 `[a](` openers, at 2.8 s. That is the bounded
+quadratic `MD_LINK` already records.
+
+**Nine of the repairs share one root cause.** In each, one reader of a
+thing learned a lesson that a sibling reader of the same thing had not. The
+other two are crashes found while making them.
+
+- **A configured document `--verify` cannot decode is a finding, not a
+  traceback** (AUD-1). The primary document's read reported this. The
+  archive's read and every extra document's did not. A UTF-16 CLAUDE.md,
+  which is what PowerShell 5.1's `>` writes, ended the run with a traceback.
+  So no denominator after it printed, and a machine format emitted nothing.
+  Both reads now go through one reader, and an undecodable file gets the
+  `missing-document` finding a refused one already got.
+- **The post-commit hook stopped calling a failed run "0 unverified
+  claims"** (AUD-8). Every non-zero exit was read as findings. An unreadable
+  configuration (exit 2) therefore printed "has 0 unverified claim(s)" above
+  the first five lines of its error. A crash printed the same sentence above
+  its denominators, and the traceback's last line was cut off. That was the
+  line naming the cause. Exit 1 with findings is reported as before. Anything
+  else is now called a check that could not finish, and the hook shows the
+  end of the output instead of the start.
+- **The archive pointer sits at the entries' own heading level** (AUD-2).
+  It was a fixed `## ` header, and it was recognised by `pointer_prefix`.
+  With `### ` entries, which the installer derives from any heading from
+  `#` to `####`, the pointer was no section of its own. It stuck to the
+  oldest entry kept and rode into the archive with it, one stale block per
+  run. A configured `pointer_prefix` was never the header actually written,
+  so it was never stripped either, and the pointer stacked in the live
+  document. `Config.build` now derives the header, and the default gives the
+  same `## Archive pointer` as before.
+- **`--deleted-since` reads an old version under its own path** (AUD-4). It
+  had installed only the format. A rule keying on which file it reads
+  therefore read None for every old version.
+  `manifest-floor-mismatch` could report no removed claim at all. This is the
+  shape `AGENTS.md` records for `--sweep`, in the third survey mode.
+- **`code_suffixes` is read** (AUD-5). It was parsed, type-checked and
+  documented, and nothing read it: the TODO scan used a hard-coded copy of
+  its default.
+- **Two memos carry the document path** (AUD-6). The link and path-pointer
+  memos compute over the blanking, and since 2026-09-22 the blanking has read
+  the path: `.mdx` has no indented code. One text object read as `.md` and
+  then as `.mdx` was answered from the first reading. That cannot happen
+  through the CLI, where every document is its own object. It can through the
+  library API.
+- **The installer escapes the strings it writes** (AUD-7). A `"` in a
+  detected header or in a refname wrote a configuration that does not parse.
+  A backslash parsed into a different value.
+- **The pointer half of the patch invariant has a test and an anchor**
+  (AUD-9). This was the third open lead of the 2026-09-12 review.
+- **`tests.yml` states `contents: read`** (AUD-11), as `publish.yml` already
+  did. The repository's default was read-only when this was written, so
+  nothing moved.
+- **The target repository's unreadable configuration exits 2, not with a
+  traceback** (AUD-13). The shim catches a bad file at IMPORT, which is the
+  target's own file only when the tool is installed in it. `main()` re-reads
+  the target's file from `--repo`, and nothing caught that read. The console
+  script takes that path, and it is what pip, the pre-commit framework and
+  the GitHub Action run. So a malformed `.extant.toml` came out as a
+  traceback and exit 1, which CI reads as findings.
+- **A blank `entry_prefix` is refused by the loader** (AUD-12). The section
+  header takes the prefix's first word, so an empty one raised IndexError at
+  import, on every run, instead of the ValueError that names the key.
+
+`config.py` was at its 927-line ceiling. The pointer derivation went in only
+after the TOML error hints moved out, byte for byte, into
+`plugin/skills/extant/payload/extant/config_errors.py`. Their anchor moved
+with them.
+
+**Two more were measured over the corpus before they were built**, because
+each changes what a user receives. The measurement changed one of the designs.
+
+- **`--sha-map` and what `dead-sha` does not report** (AUD-3). The
+  translator skipped only backticked spans. The scanner also skips URL,
+  UUID, asset-name, pinned-ref and foreign linked-commit hex, so the
+  translator rewrites a population the scanner never reports.
+  - **The plan was to stop translating that population.** The measurement
+    refused it. `a3_translate.py` in the measurement apparatus classified
+    every token the translator considers, over 82,802 documents of the
+    visible corpus. It then asked which tokens a full-history map of each
+    clone would rewrite. On every document it agreed with the rule's own
+    scanner about which tokens are reported.
+  - **Most of the wider population is wanted.** 87,585 tokens sit in URLs
+    to the repository's own commits. That is the URL behind a changelog
+    link whose text the scanner reads, and a repair has to move the two
+    together. 5,363 more are in code blocks, and 528 are astro changeset
+    ids, which turned out to be commit ids.
+  - **No shape the scanner calls "never a commit" lost anything.** Only 1
+    asset name was rewritten, and it was axe-core's own permalink, whose
+    path ends in `.js`.
+  - **Links to other repositories are a mix git cannot separate.** About
+    513 tokens name a renamed repository's own commits (node's io.js,
+    unraid's old name) or its own source browser. About 169 name an
+    absorbed upstream's commits (moveit, rust-clippy, acorn), where the old
+    id still works upstream and a rewrite breaks a working link.
+  - **What shipped.** A UUID group is never translated, matching the
+    scanner: 1,282 in the corpus and none translated. A rewrite inside a
+    link, URL or pin that names a repository other than origin is still
+    made, as before, and `--sha-map` names its lines for the person
+    applying the map. Its regression gate, `a3_identity.py`, ran the old and
+    the new translator over all 82,802 documents under that map: 181,562
+    rewrites in 1,100 documents, and not one document's result differs.
+    677 rewrites were named. 674 are the other-repository tokens the
+    measurement predicted. The other 3 are URLs whose repository cannot be
+    read off them: two of node's typo'd `/comit/` and `/commi/` links and
+    one `raw.githubusercontent.com` permalink.
+  - The rewrite-map reading left `commits.py` for
+    `plugin/skills/extant/payload/extant/rewrites.py`, byte for byte, when
+    this took that module past its ceiling.
+- **A SARIF run over 25,000 results is rejected by GitHub code scanning**
+  (AUD-10). GitHub's documentation says a file whose objects exceed their
+  maximum "is rejected", and it allows 25,000 results per run. The
+  2026-09-12 handoff had read that as truncation.
+  - **The population.** Over the 152 visible clones, one run exceeds the
+    limit: bazel's sweep, at 40,868 results. Every one is a non-gating
+    note, and 39,519 are in per-release snapshot copies. Its upload
+    reached code scanning with nothing. The run is 0.95 MB gzipped, so the
+    10 MB size limit is not the one that binds.
+  - **Splitting is no way round it.** Since July 2025 GitHub refuses runs
+    in one upload that share a tool and a category. Separate categories
+    would move alerts between them as the split shifts.
+  - **What shipped.** Past the limit the run keeps the findings that gate,
+    then ordinary documents, then the other strata in the reverse of their
+    precedence, in the order they were found. It says what it left out, in
+    a notification, as `properties.omitted` and on stderr.
+  - **bazel after the change.** The run keeps 25,000 results, in their
+    original order, at 0.53 MB. All 366 ordinary, 5 historical-record and
+    186 generated results are kept. 792 vendored and 15,076 version-snapshot
+    results are dropped.
+  - **Every other run is unchanged.** The next three largest, PX4 at 4,466,
+    node at 3,720 and kubernetes at 2,616, are byte-identical before and
+    after.
+  - **`sweep.py` is now one line under its 927-line ceiling.** The sweep's
+    NOTE travels through `_survey_notes` because `run_sweep` was already at
+    its 303-line function ceiling. The next change to that module splits it
+    first.
+
+## The gap audit of that audit: five repairs, one of them a deletion
+
+On 2026-10-02 the audit's own work was audited for gaps. It asked three
+questions. Was each claim true of the code actually there? Did each repair
+reach every reader of the thing it repaired? Did a test or an anchor hold
+each changed path? Its write-up is `GAP-AUDIT.md`, beside the ledger outside
+the repository. It found eight gaps, and a ninth while repairing the second.
+
+**`--archive` deleted a section a person wrote, and exited 0.** This predates
+the audit, and it is the worst defect either pass found, in the one place
+this package writes irreversibly.
+- **The trigger.** The archive pointer was recognised by its header alone:
+  any section starting with `pointer_prefix`. Under the default prefixes
+  every `## ` heading is a section, so one headed "## Archive pointer
+  format" was the last run's pointer.
+- **Why the guard stayed quiet.** The section was stripped from the live
+  document and written to neither file. The conservation guard is told to
+  subtract the stale pointer's lines from its baseline, so it subtracted
+  these too.
+- **The repair.** `_is_pointer` in `entries.py` asks for the header AND,
+  under it, nothing but the one generated line. That line has been worded
+  "Entries older than the newest N live in ..." since the first commit, so
+  no pointer this tool ever wrote is missed. One function writes the line
+  and one pattern reads it, side by side.
+- **The pattern accepts any count but only this archive's name.** A count
+  can be negative, which the loader accepts. The name is escaped rather
+  than matched by `.*`, because a greedy match took a line a person had
+  extended past the generated sentence for the generated sentence. A
+  pointer naming an archive since renamed is kept, which is visible.
+- **A pointer somebody added a line to** is now kept as their section, and
+  the next run writes a fresh pointer beside it. That is visible, and
+  stripping it had deleted the line.
+
+**The same reader repaired the gap it was found under.** `split_entries`
+classified a section by `entry_prefix` alone. AUD-2 derives the pointer from
+the entry prefix's first word, so under a non-heading prefix such as
+`Phase ` the pointer is `Phase Archive pointer`, which starts with the entry
+prefix. It was counted as an entry by `--search`. After a
+`retain_entries = 0` archive it was the newest entry the live-claim rules
+read; at HEAD that document had none. A pointer is now "other" before it can
+be "phase".
+
+**A third memo of AUD-6's shape.** `_POINTER_SITES` in
+`rules/line_pointer.py` blanks through `prose`, which reads the path. Its key
+held the text, the repository and the format, and its comment argued those
+were everything it read. AUD-6 had given the path to the two memos beside it.
+Reachable through the library API only, as theirs were.
+
+**`code_suffixes`, live since AUD-5, is checked.**
+- A value without its dot matched no file, so the bundle read as a tree with
+  no TODOs. The loader now refuses one, echoing it through `ascii()` for a
+  cp437 console.
+- A changed code file the scan cannot read is listed under the bundle's
+  `todos_unread`, with why, where it used to be passed over in silence.
+
+**Four lines held by nothing.** Each was removed by hand on a clone and the
+whole suite run, and all four survived:
+- the stderr NOTE of the SARIF limit in `--verify`, `--introduced-since` and
+  `--deleted-since`;
+- the check that says the cut once in the file.
+
+The behaviour was right when run by hand. One test over the three modes now
+holds it, and four anchors name the lines.
+
+**Verification gaps, closed by measuring.**
+- **The SARIF corpus check.** It had run before the `--sha-map` code landed.
+  Re-run on the final tree, it is identical: the three repositories under
+  the limit match HEAD byte for byte, and bazel matches the first
+  measurement.
+- **CI's orders.** Its Linux legs run serially and once shuffled, where the
+  audit had run only in parallel. Both orders are green.
+- **Refusals.** Every configuration key was given eight wrong values through
+  `main()`. All 240 were refused cleanly or accepted, with no traceback.
+
+**What a release note owes, and an upgrade.**
+- **Exit codes moved.** A malformed `.extant.toml` on the console-script
+  path, a blank `entry_prefix` and a dotless `code_suffixes` each exit 2;
+  the first two were a traceback and exit 1.
+- **Upgrading from 0.29.0.** A project whose entries are not `## ` headings,
+  and that has archived, holds one `## Archive pointer` block glued inside
+  its oldest kept entry. That is where 0.29.0's fixed header landed. The
+  next archive run carries it into the archive with that entry, once.
+  Nothing is lost.
+- Phase 61 in `NEXT_SESSION.md` lists the rest.
