@@ -387,7 +387,7 @@ only the author knows which two strings name one fact.
 
 | Path | What |
 |:---|:---|
-| `plugin/skills/extant/payload/extant/` | the validator: settings, scopes, the git seam, the three output formats, the modes. `gate.py` holds the modes that check one document and decide an exit code, `sweep.py` and `deleted_since.py` the surveys that never gate, `introduced_since.py` the survey that gates - on the lines a change wrote |
+| `plugin/skills/extant/payload/extant/` | the validator: settings, scopes, the git seam, the three output formats, the modes. `gate.py` holds the modes that check one document and decide an exit code, `sweep.py` and `deleted_since.py` the surveys that never gate, `introduced_since.py` the survey that gates - on the lines a change wrote, `exclusions.py` the `exclude_paths` matcher the two sweeping surveys share |
 | `plugin/skills/extant/payload/extant/rules/` | one module per rule |
 | `plugin/skills/extant/payload/extant_collect.py` | the entry point the hook invokes by path; a version handshake and one import |
 | `plugin/skills/extant/install.py` | the installer, detection and presets |

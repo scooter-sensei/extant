@@ -63,7 +63,8 @@ from extant.gate import report_repository_notes
 from extant.git import environment
 from extant.registry import RULE_ERRORS
 from extant.report import render_findings, sarif_overflow_note
-from extant.sweep import apply_exclusions, fallback_note, survey, unusable_note
+from extant.exclusions import unusable_note
+from extant.sweep import apply_exclusions, fallback_note, survey
 
 __all__ = ["introduced_lines", "merge_base", "run_introduced_since",
            "unquote_path"]

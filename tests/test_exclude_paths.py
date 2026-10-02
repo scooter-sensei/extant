@@ -36,8 +36,8 @@ PATHS = [
 
 def _split(patterns):
     from extant import session as hc
-    from extant import sweep
-    return sweep.excluded_documents(list(PATHS), tuple(patterns))
+    from extant import exclusions
+    return exclusions.excluded_documents(list(PATHS), tuple(patterns))
 
 
 # --------------------------------------------------------------------------
@@ -106,15 +106,15 @@ def test_a_trailing_slash_means_a_directory_and_not_a_file_of_that_name() -> Non
     `excluded_documents` could never have reached the difference; it is
     closed anyway, so the matcher agrees with git on every shape it claims.
     Everything under the directory is still taken."""
-    from extant import sweep
-    directory = sweep._exclusion_regex("docs/")
+    from extant import exclusions
+    directory = exclusions._exclusion_regex("docs/")
     assert directory is not None
     assert directory.match("docs/guide.md")
     assert directory.match("a/docs/guide.md")
     assert not directory.match("docs"), "a file named docs is not the directory"
     assert not directory.match("pkg/debian/docs")
     # Without the slash the name is a segment, file or directory, as before.
-    segment = sweep._exclusion_regex("docs")
+    segment = exclusions._exclusion_regex("docs")
     assert segment is not None
     assert segment.match("pkg/debian/docs")
     assert segment.match("docs/guide.md")
@@ -175,12 +175,12 @@ def test_the_unusable_pattern_guard_is_a_contract() -> None:
     instead of hunting for a document that would notice.
     """
     from extant import session as hc
-    from extant import sweep
-    assert sweep._exclusion_regex("") is None
-    assert sweep._exclusion_regex("   ") is None
-    assert sweep._exclusion_regex("# a comment") is None
+    from extant import exclusions
+    assert exclusions._exclusion_regex("") is None
+    assert exclusions._exclusion_regex("   ") is None
+    assert exclusions._exclusion_regex("# a comment") is None
     # And the guard has not swallowed a legitimate pattern on its way past.
-    assert sweep._exclusion_regex("testdata") is not None
+    assert exclusions._exclusion_regex("testdata") is not None
 
 
 def test_negation_and_character_classes_are_named_unusable() -> None:
@@ -194,16 +194,16 @@ def test_negation_and_character_classes_are_named_unusable() -> None:
     a known install uses either), and named WHY, because "matched nothing, so
     it may be stale" is the wrong diagnosis for a pattern that never could.
     """
-    from extant import sweep
-    assert sweep.unusable_exclusion("!docs/keep.md") == "negation is not supported"
-    assert (sweep.unusable_exclusion("docs/[a-z]*.md")
+    from extant import exclusions
+    assert exclusions.unusable_exclusion("!docs/keep.md") == "negation is not supported"
+    assert (exclusions.unusable_exclusion("docs/[a-z]*.md")
             == "a character class is not supported")
-    assert sweep._exclusion_regex("!docs/keep.md") is None
-    assert sweep._exclusion_regex("docs/[a-z]*.md") is None
+    assert exclusions._exclusion_regex("!docs/keep.md") is None
+    assert exclusions._exclusion_regex("docs/[a-z]*.md") is None
     # `!` is special only where gitignore says it is: at the start.
-    assert sweep.unusable_exclusion("docs/a!b.md") is None
-    assert sweep._exclusion_regex("docs/a!b.md") is not None
-    assert sweep.unusable_exclusion("testdata") is None
+    assert exclusions.unusable_exclusion("docs/a!b.md") is None
+    assert exclusions._exclusion_regex("docs/a!b.md") is not None
+    assert exclusions.unusable_exclusion("testdata") is None
 
 
 def test_a_comment_is_not_named_an_unusable_pattern() -> None:
@@ -215,10 +215,10 @@ def test_a_comment_is_not_named_an_unusable_pattern() -> None:
     unsupported character class - a diagnosis of a comment. Found by the
     review of the built tranche, 2026-09-29.
     """
-    from extant import sweep
+    from extant import exclusions
     for comment in ("# drafts [old]", "#!keep", "  # [x]", ""):
-        assert sweep.unusable_exclusion(comment) is None, repr(comment)
-    assert sweep.unusable_note(["# drafts [old]", "drafts/**"]) is None
+        assert exclusions.unusable_exclusion(comment) is None, repr(comment)
+    assert exclusions.unusable_note(["# drafts [old]", "drafts/**"]) is None
 
 
 def test_the_sweep_names_an_unusable_pattern_and_why(git_repo) -> None:

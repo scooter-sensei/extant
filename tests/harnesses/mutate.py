@@ -100,6 +100,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # Seven anchors below followed it by path, the text they match unchanged,
     # and an eighth was written against it.
     deleted_since = collect.parent / "extant/deleted_since.py"
+    # The skip-list matcher left sweep.py for extant/exclusions.py on
+    # 2026-10-02 (Phase 62), when sweep.py stood one line under its
+    # ceiling and the matcher needed a repair. Eight anchors below
+    # followed it by path, the text they match unchanged.
+    exclusions = collect.parent / "extant/exclusions.py"
     # The survey that gates, written 2026-09-14: the findings on the lines a
     # range wrote. Eight anchors below, each watched turning the suite red
     # on a copy before it was recorded here.
@@ -1609,26 +1614,26 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # skip-list fails silently in BOTH directions and this project has
         # already shipped one whose defaults excluded every file it was meant
         # to scan.
-        ("a star crosses a separator, so docs/* takes the whole tree", sweep,
+        ("a star crosses a separator, so docs/* takes the whole tree", exclusions,
          '            out.append("[^/]*")',
          '            out.append(".*")'),
-        ("a bare pattern anchors at the root instead of any segment", sweep,
+        ("a bare pattern anchors at the root instead of any segment", exclusions,
          '        source = rf"^(?:.*/)?{core}{beneath}$"',
          '        source = rf"^{core}{beneath}$"'),
-        ("a bare pattern matches half a segment", sweep,
+        ("a bare pattern matches half a segment", exclusions,
          '        source = rf"^(?:.*/)?{core}{beneath}$"',
          '        source = rf".*{core}.*"'),
         # A trailing slash names a directory, as in a .gitignore; taking a
         # file of that name too is what git's matcher and this one disagreed
         # on, five paths in 793,684 (2026-09-20).
-        ("a trailing slash matches a file of that name", sweep,
+        ("a trailing slash matches a file of that name", exclusions,
          '    beneath = r"(?:/.*)" if directory_only else r"(?:/.*)?"',
          '    beneath = r"(?:/.*)?"'),
         ("an unusable pattern compiles to one that matches everything",
-         sweep,
+         exclusions,
          '    if not pattern or pattern.startswith("#"):\n        return None',
          '    if False:\n        return None'),
-        ("a path is counted against every pattern it matches", sweep,
+        ("a path is counted against every pattern it matches", exclusions,
          "                hit = pattern\n                break",
          "                hit = pattern"),
         ("the per-pattern counts stop being reported", sweep,
@@ -2462,7 +2467,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    for chunk in ([name] for name in relatives):"),
         # `!` and `[` escaped into literals, and an unusable pattern diagnosed
         # as a stale one - in both surveys that apply the exclusions.
-        ("an unusable exclusion is escaped into a literal again", sweep,
+        ("an unusable exclusion is escaped into a literal again", exclusions,
          "    if unusable_exclusion(pattern) is not None:\n        return None",
          "    if False:\n        return None"),
         ("an unusable exclusion is called stale", sweep,
@@ -2514,7 +2519,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '                           entry_found=not primary_read, doc_format="",',
          '                           entry_found=True, doc_format="",'),
         # A comment is set aside before any pattern question is asked.
-        ("a comment is named an unusable exclusion", sweep,
+        ("a comment is named an unusable exclusion", exclusions,
          '    if not body or body.startswith("#"):\n        return None',
          '    if False:\n        return None'),
         # git ends a listed name at `\n` alone; splitlines cut real names.
