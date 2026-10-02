@@ -266,7 +266,10 @@ is how git reads both; until Phase 62 every `**` spanned separators here.
 whole tree and the only evidence would be a smaller number.
 
 Every row above was checked against `git check-ignore` on 793,684 distinct
-tracked paths from 152 repositories and agreed exactly. What the matcher does
+tracked paths from 152 repositories and agreed exactly, and since Phase 62
+every suite run holds generated patterns against it too, with paths built
+from each pattern - which is how the `**` rule above was found. What the
+matcher does
 NOT read is a leading `!` (negation) and `[` (a character class): a pattern
 holding either excludes nothing, and both `--sweep` and `--introduced-since`
 name it as unusable, with which of the two it is, rather than quietly

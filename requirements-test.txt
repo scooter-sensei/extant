@@ -27,3 +27,19 @@ pytest-xdist>=3
 # original name. The TOOL still needs neither: it falls back, and works on
 # defaults when no parser is present at all.
 tomli>=2; python_version < "3.11"
+# Property tests: tests/test_properties.py generates the inputs six
+# invariants must hold for, where an example test holds the cases somebody
+# thought of. Its pilot runs found two defects 1,566 example tests had not
+# (Phase 62). PINNED EXACTLY, sharper than mypy's bound in
+# requirements-dev.txt: the suite runs it derandomized, so which examples
+# are tried is a function of this version, and a release nobody committed
+# would change the examples - a new red on `main` from no commit. Exact for
+# a second reason: tests/conftest.py replaces one of its private functions,
+# to stop it mining constants from whatever the process has imported, which
+# made the draws depend on import order. A bump is a deliberate commit that
+# reruns the properties and tests/test_property_settings.py. Marked for 3.10
+# and up because Hypothesis dropped 3.9 in 6.142.0 (2025-10-16), 6.141.1
+# the last release for it; that module skips there and says why, and is a
+# collection ERROR on 3.10+ without this, never a skip. Never imported by
+# anything under `plugin/skills/extant/payload/`.
+hypothesis==6.168.3; python_version >= "3.10"

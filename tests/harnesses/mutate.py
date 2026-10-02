@@ -141,6 +141,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # when gate.py stood at 899 of its 927 lines; its seven anchors moved with it.
     patches = collect.parent / "extant/patches.py"
     probes = collect.parent / "extant/probes.py"
+    # Two files of the SUITE, written 2026-10-02 by Phase 62's gap audit:
+    # how the Hypothesis properties run is set outside the payload, and a
+    # setting nothing pins is as silent as code nothing pins. The checkout
+    # root is four levels above the shim (payload, extant, skills, plugin).
+    conftest = collect.parents[4] / "tests/conftest.py"
+    properties = collect.parents[4] / "tests/test_properties.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -2769,6 +2775,69 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "            if unread is not None:\n",
          "        except UnicodeDecodeError as exc:\n"
          "            if False:\n"),
+
+        # --- Phase 62: what only a property catches -------------------------
+        # tests/test_properties.py holds six invariants as Hypothesis
+        # properties. Each mutation below survived every OTHER test in the
+        # suite - run with that module left out, the kill confirmed alone -
+        # and turns a property red, so each is the evidence that property
+        # can fail.
+        ("a question mark crosses a separator", exclusions,
+         '            out.append("[^/]")',
+         '            out.append(".")'),
+        ("an rst doctest line rebuilds its terminator", text,
+         '        if _RST_DOCTEST.match(line):\n'
+         '            out.append(" " * len(line) + end)',
+         '        if _RST_DOCTEST.match(line):\n'
+         '            out.append(" " * len(line) + "\\n")'),
+        ("a plus in a link target is decoded as a space", links,
+         "    from urllib.parse import unquote\n",
+         "    from urllib.parse import unquote_plus as unquote\n"),
+        # The order a grouped report prints in: lines within a document, and
+        # one document's groups, came out in the order the rules found them.
+        ("a group's findings are not sorted by line", report,
+         "        group.sort(key=lambda item: (item.path, item.finding.line))",
+         "        group.sort(key=lambda item: item.path)"),
+        ("groups are not sorted by their first line", report,
+         "    groups.sort(key=lambda g: (g[0].path, g[0].finding.line))",
+         "    groups.sort(key=lambda g: g[0].path)"),
+        ("a hex run longer than an object name is read as a commit", commits,
+         'BARE_SHA_TOKEN = re.compile(r"(?<![#\\w])[0-9a-f]{7,40}\\b")',
+         'BARE_SHA_TOKEN = re.compile(r"(?<![#\\w])[0-9a-f]{7,41}\\b")'),
+        # And the two defects the properties found in their pilot runs, each
+        # pinned since by an example test as well.
+        ("a finding is filed twice under one key", report,
+         "        for key in dict.fromkeys(_identity_keys(item)):",
+         "        for key in _identity_keys(item):"),
+        ("every star run spans separators again", exclusions,
+         '            if ((index == 0 or body[index - 1] == "/")\n'
+         '                    and (end == len(body) or body[end] == "/")):',
+         "            if True:"),
+
+        # --- Phase 62's gap audit: how the properties run -------------------
+        # Not the payload: the settings that decide whether a property runs
+        # and what it draws. The first three SURVIVED the whole suite when
+        # the gap audit ran them, every property skipping or drawing at
+        # random with the suite green. tests/test_property_settings.py holds
+        # all five from outside the property module, which a skip of that
+        # module cannot reach.
+        ("the properties skip on every Python", properties,
+         "if sys.version_info < (3, 10):",
+         "if sys.version_info < (3, 99):"),
+        ("the ci profile is never loaded", conftest,
+         '    _hypothesis_settings.load_profile("ci")\n',
+         ""),
+        ("the ci profile draws at random", conftest,
+         "        derandomize=True, database=None, deadline=None, print_blob=True)",
+         "        derandomize=False, database=None, deadline=None, print_blob=True)"),
+        ("the ci profile drops Hypothesis's own too_slow suppression", conftest,
+         '        "ci", parent=_hypothesis_settings.get_profile("ci"), max_examples=500,',
+         '        "ci", max_examples=500,'),
+        # Derandomized draws that move with import order: under -n auto, under
+        # --order-seed, and in this harness's own confirm-alone run.
+        ("the local-constant pool is mined again", conftest,
+         "    _providers._get_local_constants = lambda: _NO_LOCAL_CONSTANTS\n",
+         ""),
     ]
 
 

@@ -119,6 +119,25 @@ under twelve workers competing for CPU. It has been soaked rather than trusted -
 seven full parallel runs plus five repeats of that file under load, all green -
 and that is the check to repeat if this ever flakes.
 
+`tests/test_properties.py` holds six invariants as Hypothesis properties
+(Phase 62): Hypothesis generates the inputs, where an example test holds the
+cases somebody thought of. They run in every suite run, derandomized and
+without a database - the `ci` profile `tests/conftest.py` derives from
+Hypothesis's own - and with Hypothesis's mining of constants from imported
+modules held off, which otherwise made the draws depend on what the process
+had imported first. So which examples they try is a function of the commit,
+of the Hypothesis `requirements-test.txt` pins exactly, and for the one
+property that draws from `st.characters` of the Python version's Unicode
+tables; `tests/test_property_settings.py` holds all of it. To search
+further, at random and ten times as far:
+
+```sh
+python -m pytest tests/test_properties.py --hypothesis-profile=explore
+```
+
+What that finds becomes an `@example` on the property, so every run tries it
+from then on. On 3.9 the module skips and says why: Hypothesis left 3.9.
+
 ## Before you push
 
 The suite is not the whole gate, and treating it as one is how this repository
