@@ -50,7 +50,8 @@ all 357, by extrapolation. 165 mutations had taken 5h53m against 1,035
 tests. On the same machine, the environment `mutate.py` has given each suite
 since then took about a third off two things: a serial run of 60 kill checks,
 and a whole ledger-driven campaign. A full `mutate.py` campaign with it has
-not been timed.
+not been timed. There are 431 anchors since Phase 63 (2026-10-03), so the
+day is an underestimate.
 
 The figure read "half an hour" for a long time, and the drift is mechanical
 rather than careless:

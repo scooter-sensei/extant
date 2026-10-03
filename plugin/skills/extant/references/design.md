@@ -94,6 +94,7 @@ Where each section went, by its title:
 - The gap audit of that audit: five repairs, one of them a deletion
 - Six invariants held as properties: two defects, and the generator that decides what a property can find
 - The gap audit of the properties: nine findings, and a derandomized run that was not
+- mutmut as a cross-check: what the hand-chosen anchors missed
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 
