@@ -100,6 +100,11 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # Seven anchors below followed it by path, the text they match unchanged,
     # and an eighth was written against it.
     deleted_since = collect.parent / "extant/deleted_since.py"
+    # The skip-list matcher left sweep.py for extant/exclusions.py on
+    # 2026-10-02 (Phase 62), when sweep.py stood one line under its
+    # ceiling and the matcher needed a repair. Eight anchors below
+    # followed it by path, the text they match unchanged.
+    exclusions = collect.parent / "extant/exclusions.py"
     # The survey that gates, written 2026-09-14: the findings on the lines a
     # range wrote. Eight anchors below, each watched turning the suite red
     # on a copy before it was recorded here.
@@ -136,6 +141,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
     # when gate.py stood at 899 of its 927 lines; its seven anchors moved with it.
     patches = collect.parent / "extant/patches.py"
     probes = collect.parent / "extant/probes.py"
+    # Two files of the SUITE, written 2026-10-02 by Phase 62's gap audit:
+    # how the Hypothesis properties run is set outside the payload, and a
+    # setting nothing pins is as silent as code nothing pins. The checkout
+    # root is four levels above the shim (payload, extant, skills, plugin).
+    conftest = collect.parents[4] / "tests/conftest.py"
+    properties = collect.parents[4] / "tests/test_properties.py"
     return [
         # --- rule logic ------------------------------------------------------
         # Retargeted when ancestry moved from a per-claim merge-base call to a
@@ -1609,26 +1620,26 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # skip-list fails silently in BOTH directions and this project has
         # already shipped one whose defaults excluded every file it was meant
         # to scan.
-        ("a star crosses a separator, so docs/* takes the whole tree", sweep,
+        ("a star crosses a separator, so docs/* takes the whole tree", exclusions,
          '            out.append("[^/]*")',
          '            out.append(".*")'),
-        ("a bare pattern anchors at the root instead of any segment", sweep,
+        ("a bare pattern anchors at the root instead of any segment", exclusions,
          '        source = rf"^(?:.*/)?{core}{beneath}$"',
          '        source = rf"^{core}{beneath}$"'),
-        ("a bare pattern matches half a segment", sweep,
+        ("a bare pattern matches half a segment", exclusions,
          '        source = rf"^(?:.*/)?{core}{beneath}$"',
          '        source = rf".*{core}.*"'),
         # A trailing slash names a directory, as in a .gitignore; taking a
         # file of that name too is what git's matcher and this one disagreed
         # on, five paths in 793,684 (2026-09-20).
-        ("a trailing slash matches a file of that name", sweep,
+        ("a trailing slash matches a file of that name", exclusions,
          '    beneath = r"(?:/.*)" if directory_only else r"(?:/.*)?"',
          '    beneath = r"(?:/.*)?"'),
         ("an unusable pattern compiles to one that matches everything",
-         sweep,
+         exclusions,
          '    if not pattern or pattern.startswith("#"):\n        return None',
          '    if False:\n        return None'),
-        ("a path is counted against every pattern it matches", sweep,
+        ("a path is counted against every pattern it matches", exclusions,
          "                hit = pattern\n                break",
          "                hit = pattern"),
         ("the per-pattern counts stop being reported", sweep,
@@ -2462,7 +2473,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "    for chunk in ([name] for name in relatives):"),
         # `!` and `[` escaped into literals, and an unusable pattern diagnosed
         # as a stale one - in both surveys that apply the exclusions.
-        ("an unusable exclusion is escaped into a literal again", sweep,
+        ("an unusable exclusion is escaped into a literal again", exclusions,
          "    if unusable_exclusion(pattern) is not None:\n        return None",
          "    if False:\n        return None"),
         ("an unusable exclusion is called stale", sweep,
@@ -2514,7 +2525,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '                           entry_found=not primary_read, doc_format="",',
          '                           entry_found=True, doc_format="",'),
         # A comment is set aside before any pattern question is asked.
-        ("a comment is named an unusable exclusion", sweep,
+        ("a comment is named an unusable exclusion", exclusions,
          '    if not body or body.startswith("#"):\n        return None',
          '    if False:\n        return None'),
         # git ends a listed name at `\n` alone; splitlines cut real names.
@@ -2764,6 +2775,69 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "            if unread is not None:\n",
          "        except UnicodeDecodeError as exc:\n"
          "            if False:\n"),
+
+        # --- Phase 62: what only a property catches -------------------------
+        # tests/test_properties.py holds six invariants as Hypothesis
+        # properties. Each mutation below survived every OTHER test in the
+        # suite - run with that module left out, the kill confirmed alone -
+        # and turns a property red, so each is the evidence that property
+        # can fail.
+        ("a question mark crosses a separator", exclusions,
+         '            out.append("[^/]")',
+         '            out.append(".")'),
+        ("an rst doctest line rebuilds its terminator", text,
+         '        if _RST_DOCTEST.match(line):\n'
+         '            out.append(" " * len(line) + end)',
+         '        if _RST_DOCTEST.match(line):\n'
+         '            out.append(" " * len(line) + "\\n")'),
+        ("a plus in a link target is decoded as a space", links,
+         "    from urllib.parse import unquote\n",
+         "    from urllib.parse import unquote_plus as unquote\n"),
+        # The order a grouped report prints in: lines within a document, and
+        # one document's groups, came out in the order the rules found them.
+        ("a group's findings are not sorted by line", report,
+         "        group.sort(key=lambda item: (item.path, item.finding.line))",
+         "        group.sort(key=lambda item: item.path)"),
+        ("groups are not sorted by their first line", report,
+         "    groups.sort(key=lambda g: (g[0].path, g[0].finding.line))",
+         "    groups.sort(key=lambda g: g[0].path)"),
+        ("a hex run longer than an object name is read as a commit", commits,
+         'BARE_SHA_TOKEN = re.compile(r"(?<![#\\w])[0-9a-f]{7,40}\\b")',
+         'BARE_SHA_TOKEN = re.compile(r"(?<![#\\w])[0-9a-f]{7,41}\\b")'),
+        # And the two defects the properties found in their pilot runs, each
+        # pinned since by an example test as well.
+        ("a finding is filed twice under one key", report,
+         "        for key in dict.fromkeys(_identity_keys(item)):",
+         "        for key in _identity_keys(item):"),
+        ("every star run spans separators again", exclusions,
+         '            if ((index == 0 or body[index - 1] == "/")\n'
+         '                    and (end == len(body) or body[end] == "/")):',
+         "            if True:"),
+
+        # --- Phase 62's gap audit: how the properties run -------------------
+        # Not the payload: the settings that decide whether a property runs
+        # and what it draws. The first three SURVIVED the whole suite when
+        # the gap audit ran them, every property skipping or drawing at
+        # random with the suite green. tests/test_property_settings.py holds
+        # all five from outside the property module, which a skip of that
+        # module cannot reach.
+        ("the properties skip on every Python", properties,
+         "if sys.version_info < (3, 10):",
+         "if sys.version_info < (3, 99):"),
+        ("the ci profile is never loaded", conftest,
+         '    _hypothesis_settings.load_profile("ci")\n',
+         ""),
+        ("the ci profile draws at random", conftest,
+         "        derandomize=True, database=None, deadline=None, print_blob=True)",
+         "        derandomize=False, database=None, deadline=None, print_blob=True)"),
+        ("the ci profile drops Hypothesis's own too_slow suppression", conftest,
+         '        "ci", parent=_hypothesis_settings.get_profile("ci"), max_examples=500,',
+         '        "ci", max_examples=500,'),
+        # Derandomized draws that move with import order: under -n auto, under
+        # --order-seed, and in this harness's own confirm-alone run.
+        ("the local-constant pool is mined again", conftest,
+         "    _providers._get_local_constants = lambda: _NO_LOCAL_CONSTANTS\n",
+         ""),
     ]
 
 

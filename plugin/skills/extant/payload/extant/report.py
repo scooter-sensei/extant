@@ -650,7 +650,10 @@ def group_parallel(located: list[Located]) -> list[list[Located]]:
     """
     keyed: dict[tuple[object, ...], list[int]] = {}
     for index, item in enumerate(located):
-        for key in _identity_keys(item):
+        # Each key ONCE per finding: a segment that is literally `*` makes its
+        # wildcard key equal the exact one, and filing the index under it
+        # twice grouped the finding with itself (Phase 62).
+        for key in dict.fromkeys(_identity_keys(item)):
             keyed.setdefault(key, []).append(index)
 
     taken: set[int] = set()

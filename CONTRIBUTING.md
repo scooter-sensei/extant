@@ -30,7 +30,8 @@ when a config file is actually present. Two tests in `test_packaging.py`
 keep the floor where it is claimed to be.
 
 **The tool has no third-party dependencies**, and nothing installed into your
-repository needs any. The test suite is a separate question: it needs pytest.
+repository needs any. The test suite is a separate question: it needs pytest,
+and from 3.10 on Hypothesis, pinned in `requirements-test.txt`.
 Conflating those two is what put a comment reading "no dependencies to install"
 above a CI step that ran `python -m pytest` on a runner without it, and all six
 jobs failed identically before a single test ran.
@@ -165,6 +166,14 @@ believing any silence it produces.
 confirm it goes red. A test that has never failed pins nothing. If a mutation
 does not reproduce the bug you meant to reproduce, the green run afterwards
 means nothing either.
+
+A property in `tests/test_properties.py` needs this twice over, because
+what it can find is decided by what it generates. The first generator for
+the `exclude_paths` matcher drew paths apart from the pattern: it found the
+defect only at 1,000 random examples a run, and stayed green in every
+derandomized set a suite could afford, where paths built FROM the pattern
+found it in 25. Break the function a property guards and watch the property
+go red before you believe its silence.
 
 **A test named after a feature is not thereby a test OF it.** A contributed
 branch arrived with three tests named for the parallel sweep that asserted only

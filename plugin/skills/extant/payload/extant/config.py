@@ -261,10 +261,10 @@ DEFAULTS: dict[str, object] = {
     # mistake the admission test exists to prevent.
     #
     # Patterns are gitignore-shaped rather than fnmatch: `*` stops at a path
-    # separator and `**` spans them, because a `*` that silently crosses `/`
-    # is the surprise this tool spends its time removing. A pattern with no
-    # separator matches a path SEGMENT anywhere, so `testdata` covers
-    # `hugolib/testdata/x.md` without anybody writing three asterisks.
+    # separator and `**` spans them only as a whole segment, as in git,
+    # because a `*` that silently crosses `/` is the surprise this tool
+    # spends its time removing. A pattern with no separator matches a path
+    # SEGMENT anywhere, so `testdata` covers `hugolib/testdata/x.md` alone.
     "exclude_paths": [],
     # Windows lays a virtualenv out as Scripts/python.exe and POSIX as
     # bin/python, so a single literal is wrong on one of them. Chosen from

@@ -6,6 +6,115 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 62 - Six invariants held as properties: two defects, and the generator that decides what a property finds (unreleased, 2026-10-02)
+
+**Status.** Built and gated; gap-audited, repaired, and gated again.
+- 1,588 tests across 82 files, of which 1,580 pass and 8 skip on this
+  machine - the same 8 skips as before. On Linux 1,586 pass and 2 skip,
+  serially and in CI's shuffled order.
+- smoke, scenarios (213 of 213), fuzz (0 violations) and the fuzzer's
+  self-check (23 of 23) green on an extract. The payload's code has not
+  changed since - only comments and docstrings - so they stand.
+- `python -m mypy`: no issues in 47 files.
+- 404 mutation anchors match. 13 are new and 8 retargeted by path. All 16
+  of the build were killed by one `--parallel` campaign on a clone in 39
+  minutes; after the gap audit, the 13 new ones were killed again by one
+  more in 35, because holding Hypothesis's constant pool empty changes
+  what a property draws: 0 survived, 0 hung, 0 overturned by the serial
+  check, either time.
+- The identity gate over the 152 visible corpus clones, main against this
+  tree: 0 of 152 outputs differ, as predicted in writing before it ran.
+- No rule added or removed, thirteen as before; no mode added.
+- One shipped module is new, moved byte for byte out of a module one line
+  under its ceiling: `plugin/skills/extant/payload/extant/exclusions.py`
+  holds the `exclude_paths` matcher that was in `sweep.py`, which fell from
+  926 lines to 796.
+- The tool remained released as 0.29.0.
+
+**What it answers.** Do the claims the package makes about EVERY input hold
+for inputs nobody wrote down? Six of them are now Hypothesis properties in
+`tests/test_properties.py`:
+1. `strip_code` and `prose` keep every offset.
+2. The two line numberings agree, where they claim to.
+3. The `exclude_paths` matcher agrees with `git check-ignore`.
+4. Percent-decoding undoes percent-encoding and leaves a target with no
+   escape as written.
+5. Grouping parallel findings is a partition.
+6. Every SHA-shaped run in prose is examined, or skipped for a named reason.
+
+**What changed.**
+- **A finding under a directory named `*` printed twice.** The key
+  wildcarding that segment equalled the key keeping it, so the finding was
+  grouped with itself: "2 occurrences in 1 document". Each key is now filed
+  once. None of the 152 corpus sweeps names such a path.
+- **`exclude_paths` reads a run of stars the way git does.** A `**` spans
+  separators only as a whole segment - `**/`, `/**/`, a trailing `/**`, and
+  a bounded `***` too - and is one `*` anywhere else. The matcher let every
+  `**` cross: seven of eleven shapes asked of git 2.53 disagreed, all of
+  that one cause, and no configuration this project knows of writes any of
+  them. The matcher moved out of `sweep.py` first, unchanged, because the
+  repair needed room.
+- **config.md** says so, and names one more difference it had not: the
+  matcher trims spaces from both ends of a pattern, git only from the end.
+- The suite needs Hypothesis from 3.10 on, pinned exactly in
+  `requirements-test.txt`; on 3.9 the module skips and says why.
+- `tests/conftest.py` derives a `ci` profile from Hypothesis's own and
+  holds Hypothesis's mining of constants from imported modules off, so a
+  derandomized property draws the same examples whatever ran before it.
+  `tests/test_property_settings.py` holds that, the profile, and that the
+  property module runs from 3.10 on.
+
+**Measured first.**
+- A pilot ran the six at 2,000 random examples each before anything was
+  built. Grouping went red at once. The matcher, with paths drawn apart
+  from the pattern, stayed green in 300 random examples and went red in
+  three random runs of 1,000.
+- The repair to the matcher was explored against git before it was
+  written: three random runs of 400 examples, up to 24,000 patterns, 0
+  disagreements.
+- The sixth over the corpus: 139 repositories, 82,912 documents, 94,918
+  tokens examined, every other one named - 0 unaccounted.
+
+**The generator decides what a property finds.** Paths drawn apart from the
+pattern built a defective shape only at 1,000 random examples a run - never
+at 300, never in a fixed set of a size CI runs; paths built FROM the pattern
+found it in a derandomized set of 25. The blanking property, fed fragments,
+never put a doctest line before a CRLF, and missed a breakage until it was
+fed lines. Nineteen breakages were tried against the properties, and the
+seventeen that turned one red were run against the rest of the suite: six
+survived it, and those six are the new anchors that only a property
+catches.
+
+**The gap audit, before any commit: nine findings, all repaired.**
+- **Derandomized was not deterministic.** Hypothesis mines constants from
+  every module the process has imported and draws one with probability
+  0.05 per choice, so the examples moved with import order: two digests of
+  one derandomized property, with and without the payload imported. No
+  setting turns it off; `tests/conftest.py` holds the pool empty, and both
+  digests agree. 4a also reads the interpreter's Unicode tables, so its
+  examples depend on the Python version too, and the claim now says so.
+- **Our `ci` profile replaced Hypothesis's** and dropped its `too_slow`
+  suppression; it derives from Hypothesis's now.
+- **Three lines nothing held** - `ci` never loaded, `ci` at random, the
+  module skipping on every Python - each survived the whole suite. A guard
+  file outside the module holds them, and five anchors name the lines.
+- **Statements corrected:** Hypothesis left 3.9 in 6.142.0, not 6.145.0;
+  seven shapes disagreed with git, not six; `config.py`'s comment and
+  README.md still said `**` spans separators; the generator story above;
+  and the identity prediction's reasons - none of the 152 clones has a
+  configuration, and 0 of their 866,696 tracked paths has a `*` segment.
+
+**What a user will see change, for the release note.**
+- An `exclude_paths` pattern with a star run not bounded by `/` - `a/**b`,
+  `docs/**.md` - now matches what git's would. Nothing else in the output
+  moves.
+- A grouped report prints a finding under a `*` directory once.
+
+The numbers are in "Six invariants held as properties: two defects, and the
+generator that decides what a property can find" and "The gap audit of the
+properties: nine findings, and a derandomized run that was not" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 61 - An audit of the whole package and of its own gaps: eighteen repairs, two of them measured over the corpus first (unreleased, 2026-10-01)
 
 **Status.** Built and gated.

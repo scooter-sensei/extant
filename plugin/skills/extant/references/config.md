@@ -258,12 +258,18 @@ be" mistake the admission test exists to prevent.
 | `docs/guide.md` | that one file, rooted at the repository |
 | `vendor/` | a DIRECTORY called `vendor` at any depth and everything under it, never a file of that name - the one thing the trailing slash changes |
 
-`*` stops at a separator and `**` spans them. `fnmatch`'s `*` crosses `/`
-silently, so `docs/*.md` there would take the whole tree and the only evidence
-would be a smaller number.
+`*` stops at a separator and `**` spans them - as a whole segment: `**/`,
+`/**/` or a trailing `/**`. Anywhere else a run of stars is one `*`, so
+`docs/**.md` is `docs/*.md` and `a/**b` takes `a/xb` but not `a/x/b`, which
+is how git reads both; until Phase 62 every `**` spanned separators here.
+`fnmatch`'s `*` crosses `/` silently, so `docs/*.md` there would take the
+whole tree and the only evidence would be a smaller number.
 
 Every row above was checked against `git check-ignore` on 793,684 distinct
-tracked paths from 152 repositories and agreed exactly. What the matcher does
+tracked paths from 152 repositories and agreed exactly, and since Phase 62
+every suite run holds generated patterns against it too, with paths built
+from each pattern - which is how the `**` rule above was found. What the
+matcher does
 NOT read is a leading `!` (negation) and `[` (a character class): a pattern
 holding either excludes nothing, and both `--sweep` and `--introduced-since`
 name it as unusable, with which of the two it is, rather than quietly
@@ -282,7 +288,9 @@ entry is not named.
 Nor does it read backslash escapes - a backslash is taken as a path separator
 - or `core.ignorecase`: a pattern matches the case it is written in, on
 every platform, where git on a Windows or macOS clone would also take
-`Docs/`.
+`Docs/`. And it trims spaces from BOTH ends of a pattern, where git trims
+only the trailing ones: `" docs"` excludes `docs` here, and to git names a
+directory whose name begins with a space.
 
 **The sweep prints what it removed, per pattern, and names any pattern that
 matched nothing.** A skip-list fails silently in both directions - by

@@ -36,8 +36,8 @@ PATHS = [
 
 def _split(patterns):
     from extant import session as hc
-    from extant import sweep
-    return sweep.excluded_documents(list(PATHS), tuple(patterns))
+    from extant import exclusions
+    return exclusions.excluded_documents(list(PATHS), tuple(patterns))
 
 
 # --------------------------------------------------------------------------
@@ -88,6 +88,55 @@ def test_a_double_star_spans_segments() -> None:
     assert "packages/app/test/fixtures/content/entry.mdx" not in kept
 
 
+# What `git check-ignore --no-index` (2.53.0, `core.ignorecase=false`)
+# answered for each pattern over STAR_PATHS, recorded rather than reasoned:
+# an expectation written from the rule would prove the rule's paraphrase.
+STAR_PATHS = ["a", "ab", "axb", "xa", "a/b", "a/a", "aa/a", "aaa", "a/xb",
+              "a/x/b", "a/x/yb", "a/x/y/b", "b", "x/b", "b/a", "fixtures/x.md",
+              "a/fixtures/b.md", "docs/a/fixtures", "docs/fixtures"]
+GIT_STAR_RUNS = {
+    # A run of stars no separator bounds is ONE `*` to git.
+    "a/**b": {"a/b", "a/xb"},
+    "a**b": {"ab", "axb"},
+    "a**/a": {"a/a", "aa/a"},
+    "aa**/a": {"aa/a"},
+    "/**a": {"a", "xa", "a/b", "a/a", "aa/a", "aaa", "a/xb", "a/x/b",
+             "a/x/yb", "a/x/y/b", "a/fixtures/b.md"},
+    # A bounded run of three is `**`.
+    "***/b": {"b", "x/b", "a/b", "a/x/b", "a/x/y/b", "b/a"},
+    "a/***/b": {"a/b", "a/x/b", "a/x/y/b"},
+    # The bounded shapes the matcher always read right, held beside them.
+    "**/fixtures/**": {"fixtures/x.md", "a/fixtures/b.md"},
+    "a/**": {"a/b", "a/a", "a/xb", "a/x/b", "a/x/yb", "a/x/y/b",
+             "a/fixtures/b.md"},
+    "docs/**/fixtures": {"docs/a/fixtures", "docs/fixtures"},
+    "**": set(STAR_PATHS),
+}
+
+
+def test_a_star_run_spans_segments_only_where_git_says_it_does() -> None:
+    """`**` crosses separators only as a whole segment - `**/`, `/**/`, a
+    trailing `/**` - and is a plain `*` anywhere else, as in gitignore.
+
+    This matcher let every `**` cross them: `a/**b` took `a/x/b`, `a**/a`
+    missed `a/a`, `aa**/a` was wrong both ways - it took `aaa` and missed
+    `aa/a` - and a bounded `***` was read as `**` followed by `*`. Seven of
+    the eleven patterns below disagreed with git, one cause, found by
+    holding the matcher beside `git check-ignore` in tests/test_properties.py
+    (Phase 62). None was in any configuration the project knows of.
+    """
+    from extant import exclusions
+    wrong = {}
+    for pattern, expected in GIT_STAR_RUNS.items():
+        regex = exclusions._exclusion_regex(pattern)
+        assert regex is not None, pattern
+        ours = {path for path in STAR_PATHS if regex.match(path)}
+        if ours != expected:
+            wrong[pattern] = (sorted(ours - expected), sorted(expected - ours))
+    print(f"checked {len(GIT_STAR_RUNS)} patterns over {len(STAR_PATHS)} paths")
+    assert not wrong, wrong
+
+
 def test_an_anchored_pattern_is_rooted_at_the_repository() -> None:
     """`docs/guide.md` is that file, not any `guide.md` anywhere."""
     kept, counts = _split(["docs/guide.md"])
@@ -106,15 +155,15 @@ def test_a_trailing_slash_means_a_directory_and_not_a_file_of_that_name() -> Non
     `excluded_documents` could never have reached the difference; it is
     closed anyway, so the matcher agrees with git on every shape it claims.
     Everything under the directory is still taken."""
-    from extant import sweep
-    directory = sweep._exclusion_regex("docs/")
+    from extant import exclusions
+    directory = exclusions._exclusion_regex("docs/")
     assert directory is not None
     assert directory.match("docs/guide.md")
     assert directory.match("a/docs/guide.md")
     assert not directory.match("docs"), "a file named docs is not the directory"
     assert not directory.match("pkg/debian/docs")
     # Without the slash the name is a segment, file or directory, as before.
-    segment = sweep._exclusion_regex("docs")
+    segment = exclusions._exclusion_regex("docs")
     assert segment is not None
     assert segment.match("pkg/debian/docs")
     assert segment.match("docs/guide.md")
@@ -175,12 +224,12 @@ def test_the_unusable_pattern_guard_is_a_contract() -> None:
     instead of hunting for a document that would notice.
     """
     from extant import session as hc
-    from extant import sweep
-    assert sweep._exclusion_regex("") is None
-    assert sweep._exclusion_regex("   ") is None
-    assert sweep._exclusion_regex("# a comment") is None
+    from extant import exclusions
+    assert exclusions._exclusion_regex("") is None
+    assert exclusions._exclusion_regex("   ") is None
+    assert exclusions._exclusion_regex("# a comment") is None
     # And the guard has not swallowed a legitimate pattern on its way past.
-    assert sweep._exclusion_regex("testdata") is not None
+    assert exclusions._exclusion_regex("testdata") is not None
 
 
 def test_negation_and_character_classes_are_named_unusable() -> None:
@@ -194,16 +243,16 @@ def test_negation_and_character_classes_are_named_unusable() -> None:
     a known install uses either), and named WHY, because "matched nothing, so
     it may be stale" is the wrong diagnosis for a pattern that never could.
     """
-    from extant import sweep
-    assert sweep.unusable_exclusion("!docs/keep.md") == "negation is not supported"
-    assert (sweep.unusable_exclusion("docs/[a-z]*.md")
+    from extant import exclusions
+    assert exclusions.unusable_exclusion("!docs/keep.md") == "negation is not supported"
+    assert (exclusions.unusable_exclusion("docs/[a-z]*.md")
             == "a character class is not supported")
-    assert sweep._exclusion_regex("!docs/keep.md") is None
-    assert sweep._exclusion_regex("docs/[a-z]*.md") is None
+    assert exclusions._exclusion_regex("!docs/keep.md") is None
+    assert exclusions._exclusion_regex("docs/[a-z]*.md") is None
     # `!` is special only where gitignore says it is: at the start.
-    assert sweep.unusable_exclusion("docs/a!b.md") is None
-    assert sweep._exclusion_regex("docs/a!b.md") is not None
-    assert sweep.unusable_exclusion("testdata") is None
+    assert exclusions.unusable_exclusion("docs/a!b.md") is None
+    assert exclusions._exclusion_regex("docs/a!b.md") is not None
+    assert exclusions.unusable_exclusion("testdata") is None
 
 
 def test_a_comment_is_not_named_an_unusable_pattern() -> None:
@@ -215,10 +264,10 @@ def test_a_comment_is_not_named_an_unusable_pattern() -> None:
     unsupported character class - a diagnosis of a comment. Found by the
     review of the built tranche, 2026-09-29.
     """
-    from extant import sweep
+    from extant import exclusions
     for comment in ("# drafts [old]", "#!keep", "  # [x]", ""):
-        assert sweep.unusable_exclusion(comment) is None, repr(comment)
-    assert sweep.unusable_note(["# drafts [old]", "drafts/**"]) is None
+        assert exclusions.unusable_exclusion(comment) is None, repr(comment)
+    assert exclusions.unusable_note(["# drafts [old]", "drafts/**"]) is None
 
 
 def test_the_sweep_names_an_unusable_pattern_and_why(git_repo) -> None:

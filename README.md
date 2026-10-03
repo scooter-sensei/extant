@@ -1005,9 +1005,10 @@ exclude_paths = ["testdata", "**/test/fixtures/**"]
 ```
 
 Empty by default, because a skip-list that ships with entries is one nobody
-audits. Patterns are gitignore-shaped: `*` stops at a separator, `**` spans
-them, and a bare name matches a segment at any depth, so `testdata` finds it
-wherever it lives.
+audits. Patterns are gitignore-shaped: `*` stops at a separator; `**` spans
+them as a whole segment - `**/`, `/**/`, a trailing `/**` - and is one `*`
+anywhere else, as in git; and a bare name matches a segment at any depth, so
+`testdata` finds it wherever it lives.
 
 **The sweep prints what it removed, per pattern, and names any pattern that
 matched nothing.** That second half is not decoration. A skip-list fails

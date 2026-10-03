@@ -223,6 +223,72 @@ def pytest_collection_modifyitems(config: pytest.Config,
         random.Random(seed).shuffle(items)
 
 
+# How tests/test_properties.py generates. `ci` is what every run uses unless
+# told otherwise: DERANDOMIZED, so which examples a property tries is a
+# function of the commit, of the Hypothesis requirements-test.txt pins, and -
+# for the one property drawing from `st.characters` - of the Python version's
+# Unicode tables, and of nothing else: the same rule as `--order-seed` and the
+# fuzz job's fixed seed, because a red that moves between runs cannot be
+# handed to whoever has to fix it. And NO DATABASE, so a run never replays
+# what an earlier run on this machine happened to find: a verdict depends on
+# the commit, as tests/harnesses/mutate.py requires of a kill.
+#
+# It is Hypothesis's OWN `ci` profile - the one Hypothesis loads by itself on
+# a CI runner - with a larger budget, so it keeps that profile's suppression
+# of the timing-based `too_slow` health check. The first version registered
+# a `ci` of its own, which replaced Hypothesis's outright and put the check
+# back on exactly the slow runners it is suppressed for (Phase 62's gap
+# audit). `explore` is the other half, by hand: `ci` at random, with ten
+# times the examples,
+#
+#     python -m pytest tests/test_properties.py --hypothesis-profile=explore
+#
+# and what it finds becomes an `@example` on the property, so the `ci`
+# profile tries it from then on. Registered here because this conftest loads
+# before Hypothesis's own plugin reads `--hypothesis-profile`, so that flag
+# overrides `ci` rather than being overridden by it. Absent on 3.9, which
+# requirements-test.txt does not give Hypothesis; the property module says so.
+#
+# Derandomizing alone did NOT make the draws a function of the commit.
+# Hypothesis (6.131.1 on) mines the literal constants of every local, non-test
+# module in `sys.modules` and draws one with probability 0.05 per choice, so
+# the examples depended on what the process had imported before a property
+# ran: under `-n auto` on which files a worker took first, under
+# `--order-seed` on the order, and in mutate.py's confirm-alone run on
+# running alone. Measured 2026-10-02: one derandomized property, two
+# digests, with and without the payload imported first. No setting turns it
+# off (HypothesisWorks/hypothesis#4627 closed without one), so the pool is
+# held EMPTY here. That replaces a private function, which is one more
+# reason the pin is exact, and a Hypothesis that renamed it stops this
+# import rather than quietly mining again. tests/test_property_settings.py
+# imports a fresh module of constants between two runs of one property and
+# asserts the same draws. The price is Hypothesis no longer seeding a draw
+# with a string the payload happens to spell; every property here draws
+# from alphabets and pieces it chose for itself.
+try:
+    from hypothesis import settings as _hypothesis_settings
+except ImportError:
+    pass
+else:
+    from hypothesis.internal.conjecture import providers as _providers
+
+    if not callable(getattr(_providers, "_get_local_constants", None)):
+        raise RuntimeError(
+            "hypothesis.internal.conjecture.providers._get_local_constants is "
+            "gone, so tests/conftest.py cannot hold the local-constant pool "
+            "empty and derandomized draws depend on import order again: find "
+            "what replaced it before moving the pin in requirements-test.txt")
+    _NO_LOCAL_CONSTANTS = _providers.Constants()
+    _providers._get_local_constants = lambda: _NO_LOCAL_CONSTANTS
+    _hypothesis_settings.register_profile(
+        "ci", parent=_hypothesis_settings.get_profile("ci"), max_examples=500,
+        derandomize=True, database=None, deadline=None, print_blob=True)
+    _hypothesis_settings.register_profile(
+        "explore", parent=_hypothesis_settings.get_profile("ci"),
+        max_examples=5000, derandomize=False)
+    _hypothesis_settings.load_profile("ci")
+
+
 @pytest.fixture
 def reconfigure(monkeypatch):
     """Change a configured value so that every reader sees it.
