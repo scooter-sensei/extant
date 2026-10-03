@@ -111,6 +111,18 @@ def test_the_filename_decides_the_format() -> None:
         assert text.format_for(markdown) == "markdown", markdown
 
 
+def test_a_dot_earlier_in_the_path_is_not_the_suffix() -> None:
+    """The suffix is what follows the LAST dot. Release notes are the common
+    case - astropy's `docs/whatsnew/1.2.rst` - and a versioned directory
+    the other; split at the first dot, each was read as markdown. Found by
+    mutmut (Phase 63)."""
+    from extant import text
+
+    assert text.format_for("docs/whatsnew/1.2.rst") == "rst"
+    assert text.format_for("docs/v1.2/guide.rst") == "rst"
+    assert text.format_for("docs/v1.2/guide.md") == "markdown"
+
+
 def test_the_markdown_link_rule_is_gated_by_format_not_only_by_literals(
         git_repo) -> None:
     """Two mechanisms suppress a markdown link in rst, and only one is the point.

@@ -313,6 +313,19 @@ def test_an_unset_doc_scope_says_markdown_and_nothing_else() -> None:
         None, "markdown", None)
 
 
+def test_the_current_document_is_named_the_way_git_names_it() -> None:
+    """A path handed over with backslashes - `--validate docs\\guide.md` on
+    Windows - is forward-slashed, which is how git lists it: sites.py asks
+    whether `docs/guide.md` begins with a directory some generator builds,
+    and a backslashed path was inside no site at all. mutmut found that no
+    test held it (Phase 63)."""
+    from extant.scope import DocScope
+    from extant.text import current_document
+
+    assert current_document(DocScope(doc_path="docs\\guide.md")) == "docs/guide.md"
+    assert current_document(DocScope()) is None
+
+
 def test_a_doc_scope_cannot_be_edited_in_place() -> None:
     """Frozen, so a caller REPLACES the document rather than mutating one.
 

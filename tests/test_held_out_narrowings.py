@@ -17,6 +17,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -185,6 +187,77 @@ def test_a_lone_language_shaped_directory_is_not_a_tree(
     assert _links(repo, "See [contexts](contexts.md).\n") == []
 
 
+def _resolves(repo, monkeypatch, document: str, target: str, *,
+              numbered: bool = False) -> bool:
+    """Ask the bare-name or the numbered-route resolver directly, as
+    `document` - the two questions the link rules gate on, without the
+    rule's other gates in front of them."""
+    from extant import session as hc
+    from extant import text
+    _clear()
+    monkeypatch.setattr(hc, "_DOC", hc.DocScope(doc_path=document))
+    resolver = text.numbered_document if numbered else text.unique_basename
+    return resolver(hc.context(repo), target)
+
+
+@pytest.mark.parametrize("root", ["docs", "site/docs"])
+def test_a_document_directly_inside_a_language_directory_is_in_its_tree(
+        git_repo, monkeypatch, root: str) -> None:
+    """The trees above put their pages a level BELOW the language
+    directory - `docs/de/docs/help.md` - which is fastapi's layout. Directly
+    inside it, `docs/de/help.md`, the document is in the `de` tree just the
+    same, and the language directory may itself sit two levels down. Each
+    was a mutation no test noticed (Phase 63)."""
+    repo, commit = git_repo
+    commit(f"{root}/en/newsletter.md", "# News\n", "en")
+    for lang in ("de", "fr"):
+        commit(f"{root}/{lang}/index.md", "# Index\n", lang)
+    assert _resolves(repo, monkeypatch, f"{root}/de/help.md", "newsletter.md") is False
+    assert _resolves(repo, monkeypatch, f"{root}/en/help.md", "newsletter.md") is True
+
+
+@pytest.mark.parametrize("languages, is_tree", [
+    (("en", "de"), False),
+    (("en", "de", "fr"), True),
+])
+def test_three_language_siblings_make_a_tree_and_two_do_not(
+        git_repo, monkeypatch, languages: tuple[str, ...], is_tree: bool) -> None:
+    """The threshold is three, and the two tests above sit at one and at
+    four, so neither said which side of it two and three fall on. A tree
+    keeps `de`'s link to an English-only page from resolving; no tree lets
+    it."""
+    repo, commit = git_repo
+    commit("docs/en/newsletter.md", "# News\n", "en")
+    for lang in languages[1:]:
+        commit(f"docs/{lang}/index.md", "# Index\n", lang)
+    assert _resolves(repo, monkeypatch, "docs/de/help.md",
+                     "newsletter.md") is not is_tree
+
+
+def test_each_language_shaped_parent_counts_its_own_siblings(
+        git_repo, monkeypatch) -> None:
+    """`docs/` holds three languages; the root holds one directory shaped
+    like a language, `id/`, which is not a tree. Counted once and shared,
+    the first parent's three made `id/` a tree too, and a page at the root
+    stopped resolving the name only `id/` holds."""
+    repo, commit = git_repo
+    for lang in ("de", "en", "fr"):
+        commit(f"docs/{lang}/index.md", "# Index\n", lang)
+    commit("id/contexts.md", "# Contexts\n", "id")
+    assert _resolves(repo, monkeypatch, "README.md", "contexts.md") is True
+
+
+def test_a_bare_name_resolves_with_a_document_tracked_at_the_root(
+        git_repo, monkeypatch) -> None:
+    """A tracked path with no directory - `README.md` - has a basename all
+    the same. Taken from the wrong end of the split, the index raised on it,
+    and every repository has one (Phase 63)."""
+    repo, commit = git_repo
+    commit("README.md", "# Readme\n", "seed")
+    commit("guides/data_modelling/contexts.md", "# Contexts\n", "second")
+    assert _resolves(repo, monkeypatch, "guides/authn/auth.md", "contexts.md") is True
+
+
 def test_a_readme_outside_the_site_tree_is_still_judged(
         git_repo, monkeypatch) -> None:
     """A repository with a site somewhere is not a repository whose every
@@ -340,6 +413,55 @@ def test_two_documents_answering_one_route_are_not_guessed(git_repo) -> None:
     commit("docs/01-a/02-setup.md", "# A\n", "seed")
     commit("docs/02-b/03-setup.md", "# B\n", "second")
     assert _links(repo, "See [setup](setup).\n") == ["setup"]
+
+
+def test_an_unprefixed_document_listed_first_does_not_end_the_index(
+        git_repo, monkeypatch) -> None:
+    """Documents without a prefix are passed over, not a reason to stop:
+    `README.md` sorts before `docs/`, and stopping there indexed nothing.
+    The tests above track the numbered documents alone (Phase 63)."""
+    repo, commit = git_repo
+    commit("README.md", "# Readme\n", "seed")
+    commit("docs/07-misc/04-custom-elements.md", "# CE\n", "second")
+    assert _resolves(repo, monkeypatch, "README.md", "custom-elements",
+                     numbered=True) is True
+
+
+@pytest.mark.parametrize("target", [
+    "custom-elements",
+    "misc/custom-elements",
+    "docs/misc/custom-elements",
+    "documentation/docs/misc/custom-elements",
+])
+def test_a_route_resolves_at_every_depth_up_to_the_whole(
+        git_repo, monkeypatch, target: str) -> None:
+    """A target names the route's last segment, its last two, three, or the
+    whole of it, and each is one document. Every way of building those
+    suffixes wrongly - an extra depth, a missing one, a whole route counted
+    twice, a wrong separator either side - had a mutation no test noticed,
+    because the tests above ask for one segment only (Phase 63)."""
+    repo, commit = git_repo
+    commit("documentation/docs/07-misc/04-custom-elements.md", "# CE\n", "seed")
+    assert _resolves(repo, monkeypatch, "README.md", target, numbered=True) is True
+
+
+def test_nothing_resolves_when_the_listing_cannot_be_read(
+        git_repo, monkeypatch) -> None:
+    """The degraded path, which no test took: the tracked-file listing
+    fails, the index each resolver builds is empty, and neither resolves
+    anything - so the link is reported rather than silently passed. Both
+    resolvers used to be one typo from raising instead (Phase 63)."""
+    from extant import text
+    repo, commit = git_repo
+    commit("docs/07-misc/04-custom-elements.md", "# CE\n", "seed")
+
+    def listing_fails(ctx):
+        raise OSError("the listing cannot be read")
+
+    monkeypatch.setattr(text, "tracked_markdown", listing_fails)
+    assert _resolves(repo, monkeypatch, "README.md", "custom-elements",
+                     numbered=True) is False
+    assert _resolves(repo, monkeypatch, "README.md", "04-custom-elements.md") is False
 
 
 # --------------------------------------------------------------------------

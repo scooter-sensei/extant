@@ -2838,6 +2838,106 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the local-constant pool is mined again", conftest,
          "    _providers._get_local_constants = lambda: _NO_LOCAL_CONSTANTS\n",
          ""),
+
+        # --- Phase 63: what mutmut found in blocks.py and text.py -----------
+        # mutmut 3.8.0 mutated every function of the two modules, and the
+        # whole suite let 65 real mutants through, in 27 shapes. Each shape
+        # has a test now, watched red against every mutant of it; one anchor
+        # per shape stands for the shape here, on its most specific line.
+        # blocks.py: the expected answers are CommonMark's (markdown-it-py
+        # and micromark agreeing), or a divergence the design records.
+        ("a closing tag is read at the wrong offset", blocks,
+         '    return at >= 0 and lowered[at + len(tag) + 2:].lstrip().startswith(">")',
+         '    return at >= 0 and lowered[at - len(tag) + 2:].lstrip().startswith(">")'),
+        ("a tab after other indentation is not taken to the next stop", blocks,
+         "            columns += TAB_STOP - (columns % TAB_STOP)",
+         "            columns = TAB_STOP - (columns % TAB_STOP)"),
+        ("four spaces after a list marker are clamped like five", blocks,
+         "    return indent + width + (spaces if 1 <= spaces <= 4 else 1)",
+         "    return indent + width + (spaces if 1 <= spaces < 4 else 1)"),
+        ("a caller naming no format gets the MDX reading", blocks,
+         "def code_lines(text: str, *, mdx: bool = False) -> CodeLines:",
+         "def code_lines(text: str, *, mdx: bool = True) -> CodeLines:"),
+        ("a paragraph is open above the first line", blocks,
+         "    paragraph = False          # is a paragraph open on the line above?",
+         "    paragraph = True          # is a paragraph open on the line above?"),
+        ("a comment terminator inside a fence ends the fence", blocks,
+         '            if comment and "-->" in line:',
+         '            if comment or "-->" in line:'),
+        ("a comment that ended its fence stays open", blocks,
+         "                comment, opened = False, None",
+         "                comment, opened = True, None"),
+        ("a fence's opening line is not one of its lines", blocks,
+         "            opened, items = _opener(fence), len(columns)\n"
+         "            fenced.add(number)\n",
+         "            opened, items = _opener(fence), len(columns)\n"),
+        ("an HTML opener inside an item is measured from the margin", blocks,
+         "        container_column = columns[-1] if columns else 0",
+         "        container_column = 0"),
+        ("a one-line comment is held open", blocks,
+         '            comment = "-->" not in line[line.index("<!--"):]',
+         "            comment = True"),
+        ("a one-line pre block leaves a paragraph open", blocks,
+         "            verbatim = None if _closing(tag, rest) else tag\n"
+         "            paragraph = False",
+         "            verbatim = None if _closing(tag, rest) else tag\n"
+         "            paragraph = True"),
+        ("a one-line pre block is held open", blocks,
+         "            verbatim = None if _closing(tag, rest) else tag",
+         "            verbatim = tag"),
+        ("a nested element raises the governed boundary", blocks,
+         "            governed = indent if governed is None else min(governed, indent)",
+         "            governed = indent"),
+        ("an HTML opener is not remembered as raw HTML", blocks,
+         "            html = html or bool(_HTML_OPEN.match(rest))",
+         "            html = False"),
+        ("a fence four spaces after a marker is not opened there", blocks,
+         '                         if spaces <= 4 and after.startswith(("```", "~~~")) else None)',
+         '                         if spaces < 4 and after.startswith(("```", "~~~")) else None)'),
+        ("a quoted fence's closer is never at its depth", blocks,
+         '            and fence.group("quote").count(">") == quote',
+         '            and fence.group("quote").count(">") == quote + 1'),
+        # text.py: the path shapes' answers are git's and the filesystem's,
+        # the reStructuredText ones docutils'.
+        ("a backslashed document path is not forward-slashed", text,
+         '    return doc.doc_path.replace("\\\\", "/") if doc.doc_path else None',
+         "    return doc.doc_path if doc.doc_path else None"),
+        ("a path's suffix is taken after its first dot", text,
+         '    suffix = path.rsplit(".", 1)[-1].lower() if "." in path else ""',
+         '    suffix = path.split(".", 1)[-1].lower() if "." in path else ""'),
+        # Unreachable through strip_code and prose - `_blank` rewrites every
+        # lone CR first - and held as the function's own contract.
+        ("a bare CR is not a line's terminator", text,
+         '    if raw.endswith(("\\n", "\\r")):',
+         '    if raw.endswith("\\n"):'),
+        ("strip_code keeps an rst inline literal", text,
+         "        return _blank_rst(text, inline=inline)",
+         "        return _blank_rst(text, inline=False)"),
+        ("an rst literal block runs on at its own indentation", text,
+         "            if not stripped or indent > block_indent:",
+         "            if not stripped or indent >= block_indent:"),
+        ("a root-level document's basename is taken from the wrong end", text,
+         '                leaf = path.rsplit("/", 1)[-1].lower()',
+         '                leaf = path.rsplit("/", 1)[1].lower()'),
+        ("a failed listing raises out of the bare-name resolver", text,
+         "        except (OSError, subprocess.CalledProcessError):\n"
+         "            counts = {}",
+         "        except (OSError, subprocess.CalledProcessError):\n"
+         "            raise"),
+        ("a document directly inside a language directory is in no tree", text,
+         "    for index, part in enumerate(parts[:-1]):",
+         "    for index, part in enumerate(parts[:-2]):"),
+        ("three language siblings do not make a tree", text,
+         "        if ctx.run.language_siblings[key] >= 3:",
+         "        if ctx.run.language_siblings[key] >= 4:"),
+        ("an unprefixed document ends the route index", text,
+         "                if not any(ORDER_PREFIX.match(s) for s in segments):\n"
+         "                    continue",
+         "                if not any(ORDER_PREFIX.match(s) for s in segments):\n"
+         "                    break"),
+        ("the route index stops a depth short", text,
+         "                for depth in range(1, min(len(parts), _ROUTE_DEPTH) + 1):",
+         "                for depth in range(1, min(len(parts), _ROUTE_DEPTH) - 1):"),
     ]
 
 
