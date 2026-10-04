@@ -6,6 +6,77 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 63 - mutmut as a cross-check: 61 mutants no test held in blocks.py and text.py, and one defect (unreleased, 2026-10-03)
+
+**Status.** Built and gated.
+- 1,635 tests across 82 files, of which 1,627 pass and 8 skip on this
+  machine - the same 8 skips as before. On Linux 1,633 pass and 2 skip,
+  serially and in CI's shuffled order.
+- smoke, scenarios (213 of 213), fuzz (0 violations) and the fuzzer's
+  self-check (23 of 23) green on an extract.
+- `python -m mypy`: no issues in 47 files.
+- 431 mutation anchors match. The 27 new ones were killed by one
+  `--parallel` campaign on a clone in 32 minutes: 0 survived, 0 hung, 0
+  overturned by the serial check.
+- No identity gate: the payload did not change.
+- No rule added or removed, thirteen as before; no mode added. The payload
+  is unchanged: only tests, the mutation harness and these records moved.
+- The tool remained released as 0.29.0.
+
+**What it answers.** `tests/harnesses/mutate.py`'s anchors are mutations
+somebody chose. mutmut makes every mutation it knows of in every function,
+so it asks what the choosing missed. Run over five modules, it found 125
+real changes the whole suite let through, in 44 shapes. This phase takes
+`extant/blocks.py` and `extant/text.py`: 65 of them, in 27 shapes.
+
+**What changed.**
+- 28 tests, 47 with their parameters, in five existing test files. Each was
+  green on the tree and red against every mutant of its shape, applied from
+  the diff its confirmation recorded: 64 of 64, the 65th being the defect
+  below.
+- 27 mutation anchors, one per shape, on its most specific line.
+- Nineteen of the 125 rows are mutants `mypy --strict` rejects, thirteen of
+  them here. They have tests anyway: a type is one annotation from being
+  widened.
+
+**The expected values are the renderer's.** For blocks.py, markdown-it-py
+4.0.0's `commonmark` preset and micromark both had to agree with the tree
+on every input a test uses. A second oracle was needed: markdown-it ends
+an HTML comment at a blank line inside a list item, which the specification
+and micromark do not. For reStructuredText, docutils 0.23; for paths, git
+and the filesystem. Three divergences the design already records appear in
+the inputs, and the tests that meet them say so.
+
+**Found.**
+- **A defect, recorded and not repaired.** A `<pre>` block is taken as
+  closed by `</pre >` - a space before the `>`. CommonMark ends it only at
+  the literal `</pre>`, and markdown-it and micromark both run it on, so
+  the lines after it are raw HTML that this module can read as code and
+  blank: a claim silenced. It is its own item, through the identity gate.
+- **A misfiled row.** Dropping the bare-CR spelling from
+  `_line_and_terminator` cannot be seen through `strip_code` or `prose`,
+  because `_blank` rewrites every lone CR first; it changed none of ten
+  bare-CR documents. Its test holds the function's own contract and says
+  so.
+
+**Measured first.** mutmut 3.8.0 in WSL, with six adaptations kept outside
+the repository; every survivor confirmed against the whole suite on a
+clean clone, and every row read and given a reason. blocks.py: 427
+mutants, 67 survive the whole suite - 24 equivalent, 5 contrived, 38 real
+in 16 shapes. text.py: 388 mutants, 61 survive - 26 equivalent, 8
+contrived, 27 real in 11 shapes. mutmut cannot mutate module-level
+patterns or `lru_cache`d functions: 30 per cent of what `mutate.py` probes
+in the four modules measured.
+
+**Closed by running it again.** mutmut over the two modules with the tests
+in place: 65 survivors where the reading expected 68, every one confirmed
+against the whole suite, and no real row among them. The three missing had
+been filed as contrived - each from the one input that first came to mind -
+and the new tests kill them; they are counted as real above.
+
+The numbers are in "mutmut as a cross-check: what the hand-chosen anchors
+missed" in `plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 62 - Six invariants held as properties: two defects, and the generator that decides what a property finds (unreleased, 2026-10-02)
 
 **Status.** Built and gated; gap-audited, repaired, and gated again.

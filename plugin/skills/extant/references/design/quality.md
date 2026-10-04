@@ -2107,3 +2107,180 @@ comments and docstrings in `config.py` and `exclusions.py` moved, and every
 module compares equal as a syntax tree with its docstrings set aside, so
 both results stand. `--verify` exits 0, and `--selftest` fires 7 rules with
 0 silent.
+
+## mutmut as a cross-check: what the hand-chosen anchors missed
+
+`tests/harnesses/mutate.py` breaks the code in 404 places somebody chose,
+and a breakage nobody thought of is not among them. mutmut makes every
+mutation it knows of in every function. Run over five modules on
+2026-10-02, it asks what the hand selection missed. Phase 63 answers it for
+`extant/blocks.py` and `extant/text.py`; `commits.py` and `anchors.py` are
+the next tranche's.
+
+**How it ran, and what that cost.** mutmut 3.8.0 refuses native Windows
+(it exits, pointing at its issue 397) and forks a process per mutant, so it
+ran in WSL. It needed six adaptations, all in a launcher kept outside the
+repository with the rest of the apparatus (`m24_*.py` in the measurement
+apparatus, rows under `D:/repo/out-mutmut/`):
+1. mutmut names a mutant by its file PATH and records a hit under the
+   MODULE, `extant.blocks`. The launcher strips the prefix.
+2. The shim and the hooks run as subprocesses that inherited the stats
+   run's mode and crashed in it. A `sitecustomize` resets it in children,
+   and a real mutant's name still reaches them.
+3. Two tests that read the SOURCE go red on mutmut's rewritten copy (the
+   module ceiling and the line-numbering ledger), and are deselected there.
+   The whole-suite confirmation below still runs them.
+4. One temporary tree per pytest session, on disk. The first complete run
+   lost 118 of 427 workers to a raised exception, which mutmut files as a
+   timeout; afterwards, 0. The cause was not established.
+5. `forkserver` isolation, chosen and not measured, so that a module memo
+   filled by the stats run cannot answer for a mutant.
+6. The mutated tree is a git worktree, because two tests read the
+   checkout's git state and fail in a plain copy.
+
+**mutmut's "survived" is a lead, not a verdict.** It runs only the tests
+its in-process stats tied to the function, so a test that reaches the code
+through the shim never meets its mutants. Every survivor was therefore
+applied to a clean clone and the WHOLE suite run against it, about 30
+seconds each on Linux. Three of 249 died there: `lone_cr_to_lf__mutmut_1`,
+to a subprocess test, and two of `commits.py`'s origin-memo mutants, to an
+in-process test whose path to them was not established. In blocks.py, 67 of
+67 survived the whole suite.
+
+**What it cannot see.** mutmut mutates function bodies only. Of the 67
+anchors `mutate.py` holds in blocks.py, text.py, commits.py and anchors.py,
+16 sit at MODULE level - patterns - and 4 inside text.py's two `lru_cache`d
+functions, which mutmut skips. That is 30 per cent of what `mutate.py`
+probes there. Eleven of links.py's 23 anchors are module-level patterns as
+well. Its silence on those lines is not coverage.
+
+**The measurement**, every survivor confirmed and read, with one reason
+written per row:
+
+| module | mutants | survived the whole suite | equivalent | contrived | cost only | real | shapes |
+|:--|--:|--:|--:|--:|--:|--:|--:|
+| blocks.py | 427 | 67 | 24 | 5 | 0 | 38 | 16 |
+| text.py | 388 | 61 | 26 | 8 | 0 | 27 | 11 |
+| commits.py | 469 | 55 | 11 | 12 | 7 | 25 | 9 |
+| anchors.py | 237 | 43 | 6 | 2 | 0 | 35 | 8 |
+| links.py | 144 | 20 | 9 | 9 | 2 | 0 | 0 |
+| **all five** | **1,665** | **246** | **76** | **36** | **9** | **125** | **44** |
+
+Three rows of blocks.py and text.py are counted there as the re-run below
+found them: first filed as contrived, they are real, and the new tests kill
+them.
+
+links.py also had three mutants that never finished: `_html_references`
+restarted its search at 0, looping forever on any line holding a tag. Only
+a timeout kills those, and `mutate.py` would print HANG. "No real gap" in
+links.py means its function bodies.
+
+- **Equivalent**, by kind. Most are a falsy value swapped for another -
+  `None` for `False`, read only by truth value - and the rest a boundary
+  that maps one to one, a split whose last piece is the same either way,
+  or a memo key that is constant because a run scope holds one repository.
+  Five are DEAD code, and stay: `_quote_depth`'s `else 0` (twice), because
+  `^(?:\s*>)*` always matches - kept because it narrows an Optional for
+  mypy; and `_last_nonblank`'s fallback (three times), because a block
+  starts on a non-blank line - kept because it keeps the function total.
+  Checked against 4,732 documents from 139 corpus repositories, original
+  against mutant through mutmut's own trampolines: 0 of the 57 checkable
+  equivalents differ. The other 19 need a repository or a Config, and rest
+  on the reading.
+- **Contrived** rows are real but need an input no document writes: two
+  `</tag` prefixes on one line, a quote marker after a list marker, a
+  quote marker indented four or more, a target of only slashes. Recorded,
+  no test. blocks.py has 5 and text.py 8.
+- **Cost only** rows move no verdict: a memo never hit, a linear lookup.
+- No Windows whole-suite run was spent on an equivalent, contrived or
+  cost-only row. A killer found only there would move a row to "covered",
+  and the hours buy nothing else.
+
+**Nineteen real rows are mutants `mypy --strict` rejects** - a `None`
+where a set, a dict or a tuple is declared - and the type check is a
+required CI step, so mutmut's own "caught by type check" would count them
+killed. They have tests all the same: a test pins the behaviour, and a type
+is one annotation from being widened. Thirteen of them are this tranche's,
+two of those among the rows the re-run below moved from contrived.
+
+**One test per shape, its expected value the renderer's.** For blocks.py,
+markdown-it-py 4.0.0's `commonmark` preset AND micromark (through
+`mdast-util-from-markdown`) had to agree with the tree on every input a
+test uses. A second oracle was needed: markdown-it ends an HTML comment at
+a blank line inside a list item, where the specification and micromark do
+not, and the first input chosen for the S9 shape fell on exactly that. For
+reStructuredText the oracle is docutils 0.23; for the path shapes, git and
+the filesystem. Three divergences the design already records appear in
+the inputs, and the tests that meet them say so rather than claim
+CommonMark's answer: a fence inside a comment or `<pre>` is still blanked,
+an element's indented body is prose, and a list marker followed by five
+spaces leaves its own line unread. Each test
+was green on the tree and red against every mutant of its shape, applied
+from the diff its confirmation recorded: 36 in blocks.py and 25 in
+text.py, 61 of 61, and three more once the re-run below named them.
+
+**What the shapes were.** In blocks.py: a closing tag read at the wrong
+offset; a tab after other indentation; one to five spaces after a list
+marker; the `mdx=` defaults; code on line 1; a fence holding `-->`; a
+comment that closed a fence; a fence's opening line; a comment indented
+inside an item; one-line comments and `<pre>` blocks, and the code straight
+after them or after an HTML opener or a marker-line fence; nested elements;
+a closing tag under an HTML opener; a fence on a marker's line; and a
+fence closed inside a block quote. In text.py: a backslashed document path;
+a dot earlier in a path than its suffix; a line's exact terminator; rst
+inline literals and the end of an rst literal block; a root-level
+document's basename; the degraded path, where the tracked-file listing
+fails; a document directly inside a language directory, a language
+directory two levels down, and two language-shaped parents in one run;
+the threshold of three siblings; an unprefixed document listed first; and a
+numbered route at every depth up to the whole.
+
+**One shape was a defect, not a gap.** `_closing` takes `</pre >` - a
+space before the `>` - as closing a `<pre>` block. CommonMark's end
+condition is the literal `</pre>`, and markdown-it and micromark both run
+the block on, so the renderer shows the lines after it as raw HTML while
+the tree can read them as code and blank them: the unsafe direction, a
+claim silenced. The mutant that reads the tag wrongly AGREES with the
+renderer there. It is recorded as its own item, to be repaired through the
+identity gate; no test here pins it, and the half of the shape the tree
+gets right - `</pre>` with text after it - has its test.
+
+**One row was misfiled.** `_line_and_terminator__mutmut_8` drops the bare
+CR spelling of a line break. Through `strip_code` and `prose` it is
+unreachable: `_blank` rewrites every lone CR to LF before the line loop
+runs, and the mutant changed none of ten bare-CR documents, in either
+language, nor any of the 4,732. It is equivalent at the package's
+boundary. Its test holds the function's own contract, and says so, so that
+removing the normalisation upstream cannot turn a CR into a blanked space
+unnoticed.
+
+**The check that closes it: mutmut again, with the tests in place.** The
+survivors had to be exactly the rows the reading left standing - the
+equivalent and contrived ones, the `</pre >` defect, and
+`lone_cr_to_lf__mutmut_1`, which mutmut's selection cannot reach and the
+whole suite kills - and not one real row. Run on 2026-10-03, 815 mutants in
+20 minutes, 0 worker exceptions: 65 survived where 68 were expected, every
+one confirmed against the whole suite, 64 surviving it and
+`lone_cr_to_lf__mutmut_1` killed. No real row survived. The three missing
+were filed as contrived and are not:
+- `code_lines__mutmut_242` turns an `and` into an `or`. It was filed for
+  `- > ````, a quote marker after a list marker. It also opens a fence
+  after five or more spaces on a marker's line, which the S15 test feeds,
+  and that test kills it.
+- `unique_basename__mutmut_54` and `_56` look the citing document's tree up
+  with no default. That was filed as "the tree holds no tracked markdown".
+  Every tree is empty when the listing fails, which is the degraded path
+  the T7 test takes, and both raise there.
+A reading that files a mutant by the one input that first came to mind is
+how a real row hides as a contrived one, and only running the tests against
+it found these three.
+
+**Gated.** 1,635 tests: on Windows 1,627 pass and 8 skip, on Linux 1,633
+and 2, serially and in CI's shuffled order. mypy clean on 47 files. 431
+anchors match, and the 27 new ones were run for real in one `--parallel`
+campaign of 32 minutes on a clone: 27 killed, 0 survived, 0 hung, 0
+overturned. From an extract of the tree: smoke with no new or missing flag,
+scenarios 213 of 213, fuzz 0 violations, the fuzzer's self-check 23 of 23.
+`--verify` exits 0; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since main` reads 5 changed documents, 242 introduced lines,
+0 findings. The payload did not change, so the identity gate was not run.

@@ -547,3 +547,179 @@ def test_a_list_items_end_closes_a_fence_in_mdx_too() -> None:
     blanked = _prose_at(text, "docs/page.mdx")
     assert "a1b2c3d" not in blanked
     assert "d4e5f6a" in blanked
+
+
+# --------------------------------------------------------------------------
+# What mutmut found that no test held, in the fence half of blocks.py
+# (Phase 63). The method is in tests/test_indented_code.py's last section;
+# the expected values are markdown-it-py's and micromark's, except where a
+# test says it holds a recorded divergence.
+# --------------------------------------------------------------------------
+
+def _code(text: str) -> tuple[set[int], set[int]]:
+    from extant.blocks import code_lines
+    found = code_lines(text)
+    return set(found.fenced), set(found.indented)
+
+
+def test_a_comment_terminator_inside_a_fence_is_content() -> None:
+    """An HTML example in a fence holds a whole comment. Its `-->` is fence
+    content and ends nothing - only a comment the fence OPENED in ends at
+    one - so the fence runs to its own closer. Taken as an end, the fence
+    closed at the example and its own closer opened another, which ran to
+    the end of the document."""
+    text = ("```html\n"
+            "<!-- a comment -->\n"
+            "still code, merged at a1b2c3d\n"
+            "```\n"
+            "Prose, merged at d4e5f6a.\n")
+    blanked = _prose(text)
+    assert "a1b2c3d" not in blanked, "the fence ended at the example's -->"
+    assert "d4e5f6a" in blanked, "the fence's closer opened another"
+
+
+def test_a_comment_that_ended_a_fence_has_ended_too() -> None:
+    """A fence opened inside a comment ends at the comment's `-->`, and the
+    comment ends with it: the indented block below is code. Kept open, the
+    comment swallowed it. Lines 2 to 4 are the recorded divergence - a
+    fence inside a comment is still blanked - and line 6 is CommonMark's."""
+    text = ("<!--\n"
+            "```\n"
+            "x\n"
+            "-->\n"
+            "\n"
+            "    code\n")
+    assert _code(text) == ({2, 3, 4}, {6})
+
+
+@pytest.mark.parametrize("text, expected", [
+    # Top level: Docusaurus writes a title into the info string.
+    ('```js title="docs/x.md"\n'
+     "code\n"
+     "```\n", {1, 2, 3}),
+    # On a list marker's line.
+    ('- ```js title="docs/x.md"\n'
+     "  code\n"
+     "  ```\n", {1, 2, 3}),
+    # Inside a `<pre>` and inside a comment: the recorded divergence, a
+    # fence CommonMark calls HTML and this module still blanks, opener and
+    # all.
+    ("<pre>\n"
+     "```js\n"
+     "code\n"
+     "```\n"
+     "</pre>\n", {2, 3, 4}),
+    ("<!--\n"
+     "```js\n"
+     "code\n"
+     "```\n"
+     "-->\n", {2, 3, 4}),
+])
+def test_a_fences_opening_line_is_one_of_its_lines(
+        text: str, expected: set[int]) -> None:
+    """The opener is the fence's, and so is its info string - a path in a
+    Docusaurus `title="..."` is the example's, not a claim. Each of the four
+    places a fence opens adds the opener's own line; left out, it was the
+    one line of the block read as prose."""
+    fenced, _ = _code(text)
+    assert fenced == expected
+
+
+@pytest.mark.parametrize("text, expected", [
+    # Five spaces after the marker: the fence is the content of an indented
+    # block, not a fence, so `text` below is the item's paragraph. Line 1 is
+    # the recorded divergence (design/code-blocks.md): CommonMark makes it
+    # indented code, and this module reads it as a paragraph.
+    ("-     ```\n"
+     "  text\n", {2: False}),
+    # Four is still the marker's own line, and the fence opens there.
+    ("-    ```\n"
+     "     x\n"
+     "     ```\n"
+     "prose\n", {1: True, 2: True, 3: True, 4: False}),
+    # A tilde fence opens on the marker's line as a backtick one does.
+    ("- ~~~\n"
+     "  x\n"
+     "  ~~~\n"
+     "prose\n", {1: True, 2: True, 3: True, 4: False}),
+    # Unclosed, it ends where its item does.
+    ("- ```\n"
+     "  x\n"
+     "prose\n", {1: True, 2: True, 3: False}),
+])
+def test_a_fence_on_a_markers_line_opens_where_commonmark_says(
+        text: str, expected: dict[int, bool]) -> None:
+    """``- ```` opens a fence on the marker's line when one to four spaces
+    separate them, with either fence character, and the item's end closes
+    it. Each boundary had a mutation no test noticed."""
+    fenced, indented = _code(text)
+    assert {line: line in fenced | indented for line in expected} == expected
+
+
+def test_prose_after_a_closed_fence_in_a_block_quote_is_prose() -> None:
+    """A fence in a block quote closes at a closer at the same quote depth,
+    and the quote goes on: the next quoted line is prose and a later quoted
+    indented block is code. Counted wrongly, the closer was never seen and
+    the fence ran to the end of the quote."""
+    text = ("> ```\n"
+            "> code\n"
+            "> ```\n"
+            "> prose\n"
+            ">\n"
+            ">     code\n")
+    assert _code(text) == ({1, 2, 3}, {6})
+
+
+# The same, for text.py's half of the blanking (Phase 63). Expected values
+# are docutils 0.23's for reStructuredText.
+
+@pytest.mark.parametrize("raw, expected", [
+    ("x\r\n", ("x", "\r\n")),
+    ("x\n", ("x", "\n")),
+    ("x\r", ("x", "\r")),
+    ("x", ("x", "")),
+])
+def test_a_line_is_split_from_its_exact_terminator(
+        raw: str, expected: tuple[str, str]) -> None:
+    """Every spelling of a break is carried through, a bare CR included.
+    UNREACHABLE through `strip_code` and `prose` today, and measured so:
+    `_blank` rewrites every lone CR to LF before this runs, and the mutation
+    that drops the CR spelling changed none of ten bare-CR documents blanked
+    either way, nor any of 4,732 corpus documents. This holds the
+    function's own contract, so that removing the normalisation upstream
+    cannot quietly turn a CR into a blanked space."""
+    from extant.text import _line_and_terminator
+    assert _line_and_terminator(raw) == expected
+
+
+def test_strip_code_blanks_an_rst_inline_literal_and_prose_keeps_it() -> None:
+    """``...`` is code in reStructuredText as backticks are in markdown, so
+    `strip_code` blanks it; `prose` keeps inline code in either language,
+    because claims are written there. Handed the wrong flag, the rst path
+    blanked nothing inline, and 412 of the 4,732 corpus documents the
+    mutmut cross-check read were blanked differently."""
+    text = "Run ``git checkout a1b2c3d`` now, merged at d4e5f6a.\n"
+    stripped = _stripped(text, "rst")
+    assert "a1b2c3d" not in stripped
+    assert "d4e5f6a" in stripped
+    assert "a1b2c3d" in _prose(text, "rst")
+
+
+def test_an_rst_literal_block_ends_where_the_indentation_returns() -> None:
+    """The test in tests/test_rst.py holds the block's content; this holds
+    its END. A line back at the introducing paragraph's indentation is prose
+    again, and every way of mismeasuring that ran the block to the end of
+    the document."""
+    text = ("Example::\n"
+            "\n"
+            "    code, merged at a1b2c3d\n"
+            "\n"
+            "Back to prose, merged at d4e5f6a.\n")
+    blanked = _prose(text, "rst")
+    assert "a1b2c3d" not in blanked
+    assert "d4e5f6a" in blanked
+
+
+def _stripped(text: str, fmt: str) -> str:
+    from extant.text import strip_code
+    return strip_code(_doc_scope(fmt), text)
