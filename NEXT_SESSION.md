@@ -6,6 +6,56 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 65 - The two defects the cross-check found, repaired: a spaced closing tag, and an indented setext heading (unreleased, 2026-10-04)
+
+**Status.** Built and gated.
+- 1,692 tests across 82 files, of which 1,684 pass and 8 skip on this
+  machine - the same 8 skips as before. On Linux 1,690 pass and 2 skip,
+  serially and in CI's shuffled order.
+- smoke, scenarios (213 of 213), fuzz (0 violations) and the fuzzer's
+  self-check (23 of 23) green on an extract of the repaired payload.
+- `python -m mypy`: no issues in 47 files.
+- 451 mutation anchors match. The four new or retargeted were killed by
+  one `--parallel` campaign on a clone in 7 minutes: 0 survived, 0 hung,
+  0 overturned by the serial check.
+- The identity gate over the 152 visible corpus clones: 0 of 152 outputs
+  differ, as predicted in writing before it ran.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.29.0.
+
+**What changed.**
+- **A `<pre>`, `<script>`, `<style>` or `<textarea>` block ends only at
+  its literal closing tag**, in any case: `</pre >` no longer closes one.
+  CommonMark, markdown-it-py and micromark all run the block on there, and
+  the lines after it were read as markdown again - an indented one blanked
+  as code, a claim silenced.
+- **Either line of a setext heading may be indented up to three spaces,
+  and no further.** An indented title offers its anchor, so a working link
+  to it is no longer reported dead; an underline at four columns or more
+  no longer makes a heading, since CommonMark reads it as the paragraph's
+  continuation.
+- One test per repair, each watched red first and each with its expected
+  value from markdown-it-py and micromark. Phase 63's `_closing` anchor is
+  retargeted at the new test, and three anchors revert the repairs.
+
+**Measured first.** Over 81,433 corpus documents, old against new: the
+closing tag moved no code line anywhere; the setext rule gained 1,121
+anchor spellings in 31 clones and lost none. 35 of the new headings are
+real (OpenSSL's NOTES files), and 803 sit in code blocks - phantoms of the
+kind `anchors()` already offers for an ATX line in a fence, since it reads
+raw text. One link in the corpus has a fragment equal to a gained spelling,
+and its own document did not gain it.
+
+**Found on the way.** Phase 64's test for a live commit linked by this
+repository's own URL cited the commit by its first seven characters. One
+prefix in twenty-five is all digits, which the scanner rightly reads as a
+number, and two CI legs of its first run went red. It now cites by
+`_abbrev` from tests/conftest.py, the helper written for exactly this
+trap after it had reddened CI twice before.
+
+The numbers are in "Two defects the mutmut cross-check found" in
+`plugin/skills/extant/references/design/code-blocks.md`.
+
 ## Phase 64 - mutmut as a cross-check, second half: commits.py and anchors.py, `--sha-map` held whole, and a second defect (unreleased, 2026-10-03)
 
 **Status.** Built and gated.

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.29.0, unreleased: Phases 60 to 64. No rule added or removed,
+Above 0.29.0, unreleased: Phases 60 to 65. No rule added or removed,
 thirteen as before; no mode added. Three exit codes moved, each to 2, and
 one `--archive` defect that deleted a person's section is repaired.
 
@@ -26,20 +26,32 @@ same part of the design rationale.
 Phase 63 changes tests only. mutmut, run over five modules as a cross-check
 on the hand-chosen mutation anchors, found 65 real changes to `blocks.py`
 and `text.py` that the whole suite let through, in 27 shapes. Each shape
-now has a test and an anchor. One of them is a defect rather than a gap,
-recorded and not yet repaired: a `<pre>` block is taken as closed by
-`</pre >`, with a space before the `>`, where CommonMark runs it on. Its
-record is Phase 63 in NEXT_SESSION.md, and "mutmut as a cross-check" in
-the same part of the design rationale.
+now has a test and an anchor. One of them was a defect rather than a gap,
+repaired in Phase 65 below. Its record is Phase 63 in NEXT_SESSION.md, and
+"mutmut as a cross-check" in the same part of the design rationale.
 
 Phase 64 changes tests only: the same cross-check's other half, 60 real
 changes to `commits.py` and `anchors.py` in 17 shapes, each now with a test
 and an anchor. `--sha-map`, the one mode that writes your documents, is
 held whole by a property for the first time: an empty map changes nothing,
-and a map changes exactly the tokens it maps. A second defect is recorded
-and not yet repaired: a setext heading whose title is indented one to
-three spaces offers no anchor, so a working link to it is reported dead.
-Its record is Phase 64 in NEXT_SESSION.md.
+and a map changes exactly the tokens it maps. It found a second defect,
+also repaired in Phase 65. Its record is Phase 64 in NEXT_SESSION.md.
+
+Phase 65 repairs the two defects the cross-check found. Its record is
+Phase 65 in NEXT_SESSION.md, and the last section of the design
+rationale's part on code blocks.
+
+**A `<pre>` block is not closed by `</pre >`.** CommonMark ends a `<pre>`,
+`<script>`, `<style>` or `<textarea>` block only at a line holding the
+literal closing tag, in any case. A space or a tab before the `>` used to
+close it here, so the lines after it could be read as code and their
+claims skipped, where the renderer shows raw HTML.
+
+**A setext heading may be indented up to three spaces, as in CommonMark.**
+Its anchor is offered, so a link to it is no longer reported dead. And an
+underline indented four or more is no longer taken for one, since to
+CommonMark it continues the paragraph. Neither moved any output over the
+152 corpus clones.
 
 **`exclude_paths` reads a run of stars the way git does.** A `**` spans
 directories only as a whole segment - `**/`, `/**/`, a trailing `/**` - and

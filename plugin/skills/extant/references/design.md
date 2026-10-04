@@ -79,6 +79,7 @@ Where each section went, by its title:
 **Code blocks** (`design/code-blocks.md`):
 - The other code block: four spaces, and the renderers that disagree about them
 - One scanner for both code blocks: a fence ends where its container does
+- Two defects the mutmut cross-check found: a spaced closing tag, and how far in a setext heading may sit
 
 **Keeping the tool honest** (`design/quality.md`):
 - The suite's own denominator, and the number the review could not see
