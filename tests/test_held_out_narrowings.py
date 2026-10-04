@@ -694,10 +694,16 @@ def test_a_live_commit_linked_by_this_repositorys_own_url_is_not_reported(
     rule's scan reads it - asked without the origin, the token left the
     batch and a live commit was reported dead. Found by the audit of the
     mutmut cross-check (Phase 64)."""
+    # `_abbrev`, never `sha[:7]`: a real seven-character prefix is all digits
+    # one time in twenty-five, the scanner rightly reads it as a number, and
+    # the first assertion below then passes for no reason. It reddened two
+    # CI legs of this test's first run (#29) - the trap tests/conftest.py
+    # names, written a third time.
+    from conftest import _abbrev
     repo, commit = git_repo
     sha = commit("README.md", "x\n", "seed")
     _with_origin(repo, "https://github.com/helix-editor/helix.git")
-    text = f"[`{sha[:7]}`](https://github.com/helix-editor/helix/commit/{sha})\n"
+    text = f"[`{_abbrev(sha)}`](https://github.com/helix-editor/helix/commit/{sha})\n"
     assert _shas(repo, text) == []
     assert _examined_shas(repo, text) == 1
 
