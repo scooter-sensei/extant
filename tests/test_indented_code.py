@@ -463,6 +463,29 @@ def test_a_closing_tag_with_text_after_it_still_closes_a_pre_block() -> None:
     assert _lines(text) == {5}
 
 
+@pytest.mark.parametrize("closer, expected", [
+    ("</pre >", set()),
+    ("</pre\t>", set()),
+    ("</PRE>", {5}),
+])
+def test_a_pre_block_ends_only_at_the_literal_closing_tag(
+        closer: str, expected: set[int]) -> None:
+    """CommonMark ends a `<pre>` block at a line CONTAINING `</pre>`, in any
+    case, and at nothing else: `</pre >` is an end tag to a browser, but
+    the markdown block runs on, so the lines after it are raw HTML, not
+    code, and the claims in them are read - markdown-it-py and micromark
+    agree. Read as a close, the indented line below was code and blanked:
+    a claim silenced. Found by the mutmut cross-check (Phase 63), whose
+    mutant agreed with the renderer and the tree did not; repaired in
+    Phase 65."""
+    text = ("<pre>\n"
+            "x\n"
+            f"{closer}\n"
+            "\n"
+            "    code\n")
+    assert _lines(text) == expected
+
+
 @pytest.mark.parametrize("text, expected", [
     # A tab after a tab reaches the NEXT stop: two tabs are eight columns,
     # four past `10. `'s content column, so the line is code in the item.

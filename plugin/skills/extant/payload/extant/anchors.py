@@ -257,10 +257,21 @@ def _setext_headings(lines: list[str]) -> list[str]:
         # rule of dashes without being a heading.
         if title.startswith(("#", ">", "-", "*", "+", "|", "=", ":")):
             continue
-        if lines[index].startswith((" ", "\t")):
+        # CommonMark lets BOTH lines sit up to three columns in. At four the
+        # title is indented code, and an underline at four is the
+        # paragraph's continuation rather than a rule. Until Phase 65 any
+        # indented title was refused - a working link to one reported dead -
+        # and an underline was accepted at any indentation, offering an
+        # anchor no renderer makes and forgiving a dead link to it.
+        if _leading_columns(lines[index]) >= 4 or _leading_columns(lines[index + 1]) >= 4:
             continue
         found.append(title)
     return found
+
+
+def _leading_columns(line: str) -> int:
+    """How far in a line starts, a tab reaching the next stop of four."""
+    return len(line[:len(line) - len(line.lstrip(" \t"))].expandtabs(4))
 
 
 # Public for the reason `current_document` above is: sites.py reads the anchors

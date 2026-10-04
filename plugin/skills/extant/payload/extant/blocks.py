@@ -129,10 +129,18 @@ class CodeLines(NamedTuple):
 
 
 def _closing(tag: str, line: str) -> bool:
-    """Does this line hold `</tag>`, whatever its case or spacing?"""
-    lowered = line.lower()
-    at = lowered.find("</" + tag)
-    return at >= 0 and lowered[at + len(tag) + 2:].lstrip().startswith(">")
+    """Does this line hold `</tag>`, in any case - CommonMark's end condition
+    for the four verbatim blocks, and the only one.
+
+    Not "whatever its spacing" any more: `</pre >` is an end tag to a
+    browser, but CommonMark ends the markdown block only at the literal
+    `</pre>`, and markdown-it-py and micromark both run it on. Read as a
+    close, the lines after it were scanned as markdown and an indented one
+    blanked as code, where the renderer shows raw HTML - a claim silenced.
+    Found by the mutmut cross-check (Phase 63), whose mutant agreed with
+    the renderer where this did not; repaired in Phase 65.
+    """
+    return ("</" + tag + ">") in line.lower()
 
 
 def _visible_indent(line: str) -> tuple[int, str]:

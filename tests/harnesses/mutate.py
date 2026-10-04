@@ -2846,9 +2846,12 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # per shape stands for the shape here, on its most specific line.
         # blocks.py: the expected answers are CommonMark's (markdown-it-py
         # and micromark agreeing), or a divergence the design records.
-        ("a closing tag is read at the wrong offset", blocks,
-         '    return at >= 0 and lowered[at + len(tag) + 2:].lstrip().startswith(">")',
-         '    return at >= 0 and lowered[at - len(tag) + 2:].lstrip().startswith(">")'),
+        # Retargeted in Phase 65, when `_closing` became the literal-tag test
+        # CommonMark states: the shape is still "a closing tag with text
+        # beside it ends the block", and so is the test that kills it.
+        ("a closing tag with text beside it does not close the block", blocks,
+         '    return ("</" + tag + ">") in line.lower()',
+         '    return line.lower().strip() == "</" + tag + ">"'),
         ("a tab after other indentation is not taken to the next stop", blocks,
          "            columns += TAB_STOP - (columns % TAB_STOP)",
          "            columns = TAB_STOP - (columns % TAB_STOP)"),
@@ -3009,6 +3012,19 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a repeated heading's first number is skipped", anchors,
          "            for n in range(1, count)}",
          "            for n in range(2, count)}"),
+
+        # --- Phase 65: the two defects the cross-check found, repaired -------
+        # Each reverts one repair, and each was watched red against the
+        # repair's own test first.
+        ("a spaced closing tag ends a verbatim block again", blocks,
+         '    return ("</" + tag + ">") in line.lower()',
+         '    return ("</" + tag) in line.lower()'),
+        ("an indented setext title is refused again", anchors,
+         "        if _leading_columns(lines[index]) >= 4 or _leading_columns(lines[index + 1]) >= 4:",
+         '        if lines[index].startswith((" ", "\\t")) or _leading_columns(lines[index + 1]) >= 4:'),
+        ("an underline at four columns is a rule again", anchors,
+         "        if _leading_columns(lines[index]) >= 4 or _leading_columns(lines[index + 1]) >= 4:",
+         "        if _leading_columns(lines[index]) >= 4:"),
     ]
 
 
