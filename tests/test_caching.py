@@ -1083,3 +1083,23 @@ def test_the_blanking_memo_is_not_answered_across_a_format_change() -> None:
         "the same text object blanked as markdown was handed back for the rst "
         "reading: the blanking memo's key does not carry the format")
     assert len(as_rst) == len(both), "the blanking stopped preserving offsets"
+
+
+def test_the_sha_scanner_memos_are_not_answered_across_origins() -> None:
+    """The two SHA scanners memoise on the text object AND the origin the
+    scan compared linked commits with, since 2026-09-22. A commit link to
+    `acme/widget` is this repository's claim when that is the origin and
+    somebody else's otherwise, so one text object scanned under two origins
+    must be scanned twice. Every test reads a document under one origin, so
+    a memo answering across them - or keyed as though no origin were ever
+    asked - survived all of them. Found by mutmut (Phase 64)."""
+    from extant.commits import find_bare_sha_candidates, find_sha_candidates
+
+    text = ("[`a1b2c3d`](https://github.com/acme/widget/commit/a1b2c3d) "
+            "[e4f5a6b](https://github.com/acme/widget/commit/e4f5a6b)\n")
+    assert find_sha_candidates(text, lambda: "acme/widget") == [(1, "a1b2c3d")]
+    assert find_sha_candidates(text, lambda: "other/repo") == [], (
+        "the backticked scan answered for one origin was handed back for another")
+    assert find_bare_sha_candidates(text, lambda: "acme/widget") == [(1, "e4f5a6b")]
+    assert find_bare_sha_candidates(text, lambda: "other/repo") == [], (
+        "the bare scan answered for one origin was handed back for another")

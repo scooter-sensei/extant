@@ -658,6 +658,50 @@ def test_a_bare_range_outside_a_link_still_fires_at_both_ends(git_repo) -> None:
     assert _shas(repo, text) == ["a1b2c3d", "e4f5a6b"]
 
 
+def test_two_linked_commits_on_a_line_are_each_judged_by_their_own_url(
+        git_repo) -> None:
+    """Ours first, then somebody else's: the first is checked and the second
+    set aside. Stopping at the first link this repository owns left every
+    later link on the line unexamined - its text read as our claim. Found by
+    mutmut (Phase 64)."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/helix-editor/helix.git")
+    text = ("[`a1b2c3d`](https://github.com/helix-editor/helix/commit/a1b2c3d) "
+            "[`e4f5a6b`](https://github.com/acme/widget/commit/e4f5a6b)\n")
+    assert _shas(repo, text) == ["a1b2c3d"]
+
+
+def test_a_plain_backticked_sha_after_a_foreign_link_is_still_read(
+        git_repo) -> None:
+    """A linked commit set aside ends nothing: the plain backticked SHA after
+    it on the same line is this document's claim. Found by mutmut (Phase
+    64)."""
+    repo, commit = git_repo
+    commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/helix-editor/helix.git")
+    text = ("[`a1b2c3d`](https://github.com/acme/widget/commit/a1b2c3d) "
+            "and `e4f5a6b`\n")
+    assert _shas(repo, text) == ["e4f5a6b"]
+
+
+def test_a_live_commit_linked_by_this_repositorys_own_url_is_not_reported(
+        git_repo) -> None:
+    """The tests above link DEAD commits, so a batch that never asked git
+    about a linked token passed them all: dead either way. The rule reads
+    which tokens are alive from the one `cat-file` batch the document
+    shares, and that batch must gather an own-linked token exactly as the
+    rule's scan reads it - asked without the origin, the token left the
+    batch and a live commit was reported dead. Found by the audit of the
+    mutmut cross-check (Phase 64)."""
+    repo, commit = git_repo
+    sha = commit("README.md", "x\n", "seed")
+    _with_origin(repo, "https://github.com/helix-editor/helix.git")
+    text = f"[`{sha[:7]}`](https://github.com/helix-editor/helix/commit/{sha})\n"
+    assert _shas(repo, text) == []
+    assert _examined_shas(repo, text) == 1
+
+
 # --------------------------------------------------------------------------
 # 4. A hex run inside a filename is part of the filename.      144 findings
 # --------------------------------------------------------------------------
@@ -955,6 +999,65 @@ def test_a_dead_anchor_in_a_setext_document_still_fires(git_repo) -> None:
             "Limitations\n"
             "-----------\n")
     assert _anchors(repo, text) == ["#no-such-thing"]
+
+
+# What mutmut found the setext tests above left open (Phase 64). The
+# headings are markdown-it-py's `commonmark` preset's, `table` enabled for
+# the row; the frontmatter rule is this module's, since CommonMark has no
+# frontmatter.
+
+@pytest.mark.parametrize("text", [
+    "Title\n=====\n",
+    "Title\n=====\n\nText\n\n---\n",
+])
+def test_a_setext_heading_on_the_first_line_or_the_last_is_a_heading(text: str) -> None:
+    """The tests above put prose first and more prose after. A heading on
+    line 1 is a heading, and so is one whose rule is the document's last
+    line; and a `---` later on - a thematic break - is not the closer of
+    frontmatter that was never opened."""
+    from extant.anchors import anchors
+    assert anchors(text) == {"title"}
+
+
+@pytest.mark.parametrize("text, expected", [
+    # Frontmatter of more than one line is skipped whole.
+    ("---\ntitle: x\nauthor: y\n---\n\nHeading\n=======\n", {"heading"}),
+    # Closed by `...`, which YAML allows; the heading after it is read.
+    ("---\ntitle: x\n...\nUsage notes\n---\n", {"usage-notes"}),
+    # A heading straight after the closer is read too.
+    ("---\ntitle: x\n---\nHeading\n=======\n", {"heading"}),
+])
+def test_frontmatter_ends_at_its_closer_and_not_a_line_sooner_or_later(
+        text: str, expected: set[str]) -> None:
+    from extant.anchors import anchors
+    assert anchors(text) == expected
+
+
+def test_a_plain_line_with_no_rule_under_it_is_no_heading() -> None:
+    from extant.anchors import anchors
+    assert anchors("Some prose here\nand more of it\n") == set()
+
+
+@pytest.mark.parametrize("line", ["# Heading", "> quoted", "- item", "* item",
+                                  "+ item", "| a |", '=== "Tab"', ": definition",
+                                  "    indented", "\tindented"])
+def test_a_rule_under_a_shape_that_is_already_something_adds_no_heading(
+        line: str) -> None:
+    """A heading, a quote, a list item, a table row, a content tab, a
+    definition and an indented block can each sit above `---` without being
+    underlined by it: the `---` is a thematic break, or the table's
+    delimiter. So the document offers the same anchors with the rule as
+    without it. Indented means four columns or a tab: a title indented one
+    to three spaces IS a heading to CommonMark, which this module refuses -
+    a recorded defect (Phase 64), not what this test holds."""
+    from extant.anchors import anchors
+    assert anchors(f"{line}\n---\n") == anchors(f"{line}\n")
+
+
+@pytest.mark.parametrize("first", ["- item", "    indented"])
+def test_a_heading_after_an_excluded_title_is_still_read(first: str) -> None:
+    from extant.anchors import anchors
+    assert anchors(f"{first}\n---\n\nTitle\n=====\n") == {"title"}
 
 
 # --------------------------------------------------------------------------

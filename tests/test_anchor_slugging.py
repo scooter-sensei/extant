@@ -22,6 +22,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -42,6 +44,11 @@ HEADINGS = [
     "ends with dash-", "-", "--", "a & b", '"quoted"', "CamelCase API",
     "snake_case_name", "x=y+z", "50/50", "1.2.3", "a/b/c path", "",
     "   ", "tab\theading", "double  space", "emoji-free but long " * 3,
+    # An edge dash AND punctuation inside, so the edge-stripped spelling is
+    # one no other convention also produces: with `-leading dash` alone the
+    # punctuation-to-dash spelling covered it, and the inline strip of the
+    # edge dashes could be lost unnoticed (mutmut, Phase 64).
+    "-flag.name", "-v1.2 notes",
 ]
 
 
@@ -100,6 +107,25 @@ def test_repeated_headings_are_numbered_the_way_disambiguated_numbers_them() -> 
                     f"{headings!r}: `_disambiguated` offers {spelling!r} and "
                     f"the inline numbering does not")
     assert len(cases) == 5
+
+
+@pytest.mark.parametrize("headings, numbered", [
+    (["Hello", "Hello"], {"hello-1"}),
+    (["Hello", "Hello", "Hello"], {"hello-1", "hello-2"}),
+    (["A", "B", "A", "B", "A"], {"a-1", "a-2", "b-1"}),
+    (["Hello"], set()),
+])
+def test_disambiguated_numbers_every_repeat_from_the_second(
+        headings: list[str], numbered: set[str]) -> None:
+    """The test above checks the inline numbering against `_disambiguated`
+    in ONE direction, so a `_disambiguated` that numbered nothing passed it
+    vacuously - four mutations did (mutmut, Phase 64). GitHub numbers the
+    second `Hello` `hello-1` and the third `hello-2`; a heading that
+    occurs once is never numbered. Both sides are held to that, the
+    definition and the inline pass alike."""
+    assert _disambiguated(headings) == numbered
+    produced = anchors("".join(f"# {h}\n\n" for h in headings))
+    assert {a for a in produced if a[-1].isdigit() and "-" in a} == numbered
 
 
 def test_heading_text_is_still_the_shared_front_end() -> None:

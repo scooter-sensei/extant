@@ -56,7 +56,7 @@ from hypothesis import strategies as st
 from extant.commits import (
     BACKTICKED, _ASSET_PATH, _HEX_WORDS, _LINKED_BARE_SHA, _LINKED_SHA,
     _PINNED_REF, _URL, _UUID, _range_ends, find_bare_sha_candidates,
-    find_sha_candidates, looks_like_bare_sha, looks_like_sha,
+    find_sha_candidates, looks_like_bare_sha, looks_like_sha, translate_shas,
 )
 from extant.exclusions import _exclusion_regex
 from extant.finding import Finding, Located
@@ -64,6 +64,7 @@ from extant.git import environment
 from extant.links import percent_decoded
 from extant.refs import SHA_SHAPE, normalise_remote
 from extant.report import group_parallel
+from extant.rewrites import translated_value
 from extant.scope import DocScope
 from extant.text import (
     line_breaks, line_number_at, lone_cr_to_lf, prose, strip_code,
@@ -516,3 +517,94 @@ def test_every_named_reason_is_reached() -> None:
                  if not model(line, own)[2][reason]}
     print(f"checked {len(REASONS)} named reasons")
     assert not unreached, unreached
+
+
+# --------------------------------------------------------------------------
+# 7. `--sha-map` changes only the tokens it maps, and every one it reports
+# --------------------------------------------------------------------------
+#
+# The one mode that WRITES documents (gate.py writes `translate_shas`' text
+# back to disk), and until Phase 64 nothing compared its output whole: the
+# tests were one-line inputs asserted with `in`, and the fuzz oracle reads
+# crash, exit and denominator, not text. mutmut found a separator joined
+# between every line, the same inside a line holding a bare rewrite, an
+# all-digit backticked token losing its backticks, and every `continue` ->
+# `break` that left the later tokens on a line untranslated - each surviving
+# the whole suite. Three claims, all from the docstring:
+# 1. an empty map is a no-op, byte for byte;
+# 2. a rewrite keeps the document's length, and changes nothing but whole
+#    hex runs the scanners read as commits, each into exactly its mapped
+#    value - `translated_value` truncates to the token's length;
+# 3. no token the scanners report survives with a mapping: what `dead-sha`
+#    reports, `--sha-map` repairs (the EX-8 argument).
+#
+# The map is drawn from fixed old ids, so the tokens can be built FROM it -
+# the matcher property's lesson. Two share an eight-character prefix, so a
+# short token is ambiguous and must stay; one opens with seven digits, so an
+# all-digit range end prefixes it and must stay too. New ids open with
+# letters no old id does, so no rewrite is itself rewritable.
+OLD_IDS = ["a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+           "a1b2c3d4ffff0000111122223333444455556666",
+           "b7e6d5c4b3a2918273645546372819a0b1c2d3e4",
+           "1234567abc0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f"]
+NEW_IDS = ["c0ffee11" + "c" * 32, "d00d2222" + "d" * 32,
+           "e1e1e333" + "e" * 32, "f4f4f444" + "f" * 32]
+MAP_TOKENS = [old[:n] for old in OLD_IDS for n in (7, 10, 40)] + [
+    "1234567", "deadbeef", "ed25519", _DIGEST, "ABC1234", "c0d1e2f"]
+_UUID_TAIL = "-84cb-49e7-90fb-56595df594e6"
+WRAPPED = st.one_of(
+    st.sampled_from(MAP_TOKENS),
+    st.sampled_from(MAP_TOKENS).map(lambda t: f"`{t}`"),
+    st.builds(lambda a, sep, b: f"`{a}{sep}{b}`", st.sampled_from(MAP_TOKENS),
+              st.sampled_from(["..", "..."]), st.sampled_from(MAP_TOKENS)),
+    st.sampled_from(MAP_TOKENS).map(lambda t: f"https://github.com/o/r/commit/{t}"),
+    st.sampled_from(MAP_TOKENS).map(lambda t: f"o/r@{t}"),
+    st.sampled_from(MAP_TOKENS).map(lambda t: f"[`{t}`](https://github.com/f/z/commit/{t})"),
+    st.sampled_from(MAP_TOKENS).map(lambda t: f"[{t}](../../commit/{t})"),
+    st.sampled_from(MAP_TOKENS).map(lambda t: f"#{t}"),
+    st.sampled_from(OLD_IDS).map(lambda old: old[:8] + _UUID_TAIL),
+)
+MAP_LINE = st.lists(st.tuples(st.sampled_from([" ", "", "x", ", ", "`", "[", "]("]),
+                              WRAPPED), max_size=5).map(
+    lambda items: "".join(sep + token for sep, token in items))
+MAP_DOCUMENTS = st.builds(
+    lambda lines, ending, last: ending.join(lines) + (ending if last else ""),
+    st.lists(MAP_LINE, min_size=1, max_size=5), st.sampled_from(["\n", "\r\n"]),
+    st.booleans())
+MAPS = st.sets(st.integers(0, len(OLD_IDS) - 1)).map(
+    lambda picked: {OLD_IDS[i]: NEW_IDS[i] for i in sorted(picked)})
+_HEX_RUN = re.compile(r"[0-9A-Fa-f]+")
+_EVERY_ID = dict(zip(OLD_IDS, NEW_IDS))
+
+
+@given(MAP_DOCUMENTS, MAPS)
+@example("see `1234567` and `b7e6d5c` now\n", _EVERY_ID)
+@example("a `b7e6d5c..1234567` range\n", _EVERY_ID)
+@example("one b7e6d5c\ntwo a1b2c3d4e5\r\n", _EVERY_ID)
+@example("`a1b2c3d` x b7e6d5c", _EVERY_ID)
+@example("deadbeef b7e6d5c", _EVERY_ID)
+@example("c0d1e2f b7e6d5c", _EVERY_ID)
+def test_sha_map_changes_only_what_it_maps_and_repairs_what_is_reported(
+        text: str, mapping: dict[str, str]) -> None:
+    assert translate_shas(text, {}) == (text, 0)
+    out, count = translate_shas(text, mapping)
+    assert len(out) == len(text), (text, out)
+    assert ([line[len(line.rstrip("\r\n")):] for line in out.splitlines(True)]
+            == [line[len(line.rstrip("\r\n")):] for line in text.splitlines(True)])
+    runs = [m.span() for m in _HEX_RUN.finditer(text)]
+    changed = 0
+    for start, end in runs:
+        token = text[start:end]
+        if out[start:end] != token:
+            changed += 1
+            assert looks_like_sha(token) or looks_like_bare_sha(token), token
+            assert out[start:end] == translated_value(token, mapping), token
+    inside = {i for start, end in runs for i in range(start, end)}
+    moved = [i for i, (was, now) in enumerate(zip(text, out))
+             if was != now and i not in inside]
+    assert not moved, (text, out)
+    assert count >= changed
+    left = [token for _number, token in (find_sha_candidates(out, lambda: None)
+                                         + find_bare_sha_candidates(out, lambda: None))
+            if translated_value(token, mapping) is not None]
+    assert not left, (text, out, left)
