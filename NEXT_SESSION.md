@@ -6,7 +6,61 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 63 - mutmut as a cross-check: 61 mutants no test held in blocks.py and text.py, and one defect (unreleased, 2026-10-03)
+## Phase 64 - mutmut as a cross-check, second half: commits.py and anchors.py, `--sha-map` held whole, and a second defect (unreleased, 2026-10-03)
+
+**Status.** Built and gated.
+- 1,684 tests across 82 files, of which 1,676 pass and 8 skip on this
+  machine - the same 8 skips as before. On Linux 1,682 pass and 2 skip,
+  serially and in CI's shuffled order.
+- smoke, scenarios (213 of 213), fuzz (0 violations) and the fuzzer's
+  self-check (23 of 23) green on an extract.
+- `python -m mypy`: no issues in 47 files.
+- 448 mutation anchors match. The 17 new ones were killed by one
+  `--parallel` campaign on a clone in 31 minutes: 0 survived, 0 hung, 0
+  overturned by the serial check.
+- No identity gate: the payload did not change.
+- No rule added or removed, thirteen as before; no mode added. The payload
+  is unchanged: only tests, the mutation harness and these records moved.
+- The tool remained released as 0.29.0.
+
+**What it answers.** The rest of Phase 63's question, for
+`extant/commits.py` and `extant/anchors.py`: 60 real rows mutmut found
+that the whole suite let through, in 17 shapes. links.py, the fifth module
+measured, had none in its function bodies.
+
+**What changed.**
+- A Hypothesis property holds `--sha-map` whole, the one mode that writes
+  documents: an empty map is a no-op; a rewrite keeps the length and
+  changes only whole hex runs the scanners read as commits, each into
+  exactly its mapped value; and no token the scanners report survives with
+  a mapping. Its generator is built from the map. All seven mutants it was
+  written for turn it red, with its explicit examples and without them.
+- Example tests beside it hold each `--sha-map` shape where the 3.9 legs,
+  which skip the property module, run them too.
+- Tests for the rest: the scanners' memo across origins, linked commits
+  judged one by one on a line, a refused merge claim, a live commit linked
+  by this repository's own URL, what `noted` names, every definition-term
+  and setext opener, frontmatter, HTML `name` and `id` anchors - which no
+  test held at all - and `_disambiguated`, which was checked in one
+  direction only. 60 of 60 rows red against their tests.
+- 17 mutation anchors, one per shape.
+
+**Found.** A second defect, recorded and not repaired: a setext heading
+whose title is indented one to three spaces is a heading to CommonMark,
+markdown-it and micromark, and this module offers no anchor for it, so a
+working link to it is reported dead. A false positive, the safe direction,
+and its own item beside Phase 63's `</pre >`.
+
+**Closed by running it again.** mutmut over the two modules with the tests
+in place: 37 survivors where 38 were expected, all confirmed against the
+whole suite, no real row among them. The 38th was filed killed, and the
+whole suite on a clean clone lets it through: a false kill, one in 706,
+caught only because the expected list was written down first.
+
+The numbers are in "mutmut as a cross-check: what the hand-chosen anchors
+missed" in `plugin/skills/extant/references/design/quality.md`.
+
+## Phase 63 - mutmut as a cross-check: 65 real mutants no test held in blocks.py and text.py, and one defect (unreleased, 2026-10-03)
 
 **Status.** Built and gated.
 - 1,635 tests across 82 files, of which 1,627 pass and 8 skip on this

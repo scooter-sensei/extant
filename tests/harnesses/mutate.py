@@ -2938,6 +2938,77 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the route index stops a depth short", text,
          "                for depth in range(1, min(len(parts), _ROUTE_DEPTH) + 1):",
          "                for depth in range(1, min(len(parts), _ROUTE_DEPTH) - 1):"),
+
+        # --- Phase 64: what mutmut found in commits.py and anchors.py -------
+        # The second half of the cross-check: 60 real mutants in 17 shapes,
+        # each shape with a test watched red against every mutant of it -
+        # `--sha-map`'s through a Hypothesis property, with and without its
+        # explicit examples, and example tests the 3.9 legs run too.
+        ("a link to this repository's commit ends the line's linked spans", commits,
+         '        if ours is not None and normalise_remote(match.group("head")) == ours:\n'
+         "            continue",
+         '        if ours is not None and normalise_remote(match.group("head")) == ours:\n'
+         "            break"),
+        ("the backticked scan's memo answers for any origin", commits,
+         "    if _SHA_CANDIDATES is not None and _SHA_CANDIDATES[0] is text:\n"
+         "        _text, compared, hit = _SHA_CANDIDATES\n"
+         "        if compared is _UNASKED or compared == own():",
+         "    if _SHA_CANDIDATES is not None and _SHA_CANDIDATES[0] is text:\n"
+         "        _text, compared, hit = _SHA_CANDIDATES\n"
+         "        if True:"),
+        ("a linked commit set aside ends the line's backticked scan", commits,
+         "            if spans_overlap(match.span(1), qualified):\n"
+         "                continue",
+         "            if spans_overlap(match.span(1), qualified):\n"
+         "                break"),
+        ("a refused merge claim ends the scan", commits,
+         "        if line_breaks(match.group(0)) > 1:\n"
+         "            continue",
+         "        if line_breaks(match.group(0)) > 1:\n"
+         "            break"),
+        ("the shared SHA batch is gathered without the origin", commits,
+         "        ctx.config, prose, lambda: own_remote(ctx)))",
+         "        ctx.config, prose, lambda: None))"),
+        ("a backticked rewrite is noted at a reversed span", commits,
+         "                note(match.start(1) + at, match.start(1) + at + len(end), end)",
+         "                note(match.start(1) + at, match.start(1) + at - len(end), end)"),
+        ("--sha-map rebuilds the document with a newline between lines", commits,
+         '    return "".join(lines), count',
+         '    return "\\n".join(lines), count'),
+        ("--sha-map rewrites a range end the scanner refuses", commits,
+         "                   if looks_like_sha(end) else None)",
+         "                   if end else None)"),
+        ("an unmapped bare token ends the line's rewrites", commits,
+         "            if new is None:\n"
+         "                continue",
+         "            if new is None:\n"
+         "                break"),
+        ("a quote line followed by a colon line is a definition term", anchors,
+         '        if not line.strip() or line.startswith((" ", "\\t", "#", ">", "-", "*", "|", "=")):',
+         '        if not line.strip() or line.startswith((" ", "\\t", "#", "-", "*", "|", "=")):'),
+        ("a setext heading on the first line is skipped", anchors,
+         "    start = 0\n"
+         '    if lines and lines[0].strip() == "---":',
+         "    start = 1\n"
+         '    if lines and lines[0].strip() == "---":'),
+        ("frontmatter closed by ... is not closed", anchors,
+         '            if lines[index].strip() in ("---", "..."):',
+         '            if lines[index].strip() == "---":'),
+        ("a plain line with no rule under it is a heading", anchors,
+         "        if not title or not _SETEXT_RULE.match(lines[index + 1].strip()):",
+         "        if not title and not _SETEXT_RULE.match(lines[index + 1].strip()):"),
+        ("a quote above a rule is a setext heading", anchors,
+         '        if title.startswith(("#", ">", "-", "*", "+", "|", "=", ":")):',
+         '        if title.startswith(("#", "-", "*", "+", "|", "=", ":")):'),
+        ("a heading's edge dashes are kept in its plain spelling", anchors,
+         '            plain = kept.strip("-")',
+         "            plain = kept"),
+        ("an HTML anchor keeps its case", anchors,
+         "    found |= {a.lower() for a in _EXPLICIT_ANCHOR.findall(text)}",
+         "    found |= set(_EXPLICIT_ANCHOR.findall(text))"),
+        ("a repeated heading's first number is skipped", anchors,
+         "            for n in range(1, count)}",
+         "            for n in range(2, count)}"),
     ]
 
 

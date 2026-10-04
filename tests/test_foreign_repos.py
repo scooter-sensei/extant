@@ -493,6 +493,29 @@ def test_a_colon_line_after_a_heading_is_not_a_definition_term(git_repo) -> None
     assert "dead-md-anchor" in _kinds(repo, text), _findings(repo, text)
 
 
+@pytest.mark.parametrize("line", ["    indented", "\tindented", "## Real heading",
+                                  "> quoted", "- item", "* item", "| a | b |",
+                                  '=== "Tab"'])
+def test_a_colon_line_adds_no_anchor_after_a_shape_that_is_already_something(
+        line: str) -> None:
+    """Every excluded opener, not only the heading above: an indented block,
+    a heading, a quote, a list item, a table row and a content tab can each
+    be followed by a colon line without being a definition term. The anchors
+    the document offers are the same with the colon line as without it -
+    a term here would offer the line's slug, or a heading's twice and its
+    `-1` with it. Found by mutmut (Phase 64): every one of the eight
+    openers could be dropped from the list unnoticed."""
+    from extant.anchors import anchors
+    assert anchors(f"{line}\n: not a definition\n") == anchors(f"{line}\n")
+
+
+def test_a_term_after_an_excluded_line_is_still_a_term() -> None:
+    """An excluded line is passed over, not a reason to stop reading."""
+    from extant.anchors import anchors
+    text = "- item\n: not a definition\n\nterm\n: the definition\n"
+    assert anchors(text) == {"term"}
+
+
 def test_a_repeated_slug_gets_the_numbered_suffix(git_repo) -> None:
     """Two headings reading the same thing cannot share an id, so a renderer
     numbers the later ones. Hugo's deployment page has a `matchers` term and a
@@ -528,6 +551,19 @@ def test_an_explicit_attribute_id_is_an_anchor(git_repo) -> None:
             "See [a](#type-template), [b](#pandoc.metamap), [c](#inlines-filter).\n")
 
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
+
+
+@pytest.mark.parametrize("element", ['<a name="Install-Steps"></a>',
+                                     '<span id="Install-Steps"></span>'])
+def test_an_html_element_named_in_the_source_is_an_anchor(element: str) -> None:
+    """The oldest explicit anchor of all, a `name` or `id` attribute, and the
+    one no test held: the explicit spellings tested here are `{#id}`,
+    Docusaurus' `{/* #id */}`, MyST's `(target)=` and its `:label:`, and
+    none is HTML. Offered folded to lower case, as the rule compares every
+    fragment, so `#install-steps` reaches it. Found by mutmut (Phase 64):
+    the anchors came back upper-cased and nothing noticed."""
+    from extant.anchors import anchors
+    assert anchors(f"{element}\n\nInstall steps follow.\n") == {"install-steps"}
 
 
 # --- fourth sweep: doc toolchains -----------------------------------------

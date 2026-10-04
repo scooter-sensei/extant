@@ -98,6 +98,19 @@ def test_a_claim_is_not_joined_across_a_blank_line() -> None:
     assert _claims(text) == []
 
 
+def test_a_refused_claim_does_not_end_the_scan() -> None:
+    """A claim refused for crossing a blank line is passed over, not a reason
+    to stop: the real claim after it is found. Stopping there survived every
+    test, because each refusal above is the document's only candidate.
+    Found by mutmut (Phase 64)."""
+    text = ("Everything was merged to `main`\n"
+            "\n"
+            "at `abc1234` the tests broke.\n"
+            "Later shipped to `dev` at `def5678`.\n")
+
+    assert [(number, sha) for number, _, sha in _claims(text)] == [(4, "def5678")]
+
+
 def test_a_claim_is_not_joined_across_a_blanked_fence() -> None:
     """The guard that only matters because `prose` blanks rather than deletes.
 

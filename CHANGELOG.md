@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.29.0, unreleased: Phases 60 to 63. No rule added or removed,
+Above 0.29.0, unreleased: Phases 60 to 64. No rule added or removed,
 thirteen as before; no mode added. Three exit codes moved, each to 2, and
 one `--archive` defect that deleted a person's section is repaired.
 
@@ -31,6 +31,15 @@ recorded and not yet repaired: a `<pre>` block is taken as closed by
 `</pre >`, with a space before the `>`, where CommonMark runs it on. Its
 record is Phase 63 in NEXT_SESSION.md, and "mutmut as a cross-check" in
 the same part of the design rationale.
+
+Phase 64 changes tests only: the same cross-check's other half, 60 real
+changes to `commits.py` and `anchors.py` in 17 shapes, each now with a test
+and an anchor. `--sha-map`, the one mode that writes your documents, is
+held whole by a property for the first time: an empty map changes nothing,
+and a map changes exactly the tokens it maps. A second defect is recorded
+and not yet repaired: a setext heading whose title is indented one to
+three spaces offers no anchor, so a working link to it is reported dead.
+Its record is Phase 64 in NEXT_SESSION.md.
 
 **`exclude_paths` reads a run of stars the way git does.** A `**` spans
 directories only as a whole segment - `**/`, `/**/`, a trailing `/**` - and

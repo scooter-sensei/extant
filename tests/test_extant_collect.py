@@ -821,6 +821,102 @@ def test_translate_shas_names_the_rewrites_another_repository_may_still_hold() -
                      (3, pinned, "up/stream")], noted
 
 
+# --- what mutmut found `--sha-map` let through (Phase 64) --------------------
+#
+# The mode WRITES documents, and nothing compared its output whole: every
+# test above asserts with `in`, or on the count. tests/test_properties.py now
+# holds the general claim; these hold each shape mutmut found where the 3.9
+# legs, which skip that module, run them too.
+
+_OLD_A, _NEW_A = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "c0ffee11" + "c" * 32
+_OLD_B, _NEW_B = "b7e6d5c4b3a2918273645546372819a0b1c2d3e4", "e1e1e333" + "e" * 32
+_OLD_DIGITS, _NEW_DIGITS = "1234567abc0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f", "f4f4f444" + "f" * 32
+
+
+def test_a_sha_map_rewrite_changes_nothing_but_the_tokens() -> None:
+    """Byte for byte: the backticks around a token no end of which is a
+    commit, every character around a bare rewrite, and every line break,
+    CRLF included. Each was one mutation from changing - a separator
+    joined between lines, or between the pieces of a line - and the `in`
+    assertions above passed them all."""
+    from extant import commits
+    text = ("merged at `a1b2c3d` and bare a1b2c3d4e5, `1234567` stays\r\n"
+            "line two, a1b2c3d again\n")
+    out, count = commits.translate_shas(text, {_OLD_A: _NEW_A})
+    assert out == ("merged at `c0ffee1` and bare c0ffee11cc, `1234567` stays\r\n"
+                   "line two, c0ffee1 again\n"), out
+    assert count == 3
+    assert commits.translate_shas(text, {}) == (text, 0)
+
+
+def test_an_all_digit_range_end_is_not_rewritten() -> None:
+    """Each end of a backticked range is translated under the scanner's own
+    shape test, so `1234567` - all digits, which the scanner refuses as a
+    number - stays as written even when it prefixes an old id in the map."""
+    from extant import commits
+    out, count = commits.translate_shas(
+        "the range `b7e6d5c..1234567` moved\n",
+        {_OLD_B: _NEW_B, _OLD_DIGITS: _NEW_DIGITS})
+    assert (out, count) == ("the range `e1e1e33..1234567` moved\n", 1)
+
+
+@pytest.mark.parametrize("first, rewritten", [
+    ("`a1b2c3d`", "`c0ffee1`"),   # inside backticks: the bare pass passes it over
+    ("deadbeef", "deadbeef"),     # not a commit's shape
+    ("c0d1e2f", "c0d1e2f"),       # a commit's shape the map does not hold
+])
+def test_every_mapped_token_on_a_line_is_rewritten(first: str, rewritten: str) -> None:
+    """A token the bare pass passes over ends nothing: the mapped token
+    after it on the same line is rewritten too. Each `continue` there was a
+    `break` that left it as written, and no test had two tokens on a line."""
+    from extant import commits
+    out, _ = commits.translate_shas(f"{first} then b7e6d5c\n", {_OLD_A: _NEW_A, _OLD_B: _NEW_B})
+    assert out == f"{rewritten} then e1e1e33\n"
+
+
+def test_a_backticked_rewrite_in_another_repositorys_link_is_named() -> None:
+    """The backticked half names its rewrites as the bare half does: the
+    link's text by the token it rewrote, at the token's own span. Every
+    test of `noted` used bare link text, and four mutations of the
+    backticked call - a span reversed, an end or a start lost, the token
+    lost - survived them."""
+    from extant import commits
+    noted: list[tuple[int, str, str]] = []
+    commits.translate_shas(
+        f"upstream [`{_OLD_B[:7]}`](https://github.com/up/stream/commit/{_OLD_B})\n",
+        {_OLD_B: _NEW_B}, noted=noted, own=lambda: "me/repo")
+    assert noted == [(1, _OLD_B[:7], "up/stream"), (1, _OLD_B, "up/stream")], noted
+
+
+@pytest.mark.parametrize("line, expected", [
+    # A URL that names no repository, on a line with a rewrite outside it.
+    (f"see https://example.com/page and a bare {_OLD_A[:7]}\n", []),
+    # A URL that names no repository and holds the rewrite: named by its own
+    # first 60 characters, since nothing can tie it to origin.
+    (f"https://downloads.example.com/releases/archive/{_OLD_A}\n",
+     [(1, _OLD_A, f"https://downloads.example.com/releases/archive/{_OLD_A}"[:60])]),
+    # A pin naming THIS repository is this repository's own repair.
+    (f"pin me/repo@{_OLD_A} here\n", []),
+    # A relative commit link is this repository's; the foreign link after it
+    # on the same line is not.
+    (f"[{_OLD_A[:7]}](../../commit/{_OLD_A}) and "
+     f"[{_OLD_B[:7]}](https://github.com/up/stream/commit/{_OLD_B})\n",
+     [(1, _OLD_B[:7], "up/stream"), (1, _OLD_B, "up/stream")]),
+])
+def test_only_rewrites_in_another_repositorys_text_are_named(
+        line: str, expected: list[tuple[int, str, str]]) -> None:
+    """What `_elsewhere` names, shape by shape. Each line here had a mutation
+    that survived the suite: three of them raised on the first, the label
+    of an unreadable URL ran a character long, a pin aimed at this
+    repository was named, and a relative link was named or stopped the
+    reading of the link after it."""
+    from extant import commits
+    noted: list[tuple[int, str, str]] = []
+    commits.translate_shas(line, {_OLD_A: _NEW_A, _OLD_B: _NEW_B},
+                           noted=noted, own=lambda: "me/repo")
+    assert noted == expected, noted
+
+
 def test_live_claim_flags_a_branch_that_actually_merged(git_repo):
     from extant import session
     from extant.rules import live_claim as rule_live_claim

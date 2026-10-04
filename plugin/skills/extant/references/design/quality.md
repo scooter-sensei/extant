@@ -2284,3 +2284,94 @@ scenarios 213 of 213, fuzz 0 violations, the fuzzer's self-check 23 of 23.
 `--verify` exits 0; `--selftest` fires 7 rules with 0 silent;
 `--introduced-since main` reads 5 changed documents, 242 introduced lines,
 0 findings. The payload did not change, so the identity gate was not run.
+
+**Phase 64: commits.py and anchors.py.** The second half took the 60 real
+rows of the other two modules, in 17 shapes. Every test was green on the
+tree and red against every mutant of its shape - 60 of 60, and the two
+origin-memo rows the whole suite already killed besides.
+
+*`--sha-map`, held whole at last.* It is the one mode that WRITES
+documents, and its output had never been compared whole: the tests were
+one-line inputs asserted with `in`, and the fuzz oracle reads crash, exit
+and denominator, not text. Through the whole suite went: a separator joined
+between every line, the same between the pieces of a line holding a bare
+rewrite, an all-digit backticked token losing its backticks, an all-digit
+range end rewritten, and three `continue`s that became `break`s and left
+the later tokens on a line as written. A Hypothesis property now holds
+three claims. An empty map is a no-op, byte for byte. A rewrite keeps the
+length and changes only whole hex runs the scanners read as commits, each
+into exactly its mapped value - `translated_value` truncates to the
+token's length, so that can be checked character by character. And no
+token the scanners report in the output still has a mapping: what
+`dead-sha` reports, `--sha-map` repairs.
+
+The generator is built FROM the map, the matcher property's lesson. The
+old ids are fixed. Two share an eight-character prefix, so a short token
+is ambiguous and must stay. One opens with seven digits, so an all-digit
+range end prefixes it and must stay too. The new ids open with letters no
+old id does, so no rewrite is itself rewritable. Each token comes bare,
+backticked, as a range, inside a URL, a pin, a commit link, a relative
+link, after a `#` or inside a UUID, several to a line, LF or CRLF. Every
+one of the seven mutants turns it red, and every one does with its
+explicit examples switched off: the generator finds them itself, in 500
+derandomized draws. The 3.9 legs skip the property module, so example
+tests hold each shape where they run too.
+
+*The rest.* A shared memo that answered across origins; a link to this
+repository's commit that ended the line's linked spans; a foreign link
+that ended the line's backticked scan; a refused merge claim that ended
+the scan; the shared SHA batch gathered without the origin, so a live
+commit linked by this repository's own URL was reported dead; and eight
+ways `noted` misnamed, or crashed on, the rewrites another repository may
+still hold. In anchors.py: each of the definition-term openers and the
+setext title openers, frontmatter of more than one line or closed by
+`...`, a setext heading on the first line or the last, a plain line taken
+for a heading, a heading's edge dashes, and two things no test held at all.
+An HTML `name` or `id` attribute was never offered as an anchor in any
+test - the explicit spellings tested were pandoc's `{#id}`, Docusaurus'
+comment around one, and MyST's targets and labels. And `_disambiguated`,
+the definition the inline numbering is checked against, was checked in
+one direction only, so four mutations
+that made it number nothing passed. Its sets are now pinned against
+GitHub's numbering.
+
+*A second defect, found by choosing an input.* A setext title indented one
+to three spaces - ` Title` over `=====` - IS a heading: markdown-it and
+micromark both say so, and CommonMark allows the indentation. This module
+refuses every indented title, so a working link to one is reported dead.
+That is the safe direction, a finding somebody can argue with, but it is a
+false positive, and it is recorded as its own item beside `</pre >`, not
+repaired here. The tests feed four spaces and a tab, where the module and
+the renderer agree that the line is code and not a title.
+
+*A gap wider than the ledger said.* A7 was filed as "an explicit anchor
+with capitals". Every fragment is lowered before it is compared, so the
+mutant broke every lettered HTML anchor, capitals or not.
+
+*Closed by running mutmut again, and one false kill caught.* 706 mutants
+in 11 minutes, 0 worker exceptions. The survivors had to be exactly the 38
+equivalent, contrived and cost-only rows, with no real row - and the two
+origin-memo rows mutmut's selection missed the first time had to die under
+mutmut itself now, since a new test calls the scanner directly. They did. 37
+survived, every one confirmed against the whole suite. The 38th,
+`spans_overlap__mutmut_5` - a token starting exactly where a skip span ends
+counted as inside it, filed contrived - was filed KILLED, with exit 1 and no
+duration recorded. No new test kills it on Windows, and the whole suite on
+a clean Linux clone lets it through. It is a false kill, the error the
+measurement's gap audit bounded at under about 7.5 per cent from 40 of 40
+kills re-run, seen here for the first time: one in 706. It runs the safe
+way for a cross-check - a gap hidden, not invented - which is why the
+closing run confirms survivors against the whole suite. Here it was also
+missed by that confirmation, because the confirmation reads only survivors,
+and only the expected list caught it.
+
+**Gated, Phase 64.** 1,684 tests: on Windows 1,676 pass and 8 skip, on
+Linux 1,682 and 2, serially and in CI's shuffled order. mypy clean on 47
+files. 448 anchors match, and the 17 new ones were run for real in one
+`--parallel` campaign of 31 minutes on a clone: 17 killed, 0 survived, 0
+hung, 0 overturned. From an extract of the tree: smoke with no new or
+missing flag, scenarios 213 of 213, fuzz 0 violations, the fuzzer's
+self-check 23 of 23. `--verify` exits 0; `--selftest` fires 7 rules with 0
+silent; `--introduced-since main` reads 394 introduced lines, Phase 63's
+and these, with 0 findings. The payload did not change, so the identity
+gate was not run.
