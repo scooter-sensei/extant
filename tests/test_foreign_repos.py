@@ -503,8 +503,8 @@ def test_a_colon_line_adds_no_anchor_after_a_shape_that_is_already_something(
     be followed by a colon line without being a definition term. The anchors
     the document offers are the same with the colon line as without it -
     a term here would offer the line's slug, or a heading's twice and its
-    `-1` with it. Found by mutmut (Phase 64): seven of the eight openers
-    could be dropped from the list unnoticed."""
+    `-1` with it. Found by mutmut (Phase 64): every one of the eight
+    openers could be dropped from the list unnoticed."""
     from extant.anchors import anchors
     assert anchors(f"{line}\n: not a definition\n") == anchors(f"{line}\n")
 
@@ -557,11 +557,11 @@ def test_an_explicit_attribute_id_is_an_anchor(git_repo) -> None:
                                      '<span id="Install-Steps"></span>'])
 def test_an_html_element_named_in_the_source_is_an_anchor(element: str) -> None:
     """The oldest explicit anchor of all, a `name` or `id` attribute, and the
-    one no test held: the explicit spellings tested here are `{#id}`, MyST's
-    `(target)=` and its `:label:`, and none is HTML. Offered folded to lower
-    case, as the rule compares every fragment, so `#install-steps` reaches
-    it. Found by mutmut (Phase 64): the anchors came back upper-cased and
-    nothing noticed."""
+    one no test held: the explicit spellings tested here are `{#id}`,
+    Docusaurus' `{/* #id */}`, MyST's `(target)=` and its `:label:`, and
+    none is HTML. Offered folded to lower case, as the rule compares every
+    fragment, so `#install-steps` reaches it. Found by mutmut (Phase 64):
+    the anchors came back upper-cased and nothing noticed."""
     from extant.anchors import anchors
     assert anchors(f"{element}\n\nInstall steps follow.\n") == {"install-steps"}
 

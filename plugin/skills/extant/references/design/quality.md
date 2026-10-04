@@ -2328,9 +2328,10 @@ setext title openers, frontmatter of more than one line or closed by
 `...`, a setext heading on the first line or the last, a plain line taken
 for a heading, a heading's edge dashes, and two things no test held at all.
 An HTML `name` or `id` attribute was never offered as an anchor in any
-test - the explicit spellings tested were pandoc's, MyST's and its
-labels'. And `_disambiguated`, the definition the inline numbering is
-checked against, was checked in one direction only, so four mutations
+test - the explicit spellings tested were pandoc's `{#id}`, Docusaurus'
+comment around one, and MyST's targets and labels. And `_disambiguated`,
+the definition the inline numbering is checked against, was checked in
+one direction only, so four mutations
 that made it number nothing passed. Its sets are now pinned against
 GitHub's numbering.
 
