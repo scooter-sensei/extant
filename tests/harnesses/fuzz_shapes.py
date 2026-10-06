@@ -55,7 +55,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional, Sequence
 
 __all__ = ["Build", "Contribution", "Feature", "FEATURES", "RULE_KINDS",
            "compose_config", "compose_document", "features_for", "merge",
@@ -96,9 +96,9 @@ class Build:
     rng: random.Random
     sh: Callable[..., object]
     trunk: str
-    facts: dict = field(default_factory=dict)
+    facts: dict[str, bool] = field(default_factory=dict)
 
-    def git(self, *args: str):
+    def git(self, *args: str) -> object:
         return self.sh(self.repo, "git", *args)
 
     def head(self) -> str:
@@ -450,14 +450,14 @@ FEATURES: tuple[Feature, ...] = (
 )
 
 
-def rules_claimed() -> set:
+def rules_claimed() -> set[str]:
     """Every rule kind some feature says it reaches.
 
     A kind in RULE_KINDS and not here has NO feature aiming at it, which is a
     coverage hole the ledger must report differently from a feature that aimed
     and missed. The two are not the same failure and the fix is not the same.
     """
-    claimed = set()
+    claimed: set[str] = set()
     for feature in FEATURES:
         claimed.update(feature.rules)
     return claimed
@@ -469,9 +469,14 @@ def features_for(phase: str) -> tuple[Feature, ...]:
 
 # --- assembly ---------------------------------------------------------
 
-def merge(parts) -> Contribution:
+def merge(parts: Iterable[Contribution | None]) -> Contribution:
     """Fold many contributions into one, preserving order within each field."""
-    prose, entry, config, tables, files, binaries = [], [], [], [], [], []
+    prose: list[str] = []
+    entry: list[str] = []
+    config: list[str] = []
+    tables: list[str] = []
+    files: list[tuple[str, str]] = []
+    binaries: list[tuple[str, bytes]] = []
     for part in parts:
         if part is None:
             continue
@@ -485,7 +490,7 @@ def merge(parts) -> Contribution:
                         tuple(tables), tuple(files), tuple(binaries))
 
 
-def compose_document(prose, entry) -> str:
+def compose_document(prose: Sequence[str], entry: Sequence[str]) -> str:
     """The primary document: a preamble, then phase entries newest first.
 
     The entry structure is load-bearing rather than decorative. `split_entries`
@@ -512,7 +517,7 @@ def compose_document(prose, entry) -> str:
     return "\n".join(lines)
 
 
-def compose_config(base: tuple, contribution: Contribution) -> str:
+def compose_config(base: tuple[str, ...], contribution: Contribution) -> str:
     """Bare keys first, then table blocks.
 
     TOML ends the bare-key section at the first table header, so a key emitted

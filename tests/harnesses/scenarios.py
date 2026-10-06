@@ -21,7 +21,8 @@ PKG = Path(sys.argv[1])          # extracted package
 ARENA = Path(sys.argv[2])        # where scenario repos get built
 PY = sys.executable
 
-PASS, FAIL = [], []
+PASS: list[str] = []
+FAIL: list[str] = []
 
 
 def sh(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:

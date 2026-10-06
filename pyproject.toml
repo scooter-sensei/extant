@@ -115,6 +115,7 @@ files = [
     "plugin/skills/extant/payload/extant_collect.py",
     "plugin/skills/extant/install.py",
     "plugin/skills/extant/detect.py",
+    "tests/harnesses",
 ]
 python_version = "3.10"
 strict = true

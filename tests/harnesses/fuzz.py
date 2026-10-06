@@ -157,6 +157,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fuzz_differential as differential  # noqa: E402
@@ -165,8 +166,21 @@ import fuzz_oracles as oracles  # noqa: E402
 import fuzz_shapes as shapes  # noqa: E402
 import fuzz_axes as axes  # noqa: E402
 
+if TYPE_CHECKING:
+    from typing import Callable, Iterable, Iterator, Mapping, Optional, Sequence, TypeVar
+
+    Fault = tuple[str, str]   # (property, what was seen)
+    # What `all_faults` returns: the faults, the sweep probe's per-rule
+    # counts and its output, why each oracle that did not run did not, and
+    # each axis's verdict - True confirmed, False contradicted, None no way
+    # to tell.
+    Faults = tuple[list[Fault], dict[str, int], str, dict[str, str],
+                   dict[str, Optional[bool]]]
+    Item = TypeVar("Item")
+    Answer = TypeVar("Answer")
+
 PY = sys.executable
-TIMEOUT = 90
+TIMEOUT: float = 90
 
 # Set from `--no-oracles`. A module-level switch rather than a
 # parameter because `all_faults` is called from three places and
@@ -318,7 +332,7 @@ MODES = [
 MUTATING_MODES = ("--archive", "--sha-map")
 
 
-def mode_mutates(mode) -> bool:
+def mode_mutates(mode: Sequence[str]) -> bool:
     """Does this mode CHANGE the repository, so a second run asks something else?
 
     ONE PREDICATE, THREE READERS - the UNSTABLE property, `concurrency_applies`
@@ -427,7 +441,7 @@ CORPUS_FLOOR = 0.35
 # the floor above covers all 13. An entry here must name a reason OUTSIDE this
 # harness, so that it reads as removable rather than as a silently lowered
 # floor - which is what this one turned out to be.
-KNOWN_UNREACHABLE: dict = {}
+KNOWN_UNREACHABLE: dict[str, str] = {}
 
 
 # --- plumbing ---------------------------------------------------------
@@ -568,7 +582,7 @@ GIT_CLOCK = {
 }
 
 
-def sh(cwd: Path, *args: str, check: bool = False):
+def sh(cwd: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
     # The clock goes in the ENVIRONMENT rather than on the command line
     # because git takes these two only that way - there is no `-c` for them -
     # and every git call the generator makes has to carry them, not just the
@@ -593,7 +607,7 @@ MUST_ATTEMPTS = 3
 MUST_BACKOFF = 0.05
 
 
-def must(recipe: "Recipe", cwd: Path, *args: str):
+def must(recipe: "Recipe", cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """A git step the repository CANNOT be built without, checked.
 
     Everything here used to call `sh` and drop the return code, and that is
@@ -663,7 +677,7 @@ class Recipe:
         # than re-deriving it from the repository, which would be a second
         # scanner for one claim.
         self.axes: list[str] = []
-        self.axis_facts: dict = {}
+        self.axis_facts: axes.AxisFacts = {}
         # Core construction steps that FAILED. Distinct from `skipped`, which
         # is a shape this platform declines to build and is a legitimate
         # result. A broken step means the repository is not what the recipe
@@ -685,14 +699,14 @@ class Recipe:
     def could_not(self, what: str, why: str) -> None:
         self.skipped.append(f"{what} ({why})")
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, object]:
         return {"seed": self.seed, "index": self.index,
                 "features": self.features, "axes": self.axes,
                 "built": self.steps, "not_built": self.skipped,
                 "broken": self.broken}
 
 
-def _draw_features(rng: random.Random):
+def _draw_features(rng: random.Random) -> list[tuple[shapes.Feature, str]]:
     """A swarm configuration: which features are IN, and how each is spelled.
 
     Independent inclusion at even odds, which is the plain form of the
@@ -737,16 +751,16 @@ class RepoPlan:
     repo_seed: int
     index: int
     state: str
-    mode: tuple
+    mode: tuple[str, ...]
     # (feature name, truth) - the ONLY part of the plan ddmin edits.
-    features: tuple = ()
+    features: tuple[tuple[str, str], ...] = ()
     # Stage 6 axis names. Recorded like features so a plan still rebuilds the
     # repository it describes, and DELIBERATELY NOT bisected: an axis is a
     # condition the whole rule set reads under, so dropping one changes what
     # every remaining feature means rather than removing one candidate cause.
     # ddmin over a set whose elements are not independent reports a minimum
     # that is not one. `without` therefore carries them through untouched.
-    axes: tuple = ()
+    axes: tuple[str, ...] = ()
     # WHAT THE PLAN WAS BUILT AGAINST. A plan says how to build a repository
     # and says nothing about the tool that was run over it, so replaying a CI
     # artifact against a locally patched payload silently answers a different
@@ -755,7 +769,7 @@ class RepoPlan:
     # fixed payload is the point when you are checking whether a fix worked.
     payload: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {"repo_seed": self.repo_seed, "index": self.index,
                 "state": self.state, "mode": list(self.mode),
                 "features": [list(f) for f in self.features],
@@ -763,7 +777,8 @@ class RepoPlan:
                 "payload": self.payload}
 
     @classmethod
-    def from_dict(cls, raw: dict) -> "RepoPlan":
+    def from_json(cls, text: str) -> "RepoPlan":
+        raw = json.loads(text)
         missing = [k for k in ("repo_seed", "index", "state", "mode")
                    if k not in raw]
         if missing:
@@ -780,7 +795,7 @@ class RepoPlan:
                    axes=tuple(raw.get("axes", ())),
                    payload=str(raw.get("payload", "")))
 
-    def without(self, names) -> "RepoPlan":
+    def without(self, names: Iterable[str]) -> "RepoPlan":
         """The same plan with some features removed. What ddmin bisects over."""
         drop = set(names)
         return RepoPlan(repo_seed=self.repo_seed, index=self.index,
@@ -809,14 +824,14 @@ def payload_digest(pkg: Path) -> str:
     return digest.hexdigest()[:12]
 
 
-def _feature_by_name(name: str):
+def _feature_by_name(name: str) -> Optional[shapes.Feature]:
     for feature in shapes.FEATURES:
         if feature.name == name:
             return feature
     return None
 
 
-def walk_plan(rng: random.Random, repos: int) -> list:
+def walk_plan(rng: random.Random, repos: int) -> list[tuple[str, list[str]]]:
     """The (git state, mode) pairs this run will build, in the order it builds.
 
     ONE FUNCTION, TWO CALLERS - the driver and `--differential` - because the
@@ -864,7 +879,7 @@ def walk_plan(rng: random.Random, repos: int) -> list:
     return plan[:repos]
 
 
-def draw_plan(rng: random.Random, index: int, state: str, mode,
+def draw_plan(rng: random.Random, index: int, state: str, mode: Sequence[str],
               payload: str = "") -> RepoPlan:
     """Decide one repository. Draws from the run generator, builds nothing."""
     repo_seed = rng.randrange(2 ** 31)
@@ -907,9 +922,10 @@ def draw_plan(rng: random.Random, index: int, state: str, mode,
                     payload=payload)
 
 
-def _apply(build, drawn, phase: str, recipe: Recipe):
+def _apply(build: shapes.Build, drawn: Iterable[tuple[shapes.Feature, str]],
+           phase: str, recipe: Recipe) -> list[shapes.Contribution]:
     """Run every drawn feature of one phase, recording what would not build."""
-    parts = []
+    parts: list[shapes.Contribution] = []
     for feature, truth in drawn:
         if feature.phase != phase:
             continue
@@ -925,7 +941,8 @@ def _apply(build, drawn, phase: str, recipe: Recipe):
     return parts
 
 
-def _apply_axes(build, drawn, phase: str, recipe: Recipe) -> tuple:
+def _apply_axes(build: axes.AxisBuild, drawn: Iterable[axes.Axis], phase: str,
+                recipe: Recipe) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     """Run every drawn axis of one phase. Returns (config, prose, entry).
 
     An axis returning None DECLINED - the state or the platform will not carry
@@ -1200,7 +1217,7 @@ def build_from_plan(pkg: Path, arena: Path,
     # carefully written message inside the traceback; that is fixed, and the
     # regression belongs in tests/test_fuzz_findings.py where findings from
     # this harness live, not in a coin flip that reaches it one run in two.
-    base = ('primary_doc = "NEXT_SESSION.md"', f'trunk = "{trunk}"',
+    base: tuple[str, ...] = ('primary_doc = "NEXT_SESSION.md"', f'trunk = "{trunk}"',
             'suite_command = ["git", "--version"]')
     if extra:
         base = base + (extra,)
@@ -1219,6 +1236,9 @@ def build_from_plan(pkg: Path, arena: Path,
     # Declining up front puts it in the "could not build" column, where a shape
     # that was not tested belongs, instead of in the results.
     broken = rng.random() < 0.08
+    axis_config: tuple[str, ...]
+    axis_prose: tuple[str, ...]
+    axis_entry: tuple[str, ...]
     if broken:
         for axis in drawn_axes:
             if axis.phase == "config":
@@ -1492,9 +1512,9 @@ def _rule_counts(text: str) -> dict[str, int]:
     return counts
 
 
-def _denominator_faults(out: str, counts: dict, label: str):
+def _denominator_faults(out: str, counts: Mapping[str, int], label: str) -> list[Fault]:
     """A rule may not report more findings than it examined candidates."""
-    faults = []
+    faults: list[Fault] = []
     for kind, examined in counts.items():
         found = len(re.findall(r"\[" + re.escape(kind) + r"\]", out))
         if found > examined:
@@ -1520,7 +1540,7 @@ _TEXT_FINDING = re.compile(r"^(?:.*: )?line \d+: \[", re.M)
 _GITHUB_FINDING = re.compile(r"^::(?:error|notice|warning) file=", re.M)
 
 
-def _findings_printed(out: str, mode: list, stdout: str) -> bool:
+def _findings_printed(out: str, mode: Sequence[str], stdout: str) -> bool:
     """Did this run report at least one finding, in whatever format it drew?
 
     `stdout` separately from `out`, because SARIF is the one format that has
@@ -1543,7 +1563,7 @@ def _findings_printed(out: str, mode: list, stdout: str) -> bool:
     return bool(_TEXT_FINDING.search(out))
 
 
-def refused_early(done) -> bool:
+def refused_early(done: subprocess.CompletedProcess[str]) -> bool:
     """Did this run DECLINE to start, rather than run and conclude?
 
     Recognised structurally rather than by message: nothing on stdout, a
@@ -1556,7 +1576,7 @@ def refused_early(done) -> bool:
                 and (done.stderr or "").strip())
 
 
-def _argv(repo: Path, mode) -> list:
+def _argv(repo: Path, mode: Sequence[str]) -> list[str]:
     """The command line, in ONE place.
 
     `run_mode` and `run_concurrently` must invoke identically or the
@@ -1591,7 +1611,7 @@ def _resolve(repo: Path, token: str) -> str:
     return str(found) if found is not None else token
 
 
-def _stdin_for(repo: Path, mode):
+def _stdin_for(repo: Path, mode: Sequence[str]) -> str | None:
     """What to feed a mode that reads a document from stdin, or None."""
     if not (mode and mode[0] in STDIN_MODES):
         return None
@@ -1612,7 +1632,7 @@ def _stdin_for(repo: Path, mode):
 CONCURRENT_RUNS = 2
 
 
-def concurrency_applies(mode, refused: bool) -> bool:
+def concurrency_applies(mode: Sequence[str], refused: bool) -> bool:
     """Does the CONCURRENT property have anything to say about this run?
 
     ONE DEFINITION, TWO READERS. `check` asks it to decide whether to start the
@@ -1629,7 +1649,8 @@ def concurrency_applies(mode, refused: bool) -> bool:
     return bool(mode) and not mode_mutates(mode) and not refused
 
 
-def run_concurrently(repo: Path, mode: list[str], count: int = CONCURRENT_RUNS):
+def run_concurrently(repo: Path, mode: list[str], count: int = CONCURRENT_RUNS
+                     ) -> list[subprocess.CompletedProcess[str] | None]:
     """Start `count` runs of one mode AT ONCE and collect them all.
 
     `subprocess.run` cannot express this: it waits. So the processes are
@@ -1642,14 +1663,14 @@ def run_concurrently(repo: Path, mode: list[str], count: int = CONCURRENT_RUNS):
     and disagreed" rather than folding the two together.
     """
     fed = _stdin_for(repo, mode)
-    started = []
+    started: list[subprocess.Popen[str]] = []
     for _ in range(count):
         started.append(subprocess.Popen(
             _argv(repo, mode), cwd=str(repo),
             stdin=subprocess.PIPE if fed is not None else subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace"))
-    done = []
+    done: list[subprocess.CompletedProcess[str] | None] = []
     for proc in started:
         try:
             out, err = proc.communicate(input=fed, timeout=TIMEOUT)
@@ -1663,7 +1684,7 @@ def run_concurrently(repo: Path, mode: list[str], count: int = CONCURRENT_RUNS):
     return done
 
 
-def run_mode(repo: Path, mode: list[str]):
+def run_mode(repo: Path, mode: list[str]) -> subprocess.CompletedProcess[str] | None:
     """Run extant against one repository, FROM INSIDE IT.
 
     `cwd=repo` is not tidiness. `--validate FILE` resolves FILE against the
@@ -1689,7 +1710,7 @@ def run_mode(repo: Path, mode: list[str]):
 
 
 @contextlib.contextmanager
-def bounded(seconds: float):
+def bounded(seconds: float) -> Iterator[None]:
     """Every `run_mode` inside the block waits at most `seconds`.
 
     By swapping the module's TIMEOUT rather than passing a bound down, so a
@@ -1893,7 +1914,8 @@ def check(repo: Path, mode: list[str]) -> list[tuple[str, str]]:
     return faults
 
 
-def _axis_verdicts(repo: Path, recipe: Recipe, probe_out: str):
+def _axis_verdicts(repo: Path, recipe: Recipe, probe_out: str
+                   ) -> tuple[list[Fault], dict[str, Optional[bool]]]:
     """Judge every axis this repository applied. Returns (faults, verdicts).
 
     CALLED FROM `all_faults` AND NOWHERE ELSE, which is the whole reason it
@@ -1917,8 +1939,8 @@ def _axis_verdicts(repo: Path, recipe: Recipe, probe_out: str):
     applied over and over and never once confirmed has stopped working, which
     no single repository can tell you.
     """
-    faults: list = []
-    verdicts: dict = {}
+    faults: list[Fault] = []
+    verdicts: dict[str, Optional[bool]] = {}
     for name in recipe.axes:
         axis = axes.axis_by_name(name)
         if axis is None:
@@ -1939,7 +1961,7 @@ def _axis_verdicts(repo: Path, recipe: Recipe, probe_out: str):
     return faults, verdicts
 
 
-def all_faults(repo: Path, mode, recipe: "Recipe" = None):
+def all_faults(repo: Path, mode: Sequence[str], recipe: Recipe | None = None) -> Faults:
     """Every fault the run counts, from ONE function, plus the sweep probe.
 
     The driver and the shrinker have to judge by the same predicate, and the
@@ -1976,14 +1998,14 @@ def all_faults(repo: Path, mode, recipe: "Recipe" = None):
     # the driver, the shrinker and `--replay` all see them through the one
     # predicate - which means a new oracle gets ddmin reduction and replay for
     # free rather than needing its own wiring.
-    skipped: dict = {}
+    skipped: dict[str, str] = {}
     if ORACLES_ON:
         more, skipped = oracles.run_all(run_mode, repo)
         found = found + more
     # The Stage 6 axes, judged here rather than in the driver so that the
     # driver, the shrinker and `--replay` all reach them through the ONE
     # predicate - the same reason the oracles moved here.
-    verdicts: dict = {}
+    verdicts: dict[str, Optional[bool]] = {}
     if recipe is not None:
         axis_faults, verdicts = _axis_verdicts(repo, recipe, probe_out)
         found = found + axis_faults
@@ -2021,7 +2043,7 @@ SHRINKABLE = ("CRASH", "DENOMINATOR", "EXIT", "FORMATS", "SARIF", "HARNESS",
 SHRINK_CEILING = 30
 
 
-def fault_signature(kind: str, detail: str) -> tuple:
+def fault_signature(kind: str, detail: str) -> tuple[str, str]:
     """What counts as THE SAME violation when shrinking.
 
     Kind alone is too coarse, and measurably so. `DENOMINATOR` covers every
@@ -2050,7 +2072,8 @@ def fault_signature(kind: str, detail: str) -> tuple:
     return (kind, "")
 
 
-def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, signature: tuple):
+def _still_fails(pkg: Path, arena: Path, plan: RepoPlan,
+                 signature: tuple[str, str]) -> bool | None:
     """Does this plan still violate the SAME property? None if it did not build.
 
     Same kind, not same message: a shrunk repository legitimately reports a
@@ -2078,8 +2101,8 @@ def _still_fails(pkg: Path, arena: Path, plan: RepoPlan, signature: tuple):
     return False
 
 
-def shrink(pkg: Path, arena: Path, plan: RepoPlan,
-           signature: tuple):
+def shrink(pkg: Path, arena: Path, plan: RepoPlan, signature: tuple[str, str]
+           ) -> tuple[tuple[tuple[str, str], ...], int, bool, int, bool]:
     """The minimizing delta debugging algorithm over the drawn feature set.
 
     ddmin bisects a set of atomic units while preserving an interesting
@@ -2108,7 +2131,7 @@ def shrink(pkg: Path, arena: Path, plan: RepoPlan,
     if baseline is not True:
         return (tuple(items), 1, False, 1 if baseline is None else 0, False)
 
-    def fails(subset) -> bool:
+    def fails(subset: Sequence[tuple[str, str]]) -> bool:
         if budget[0] <= 0:
             return False
         budget[0] -= 1
@@ -2167,7 +2190,7 @@ def run_replay(pkg: Path, arena: Path, path: Path) -> int:
     back, produces the repository.
     """
     try:
-        plan = RepoPlan.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        plan = RepoPlan.from_json(path.read_text(encoding="utf-8"))
     except (ValueError, json.JSONDecodeError) as exc:
         print(f"cannot read {path}: {exc}")
         return 2
@@ -2422,7 +2445,7 @@ def run_self_check(pkg: Path, arena: Path) -> int:
     # OWN code - `check` for the core properties and `oracles.run_all(only=)`
     # for the oracles - so a property observable here is observable to the
     # driver and the shrinker, which is the part that had to stay true.
-    def observe(mode: list) -> list:
+    def observe(mode: list[str]) -> list[Fault]:
         if item.prop in selfcheck.ORACLE_PROPERTIES:
             faults, _skipped = oracles.run_all(run_mode, repo,
                                                only={item.prop})
@@ -2479,7 +2502,8 @@ def run_self_check(pkg: Path, arena: Path) -> int:
 
 # --- driver -----------------------------------------------------------
 
-def examined_in_order(items: list, examine, jobs: int):
+def examined_in_order(items: list[Item], examine: Callable[[Item], Answer],
+                      jobs: int) -> Iterator[Answer]:
     """`examine(item)` for every item, `jobs` at a time, yielded in ORDER.
 
     A repository's build and check are almost all waiting on git and extant
@@ -2558,8 +2582,8 @@ def main() -> int:
     faults: list[tuple[int, str, str]] = []
     unbuildable: dict[str, int] = {}
     reached: dict[str, int] = {}
-    oracle_skips: dict = {}
-    broken_builds: list = []
+    oracle_skips: dict[str, int] = {}
+    broken_builds: list[tuple[int, str]] = []
     drawn_features: dict[str, int] = {}
     # THE AXIS LEDGER, three-state for the reason fuzz_axes.py states at
     # length: an axis that offered no way to tell is not an axis that failed,
@@ -2600,7 +2624,7 @@ def main() -> int:
     plans = [draw_plan(rng, index, state, planned_mode, payload)
              for index, (state, planned_mode) in enumerate(plan)]
 
-    def examine(drawn):
+    def examine(drawn: tuple[list[str], RepoPlan]) -> tuple[Path, Recipe, Faults | None]:
         planned_mode, repo_plan = drawn
         repo, recipe = build_from_plan(args.pkg, args.arena, repo_plan)
         if recipe.broken:
@@ -2630,7 +2654,7 @@ def main() -> int:
         # corpus entirely rather than checked and counted, which is the same
         # treatment a shape this platform cannot construct already gets: NOT
         # TESTED, reported in its own column, never a pass.
-        if recipe.broken:
+        if judged is None:   # `examine` judges nothing whose build broke
             broken_builds.append((index, recipe.broken[0]))
             print(f"  [{index:03d}] UNBUILT      {recipe.broken[0][:96]}")
             continue

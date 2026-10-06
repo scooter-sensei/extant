@@ -62,6 +62,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 # Every property the harness can report, and where it comes from. Written out
 # rather than discovered, because a property that disappears from the code
@@ -94,7 +95,7 @@ EXEMPT = {
 }
 
 
-def unlisted_properties(shrinkable, oracle_names) -> list[str]:
+def unlisted_properties(shrinkable: Iterable[str], oracle_names: Iterable[str]) -> list[str]:
     """Fault kinds the harness can report that this file does not check.
 
     DERIVED FROM THE HARNESS'S OWN DATA, never scraped from its source. The
@@ -128,8 +129,8 @@ class Breakage:
 
     prop: str
     why: str
-    edits: tuple            # ((path, old, new), ...), applied together
-    mode: tuple = ("--verify",)
+    edits: tuple[tuple[str, str, str], ...]   # ((path, old, new), ...), applied together
+    mode: tuple[str, ...] = ("--verify",)
     contrived: bool = False
     # Its red half runs longer than any budget, so what it costs is the
     # budget: `run_self_check` runs that half under `red_budget` rather than
@@ -598,7 +599,7 @@ def check_anchors(repo: Path) -> list[str]:
     return stale
 
 
-def apply(repo: Path, item: Breakage) -> list:
+def apply(repo: Path, item: Breakage) -> list[tuple[Path, str]]:
     """Write every edit in, returning what is needed to undo them all.
 
     Asserts the substitution CHANGED the file. A `.replace()` that silently
@@ -606,7 +607,7 @@ def apply(repo: Path, item: Breakage) -> list:
     report reading "not observable" about a breakage that was never applied -
     which is the wrong diagnosis pointing at the wrong half of the machinery.
     """
-    saved = []
+    saved: list[tuple[Path, str]] = []
     for path, old, new in item.edits:
         target = payload_root(repo) / path
         original = target.read_text(encoding="utf-8")
@@ -642,7 +643,7 @@ def apply(repo: Path, item: Breakage) -> list:
     return saved
 
 
-def restore(saved: list) -> None:
+def restore(saved: list[tuple[Path, str]]) -> None:
     """Put the payload back, and CONFIRM it went back.
 
     Verified rather than assumed, because the cost of being wrong compounds:
@@ -659,7 +660,7 @@ def restore(saved: list) -> None:
                              f"payload that is still broken")
 
 
-def observed(faults, prop: str) -> bool:
+def observed(faults: Iterable[tuple[str, str]], prop: str) -> bool:
     """Did the harness's own predicate report this property?"""
     return any(kind == prop for kind, _detail in faults)
 

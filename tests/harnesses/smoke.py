@@ -155,7 +155,8 @@ def _operational_source(sources: list[str]) -> tuple[str, int]:
     return "\n".join(codes), call_sites
 
 
-def sh(cwd: Path, *args: str, check: bool = False, timeout: int = 120):
+def sh(cwd: Path, *args: str, check: bool = False, timeout: int = 120
+       ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", check=check,
                           timeout=timeout)
@@ -185,7 +186,7 @@ def commit(repo: Path, msg: str) -> str:
     return sh(repo, "git", "rev-parse", "--short", "HEAD").stdout.strip()
 
 
-def tool(repo: Path, *args: str, timeout: int = 120):
+def tool(repo: Path, *args: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
     return sh(repo, PY, str(repo / "tools/extant_collect.py"),
               "--repo", str(repo), *args, timeout=timeout)
 
@@ -1216,8 +1217,8 @@ def main() -> int:
           f"{len(ISSUES)} flagged")
     if ISSUES:
         print("\nFLAGGED:")
-        for sev, probe, _ in ISSUES:
-            print(f"  {sev:<10} {probe}")
+        for sev, flag, _ in ISSUES:
+            print(f"  {sev:<10} {flag}")
 
     raised = {probe for _, probe, _ in ISSUES}
     unexpected = sorted(raised - EXPECTED - TOLERATED)
@@ -1232,14 +1233,14 @@ def main() -> int:
 
     if unexpected:
         print("\nNEW - never accepted, so this run fails:")
-        for probe in unexpected:
-            print(f"  {probe}")
+        for flag in unexpected:
+            print(f"  {flag}")
     if missing:
         print("\nMISSING - an accepted flag stopped appearing. Either the "
               "behaviour was fixed, in which case delete it from EXPECTED, or "
               "its probe stopped exercising anything:")
-        for probe in missing:
-            print(f"  {probe}")
+        for flag in missing:
+            print(f"  {flag}")
 
     return 1 if (unexpected or missing) else 0
 

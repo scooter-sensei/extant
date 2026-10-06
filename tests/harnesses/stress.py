@@ -37,7 +37,7 @@ PY = sys.executable
 RESULTS: list[tuple[str, str, str]] = []   # (case, measurement, verdict)
 
 
-def sh(cwd: Path, *args: str, timeout: int = 600):
+def sh(cwd: Path, *args: str, timeout: int = 600) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=timeout)
 
@@ -101,7 +101,8 @@ def report(case: str, measurement: str, verdict: str) -> None:
     print(f"  {measurement:<34} {verdict}")
 
 
-def run_timed(repo: Path, *args: str, budget: float, timeout: int = 600):
+def run_timed(repo: Path, *args: str, budget: float, timeout: int = 600
+              ) -> tuple[subprocess.CompletedProcess[str] | None, float | None]:
     """Time a subprocess run.
 
     `budget` is accepted and not used here: every caller passes the same value
@@ -122,7 +123,7 @@ def run_timed(repo: Path, *args: str, budget: float, timeout: int = 600):
     return proc, time.perf_counter() - start
 
 
-def verdict_for(elapsed: float, budget: float) -> str:
+def verdict_for(elapsed: float | None, budget: float) -> str:
     if elapsed is None:
         return "TIMED OUT"
     if elapsed > budget * 3:
@@ -853,8 +854,8 @@ def main() -> int:
           f"{len(RESULTS) - len(bad)} within expectations, {len(bad)} flagged")
     if bad:
         print("\nFLAGGED:")
-        for case, measurement, verdict in bad:
-            print(f"  {case:<18} {measurement:<34} {verdict}")
+        for name, measurement, verdict in bad:
+            print(f"  {name:<18} {measurement:<34} {verdict}")
     return 0
 
 
