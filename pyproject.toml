@@ -97,13 +97,13 @@ show_missing = true
 precision = 1
 
 # The type checker, and unlike coverage it IS a gate: the self-check job runs
-# `python -m mypy` and fails on one error. Listed: the shipped package, the
-# shim, the two files that run at install time and never ship, and the
-# harnesses, which are CI jobs or hand-run, so a type error in one is a
-# red job or a crash on the next run that pytest cannot see. Not yet the
-# tests themselves - the second half of the same tranche. `strict` rather
-# than a chosen subset, because a subset is a second list to keep in step
-# with this one.
+# `python -m mypy` and fails on one error. Listed: every Python file the
+# project maintains - the shipped package, the shim, the two files that run
+# at install time and never ship, the tests and their harnesses (CI jobs or
+# hand-run, so a type error in a harness is a red job or a crash on the next
+# run that pytest cannot see), and the release gate `publish.yml` runs.
+# `strict` rather than a chosen subset, because a subset is a second list to
+# keep in step with this one.
 #
 # `python_version` is pinned at 3.10, the lowest mypy 2 targets, and it is not
 # the 3.9 floor CI runs the suite on. No checker can see that floor any more:
@@ -117,7 +117,8 @@ files = [
     "plugin/skills/extant/payload/extant_collect.py",
     "plugin/skills/extant/install.py",
     "plugin/skills/extant/detect.py",
-    "tests/harnesses",
+    "tests",
+    ".github/scripts",
 ]
 python_version = "3.10"
 strict = true

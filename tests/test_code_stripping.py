@@ -25,8 +25,14 @@ contract is what the next caller will rely on.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.scope import DocScope
 
 DOC = (
     "# Title\r\n"
@@ -41,14 +47,14 @@ DOC = (
 )
 
 
-def _doc_scope(fmt: str = "markdown"):
+def _doc_scope(fmt: str = "markdown") -> DocScope:
     from extant import session as hc
     hc.set_document(doc_format=fmt)
     return hc._DOC
 
 
 @pytest.mark.parametrize("newline", ["\r\n", "\n"])
-def test_strip_code_preserves_the_length_of_the_document(newline) -> None:
+def test_strip_code_preserves_the_length_of_the_document(newline: str) -> None:
     """The promise in the docstring, stated as the equality it claims.
 
     Length is the whole of it: the function only ever replaces a run of
@@ -66,7 +72,7 @@ def test_strip_code_preserves_the_length_of_the_document(newline) -> None:
 
 
 @pytest.mark.parametrize("newline", ["\r\n", "\n"])
-def test_prose_preserves_the_length_of_the_document(newline) -> None:
+def test_prose_preserves_the_length_of_the_document(newline: str) -> None:
     """`prose` shares the blanking path and states the same promise."""
     from extant.text import prose
     text = DOC.replace("\r\n", newline)
@@ -114,7 +120,7 @@ def test_the_trailing_newline_survives() -> None:
 
 
 @pytest.mark.parametrize("newline", ["\r\n", "\n"])
-def test_rst_stripping_preserves_the_length_too(newline) -> None:
+def test_rst_stripping_preserves_the_length_too(newline: str) -> None:
     """The reStructuredText path is a second copy of the same loop.
 
     It carries the same sentence in its docstring - "line numbers and offsets
@@ -201,7 +207,7 @@ def test_a_fence_with_an_info_string_does_not_close_one() -> None:
     assert "a1b2c3d" not in blanked
 
 
-def test_an_ordinary_fence_still_closes(git_repo) -> None:
+def test_an_ordinary_fence_still_closes(git_repo: GitRepo) -> None:
     """The other half: the common case must be untouched, and a claim after a
     plain fence is still read."""
     text = ("Before, merged at a1b2c3d.\n"

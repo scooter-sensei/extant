@@ -40,7 +40,7 @@ def _scratch_suite(tmp_path: Path, body: str) -> Path:
     return tmp_path
 
 
-def test_a_suite_that_outlives_its_bound_is_reported_hung(tmp_path) -> None:
+def test_a_suite_that_outlives_its_bound_is_reported_hung(tmp_path: Path) -> None:
     """Catches `run_suite` waiting forever, and a hang read as a pass or as an
     ordinary failure: it returns None for the exit code, which is neither."""
     root = _scratch_suite(tmp_path, "import time\n\n\ndef test_waits():\n"
@@ -54,7 +54,7 @@ def test_a_suite_that_outlives_its_bound_is_reported_hung(tmp_path) -> None:
 
 
 def test_the_bound_holds_when_a_grandchild_keeps_the_output_open(
-        tmp_path) -> None:
+        tmp_path: Path) -> None:
     """Catches the bound waiting on processes the suite started.
 
     An xdist worker is started with its own stdin and stdout and inherits
@@ -82,7 +82,7 @@ def test_the_bound_holds_when_a_grandchild_keeps_the_output_open(
     assert took < 30, f"the bound of 3 s was not honoured: {took:.1f} s"
 
 
-def test_a_suite_inside_its_bound_answers_as_before(tmp_path) -> None:
+def test_a_suite_inside_its_bound_answers_as_before(tmp_path: Path) -> None:
     """The bound changes nothing for a suite that finishes."""
     root = _scratch_suite(tmp_path, "def test_passes():\n    assert True\n")
     code, _out = mutate.run_suite(root, sys.executable,
@@ -109,7 +109,7 @@ def test_the_suite_names_a_hung_test_at_three_times_the_slowest() -> None:
     assert float(ini.get("pytest", "faulthandler_timeout")) >= 3 * 17.01
 
 
-def test_a_failing_test_is_rerun_by_the_name_pytest_printed(tmp_path) -> None:
+def test_a_failing_test_is_rerun_by_the_name_pytest_printed(tmp_path: Path) -> None:
     """Catches `--parallel`'s confirmation reading a node id it cannot rerun.
 
     pytest drops the " - message" tail of a short-summary line with no room
@@ -135,7 +135,7 @@ def test_a_failing_test_is_rerun_by_the_name_pytest_printed(tmp_path) -> None:
 
 
 def test_a_rewrite_in_the_same_second_is_never_served_stale_bytecode(
-        tmp_path) -> None:
+        tmp_path: Path) -> None:
     """Catches a mutant that never runs, and a restore that runs the mutant.
 
     CPython trusts a cached .pyc while the source keeps its size and its
@@ -170,7 +170,7 @@ def test_a_rewrite_in_the_same_second_is_never_served_stale_bytecode(
         assert (ran_mutant, ran_original) == ("-Z", "-z")
 
 
-def test_a_hung_mutant_is_killed_and_says_so(tmp_path) -> None:
+def test_a_hung_mutant_is_killed_and_says_so(tmp_path: Path) -> None:
     """A mutant whose suite hangs is a KILL - the suite did not pass - but a
     weak one, so `run_mutant` reports it as hung for the campaign to name."""
     root = _scratch_suite(tmp_path, "import time\n\n\ndef test_waits():\n"
@@ -180,7 +180,7 @@ def test_a_hung_mutant_is_killed_and_says_so(tmp_path) -> None:
     assert (green, hung) == (False, True)
 
 
-def test_every_suite_runs_with_plugin_autoload_off(tmp_path) -> None:
+def test_every_suite_runs_with_plugin_autoload_off(tmp_path: Path) -> None:
     """Catches `run_suite` starting pytest with every plugin the operator has
     installed. The suite needs none of them, and importing them cost 0.44 s
     per pytest start on 2026-09-30 - a campaign starts hundreds."""
@@ -192,7 +192,7 @@ def test_every_suite_runs_with_plugin_autoload_off(tmp_path) -> None:
     assert code == 0, out
 
 
-def test_a_parallel_suite_still_loads_xdist(tmp_path) -> None:
+def test_a_parallel_suite_still_loads_xdist(tmp_path: Path) -> None:
     """Catches `--parallel` left relying on autoload. With autoload off, `-n`
     is an unknown option unless xdist is named - and a usage error at the
     baseline reads as SUITE IS ALREADY RED."""
@@ -202,7 +202,7 @@ def test_a_parallel_suite_still_loads_xdist(tmp_path) -> None:
     assert code == 0, out
 
 
-def test_a_git_child_of_the_suite_runs_no_auto_maintenance(tmp_path) -> None:
+def test_a_git_child_of_the_suite_runs_no_auto_maintenance(tmp_path: Path) -> None:
     """Catches the suite's commits each starting `git maintenance run --auto`.
 
     1,580 of them in one run of the suite, and none does anything in a
@@ -250,7 +250,7 @@ def _fake_git_for_windows(tmp_path: Path) -> Path:
     return root
 
 
-def test_git_is_called_past_the_windows_launcher(tmp_path) -> None:
+def test_git_is_called_past_the_windows_launcher(tmp_path: Path) -> None:
     """Catches every git call paying Git for Windows' launcher.
 
     `Git/cmd/git.exe` only sets a few variables and starts
@@ -272,7 +272,7 @@ def test_git_is_called_past_the_windows_launcher(tmp_path) -> None:
     assert kept["PLINK_PROTOCOL"] == "plink"
 
 
-def test_the_path_is_left_alone_where_git_is_already_direct(tmp_path) -> None:
+def test_the_path_is_left_alone_where_git_is_already_direct(tmp_path: Path) -> None:
     """Git Bash already puts the real binary first, and no other platform has
     a launcher: there is nothing to reroute, so PATH is not touched."""
     root = _fake_git_for_windows(tmp_path)
@@ -289,7 +289,8 @@ _GIT_FOR_WINDOWS = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "G
 @pytest.mark.skipif(sys.platform != "win32"
                     or not (_GIT_FOR_WINDOWS / "cmd" / "git.exe").is_file(),
                     reason="needs Git for Windows' launcher")
-def test_a_suite_on_windows_finds_the_real_git_first(tmp_path, monkeypatch) -> None:
+def test_a_suite_on_windows_finds_the_real_git_first(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The same, end to end: PATH as PowerShell gives it, launcher first, and
     the suite's own `git` must still be the real binary."""
     monkeypatch.setenv("PATH", os.pathsep.join([str(_GIT_FOR_WINDOWS / "cmd"),
@@ -305,7 +306,7 @@ def test_a_suite_on_windows_finds_the_real_git_first(tmp_path, monkeypatch) -> N
         str(_GIT_FOR_WINDOWS / "mingw64" / "bin")), found
 
 
-def test_every_suite_gets_its_own_temp_root_and_it_is_removed(tmp_path) -> None:
+def test_every_suite_gets_its_own_temp_root_and_it_is_removed(tmp_path: Path) -> None:
     """Catches the suite using pytest's shared numbered root, and a removal
     that stops at git's read-only objects.
 

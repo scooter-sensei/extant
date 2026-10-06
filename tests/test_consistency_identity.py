@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -21,7 +23,8 @@ sys.path.insert(0, str(PAYLOAD))
 VERSION = re.compile(r'"version": "([^"]+)"')
 
 
-def test_two_routes_to_one_file_are_reported(git_repo, monkeypatch) -> None:
+def test_two_routes_to_one_file_are_reported(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A symlink is a genuinely different route to the same bytes."""
     from extant import session as hc
     from extant.rules import consistency as rule_consistency
@@ -54,7 +57,8 @@ def _case_insensitive(directory: Path) -> bool:
         probe.unlink(missing_ok=True)
 
 
-def test_a_case_variant_reaches_the_same_file(git_repo, monkeypatch) -> None:
+def test_a_case_variant_reaches_the_same_file(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The route that exists on Windows and macOS, where symlinks often do not.
 
     `os.path.normpath` does not fold case, so the string guard at config load
@@ -81,7 +85,8 @@ def test_a_case_variant_reaches_the_same_file(git_repo, monkeypatch) -> None:
     )
 
 
-def test_two_genuinely_different_files_are_not_reported(git_repo, monkeypatch) -> None:
+def test_two_genuinely_different_files_are_not_reported(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The control.
 
     Without it an identity function returning a constant would satisfy the test
@@ -103,7 +108,8 @@ def test_two_genuinely_different_files_are_not_reported(git_repo, monkeypatch) -
     assert not any("the same file" in d for d in details), details
 
 
-def test_a_real_disagreement_is_still_reported(git_repo, monkeypatch) -> None:
+def test_a_real_disagreement_is_still_reported(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The second control. The new check sits in front of the comparison and
     `continue`s past it, so getting the guard wrong would silence the rule's
     actual job rather than merely adding noise."""
@@ -122,7 +128,7 @@ def test_a_real_disagreement_is_still_reported(git_repo, monkeypatch) -> None:
     assert any("disagree" in d for d in details), details
 
 
-def test_identity_discriminates_before_it_is_trusted(tmp_path) -> None:
+def test_identity_discriminates_before_it_is_trusted(tmp_path: Path) -> None:
     """`st_ino` is 0 on FAT32 and on some network shares.
 
     Keyed naively on `(st_dev, st_ino)` every file on such a volume compares

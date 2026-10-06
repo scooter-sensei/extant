@@ -4,15 +4,21 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.config import Config
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 TOOL = SKILL_ROOT / "payload" / "extant_collect.py"
 
 
-def test_fixture_builds_a_repo_with_commits(git_repo):
+def test_fixture_builds_a_repo_with_commits(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     sha = commit("a.txt", "hello", "feat: test - first")
     assert len(sha) == 40
@@ -22,7 +28,7 @@ def test_fixture_builds_a_repo_with_commits(git_repo):
     assert "feat: test - first" in log
 
 
-def test_cli_help_exits_zero():
+def test_cli_help_exits_zero() -> None:
     result = subprocess.run(
         [sys.executable, str(TOOL), "--help"], capture_output=True, text=True
     )
@@ -30,26 +36,26 @@ def test_cli_help_exits_zero():
     assert "--collect" in result.stdout
 
 
-def test_parse_phase_from_task_suffix():
+def test_parse_phase_from_task_suffix() -> None:
     from extant import session
     from extant import collect
     assert collect.parse_phase("feat: voice - reload mailbox (9.6 Task 5)", session._ACTIVE) == "9.6"
     assert collect.parse_phase("refactor: settings - retire banner (9.6 Task 9)", session._ACTIVE) == "9.6"
 
 
-def test_parse_phase_from_bare_version():
+def test_parse_phase_from_bare_version() -> None:
     from extant import session
     from extant import collect
     assert collect.parse_phase("docs: plan - Phase 9.5b core runtime", session._ACTIVE) == "9.5b"
 
 
-def test_parse_phase_unknown_when_absent():
+def test_parse_phase_unknown_when_absent() -> None:
     from extant import session
     from extant import collect
     assert collect.parse_phase("chore: tidy imports", session._ACTIVE) == "unknown"
 
 
-def test_parse_phase_ignores_library_versions():
+def test_parse_phase_ignores_library_versions() -> None:
     """GA-2 regression: a real commit subject from main. A library version is
     not a phase number."""
     from extant import session
@@ -58,7 +64,7 @@ def test_parse_phase_ignores_library_versions():
     assert collect.parse_phase(subject, session._ACTIVE) == "unknown"
 
 
-def test_boundary_is_last_commit_touching_the_primary_doc(git_repo):
+def test_boundary_is_last_commit_touching_the_primary_doc(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -68,7 +74,7 @@ def test_boundary_is_last_commit_touching_the_primary_doc(git_repo):
     assert collect.find_boundary(repo, session._ACTIVE) == boundary
 
 
-def test_boundary_empty_when_doc_has_no_history(git_repo):
+def test_boundary_empty_when_doc_has_no_history(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -76,7 +82,7 @@ def test_boundary_empty_when_doc_has_no_history(git_repo):
     assert collect.find_boundary(repo, session._ACTIVE) == ""
 
 
-def test_commits_since_boundary_excludes_the_boundary_itself(git_repo):
+def test_commits_since_boundary_excludes_the_boundary_itself(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -89,7 +95,7 @@ def test_commits_since_boundary_excludes_the_boundary_itself(git_repo):
     assert all(c["phase"] == "9.6" for c in result)
 
 
-def test_scan_todos_finds_markers_in_changed_files(git_repo):
+def test_scan_todos_finds_markers_in_changed_files(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -99,10 +105,12 @@ def test_scan_todos_finds_markers_in_changed_files(git_repo):
     assert len(todos) == 1
     assert todos[0]["file"] == "a.py"
     assert todos[0]["line"] == 2
-    assert "fix this" in todos[0]["text"]
+    text = todos[0]["text"]
+    assert isinstance(text, str), todos
+    assert "fix this" in text
 
 
-def test_scan_todos_ignores_markdown(git_repo):
+def test_scan_todos_ignores_markdown(git_repo: GitRepo) -> None:
     """GA-5: docs legitimately contain the word TODO; only code counts."""
     from extant import session
     from extant import collect
@@ -113,7 +121,7 @@ def test_scan_todos_ignores_markdown(git_repo):
     assert collect.scan_todos(repo, collect.find_boundary(repo, session._ACTIVE), session._ACTIVE) == []
 
 
-def test_scan_todos_reads_the_configured_suffixes(git_repo):
+def test_scan_todos_reads_the_configured_suffixes(git_repo: GitRepo) -> None:
     """`code_suffixes` - "Extensions scanned for TODOs" in config.md - was
     parsed, type-checked and documented, and read by nothing: the scan kept
     a hard-coded `.py` and `.qml`, so a project setting `[".ts"]` had its
@@ -137,7 +145,7 @@ def test_scan_todos_reads_the_configured_suffixes(git_repo):
 
 
 def test_a_code_file_the_todo_scan_cannot_read_is_named_not_skipped(
-        git_repo, tmp_path):
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """An undecodable code file was passed over in silence, so the bundle's
     `todos` read the same for "no markers here" and "this file was not read"
     - the conflation `_scan_one` in sweep.py refuses for documents. It is
@@ -156,12 +164,14 @@ def test_a_code_file_the_todo_scan_cannot_read_is_named_not_skipped(
 
     bundle = collect.collect(repo, str(supplied), session._ACTIVE, session.CONFIG)
 
-    assert [t["file"] for t in bundle["todos"]] == ["ok.py"], bundle["todos"]
-    assert [u["file"] for u in bundle["todos_unread"]] == ["latin.py"], bundle
-    assert "UTF-8" in bundle["todos_unread"][0]["why"], bundle["todos_unread"]
+    todos, unread = bundle["todos"], bundle["todos_unread"]
+    assert isinstance(todos, list) and isinstance(unread, list), bundle
+    assert [t["file"] for t in todos] == ["ok.py"], todos
+    assert [u["file"] for u in unread] == ["latin.py"], bundle
+    assert "UTF-8" in unread[0]["why"], unread
 
 
-def test_scan_todos_ignores_unchanged_files(git_repo):
+def test_scan_todos_ignores_unchanged_files(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -171,7 +181,7 @@ def test_scan_todos_ignores_unchanged_files(git_repo):
     assert collect.scan_todos(repo, collect.find_boundary(repo, session._ACTIVE), session._ACTIVE) == []
 
 
-def test_scan_todos_excludes_its_own_source_and_tests(git_repo):
+def test_scan_todos_excludes_its_own_source_and_tests(git_repo: GitRepo) -> None:
     """M-b: the tool's own source and its tests DISCUSS the markers
     TODO/FIXME/XXX at length, in comments and strings - this file and its
     test file both do. Without this exclusion, every real run touching
@@ -190,7 +200,7 @@ def test_scan_todos_excludes_its_own_source_and_tests(git_repo):
     assert collect.scan_todos(repo, collect.find_boundary(repo, session._ACTIVE), session._ACTIVE) == []
 
 
-def test_parse_pytest_summary_reads_a_real_green_line():
+def test_parse_pytest_summary_reads_a_real_green_line() -> None:
     """GA-1 regression: verbatim pytest output from this repo."""
     from extant import session
     from extant import collect
@@ -201,7 +211,7 @@ def test_parse_pytest_summary_reads_a_real_green_line():
     assert result["duration_s"] == 597.70
 
 
-def test_parse_pytest_summary_reads_failures():
+def test_parse_pytest_summary_reads_failures() -> None:
     from extant import session
     from extant import collect
     result = collect.parse_pytest_summary("=========== 3 failed, 2259 passed in 601.20s ===========", session.CONFIG)
@@ -209,7 +219,7 @@ def test_parse_pytest_summary_reads_failures():
     assert result["failed"] == 3
 
 
-def test_run_suite_prefers_supplied_json(git_repo, tmp_path):
+def test_run_suite_prefers_supplied_json(git_repo: GitRepo, tmp_path: Path) -> None:
     import json
     from extant import session
     from extant import collect
@@ -221,7 +231,7 @@ def test_run_suite_prefers_supplied_json(git_repo, tmp_path):
     assert result["source"] == "supplied"
 
 
-def test_run_suite_raises_when_venv_missing(tmp_path):
+def test_run_suite_raises_when_venv_missing(tmp_path: Path) -> None:
     """I-3 regression: git worktrees have no .venv of their own (it is
     gitignored and exists only in the main repo), so the measured path used
     to raise an uncaught FileNotFoundError, crashing /extant step 1 in the
@@ -234,7 +244,7 @@ def test_run_suite_raises_when_venv_missing(tmp_path):
         collect.run_suite(tmp_path, None, session.CONFIG)
 
 
-def test_read_plan_splits_checked_and_unchecked_steps(git_repo):
+def test_read_plan_splits_checked_and_unchecked_steps(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -244,22 +254,27 @@ def test_read_plan_splits_checked_and_unchecked_steps(git_repo):
     )
     commit("docs/superpowers/plans/2026-07-20-thing.md", plan, "docs: plan - thing")
     result = collect.read_plan(repo, session.CONFIG)
-    assert result["path"].endswith("2026-07-20-thing.md")
-    assert len(result["completed"]) == 2
-    assert len(result["remaining"]) == 1
-    assert "pending thing" in result["remaining"][0]
+    path, completed, remaining = result["path"], result["completed"], result["remaining"]
+    assert isinstance(path, str), result
+    assert isinstance(completed, list) and isinstance(remaining, list), result
+    assert path.endswith("2026-07-20-thing.md")
+    assert len(completed) == 2
+    assert len(remaining) == 1
+    assert "pending thing" in remaining[0]
 
 
-def test_read_plan_picks_the_newest_by_date_prefix(git_repo):
+def test_read_plan_picks_the_newest_by_date_prefix(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
     commit("docs/superpowers/plans/2026-01-01-old.md", "- [x] old\n", "docs: plan - old")
     commit("docs/superpowers/plans/2026-07-20-new.md", "- [ ] new\n", "docs: plan - new")
-    assert collect.read_plan(repo, session.CONFIG)["path"].endswith("2026-07-20-new.md")
+    path = collect.read_plan(repo, session.CONFIG)["path"]
+    assert isinstance(path, str), path
+    assert path.endswith("2026-07-20-new.md")
 
 
-def test_read_plan_tolerates_no_plans_dir(git_repo):
+def test_read_plan_tolerates_no_plans_dir(git_repo: GitRepo) -> None:
     """I-2: return-shape update. `checkbox_tracking` was added to every
     read_plan() return path (see test_read_plan_checkbox_tracking_*), so this
     exact-equality assertion is updated to include the new key rather than
@@ -273,7 +288,7 @@ def test_read_plan_tolerates_no_plans_dir(git_repo):
     }
 
 
-def test_read_plan_checkbox_tracking_true_when_some_checked(git_repo):
+def test_read_plan_checkbox_tracking_true_when_some_checked(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -282,7 +297,7 @@ def test_read_plan_checkbox_tracking_true_when_some_checked(git_repo):
     assert collect.read_plan(repo, session.CONFIG)["checkbox_tracking"] is True
 
 
-def test_read_plan_checkbox_tracking_false_when_none_checked(git_repo):
+def test_read_plan_checkbox_tracking_false_when_none_checked(git_repo: GitRepo) -> None:
     """I-2 regression: this project does not maintain plan checkboxes in
     practice (25 of 27 real plans have zero checked boxes, including the plan
     for work that just shipped), so a plan with unchecked boxes but NO
@@ -299,7 +314,7 @@ def test_read_plan_checkbox_tracking_false_when_none_checked(git_repo):
     assert result["remaining"] == ["pending thing"]
 
 
-def test_collect_assembles_bundle(git_repo, tmp_path):
+def test_collect_assembles_bundle(git_repo: GitRepo, tmp_path: Path) -> None:
     import json
     from extant import session
     from extant import collect
@@ -309,14 +324,17 @@ def test_collect_assembles_bundle(git_repo, tmp_path):
     supplied = tmp_path / "suite.json"
     supplied.write_text(json.dumps({"passed": 10, "failed": 0, "duration_s": 1.0}))
     bundle = collect.collect(repo, str(supplied), session._ACTIVE, session.CONFIG)
-    assert bundle["commits"][0]["phase"] == "9.6"
-    assert bundle["suite"]["passed"] == 10
-    assert bundle["git"]["branch"] == "main"
+    commits, suite, git = bundle["commits"], bundle["suite"], bundle["git"]
+    assert isinstance(commits, list), bundle
+    assert isinstance(suite, dict) and isinstance(git, dict), bundle
+    assert commits[0]["phase"] == "9.6"
+    assert suite["passed"] == 10
+    assert git["branch"] == "main"
     assert "boundary_sha" in bundle
     assert "plan" in bundle
 
 
-def test_collect_reports_nothing_to_hand_off(git_repo, tmp_path):
+def test_collect_reports_nothing_to_hand_off(git_repo: GitRepo, tmp_path: Path) -> None:
     import json
     from extant import session
     from extant import collect
@@ -351,7 +369,7 @@ INTERLEAVED_DOC = (
 )
 
 
-def test_split_entries_separates_preamble_entries_and_base():
+def test_split_entries_separates_preamble_entries_and_base() -> None:
     from extant import session
     from extant import entries
     preamble, segments, base = entries.split_entries(SAMPLE_DOC, session._ACTIVE)
@@ -362,7 +380,7 @@ def test_split_entries_separates_preamble_entries_and_base():
     assert base.startswith("## 1. Project at a glance")
 
 
-def test_split_entries_classifies_interleaved_reference_sections():
+def test_split_entries_classifies_interleaved_reference_sections() -> None:
     """GA-4: the real doc has '## Architecture roadmap' between phase entries."""
     from extant import session
     from extant import entries
@@ -371,7 +389,7 @@ def test_split_entries_classifies_interleaved_reference_sections():
     assert kinds == ["phase", "phase", "phase", "other", "phase"]
 
 
-def test_archive_never_archives_a_reference_section(git_repo):
+def test_archive_never_archives_a_reference_section(git_repo: GitRepo) -> None:
     """GA-4 regression: reference material must survive in NEXT_SESSION.md even
     when the phase entry preceding it gets archived."""
     from extant import session
@@ -388,7 +406,8 @@ def test_archive_never_archives_a_reference_section(git_repo):
         assert "ROADMAP BODY" not in fh.read()
 
 
-def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
+def test_archive_detects_loss_of_duplicate_lines(
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     """GA-3 regression: a set-membership guard cannot see duplicate-line loss,
     because one surviving copy satisfies it. Drive a REAL duplicate-line-loss
     scenario through archive() itself - via a monkeypatched split_entries
@@ -431,7 +450,8 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
     # nothing - which is precisely the failure it exists to catch in the code.
     real_split_entries = entries.split_entries
 
-    def buggy_split_entries(text, config):
+    def buggy_split_entries(text: str, config: Config
+                            ) -> tuple[str, list[tuple[str, str]], str]:
         # retain=3 keeps segments[0:3] (9.6, 9.5b, 9.5a) and moves the rest,
         # so segments[-1] (9.3) lands in `moved`. Drop its "---" line only -
         # the other five copies (preamble + 9.6/9.5b/9.5a/9.4) survive
@@ -456,7 +476,7 @@ def test_archive_detects_loss_of_duplicate_lines(monkeypatch, git_repo):
     assert not (repo / "docs" / "status-archive.md").exists()
 
 
-def test_archive_retains_newest_three_and_moves_the_rest(git_repo):
+def test_archive_retains_newest_three_and_moves_the_rest(git_repo: GitRepo) -> None:
     from extant import session
     from extant import entries
     repo, commit = git_repo
@@ -476,7 +496,7 @@ def test_archive_retains_newest_three_and_moves_the_rest(git_repo):
     assert "## Phase 9.3" in archived
 
 
-def test_archive_conserves_every_original_line(git_repo):
+def test_archive_conserves_every_original_line(git_repo: GitRepo) -> None:
     """Multiset check, not set membership: membership alone would still pass
     if a DUPLICATED line (e.g. a repeated blank line) were dropped, since one
     surviving copy elsewhere satisfies `in`. remaining/archived legitimately
@@ -499,7 +519,7 @@ def test_archive_conserves_every_original_line(git_repo):
     assert not missing, f"line(s) lost: {missing!r}"
 
 
-def test_archive_is_a_noop_when_nothing_to_move(git_repo):
+def test_archive_is_a_noop_when_nothing_to_move(git_repo: GitRepo) -> None:
     from extant import session
     from extant import entries
     repo, commit = git_repo
@@ -510,7 +530,7 @@ def test_archive_is_a_noop_when_nothing_to_move(git_repo):
     assert not (repo / "docs" / "status-archive.md").exists()
 
 
-def test_archive_preserves_crlf(git_repo):
+def test_archive_preserves_crlf(git_repo: GitRepo) -> None:
     from extant import session
     from extant import entries
     repo, commit = git_repo
@@ -522,7 +542,7 @@ def test_archive_preserves_crlf(git_repo):
     assert b"\n\n" not in raw.replace(b"\r\n", b"")
 
 
-def test_archive_is_idempotent_across_repeated_runs(git_repo):
+def test_archive_is_idempotent_across_repeated_runs(git_repo: GitRepo) -> None:
     """Task-4 fix-pass-3 regression: a stale '## Archive pointer' block must
     never accumulate. The bug: split_entries files the pointer under "other"
     (GA-6's own top-level header), GA-4 keeps every "other" segment inline
@@ -587,7 +607,7 @@ def test_archive_is_idempotent_across_repeated_runs(git_repo):
     assert archived.index("run1-body-C") < archived.index("run1-body-D") < archived.index("run1-body-E")
 
 
-def test_find_sha_candidates_requires_backticks_a_digit_and_a_letter():
+def test_find_sha_candidates_requires_backticks_a_digit_and_a_letter() -> None:
     """A backticked token needs both, matching the bare test.
 
     The letter requirement arrived after a 17-repository sweep: of the twelve
@@ -608,7 +628,7 @@ def test_find_sha_candidates_requires_backticks_a_digit_and_a_letter():
     # valid hex and within the length bound, so only those checks reject them.
 
 
-def test_find_bare_sha_candidates_requires_digit_and_letter():
+def test_find_bare_sha_candidates_requires_digit_and_letter() -> None:
     """I-1(a): the discrimination measured against the real documents - a
     bare token needs BOTH a digit and a letter. An all-digit run (a year, a
     test count) and an all-letter hex-looking word must not match, even
@@ -622,7 +642,7 @@ def test_find_bare_sha_candidates_requires_digit_and_letter():
     assert found == ["bead123"]
 
 
-def test_find_bare_sha_candidates_skips_backticked_spans():
+def test_find_bare_sha_candidates_skips_backticked_spans() -> None:
     """I-1(a): a token already inside backticks must not also surface as a
     bare candidate - its span overlaps a `_BACKTICKED` span on the same
     line, so it is skipped here (and reported, if dead, only once via
@@ -633,7 +653,7 @@ def test_find_bare_sha_candidates_skips_backticked_spans():
     assert found == ["bead123"]
 
 
-def test_find_bare_sha_candidates_excludes_a_hex_run_embedded_in_a_longer_word():
+def test_find_bare_sha_candidates_excludes_a_hex_run_embedded_in_a_longer_word() -> None:
     """I-1(a): word-boundary anchoring on both sides. A hex-shaped run glued
     to trailing non-hex word characters (an identifier, not a token) must
     produce no match at all, not a truncated match of the hex-looking
@@ -643,7 +663,7 @@ def test_find_bare_sha_candidates_excludes_a_hex_run_embedded_in_a_longer_word()
     assert commits.find_bare_sha_candidates(text, lambda: None) == []
 
 
-def test_validate_references_flags_a_dead_sha(git_repo):
+def test_validate_references_flags_a_dead_sha(git_repo: GitRepo) -> None:
     from extant import session
     from extant.rules import sha as rule_sha
     repo, commit = git_repo
@@ -654,7 +674,7 @@ def test_validate_references_flags_a_dead_sha(git_repo):
     assert "deadbee1" in findings[0].detail
 
 
-def test_validate_references_accepts_a_live_sha(git_repo):
+def test_validate_references_accepts_a_live_sha(git_repo: GitRepo) -> None:
     from extant import session
     from extant.rules import sha as rule_sha
     repo, commit = git_repo
@@ -662,7 +682,7 @@ def test_validate_references_accepts_a_live_sha(git_repo):
     assert rule_sha.check(session.context(repo), f"See `{sha}` for details.\n") == []
 
 
-def test_validate_references_flags_a_bare_dead_sha(git_repo):
+def test_validate_references_flags_a_bare_dead_sha(git_repo: GitRepo) -> None:
     """I-1(b): a SHA written without backticks that does not resolve must be
     flagged - this is exactly the class of reference that previously
     escaped --verify entirely."""
@@ -676,7 +696,7 @@ def test_validate_references_flags_a_bare_dead_sha(git_repo):
     assert "deadbee1" in findings[0].detail
 
 
-def test_validate_references_accepts_a_bare_live_sha(git_repo):
+def test_validate_references_accepts_a_bare_live_sha(git_repo: GitRepo) -> None:
     """I-1(b): a bare SHA that RESOLVES is merely unstyled, not broken -
     flagging it would be noise, so it must produce no finding at all."""
     from extant import session
@@ -687,7 +707,8 @@ def test_validate_references_accepts_a_bare_live_sha(git_repo):
     assert rule_sha.check(session.context(repo), f"merged at {token} without backticks\n") == []
 
 
-def test_bare_dead_sha_inside_backticks_is_not_double_reported(git_repo):
+def test_bare_dead_sha_inside_backticks_is_not_double_reported(
+        git_repo: GitRepo) -> None:
     """I-1(a): a dead SHA that IS backticked must be reported once, via the
     existing dead-sha path - not a second time as bare-dead-sha, since its
     span overlaps the backticked span and find_bare_sha_candidates skips
@@ -701,7 +722,7 @@ def test_bare_dead_sha_inside_backticks_is_not_double_reported(git_repo):
     assert findings[0].kind == "dead-sha"
 
 
-def test_translate_shas_rewrites_using_the_commit_map(tmp_path):
+def test_translate_shas_rewrites_using_the_commit_map(tmp_path: Path) -> None:
     from extant import commits, rewrites
     map_file = tmp_path / "commit-map.txt"
     map_file.write_text("7544a63aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa f7d48c3bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n")
@@ -711,7 +732,7 @@ def test_translate_shas_rewrites_using_the_commit_map(tmp_path):
     assert "`f7d48c3`" in text
 
 
-def test_translate_shas_leaves_ambiguous_prefixes_alone(tmp_path):
+def test_translate_shas_leaves_ambiguous_prefixes_alone(tmp_path: Path) -> None:
     """GA-6: two old SHAs share the prefix, so neither may win."""
     from extant import commits, rewrites
     map_file = tmp_path / "commit-map.txt"
@@ -725,7 +746,7 @@ def test_translate_shas_leaves_ambiguous_prefixes_alone(tmp_path):
     assert "`abc1234`" in text
 
 
-def test_sha_map_translates_a_bare_dead_sha(tmp_path):
+def test_sha_map_translates_a_bare_dead_sha(tmp_path: Path) -> None:
     """I-1(c): the sharpest requirement in the fix - a bare dead SHA must be
     repairable by --sha-map, not just flaggable. Kept BARE (no backticks
     added) and at its original length, since translate_shas repairs the
@@ -741,7 +762,7 @@ def test_sha_map_translates_a_bare_dead_sha(tmp_path):
     assert "`f00d0001`" not in text  # bare in, bare out -- no backticks added
 
 
-def test_translate_shas_leaves_ambiguous_bare_prefix_alone(tmp_path):
+def test_translate_shas_leaves_ambiguous_bare_prefix_alone(tmp_path: Path) -> None:
     """I-1(c): the bare path must honour the same GA-6 ambiguity rule as the
     backticked path -- two old SHAs sharing the bare token's prefix, so
     neither translation may win."""
@@ -917,7 +938,7 @@ def test_only_rewrites_in_another_repositorys_text_are_named(
     assert noted == expected, noted
 
 
-def test_live_claim_flags_a_branch_that_actually_merged(git_repo):
+def test_live_claim_flags_a_branch_that_actually_merged(git_repo: GitRepo) -> None:
     from extant import session
     from extant.rules import live_claim as rule_live_claim
     repo, commit = git_repo
@@ -935,7 +956,7 @@ def test_live_claim_flags_a_branch_that_actually_merged(git_repo):
     assert "claude/feature" in findings[0].detail
 
 
-def test_live_claim_accepts_a_genuinely_unmerged_branch(git_repo):
+def test_live_claim_accepts_a_genuinely_unmerged_branch(git_repo: GitRepo) -> None:
     from extant import session
     from extant.rules import live_claim as rule_live_claim
     repo, commit = git_repo
@@ -950,7 +971,7 @@ def test_live_claim_accepts_a_genuinely_unmerged_branch(git_repo):
     assert rule_live_claim.check(session.context(repo), text) == []
 
 
-def test_historical_facts_never_flag(git_repo):
+def test_historical_facts_never_flag(git_repo: GitRepo) -> None:
     """The false-positive test. If this ever fails, the tool stops being trusted."""
     from extant.session import validate
     repo, commit = git_repo
@@ -962,21 +983,21 @@ def test_historical_facts_never_flag(git_repo):
     assert validate(repo, text) == []
 
 
-def test_verify_mode_returns_nonzero_on_a_bad_doc(git_repo):
+def test_verify_mode_returns_nonzero_on_a_bad_doc(git_repo: GitRepo) -> None:
     from extant import cli
     repo, commit = git_repo
     commit("NEXT_SESSION.md", "See `deadbee1` for details.\n", "docs: status - bad")
     assert cli.main(["--verify", "--repo", str(repo)]) == 1
 
 
-def test_verify_mode_returns_zero_on_a_clean_doc(git_repo):
+def test_verify_mode_returns_zero_on_a_clean_doc(git_repo: GitRepo) -> None:
     from extant import cli
     repo, commit = git_repo
     commit("NEXT_SESSION.md", "Nothing falsifiable here.\n", "docs: status - clean")
     assert cli.main(["--verify", "--repo", str(repo)]) == 0
 
 
-def test_main_errors_on_empty_validate_path(git_repo):
+def test_main_errors_on_empty_validate_path(git_repo: GitRepo) -> None:
     """M-a: argparse still counts --validate as "provided" (satisfying the
     required mutually-exclusive group) even when given an empty string, so
     this state is genuinely reachable -- not the dead code the trailing
@@ -991,7 +1012,7 @@ def test_main_errors_on_empty_validate_path(git_repo):
     assert exc_info.value.code == 2
 
 
-def test_live_claim_flags_a_branch_that_no_longer_exists(git_repo):
+def test_live_claim_flags_a_branch_that_no_longer_exists(git_repo: GitRepo) -> None:
     """Change 1(b): the false negative from the acceptance run. The old rule
     required `_branch_exists(...) and _is_merged(...)`, so a branch that was
     merged and then deleted (exactly what happened to
@@ -1019,7 +1040,7 @@ def test_live_claim_flags_a_branch_that_no_longer_exists(git_repo):
     assert "no longer exists" in findings[0].detail
 
 
-def test_live_claim_ignores_a_stale_claim_in_an_older_entry(git_repo):
+def test_live_claim_ignores_a_stale_claim_in_an_older_entry(git_repo: GitRepo) -> None:
     """Change 1(a): the 9.5a false-positive regression guard. The newest
     entry is deliberately benign; the live phrase plus a merged branch sit in
     the OLDER entry instead. Discriminates because under the pre-fix logic
@@ -1044,7 +1065,7 @@ def test_live_claim_ignores_a_stale_claim_in_an_older_entry(git_repo):
     assert rule_live_claim.check(session.context(repo), text) == []
 
 
-def test_live_claim_newest_entry_true_claim_stays_silent(git_repo):
+def test_live_claim_newest_entry_true_claim_stays_silent(git_repo: GitRepo) -> None:
     """Change 1(b), the 'no finding' branch: a branch that exists but is
     genuinely still unmerged, named in the NEWEST entry (the only one ever
     checked). The claim is true, so no finding. An older sibling entry with
@@ -1074,7 +1095,7 @@ def test_live_claim_newest_entry_true_claim_stays_silent(git_repo):
     assert rule_live_claim.check(session.context(repo), text) == []
 
 
-def test_live_claim_newest_entry_merged_branch_flags(git_repo):
+def test_live_claim_newest_entry_merged_branch_flags(git_repo: GitRepo) -> None:
     """Change 1(b) existing-behavior preserved: a branch that exists and IS
     merged, named in the newest entry, with an older sibling entry present --
     exactly one finding. The older sibling carries no live phrase, so the
@@ -1107,7 +1128,8 @@ def test_live_claim_newest_entry_merged_branch_flags(git_repo):
     assert "ancestor of main" in findings[0].detail
 
 
-def test_verify_flags_a_dead_sha_that_lives_only_in_the_archive(git_repo, capsys):
+def test_verify_flags_a_dead_sha_that_lives_only_in_the_archive(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """Change 2: before this fix, --verify/--validate read only their target
     file, so content moved into docs/status-archive.md escaped validation
     entirely. A dead SHA present ONLY in the archive must still surface, and
@@ -1130,7 +1152,8 @@ def test_verify_flags_a_dead_sha_that_lives_only_in_the_archive(git_repo, capsys
     assert "deadbee1" in captured.out
 
 
-def test_sha_map_translates_a_dead_sha_inside_the_archive_file(git_repo, tmp_path):
+def test_sha_map_translates_a_dead_sha_inside_the_archive_file(
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """Change 2: --sha-map must rewrite stale SHAs inside the archive too,
     not just the primary target -- otherwise the tool reports archive
     findings it has no way to fix. Discriminates: under the pre-fix main(),
@@ -1156,7 +1179,7 @@ def test_sha_map_translates_a_dead_sha_inside_the_archive_file(git_repo, tmp_pat
 
 
 def test_sha_map_names_the_lines_it_rewrote_in_another_repositorys_link(
-        git_repo, tmp_path, capsys):
+        git_repo: GitRepo, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The repair says which of its rewrites git cannot vouch for.
 
     A rewrite inside a link to ANOTHER repository is right when that is this
@@ -1190,7 +1213,7 @@ def test_sha_map_names_the_lines_it_rewrote_in_another_repositorys_link(
     assert "me/repo" not in said.split("naming another repository", 1)[1], said
 
 
-def test_translate_shas_finds_a_sha_after_an_odd_backtick_line(tmp_path):
+def test_translate_shas_finds_a_sha_after_an_odd_backtick_line(tmp_path: Path) -> None:
     """Regression for the whole-text/per-line phase-shift defect found against
     the real NEXT_SESSION.md. `_BACKTICKED`'s `[^`]+` matches newlines, so the
     pre-fix implementation (`_BACKTICKED.sub(replace, text)` over the whole
@@ -1225,7 +1248,8 @@ def test_translate_shas_finds_a_sha_after_an_odd_backtick_line(tmp_path):
     assert "`f7d48c3`" in new_text
 
 
-def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(tmp_path):
+def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(
+        tmp_path: Path) -> None:
     """The invariant the fix establishes, not just one example of it: every
     SHA-shaped backticked token find_sha_candidates reports (scanning
     per line) must also be found and translated by translate_shas, in a
@@ -1274,7 +1298,7 @@ def test_translate_shas_and_find_sha_candidates_agree_on_tokenization(tmp_path):
         assert f"`{new_shas[token][: len(token)]}`" in new_text
 
 
-def test_bare_candidates_and_translation_agree_on_tokenization(tmp_path):
+def test_bare_candidates_and_translation_agree_on_tokenization(tmp_path: Path) -> None:
     """I-1: the bare-token counterpart of
     test_translate_shas_and_find_sha_candidates_agree_on_tokenization. The
     brief requires an invariant test in that spirit: every bare token
@@ -1323,7 +1347,7 @@ def test_bare_candidates_and_translation_agree_on_tokenization(tmp_path):
     assert "`abc1234`" in new_text  # untouched: backticked, not in the map
 
 
-def test_archive_is_exempt_from_live_claim_checking(git_repo):
+def test_archive_is_exempt_from_live_claim_checking(git_repo: GitRepo) -> None:
     """The archive is history by construction, so its newest entry is not a
     live claim. Without the exemption, an archived entry that honestly records
     its own past 'not yet merged' status is flagged for saying so - the exact
@@ -1348,7 +1372,7 @@ def test_archive_is_exempt_from_live_claim_checking(git_repo):
     assert validate(repo, archived, in_archive=True) == []  # archive: exempt
 
 
-def test_archive_exemption_still_checks_references(git_repo):
+def test_archive_exemption_still_checks_references(git_repo: GitRepo) -> None:
     """The exemption is narrow: a dead reference does not become acceptable by
     being archived."""
     from extant.session import validate
@@ -1359,7 +1383,7 @@ def test_archive_exemption_still_checks_references(git_repo):
     assert "dead-sha" in kinds
 
 
-def test_resolve_shas_agrees_with_per_token_checking(git_repo):
+def test_resolve_shas_agrees_with_per_token_checking(git_repo: GitRepo) -> None:
     """The batched resolver replaced ~60 subprocess spawns with one call. Its
     only real risk is disagreeing with the per-token path it replaced, so pin
     the equivalence directly on a mix of live and dead tokens."""
@@ -1381,14 +1405,14 @@ def test_resolve_shas_agrees_with_per_token_checking(git_repo):
     assert memo[(str(repo), live_short)] == per_token[live_short] == live_full
 
 
-def test_resolve_shas_handles_no_tokens(git_repo):
+def test_resolve_shas_handles_no_tokens(git_repo: GitRepo) -> None:
     from extant import session
     from extant import refs
     repo, _ = git_repo
     assert refs.resolve_shas(session.context(repo), []) == set()
 
 
-def _repo_with_unmerged_branch(git_repo):
+def _repo_with_unmerged_branch(git_repo: GitRepo) -> tuple[Path, str, str]:
     """(repo, merged_sha, unmerged_sha) - one commit on main, one stranded on a
     branch that was never merged."""
     repo, commit = git_repo
@@ -1400,7 +1424,7 @@ def _repo_with_unmerged_branch(git_repo):
     return repo, merged, unmerged
 
 
-def test_false_merge_claim_is_flagged(git_repo):
+def test_false_merge_claim_is_flagged(git_repo: GitRepo) -> None:
     """The dangerous direction: claiming work landed when it did not."""
     from extant import session
     from extant.rules import merge as rule_merge
@@ -1412,7 +1436,7 @@ def test_false_merge_claim_is_flagged(git_repo):
     assert unmerged[:7] in findings[0].detail
 
 
-def test_true_merge_claim_stays_silent(git_repo):
+def test_true_merge_claim_stays_silent(git_repo: GitRepo) -> None:
     from extant import session
     from extant.rules import merge as rule_merge
     repo, merged, _ = _repo_with_unmerged_branch(git_repo)
@@ -1420,7 +1444,7 @@ def test_true_merge_claim_stays_silent(git_repo):
         session.context(repo), f"Merged to `main` at `{merged[:7]}` via `--no-ff`.\n") == []
 
 
-def test_merge_claim_with_dead_sha_is_not_double_reported(git_repo):
+def test_merge_claim_with_dead_sha_is_not_double_reported(git_repo: GitRepo) -> None:
     """A dead SHA is already a dead-sha finding; adding 'not an ancestor of
     main' about a commit that does not exist would only confuse."""
     from extant import session
@@ -1429,7 +1453,7 @@ def test_merge_claim_with_dead_sha_is_not_double_reported(git_repo):
     assert rule_merge.check(session.context(repo), "Merged to `main` at `deadbee1`.\n") == []
 
 
-def test_merge_claim_matches_the_real_corpus_phrasings(git_repo):
+def test_merge_claim_matches_the_real_corpus_phrasings(git_repo: GitRepo) -> None:
     """A rule that misses the wording actually used is worthless. These four
     lines are taken verbatim from NEXT_SESSION.md and the archive."""
     from extant import session
@@ -1445,7 +1469,7 @@ def test_merge_claim_matches_the_real_corpus_phrasings(git_repo):
         assert rule_merge.check(session.context(repo), line + "\n"), f"missed: {line[:50]}"
 
 
-def test_merge_claim_ignores_a_sha_that_precedes_the_phrase(git_repo):
+def test_merge_claim_ignores_a_sha_that_precedes_the_phrase(git_repo: GitRepo) -> None:
     """Real near-miss from the corpus: the SHA belongs to 'branched from', not
     to the 'landed on main' phrase that follows it."""
     from extant import session
@@ -1455,7 +1479,7 @@ def test_merge_claim_ignores_a_sha_that_precedes_the_phrase(git_repo):
     assert rule_merge.check(session.context(repo), line) == []
 
 
-def test_merge_claims_are_checked_in_the_archive_too(git_repo):
+def test_merge_claims_are_checked_in_the_archive_too(git_repo: GitRepo) -> None:
     """Live claims are exempt in the archive; merge claims are NOT, because a
     factual claim about the past stays falsifiable at any age."""
     from extant.session import validate
@@ -1465,7 +1489,7 @@ def test_merge_claims_are_checked_in_the_archive_too(git_repo):
     assert "false-merge-claim" in kinds
 
 
-def test_dead_path_pointer_is_flagged(git_repo):
+def test_dead_path_pointer_is_flagged(git_repo: GitRepo) -> None:
     from extant import session
     from extant.rules import path_pointer as rule_path_pointer
     repo, commit = git_repo
@@ -1476,7 +1500,7 @@ def test_dead_path_pointer_is_flagged(git_repo):
     assert findings[0].kind == "dead-path-pointer"
 
 
-def test_live_path_pointer_stays_silent(git_repo):
+def test_live_path_pointer_stays_silent(git_repo: GitRepo) -> None:
     from extant import session
     from extant.rules import path_pointer as rule_path_pointer
     repo, commit = git_repo
@@ -1484,7 +1508,7 @@ def test_live_path_pointer_stays_silent(git_repo):
     assert rule_path_pointer.check(session.context(repo), "**Plan:** `docs/plans/real.md`\n") == []
 
 
-def test_a_pointer_carrying_a_line_number_is_still_a_pointer(git_repo):
+def test_a_pointer_carrying_a_line_number_is_still_a_pointer(git_repo: GitRepo) -> None:
     """The hole between this rule and `dead-line-pointer`, found by auditing.
 
     The extension had to sit immediately before the closing backtick, so
@@ -1511,7 +1535,7 @@ def test_a_pointer_carrying_a_line_number_is_still_a_pointer(git_repo):
         assert findings[0].subject == "docs/gone.md", cited
 
 
-def test_a_live_pointer_with_a_line_number_stays_silent(git_repo):
+def test_a_live_pointer_with_a_line_number_stays_silent(git_repo: GitRepo) -> None:
     """Catches a widening that reports the suffix as part of the path, which
     would make every line-numbered pointer to a REAL file a false positive."""
     from extant import session
@@ -1522,7 +1546,7 @@ def test_a_live_pointer_with_a_line_number_stays_silent(git_repo):
         session.context(repo), "**Plan:** `docs/plans/real.md:12`\n") == []
 
 
-def test_descriptive_path_mentions_are_not_flagged(git_repo):
+def test_descriptive_path_mentions_are_not_flagged(git_repo: GitRepo) -> None:
     """The finding that shaped this rule: of 88 path-shaped tokens in the real
     documents, 23 do not exist and ALL 23 are legitimate - historical layout,
     deferred work, or a file explicitly described as deleted. A shape-keyed
@@ -1540,7 +1564,7 @@ def test_descriptive_path_mentions_are_not_flagged(git_repo):
         assert rule_path_pointer.check(session.context(repo), line + "\n") == [], f"false positive: {line[:45]}"
 
 
-def test_path_pointer_catches_a_windows_absolute_path(git_repo):
+def test_path_pointer_catches_a_windows_absolute_path(git_repo: GitRepo) -> None:
     """The defect that motivated this rule was a Windows absolute path in
     CLAUDE.md; a forward-slash-only pattern would have missed it."""
     from extant import session
@@ -1553,7 +1577,7 @@ def test_path_pointer_catches_a_windows_absolute_path(git_repo):
     assert "stateless-waddling-rossum" in findings[0].detail
 
 
-def test_path_pointers_are_checked_in_the_archive_too(git_repo):
+def test_path_pointers_are_checked_in_the_archive_too(git_repo: GitRepo) -> None:
     from extant.session import validate
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a - base")
@@ -1564,7 +1588,7 @@ def test_path_pointers_are_checked_in_the_archive_too(git_repo):
 
 # --- the rule registry -------------------------------------------------------
 
-def test_every_rule_declares_a_falsifiable_question():
+def test_every_rule_declares_a_falsifiable_question() -> None:
     """The admission test, made enforceable. A rule belongs only if it can be
     answered yes/no by git or the filesystem. Previously that lived in prose and
     in the author's head, so nothing stopped a rule that inspects numbers or
@@ -1581,7 +1605,7 @@ def test_every_rule_declares_a_falsifiable_question():
         assert rule.scope in {"whole-file", "newest-entry", "repository"}, rule.scope
 
 
-def test_registry_covers_every_kind_the_validator_can_emit():
+def test_registry_covers_every_kind_the_validator_can_emit() -> None:
     """A rule reachable through validate() but absent from the registry would
     have undeclared scope and archive semantics - exactly the implicit state the
     registry exists to remove."""
@@ -1593,7 +1617,7 @@ def test_registry_covers_every_kind_the_validator_can_emit():
     assert emitted <= declared, f"undeclared kinds: {emitted - declared}"
 
 
-def test_only_non_whole_file_rules_are_archive_exempt():
+def test_only_non_whole_file_rules_are_archive_exempt() -> None:
     """Pins the asymmetry deliberately. A merge claim or dead reference does not
     become acceptable by being retired; only a claim about the CURRENT state
     stops being meaningful once an entry is history.
@@ -1618,7 +1642,7 @@ def test_only_non_whole_file_rules_are_archive_exempt():
     )
 
 
-def test_archive_mode_skips_exactly_the_exempt_rules(git_repo):
+def test_archive_mode_skips_exactly_the_exempt_rules(git_repo: GitRepo) -> None:
     """Behavioural counterpart: the registry's declaration must actually govern
     what runs, not merely describe it."""
     from extant.session import RULES, validate
@@ -1642,7 +1666,7 @@ def test_archive_mode_skips_exactly_the_exempt_rules(git_repo):
 
 # --- cross-platform interpreter resolution -----------------------------------
 
-def test_finds_a_posix_layout_interpreter(git_repo):
+def test_finds_a_posix_layout_interpreter(git_repo: GitRepo) -> None:
     """The bug this fixes: only .venv/Scripts/python.exe was ever tried, so on
     macOS and Linux - where the interpreter is .venv/bin/python - nothing was
     found, and the git hook skipped silently on every commit while appearing
@@ -1660,7 +1684,7 @@ def test_finds_a_posix_layout_interpreter(git_repo):
     assert found is not None and found.name == "python"
 
 
-def test_finds_a_windows_layout_interpreter(git_repo):
+def test_finds_a_windows_layout_interpreter(git_repo: GitRepo) -> None:
     from extant import session
     from extant import collect
     repo, commit = git_repo
@@ -1672,7 +1696,7 @@ def test_finds_a_windows_layout_interpreter(git_repo):
     assert found is not None and found.name == "python.exe"
 
 
-def test_python3_layout_is_tried_when_python_is_absent(git_repo):
+def test_python3_layout_is_tried_when_python_is_absent(git_repo: GitRepo) -> None:
     """Some POSIX venvs ship only python3."""
     from extant import session
     from extant import collect
@@ -1685,7 +1709,7 @@ def test_python3_layout_is_tried_when_python_is_absent(git_repo):
     assert found is not None and found.name == "python3"
 
 
-def test_missing_interpreter_error_names_what_it_tried(git_repo):
+def test_missing_interpreter_error_names_what_it_tried(git_repo: GitRepo) -> None:
     """An error that only says 'not found' leaves the reader guessing which of
     three layouts was expected."""
     from extant import session
@@ -1702,7 +1726,7 @@ def test_missing_interpreter_error_names_what_it_tried(git_repo):
         raise AssertionError("expected a RuntimeError")
 
 
-def test_count_examined_reports_the_denominator(git_repo):
+def test_count_examined_reports_the_denominator(git_repo: GitRepo) -> None:
     """Zero findings and zero checked print identically without this. That
     ambiguity produced five separate silent failures in one session, so the
     counts are load-bearing, not cosmetic."""
@@ -1726,7 +1750,8 @@ def test_count_examined_reports_the_denominator(git_repo):
     assert counts["dead-path-pointer"] == 1
 
 
-def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(git_repo):
+def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(
+        git_repo: GitRepo) -> None:
     """A rule with nothing to examine must report 0, not be omitted - that is
     the signal distinguishing 'no such claims here' from 'pattern is broken'."""
     from extant.session import count_examined
@@ -1747,7 +1772,7 @@ def test_count_examined_reports_zero_when_a_rule_has_nothing_to_check(git_repo):
     )
 
 
-def test_a_suite_whose_output_is_not_utf8_is_still_measured(tmp_path) -> None:
+def test_a_suite_whose_output_is_not_utf8_is_still_measured(tmp_path: Path) -> None:
     """`suite_command` runs SOMEBODY ELSE'S runner, so its bytes are the least
     predictable text this package decodes.
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
 
@@ -29,7 +30,7 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 sys.path.insert(0, str(PAYLOAD))
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from conftest import committer, init_repo  # noqa: E402
+from conftest import GitRepo, committer, init_repo
 
 DOC = ("## Phase 1 - x (in progress, 2026-01-01)\n\n"
        "**Design:** `docs/old.md`\n")
@@ -85,7 +86,7 @@ def partial_repo(tmp_path: Path) -> Path:
 
 
 def test_a_partial_repository_is_recognised_from_its_config(
-        partial_repo, git_repo) -> None:
+        partial_repo: Path, git_repo: GitRepo) -> None:
     """`remote.<name>.promisor = true` is what git itself checks."""
     from extant.git import is_partial
 
@@ -94,7 +95,8 @@ def test_a_partial_repository_is_recognised_from_its_config(
     assert is_partial(repo) is False
 
 
-def test_verify_says_the_repository_is_partial(partial_repo, capsys) -> None:
+def test_verify_says_the_repository_is_partial(
+        partial_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Beside the denominators, where the shallow note goes, and for the same
     reason: a reader cannot tell from the count alone that some answers were
     given about less than the repository holds."""
@@ -109,7 +111,7 @@ def test_verify_says_the_repository_is_partial(partial_repo, capsys) -> None:
 
 
 def test_verify_never_goes_back_for_an_object_the_transport_left_out(
-        partial_repo, capsys) -> None:
+        partial_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The guarantee, measured: the set of missing objects before a run is
     the set after it. The document points at the OLD name of a renamed file,
     which is exactly the question - "where did this go?" - that made git
@@ -136,7 +138,7 @@ def test_verify_never_goes_back_for_an_object_the_transport_left_out(
 
 
 def test_the_note_says_a_rename_hint_is_withheld_rather_than_answered(
-        partial_repo, capsys) -> None:
+        partial_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Catches the note describing the rename hint as degraded when it is gone.
 
     It said a rename hint "answers from what is here". Measured 2026-09-28:
@@ -169,7 +171,7 @@ def test_the_note_says_a_rename_hint_is_withheld_rather_than_answered(
 
 
 def test_deleted_since_counts_a_missing_previous_version_as_unreadable(
-        partial_repo, tmp_path) -> None:
+        partial_repo: Path, tmp_path: Path) -> None:
     """The guard's one new way to be wrong, closed.
 
     `--deleted-since` reads each configured document as it stood at the ref
@@ -207,7 +209,7 @@ def test_deleted_since_counts_a_missing_previous_version_as_unreadable(
 
 
 def test_deleted_since_asks_about_every_missing_object_in_one_listing(
-        partial_repo, tmp_path, monkeypatch) -> None:
+        partial_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Catches one `ls-tree` per missing previous version.
 
     Each document whose old blob the copy did not hold cost a process of its
@@ -235,9 +237,9 @@ def test_deleted_since_asks_about_every_missing_object_in_one_listing(
     ref = "HEAD~3"
 
     spawns: list[str] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def counted(cmd, *a, **kw):
+    def counted(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)
@@ -256,7 +258,7 @@ def test_deleted_since_asks_about_every_missing_object_in_one_listing(
         f"objects:\n" + "\n".join(listings))
 
 
-def test_the_older_spelling_of_the_filter_is_recognised_too(git_repo) -> None:
+def test_the_older_spelling_of_the_filter_is_recognised_too(git_repo: GitRepo) -> None:
     """Before `promisor = true`, a filtered copy recorded itself as
     `extensions.partialclone = origin` with `core.partialclonefilter`. The
     prefix arm is what reads those, and the modern fixture above never

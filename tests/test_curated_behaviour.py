@@ -12,8 +12,14 @@ import contextlib
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from conftest import _install_into
+import pytest
+
+from conftest import GitRepo, _install_into
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -22,7 +28,7 @@ sys.path.insert(0, str(PAYLOAD))
 
 # --- a floor written two ways is one floor -----------------------------
 
-def _floor_findings(git_repo, manifest: str, text: str):
+def _floor_findings(git_repo: GitRepo, manifest: str, text: str) -> list[Finding]:
     from extant import session as hc
     from extant.rules import manifest_floor as rule
     repo, commit = git_repo
@@ -37,7 +43,7 @@ def _floor_findings(git_repo, manifest: str, text: str):
         hc.set_document(doc_path=None)
 
 
-def test_a_floor_of_3_14_agrees_with_a_manifest_saying_3_14_0(git_repo) -> None:
+def test_a_floor_of_3_14_agrees_with_a_manifest_saying_3_14_0(git_repo: GitRepo) -> None:
     """`3.14` and `3.14.0` are one floor spelled two ways.
 
     Comparing the parsed tuples directly made (3, 14) differ from (3, 14, 0)
@@ -51,7 +57,7 @@ def test_a_floor_of_3_14_agrees_with_a_manifest_saying_3_14_0(git_repo) -> None:
     assert findings == [], [f.detail for f in findings]
 
 
-def test_padding_does_not_swallow_a_real_disagreement(git_repo) -> None:
+def test_padding_does_not_swallow_a_real_disagreement(git_repo: GitRepo) -> None:
     """The padding must not make every floor agree with every other.
 
     Catches the obvious over-correction - comparing only the shared prefix -
@@ -66,7 +72,7 @@ def test_padding_does_not_swallow_a_real_disagreement(git_repo) -> None:
 
 # --- a query string is not part of a filename --------------------------
 
-def _link_findings(git_repo, text: str):
+def _link_findings(git_repo: GitRepo, text: str) -> list[Finding]:
     from extant import session as hc
     from extant.rules import md_link as rule
     repo, commit = git_repo
@@ -80,7 +86,7 @@ def _link_findings(git_repo, text: str):
         hc.set_document(doc_path=None, link_base=None)
 
 
-def test_a_link_carrying_a_query_string_resolves_to_the_file(git_repo) -> None:
+def test_a_link_carrying_a_query_string_resolves_to_the_file(git_repo: GitRepo) -> None:
     """`?raw=1` and `?plain=1` are how a forge serves a file, not its name.
 
     Leaving the query on the target made a file that is plainly there resolve
@@ -91,7 +97,7 @@ def test_a_link_carrying_a_query_string_resolves_to_the_file(git_repo) -> None:
     assert findings == [], [f.detail for f in findings]
 
 
-def test_the_query_strip_does_not_revive_a_dead_link(git_repo) -> None:
+def test_the_query_strip_does_not_revive_a_dead_link(git_repo: GitRepo) -> None:
     """Catches a strip that discards the whole target rather than the query."""
     findings = _link_findings(git_repo, "See [gone](absent.md?plain=1).\n")
     assert [f.kind for f in findings] == ["dead-md-link"], findings
@@ -115,7 +121,7 @@ def _git(cwd: Path, *args: str) -> str:
                           text=True, check=True).stdout
 
 
-def test_is_shallow_agrees_with_git_on_a_real_linked_worktree(tmp_path) -> None:
+def test_is_shallow_agrees_with_git_on_a_real_linked_worktree(tmp_path: Path) -> None:
     """Built from the layout git actually writes, not a plausible one.
 
     A linked worktree keeps its own git directory but SHARES the object store,
@@ -163,32 +169,32 @@ def test_is_shallow_agrees_with_git_on_a_real_linked_worktree(tmp_path) -> None:
     assert is_shallow(tmp_path / "wt_full") is False
 
 
-def test_validate_says_so_when_the_clone_is_shallow(git_repo) -> None:
+def test_validate_says_so_when_the_clone_is_shallow(git_repo: GitRepo) -> None:
     """The denominator is only honest if its caveats print beside it.
 
     A `dead-sha` count from a shallow clone describes the slice that was
     cloned, not the repository. Catches a `is_shallow` nothing calls.
     """
-    import extant_collect as hc
+    from extant.cli import main
     repo, commit = git_repo
     commit("NEXT_SESSION.md", "# status\n\nNothing to see.\n", "docs: status")
     _install_into(repo)
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        hc.main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
+        main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
     assert "shallow repository" not in out.getvalue() + err.getvalue()
 
     (repo / ".git" / "shallow").write_text("abc\n", encoding="utf-8")
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        hc.main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
+        main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
     assert "shallow repository" in out.getvalue() + err.getvalue()
 
 
 # --- a survey says which machinery produced its numbers -----------------
 
-def test_a_small_survey_runs_in_one_process_and_claims_nothing(git_repo,
-                                                               capsys) -> None:
+def test_a_small_survey_runs_in_one_process_and_claims_nothing(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """Below the floor there are no workers, so nothing may say there were.
 
     Catches a report that prints the parallel line unconditionally, which would
@@ -210,9 +216,9 @@ def test_a_small_survey_runs_in_one_process_and_claims_nothing(git_repo,
     assert "swept 4 markdown file(s)" in printed
 
 
-def test_a_document_that_returns_no_result_is_named_not_skipped(git_repo,
-                                                               capsys,
-                                                               monkeypatch) -> None:
+def test_a_document_that_returns_no_result_is_named_not_skipped(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """A survey that loses a file must not print the summary of a clean one.
 
     The merge looks each document up by path. A document missing from that
@@ -229,7 +235,7 @@ def test_a_document_that_returns_no_result_is_named_not_skipped(git_repo,
 
     real = sweep._sequential
 
-    def losing(repo_, tasks):
+    def losing(repo_: Path, tasks: list[tuple[str, bool]]) -> object:
         gathered = real(repo_, tasks)
         gathered.pop("docs/d1.md", None)      # the survey drops one document
         return gathered
@@ -246,7 +252,7 @@ def test_a_document_that_returns_no_result_is_named_not_skipped(git_repo,
     assert exit_code == 1, "a survey that lost a document exited 0"
 
 
-def _sweep_text(repo, capsys) -> str:
+def _sweep_text(repo: Path, capsys: pytest.CaptureFixture[str]) -> str:
     """A survey of `repo` under `repo`'s own settings, as the CLI runs one.
 
     `reload_config`, not a bare `session.CONFIG = load_config(repo)`. The two
@@ -264,9 +270,9 @@ def _sweep_text(repo, capsys) -> str:
     return capsys.readouterr().out
 
 
-def test_the_parallel_survey_runs_and_agrees_with_the_serial_one(git_repo,
-                                                                 capsys,
-                                                                 monkeypatch) -> None:
+def test_the_parallel_survey_runs_and_agrees_with_the_serial_one(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """Above the floor the pool is used, says so, and changes no answer.
 
     The floor is lowered rather than four hundred documents committed, because
@@ -301,8 +307,8 @@ def test_the_parallel_survey_runs_and_agrees_with_the_serial_one(git_repo,
     assert serial.count("[dead-path-pointer]") == 6, serial
 
 
-def test_a_configured_document_under_a_dot_directory_still_gates(git_repo,
-                                                                 capsys) -> None:
+def test_a_configured_document_under_a_dot_directory_still_gates(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """`.github/CONTRIBUTING.md` in extra_docs must be GATED, not surveyed.
 
     `partition_documents` normalised configured names with `.lstrip("./")`, and
@@ -337,7 +343,8 @@ def test_a_configured_document_under_a_dot_directory_still_gates(git_repo,
     assert "0 unreviewed" in printed, printed
 
 
-def test_a_configured_name_may_be_written_with_a_leading_dot_slash(git_repo) -> None:
+def test_a_configured_name_may_be_written_with_a_leading_dot_slash(
+        git_repo: GitRepo) -> None:
     """`./STATUS.md` and `STATUS.md` must name one document everywhere.
 
     Four sites in this module spelled a configured name their own way - one
@@ -363,9 +370,9 @@ def test_a_configured_name_may_be_written_with_a_leading_dot_slash(git_repo) -> 
     assert _normalise(session.CONFIG.primary_doc) == "STATUS.md"
 
 
-def test_the_parallel_survey_reads_the_projects_configuration(git_repo,
-                                                              capsys,
-                                                              monkeypatch) -> None:
+def test_the_parallel_survey_reads_the_projects_configuration(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """A worker must judge documents under the SAME settings as its parent.
 
     The agreement test above cannot see this and never could. It compares two
@@ -421,9 +428,9 @@ def test_the_parallel_survey_reads_the_projects_configuration(git_repo,
         "the parallel survey disagreed with the serial one")
 
 
-def test_a_pool_that_cannot_start_is_announced_not_swallowed(git_repo,
-                                                             capsys,
-                                                             monkeypatch) -> None:
+def test_a_pool_that_cannot_start_is_announced_not_swallowed(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """Falling back is right; falling back quietly is the bug.
 
     A survey that drops to one process and says nothing goes on printing the
@@ -438,7 +445,7 @@ def test_a_pool_that_cannot_start_is_announced_not_swallowed(git_repo,
         commit(f"docs/d{i}.md", f"# Doc {i}\n\nSee `src/gone{i}.py`.\n",
                f"docs: {i}")
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> None:
         raise OSError("spawning is not permitted here")
 
     monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 1)
@@ -453,7 +460,8 @@ def test_a_pool_that_cannot_start_is_announced_not_swallowed(git_repo,
 
 
 def test_workers_do_not_relist_the_tree_the_parent_already_listed(
-        git_repo, capsys, monkeypatch, tmp_path) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The review's 5.6: a worker re-asked `ls-tree` for the tracked list the
     parent had already taken to build the survey, once per worker that
     reached `sites.py`. Traced on ruff's clone with 8 workers: 5 listings,
@@ -493,8 +501,9 @@ def test_workers_do_not_relist_the_tree_the_parent_already_listed(
         f"parent lists it once and hands the list to every worker")
 
 
-def test_a_sequential_survey_lists_the_tree_once(git_repo, capsys, monkeypatch,
-                                                 tmp_path) -> None:
+def test_a_sequential_survey_lists_the_tree_once(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The other half of the same listing: `run_sweep` takes the tracked list
     BEFORE it opens its scope, so the list was memoised nowhere, and the
     first document that reached `sites.py` had the parent list the tree

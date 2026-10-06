@@ -28,8 +28,11 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
+
+from conftest import GitRepo
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -130,7 +133,7 @@ def _document(sha: str, claim_only: str, dead: str) -> str:
     )
 
 
-def _counted_run(monkeypatch, spawns: list[str]):
+def _counted_run(monkeypatch: pytest.MonkeyPatch, spawns: list[str]) -> None:
     """Record the WHOLE command line of every git process, then run it for real.
 
     The whole line rather than `git <sub>`, because the coarse form cannot tell
@@ -144,9 +147,9 @@ def _counted_run(monkeypatch, spawns: list[str]):
     byte-identical command lines: two `remote get-url origin`, and two
     `cat-file --batch-check` whose inputs differ on STDIN rather than in argv.
     """
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def counted(cmd, *a, **kw):
+    def counted(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)
@@ -154,7 +157,7 @@ def _counted_run(monkeypatch, spawns: list[str]):
     monkeypatch.setattr(subprocess, "run", counted)
 
 
-def _repo_with_a_document(git_repo):
+def _repo_with_a_document(git_repo: GitRepo) -> tuple[Path, str]:
     """A repository whose origin is itself, holding the document above."""
     repo, commit = git_repo
     sha = commit("a.py", "a = 1\n", "feat: a").strip()[:9]
@@ -176,7 +179,7 @@ def _repo_with_a_document(git_repo):
 
 
 def test_a_single_validation_stays_within_its_spawn_budget(
-        monkeypatch, git_repo) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     from extant import session as hc
 
     repo, text = _repo_with_a_document(git_repo)
@@ -198,7 +201,8 @@ def test_a_single_validation_stays_within_its_spawn_budget(
         f"call is necessary, raise CEILING here and say why in the commit.")
 
 
-def test_the_same_question_is_not_asked_twice(monkeypatch, git_repo) -> None:
+def test_the_same_question_is_not_asked_twice(
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     """The two duplicates measured before the refactor, pinned shut.
 
     `remote get-url origin` ran twice because `validate()` opens a scope per
@@ -288,7 +292,7 @@ def _explain_the_remote(spawns: list[str]) -> None:
 @pytest.mark.parametrize("config_declines", [False, True],
                          ids=["as-checked-out", "config-declined"])
 def test_the_verify_cli_stays_within_its_own_spawn_budget(
-        monkeypatch, config_declines: bool) -> None:
+        monkeypatch: pytest.MonkeyPatch, config_declines: bool) -> None:
     """`main()`'s OWN use of run_scope(), not the fixture's.
 
     Run twice: once against the checkout as it is, and once with the remote
@@ -357,9 +361,9 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
         monkeypatch.setattr(refs, "remote_url", lambda repo, name: None)
 
     spawns: list[str] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def counted(cmd, *a, **kw):
+    def counted(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)
@@ -595,7 +599,7 @@ def test_the_verify_cli_stays_within_its_own_spawn_budget(
         f"read for qualified refs.")
 
 
-def _two_documents_asking_about_refs(git_repo):
+def _two_documents_asking_about_refs(git_repo: GitRepo) -> Path:
     """A status document and one extra document, each with a claim that makes
     the ref table and the trunk index a question - and REAL commits in them,
     because a dead SHA is reported before either is needed."""
@@ -611,7 +615,8 @@ def _two_documents_asking_about_refs(git_repo):
     return repo
 
 
-def _ref_tables_built_by(monkeypatch, repo, *flags) -> int:
+def _ref_tables_built_by(monkeypatch: pytest.MonkeyPatch, repo: Path, *flags: str
+                         ) -> int:
     from extant import cli
 
     spawns: list[str] = []
@@ -624,7 +629,7 @@ def _ref_tables_built_by(monkeypatch, repo, *flags) -> int:
 
 
 def test_verify_holds_one_scope_unless_a_sha_map_rewrites_between_documents(
-        monkeypatch, git_repo, tmp_path) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo, tmp_path: Path) -> None:
     """Both arms of the review's 5.7, asserted on the same fixture.
 
     Without `--sha-map` nothing rewrites a document between two reads, so

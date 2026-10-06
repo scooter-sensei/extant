@@ -33,8 +33,9 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
 from extant import session
-from extant.config import DEFAULTS, DISABLEABLE, Config, load_config
+from extant.config import DEFAULTS, DISABLEABLE, Config, StatusConfig, load_config
 from extant.report import format_sarif
 from extant.session import UNRUN_NOTE, ZERO_DEFAULT, ZERO_SET, ZERO_SHAPE
 
@@ -90,7 +91,7 @@ def _vocabulary_read(path: Path) -> set[str]:
             if isinstance(node, ast.Attribute) and node.attr in VOCABULARY}
 
 
-def _settings(tmp_path: Path, toml: str | None = None):
+def _settings(tmp_path: Path, toml: str | None = None) -> StatusConfig:
     root = tmp_path / "settings"
     (root / ".git").mkdir(parents=True, exist_ok=True)
     if toml is not None:
@@ -248,7 +249,7 @@ def test_every_known_configuration_still_loads() -> None:
 
 # --- 4. off is a state, and the run says so ----------------------------------
 
-def test_a_switched_off_rule_does_not_run_and_the_run_says_so(git_repo) -> None:
+def test_a_switched_off_rule_does_not_run_and_the_run_says_so(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format("**Design:** `docs/absent.md`"),
            "docs: status")
@@ -267,7 +268,7 @@ def test_a_switched_off_rule_does_not_run_and_the_run_says_so(git_repo) -> None:
 
 @pytest.mark.parametrize("key", PATTERNS)
 def test_an_empty_pattern_never_crashes_a_rule_or_widens_one(
-        git_repo, key: str) -> None:
+        git_repo: GitRepo, key: str) -> None:
     """Before: three keys raised (`merge_claim` took `dead-sha` with it), and
     two failed silently - `path_pointer` reported 256 examined on a 14-line
     document, `live_phrases` turned every branch token into a live claim."""
@@ -287,7 +288,7 @@ def test_an_empty_pattern_never_crashes_a_rule_or_widens_one(
         assert f"[{kind}]" not in combined, combined
 
 
-def test_the_sweep_does_not_run_a_repository_rule_that_is_off(git_repo) -> None:
+def test_the_sweep_does_not_run_a_repository_rule_that_is_off(git_repo: GitRepo) -> None:
     """The sweep's repository pass ran every repository rule directly, so an
     off rule still ran there and was counted among those that ran once."""
     repo, commit = git_repo
@@ -299,7 +300,7 @@ def test_the_sweep_does_not_run_a_repository_rule_that_is_off(git_repo) -> None:
     assert "`consistency`" in unrun, unrun
 
 
-def test_selftest_reports_a_switched_off_rule_as_not_run(git_repo) -> None:
+def test_selftest_reports_a_switched_off_rule_as_not_run(git_repo: GitRepo) -> None:
     """Counted as silent before, because `silent` was every rule that did not
     fire, find nothing to probe or raise - so an off rule failed the run."""
     repo, commit = git_repo
@@ -318,7 +319,7 @@ def test_selftest_reports_a_switched_off_rule_as_not_run(git_repo) -> None:
 
 
 def test_selftest_does_not_probe_a_rule_the_document_is_not_read_by(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The owed item: `--selftest` ignored `rule_applies`, so it probed the
     entry rules on a document holding no entry, and markdown rules on rst."""
     repo, commit = git_repo
@@ -331,7 +332,7 @@ def test_selftest_does_not_probe_a_rule_the_document_is_not_read_by(
 
 # --- 5. every zero that ran is worded by its cause ---------------------------
 
-def test_a_zero_no_pattern_could_explain_is_not_blamed_on_one(git_repo) -> None:
+def test_a_zero_no_pattern_could_explain_is_not_blamed_on_one(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("NEXT_SESSION.md", ENTRY.format("Plain prose."), "docs: status")
     result = run(repo, "--verify")
@@ -353,7 +354,7 @@ def test_a_zero_no_pattern_could_explain_is_not_blamed_on_one(git_repo) -> None:
 
 
 def test_a_zero_under_a_pattern_the_project_set_keeps_both_reasons(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit(".extant.toml",
            "merge_claim = 'landed on (`[^`]+`) at ([0-9a-f]{7,40})'\n",
@@ -367,7 +368,7 @@ def test_a_zero_under_a_pattern_the_project_set_keeps_both_reasons(
 
 
 def test_an_entry_rule_on_a_document_with_no_entry_read_nothing(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """25 of the 39 installed primary documents hold no entry, and --verify
     said the entry rules "matched nothing" there."""
     repo, commit = git_repo
@@ -384,7 +385,7 @@ def test_an_entry_rule_on_a_document_with_no_entry_read_nothing(
     assert "stale-live-claim" not in zeros and "unknown-branch" not in zeros
 
 
-def test_a_set_entry_prefix_is_not_named_as_the_lever(git_repo) -> None:
+def test_a_set_entry_prefix_is_not_named_as_the_lever(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit(".extant.toml", "entry_prefix = '## Step '\n", "chore: config")
     commit("NEXT_SESSION.md", "# Status\n\nNothing dated here.\n",
@@ -393,7 +394,7 @@ def test_a_set_entry_prefix_is_not_named_as_the_lever(git_repo) -> None:
     assert "which has none" in unrun and "entry_prefix" not in unrun, unrun
 
 
-def test_a_markdown_rule_on_an_rst_primary_read_nothing(git_repo) -> None:
+def test_a_markdown_rule_on_an_rst_primary_read_nothing(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit(".extant.toml", "primary_doc = 'STATUS.rst'\n", "chore: config")
     # A link-shaped token, which the markdown rule counted although it did
@@ -407,7 +408,7 @@ def test_a_markdown_rule_on_an_rst_primary_read_nothing(git_repo) -> None:
     assert "dead-md-link 0," in line_with(result, "checked STATUS.rst")
 
 
-def test_check_text_words_its_zeros_the_same_way(git_repo) -> None:
+def test_check_text_words_its_zeros_the_same_way(git_repo: GitRepo) -> None:
     repo, _commit = git_repo
     result = run(repo, "--check-text", stdin="# Draft\n\nNothing dated.\n")
     assert "which has none" in line_with(result, UNRUN_NOTE)
@@ -422,7 +423,7 @@ def _notes(result: subprocess.CompletedProcess[str]) -> list[str]:
             if ln.strip().startswith("NOTE: these rules")]
 
 
-def test_sarif_carries_the_same_zero_notes_as_the_text(git_repo) -> None:
+def test_sarif_carries_the_same_zero_notes_as_the_text(git_repo: GitRepo) -> None:
     """It computed its own list from every zero, so it never learned the
     split the text NOTE has had since Phase 57, and named rules that read
     no document as rules that examined nothing."""
@@ -442,7 +443,7 @@ def test_sarif_carries_the_same_zero_notes_as_the_text(git_repo) -> None:
     assert not [text for text in sent if text.startswith("examined nothing")]
 
 
-def test_sarif_names_a_switched_off_rule_as_disabled(git_repo) -> None:
+def test_sarif_names_a_switched_off_rule_as_disabled(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit(".extant.toml", "path_pointer = ''\n", "chore: config")
     commit("NEXT_SESSION.md", ENTRY.format("Plain prose."), "docs: status")
@@ -476,7 +477,7 @@ def test_sarif_reports_a_rule_that_raised_as_a_failed_execution() -> None:
     assert "ValueError: boom" in raised[0]["exception"]["message"]
 
 
-def test_deleted_since_sarif_says_it_examined_no_document(git_repo) -> None:
+def test_deleted_since_sarif_says_it_examined_no_document(git_repo: GitRepo) -> None:
     """SARIF stopped working out its own zeros, and this mode handed it none:
     a range that changed no document lost the warning it had."""
     repo, commit = git_repo
@@ -491,7 +492,7 @@ def test_deleted_since_sarif_says_it_examined_no_document(git_repo) -> None:
 
 # --- 7. the newest entry has one reader -------------------------------------
 
-def test_a_branch_probe_corrupts_the_token_the_rule_reads(git_repo) -> None:
+def test_a_branch_probe_corrupts_the_token_the_rule_reads(git_repo: GitRepo) -> None:
     """The probe split the RAW text, so the first branch token it found could
     sit in a fence the rule never reads: corrupted there, the rule stayed
     silent on a claim it would have caught - a false DID NOT FIRE."""

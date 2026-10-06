@@ -24,8 +24,14 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -50,7 +56,7 @@ def write_map(gitdir: Path, pairs: list[tuple[str, str]]) -> Path:
     return target
 
 
-def findings(repo: Path, text: str) -> list:
+def findings(repo: Path, text: str) -> list[Finding]:
     from extant import session as hc
     with hc.run_scope():
         return hc.validate(repo, text, has_entries=False)
@@ -58,14 +64,16 @@ def findings(repo: Path, text: str) -> list:
 
 # --- finding the shared git directory -----------------------------------------
 
-def test_common_git_dir_of_a_plain_checkout_is_its_own_dot_git(git_repo) -> None:
+def test_common_git_dir_of_a_plain_checkout_is_its_own_dot_git(
+        git_repo: GitRepo) -> None:
     from extant.git import common_git_dir
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     assert common_git_dir(repo) == repo / ".git"
 
 
-def test_common_git_dir_of_a_linked_worktree_is_the_shared_one(git_repo) -> None:
+def test_common_git_dir_of_a_linked_worktree_is_the_shared_one(
+        git_repo: GitRepo) -> None:
     """A worktree's `.git` is a FILE, and the map lives in the ORIGINAL clone.
 
     This is the same walk `is_shallow` already does, and it is here rather
@@ -82,14 +90,15 @@ def test_common_git_dir_of_a_linked_worktree_is_the_shared_one(git_repo) -> None
     assert common_git_dir(linked) == common_git_dir(repo)
 
 
-def test_common_git_dir_is_none_when_there_is_no_git_directory(tmp_path) -> None:
+def test_common_git_dir_is_none_when_there_is_no_git_directory(tmp_path: Path) -> None:
     from extant.git import common_git_dir
     plain = tmp_path / "not-a-repo"
     plain.mkdir()
     assert common_git_dir(plain) is None
 
 
-def test_finding_the_map_costs_no_git_subprocess(git_repo, monkeypatch) -> None:
+def test_finding_the_map_costs_no_git_subprocess(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The spawn budget has no spare margin, so this may not spend one.
 
     Resolved from the filesystem for the same reason `is_shallow` is: it is a
@@ -101,7 +110,7 @@ def test_finding_the_map_costs_no_git_subprocess(git_repo, monkeypatch) -> None:
     commit("a.py", "a = 1\n", "feat: a")
     write_map(repo / ".git", [("a" * 40, "b" * 40)])
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> None:
         raise AssertionError(f"spawned a subprocess: {args}")
 
     monkeypatch.setattr(subprocess, "run", refuse)
@@ -110,7 +119,7 @@ def test_finding_the_map_costs_no_git_subprocess(git_repo, monkeypatch) -> None:
 
 # --- what the finding says ----------------------------------------------------
 
-def test_a_dead_sha_the_map_knows_names_its_replacement(git_repo) -> None:
+def test_a_dead_sha_the_map_knows_names_its_replacement(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     live = commit("a.py", "a = 1\n", "feat: a").strip()
     dead = "abc1234"
@@ -121,7 +130,8 @@ def test_a_dead_sha_the_map_knows_names_its_replacement(git_repo) -> None:
     assert "rewrite map" in found[0].render()
 
 
-def test_the_detail_is_unchanged_so_recorded_baselines_still_match(git_repo) -> None:
+def test_the_detail_is_unchanged_so_recorded_baselines_still_match(
+        git_repo: GitRepo) -> None:
     """The repair rides OUTSIDE the fingerprint, exactly as `subject` does.
 
     `report.fingerprint` hashes (path, kind, detail). Folding the repair into
@@ -141,7 +151,7 @@ def test_the_detail_is_unchanged_so_recorded_baselines_still_match(git_repo) -> 
     assert with_map[0].render() != without[0].render()
 
 
-def test_no_map_leaves_the_finding_exactly_as_it_was(git_repo) -> None:
+def test_no_map_leaves_the_finding_exactly_as_it_was(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     found = findings(repo, "Merged the fix in `abc1234`.\n")
@@ -150,7 +160,7 @@ def test_no_map_leaves_the_finding_exactly_as_it_was(git_repo) -> None:
     assert found[0].render() == "line 1: [dead-sha] `abc1234` does not resolve in this repo"
 
 
-def test_a_bare_dead_sha_is_repaired_too(git_repo) -> None:
+def test_a_bare_dead_sha_is_repaired_too(git_repo: GitRepo) -> None:
     """Both halves, or the class is only half fixable.
 
     `translate_shas` learned bare tokens for this reason and records it as
@@ -166,7 +176,7 @@ def test_a_bare_dead_sha_is_repaired_too(git_repo) -> None:
     assert live[:7] in found[0].render()
 
 
-def test_an_ambiguous_prefix_offers_no_replacement(git_repo) -> None:
+def test_an_ambiguous_prefix_offers_no_replacement(git_repo: GitRepo) -> None:
     """Two old SHAs sharing the prefix: say nothing rather than pick one.
 
     `_translated_value` already refuses to resolve this, and the reason
@@ -183,7 +193,7 @@ def test_an_ambiguous_prefix_offers_no_replacement(git_repo) -> None:
     assert found[0].repair is None, found[0].render()
 
 
-def test_a_commit_the_rewrite_dropped_is_named_as_removed(git_repo) -> None:
+def test_a_commit_the_rewrite_dropped_is_named_as_removed(git_repo: GitRepo) -> None:
     """filter-repo maps a dropped commit to forty zeroes.
 
     Reporting that verbatim would offer the reader a SHA to paste that names
@@ -199,7 +209,7 @@ def test_a_commit_the_rewrite_dropped_is_named_as_removed(git_repo) -> None:
     assert "0000" not in found[0].repair
 
 
-def test_a_map_that_cannot_be_read_says_so_in_the_finding(git_repo) -> None:
+def test_a_map_that_cannot_be_read_says_so_in_the_finding(git_repo: GitRepo) -> None:
     """A map present and unreadable must not read as a map absent.
 
     The degraded path names itself, which is the only shape of broad catch
@@ -215,8 +225,8 @@ def test_a_map_that_cannot_be_read_says_so_in_the_finding(git_repo) -> None:
     assert "could not" in found[0].repair.lower()
 
 
-def test_the_map_is_read_once_per_run_not_once_per_document(git_repo,
-                                                            monkeypatch) -> None:
+def test_the_map_is_read_once_per_run_not_once_per_document(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Its lifetime is the run's, like every other answer the disk gave.
 
     A sweep validates every tracked document in one run scope, and re-reading
@@ -230,7 +240,7 @@ def test_the_map_is_read_once_per_run_not_once_per_document(git_repo,
     reads = []
     real = rewrites.load_sha_map
 
-    def counting(path):
+    def counting(path: str) -> dict[str, str]:
         reads.append(path)
         return real(path)
 
@@ -241,7 +251,8 @@ def test_the_map_is_read_once_per_run_not_once_per_document(git_repo,
     assert len(reads) == 1, f"read the map {len(reads)} times in one run"
 
 
-def test_the_map_is_not_read_when_no_sha_is_dead(git_repo, monkeypatch) -> None:
+def test_the_map_is_not_read_when_no_sha_is_dead(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """One line per commit is a real file on a real repository.
 
     Nothing needs explaining when nothing is dead, so a clean document pays
@@ -252,15 +263,19 @@ def test_the_map_is_not_read_when_no_sha_is_dead(git_repo, monkeypatch) -> None:
     repo, commit = git_repo
     live = commit("a.py", "a = 1\n", "feat: a").strip()
     write_map(repo / ".git", [("abc1234" + "0" * 33, live)])
-    reads = []
-    monkeypatch.setattr(rewrites, "load_sha_map",
-                        lambda path: reads.append(path) or {})
+    reads: list[str] = []
+
+    def recorded(path: str) -> dict[str, str]:
+        reads.append(path)
+        return {}
+
+    monkeypatch.setattr(rewrites, "load_sha_map", recorded)
     with hc.run_scope():
         hc.validate(repo, f"Merged the fix in `{live[:7]}`.\n", has_entries=False)
     assert reads == [], "read the rewrite map for a document with no dead SHA"
 
 
-def test_every_format_a_person_reads_carries_the_repair(git_repo) -> None:
+def test_every_format_a_person_reads_carries_the_repair(git_repo: GitRepo) -> None:
     """When one output misrepresents something, the siblings are where to look.
 
     `format_github`'s own docstring records that lesson: a severity fix landed
@@ -286,7 +301,8 @@ def test_every_format_a_person_reads_carries_the_repair(git_repo) -> None:
         format_sarif([item], repo), "the SARIF fingerprint moved with the repair"
 
 
-def test_discovery_never_rewrites_the_document(git_repo, tmp_path) -> None:
+def test_discovery_never_rewrites_the_document(
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """Reporting only. `--sha-map` stays the explicit opt-in for the repair.
 
     The whole authority of this tool is that it checks claims and never writes
@@ -328,21 +344,23 @@ def write_journal(gitdir: Path, lines: list[str]) -> Path:
     return target
 
 
-def test_finding_the_journal_costs_no_git_subprocess(git_repo, monkeypatch) -> None:
+def test_finding_the_journal_costs_no_git_subprocess(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     from extant import git as gitmod
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     write_journal(repo / ".git", [f"{'a' * 40} {'b' * 40}"])
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> None:
         raise AssertionError(f"spawned a subprocess: {args}")
 
     monkeypatch.setattr(subprocess, "run", refuse)
-    assert gitmod.rewrite_journal_path(repo) is not None
-    assert gitmod.rewrite_journal_path(repo).name == "rewrites"
+    journal = gitmod.rewrite_journal_path(repo)
+    assert journal is not None
+    assert journal.name == "rewrites"
 
 
-def test_a_dead_sha_the_journal_knows_names_its_replacement(git_repo) -> None:
+def test_a_dead_sha_the_journal_knows_names_its_replacement(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     live = commit("a.py", "a = 1\n", "feat: a").strip()
     dead = "abc1234"
@@ -352,7 +370,7 @@ def test_a_dead_sha_the_journal_knows_names_its_replacement(git_repo) -> None:
     assert live[:7] in found[0].render(), found[0].render()
 
 
-def test_a_journal_line_carrying_extra_info_is_read(git_repo) -> None:
+def test_a_journal_line_carrying_extra_info_is_read(git_repo: GitRepo) -> None:
     """git's post-rewrite line is `<old> SP <new> [SP <extra-info>]`; a third
     field must not make the pair invisible, and the commit-map's two-field
     lines read exactly as before."""
@@ -364,7 +382,7 @@ def test_a_journal_line_carrying_extra_info_is_read(git_repo) -> None:
     assert live[:7] in found[0].render(), found[0].render()
 
 
-def test_a_rewrite_chain_is_followed_to_its_end(git_repo) -> None:
+def test_a_rewrite_chain_is_followed_to_its_end(git_repo: GitRepo) -> None:
     """A branch rebased twice journals `a b` and then `b c`. A hint naming
     `b` reads as correct and is as dead as `a`, which is the failure the
     ambiguity rule exists to refuse - so the chain is followed to `c`, by
@@ -386,7 +404,8 @@ def test_a_rewrite_chain_is_followed_to_its_end(git_repo) -> None:
         "the repair and the hint disagree about where the chain ends")
 
 
-def test_a_chain_ending_in_a_removed_commit_is_named_as_removed(git_repo) -> None:
+def test_a_chain_ending_in_a_removed_commit_is_named_as_removed(
+        git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     dead, middle = "abc1234", "b" * 40
@@ -395,7 +414,7 @@ def test_a_chain_ending_in_a_removed_commit_is_named_as_removed(git_repo) -> Non
     assert "removed" in found[0].render(), found[0].render()
 
 
-def test_a_chain_that_never_settles_offers_no_replacement(git_repo) -> None:
+def test_a_chain_that_never_settles_offers_no_replacement(git_repo: GitRepo) -> None:
     """Two ids rewritten to each other cannot happen to a real rebase, and a
     record that says so must not spin or pick one: no hint is the answer."""
     repo, commit = git_repo
@@ -406,7 +425,7 @@ def test_a_chain_that_never_settles_offers_no_replacement(git_repo) -> None:
     assert found[0].repair is None, found[0].render()
 
 
-def test_the_map_and_the_journal_are_read_together(git_repo) -> None:
+def test_the_map_and_the_journal_are_read_together(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     first = commit("a.py", "a = 1\n", "feat: a").strip()
     second = commit("b.py", "b = 1\n", "feat: b").strip()
@@ -417,7 +436,8 @@ def test_the_map_and_the_journal_are_read_together(git_repo) -> None:
     assert first[:7] in rendered and second[:7] in rendered, rendered
 
 
-def test_a_key_the_two_records_disagree_on_offers_no_replacement(git_repo) -> None:
+def test_a_key_the_two_records_disagree_on_offers_no_replacement(
+        git_repo: GitRepo) -> None:
     """The ambiguity rule, across records: one old id sent two places is a
     wrong answer waiting to be pasted, and a wrong SHA reads as correct."""
     repo, commit = git_repo
@@ -430,7 +450,7 @@ def test_a_key_the_two_records_disagree_on_offers_no_replacement(git_repo) -> No
     assert found[0].repair is None, found[0].render()
 
 
-def test_an_unreadable_journal_says_so_in_the_finding(git_repo) -> None:
+def test_an_unreadable_journal_says_so_in_the_finding(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     target = write_journal(repo / ".git", [f"{'abc1234' + '0' * 33} {'b' * 40}"])

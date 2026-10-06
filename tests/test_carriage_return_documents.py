@@ -27,7 +27,15 @@ line ending has.
 """
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import pytest
+
+from conftest import Commit, GitRepo
+
+if TYPE_CHECKING:
+    from extant.config import Config
 
 TERMINATORS = [
     pytest.param("\n", id="LF"),
@@ -36,7 +44,7 @@ TERMINATORS = [
 ]
 
 
-def _config():
+def _config() -> Config:
     from extant import session as hc
     return hc._ACTIVE
 
@@ -44,7 +52,7 @@ def _config():
 # --- the two claim scanners --------------------------------------------------
 
 @pytest.mark.parametrize("newline", TERMINATORS)
-def test_a_merge_claim_is_not_joined_across_a_blank_line(newline) -> None:
+def test_a_merge_claim_is_not_joined_across_a_blank_line(newline: str) -> None:
     """The bound holds for every spelling of a line ending, or it is not one."""
     from extant.commits import merge_claims
     text = (f"Everything was merged to `main`{newline}{newline}"
@@ -54,7 +62,7 @@ def test_a_merge_claim_is_not_joined_across_a_blank_line(newline) -> None:
 
 
 @pytest.mark.parametrize("newline", TERMINATORS)
-def test_a_merge_claim_reports_the_line_it_sits_on(newline) -> None:
+def test_a_merge_claim_reports_the_line_it_sits_on(newline: str) -> None:
     """A claim on the third line is on the third line however lines are ended."""
     from extant.commits import merge_claims
     text = (f"# Title{newline}{newline}"
@@ -66,7 +74,7 @@ def test_a_merge_claim_reports_the_line_it_sits_on(newline) -> None:
 
 
 @pytest.mark.parametrize("newline", TERMINATORS)
-def test_a_release_claim_is_not_joined_across_a_blank_line(newline) -> None:
+def test_a_release_claim_is_not_joined_across_a_blank_line(newline: str) -> None:
     from extant.rules.release_tag import _release_claims
     text = (f"Everything was shipped in{newline}{newline}"
             f"1.2.3 was the worst build.{newline}")
@@ -75,7 +83,7 @@ def test_a_release_claim_is_not_joined_across_a_blank_line(newline) -> None:
 
 
 @pytest.mark.parametrize("newline", TERMINATORS)
-def test_a_release_claim_reports_the_line_it_sits_on(newline) -> None:
+def test_a_release_claim_reports_the_line_it_sits_on(newline: str) -> None:
     from extant.rules.release_tag import _release_claims
     text = (f"# Title{newline}{newline}"
             f"The rewrite shipped in 1.2.3 last week.{newline}")
@@ -86,7 +94,7 @@ def test_a_release_claim_reports_the_line_it_sits_on(newline) -> None:
 
 
 @pytest.mark.parametrize("newline", TERMINATORS)
-def test_a_wrapped_claim_is_still_read_on_every_terminator(newline) -> None:
+def test_a_wrapped_claim_is_still_read_on_every_terminator(newline: str) -> None:
     """The widening must not be undone by tightening the bound.
 
     One break is still one break. A bound that counted a CR-only document's
@@ -112,7 +120,7 @@ CR_DOC = (
 )
 
 
-def test_archive_splits_a_cr_only_document_into_its_entries(git_repo) -> None:
+def test_archive_splits_a_cr_only_document_into_its_entries(git_repo: GitRepo) -> None:
     """`^` in a MULTILINE pattern follows a newline, and `\\r` is not one.
 
     Left unnormalised, a CR-only document presents as a single line: no entry
@@ -130,7 +138,7 @@ def test_archive_splits_a_cr_only_document_into_its_entries(git_repo) -> None:
     assert counts == {"retained": 3, "archived": 2}, counts
 
 
-def test_archive_writes_a_cr_only_document_back_as_cr_only(git_repo) -> None:
+def test_archive_writes_a_cr_only_document_back_as_cr_only(git_repo: GitRepo) -> None:
     """The terminator a file arrived in is the one it leaves in.
 
     `archive` is the only irreversible write in this system. Detecting only
@@ -161,7 +169,7 @@ LF_DOC = (
 )
 
 
-def _with_archive(repo, commit, existing: str):
+def _with_archive(repo: Path, commit: Commit, existing: str) -> Path:
     """A repository whose archive already exists, in a given terminator."""
     from extant import session as hc
     commit("NEXT_SESSION.md", LF_DOC, "docs: an LF status document")
@@ -173,7 +181,7 @@ def _with_archive(repo, commit, existing: str):
 
 
 def test_an_existing_cr_only_archive_is_not_left_with_mixed_terminators(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The archive is a file too, and it arrived in a terminator of its own.
 
     `archive` detects ONE terminator, from the PRIMARY document, and writes
@@ -203,7 +211,7 @@ def test_an_existing_cr_only_archive_is_not_left_with_mixed_terminators(
         % archived[:120])
 
 
-def test_an_existing_crlf_archive_keeps_its_own_terminator(git_repo) -> None:
+def test_an_existing_crlf_archive_keeps_its_own_terminator(git_repo: GitRepo) -> None:
     """A CRLF archive beside an LF primary must stay CRLF.
 
     Taking the primary's terminator rewrites every line of the archive as a

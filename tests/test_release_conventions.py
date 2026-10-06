@@ -11,17 +11,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import GitRepo, configured
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def git(repo, *args):
+def git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True,
                    capture_output=True)
 
 
-def _configure(**changes):
+def _configure(**changes: object) -> None:
     """Change a configured value so that every reader sees it.
 
     The same job conftest's `reconfigure` fixture does, as a plain function,
@@ -37,14 +39,12 @@ def _configure(**changes):
     `_ACTIVE` is the one object every reader shares, and `neutral_config` in
     conftest restores it at teardown.
     """
-    import dataclasses
-
     from extant import session as hc
 
-    hc._ACTIVE = dataclasses.replace(hc._ACTIVE, **changes)
+    hc._ACTIVE = configured(**changes)
 
 
-def _reset():
+def _reset() -> None:
     from extant import session as hc
     # One fresh scope, not a list of cache names to keep in step with the
     # code. The list form went stale silently: `_TAGS` stayed in it for four
@@ -57,7 +57,7 @@ def _reset():
     _configure(release_claims_are_ours=True)
 
 
-def _tags(repo, text):
+def _tags(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import release_tag as rule_release_tag
     _reset()
@@ -66,7 +66,8 @@ def _tags(repo, text):
 
 # --- the prefix a project puts before its version ----------------------------
 
-def test_a_claim_resolves_under_the_prefix_this_repository_uses(git_repo) -> None:
+def test_a_claim_resolves_under_the_prefix_this_repository_uses(
+        git_repo: GitRepo) -> None:
     """Half the ecosystem tags `v1.2.3` and half tags `1.2.3`.
 
     Measured: black tags `18.3a0`, poetry `0.1.0`, ruff and uv likewise, all
@@ -80,7 +81,7 @@ def test_a_claim_resolves_under_the_prefix_this_repository_uses(git_repo) -> Non
     assert "dead-release-tag" not in _tags(repo, "Released in v2.1.0.\n")
 
 
-def test_the_other_direction_too(git_repo) -> None:
+def test_the_other_direction_too(git_repo: GitRepo) -> None:
     """Tagged with a `v`, claimed bare. symfony's shape."""
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
@@ -89,7 +90,7 @@ def test_the_other_direction_too(git_repo) -> None:
     assert "dead-release-tag" not in _tags(repo, "Released in 2.1.0.\n")
 
 
-def test_a_version_that_was_never_tagged_is_still_reported(git_repo) -> None:
+def test_a_version_that_was_never_tagged_is_still_reported(git_repo: GitRepo) -> None:
     """The control. Prefix trying must not forgive a release that never
     happened, or the rule stops doing anything at all."""
     repo, commit = git_repo
@@ -99,7 +100,7 @@ def test_a_version_that_was_never_tagged_is_still_reported(git_repo) -> None:
     assert "dead-release-tag" in _tags(repo, "Released in 9.9.9.\n")
 
 
-def test_a_claim_naming_a_series_rather_than_a_tag(git_repo) -> None:
+def test_a_claim_naming_a_series_rather_than_a_tag(git_repo: GitRepo) -> None:
     """A claim names a series far more often than it names a tag.
 
     Symfony's own bug-triage guide says work "shipped in 8.0" and no tag is
@@ -113,7 +114,7 @@ def test_a_claim_naming_a_series_rather_than_a_tag(git_repo) -> None:
     assert "dead-release-tag" not in _tags(repo, "Shipped in 8.0 last year.\n")
 
 
-def test_a_series_that_matches_no_tag_is_still_reported(git_repo) -> None:
+def test_a_series_that_matches_no_tag_is_still_reported(git_repo: GitRepo) -> None:
     """The control for the series case. `8.5` must not be forgiven by `v8.0.0`
     merely because both begin with an 8."""
     repo, commit = git_repo
@@ -123,7 +124,8 @@ def test_a_series_that_matches_no_tag_is_still_reported(git_repo) -> None:
     assert "dead-release-tag" in _tags(repo, "Shipped in 8.5 last year.\n")
 
 
-def test_a_pattern_capturing_the_whole_tag_name_still_resolves(git_repo) -> None:
+def test_a_pattern_capturing_the_whole_tag_name_still_resolves(
+        git_repo: GitRepo) -> None:
     """A project can configure `release_tag` to capture its entire tag name.
 
     The installer derives exactly such a pattern from repositories tagging
@@ -153,7 +155,7 @@ def test_a_pattern_capturing_the_whole_tag_name_still_resolves(git_repo) -> None
     assert "dead-release-tag" in _tags(repo, "Shipped in `release-9.9.9`.\n")
 
 
-def test_a_literal_tag_name_beginning_with_v_is_not_mangled(git_repo) -> None:
+def test_a_literal_tag_name_beginning_with_v_is_not_mangled(git_repo: GitRepo) -> None:
     """The case that makes trying the literal spelling FIRST load-bearing.
 
     A mutation campaign found the first version of this file could not tell
@@ -180,7 +182,8 @@ def test_a_literal_tag_name_beginning_with_v_is_not_mangled(git_repo) -> None:
 
 # --- an integration branch that is not there ---------------------------------
 
-def test_a_tag_is_not_judged_when_no_integration_branch_exists(git_repo) -> None:
+def test_a_tag_is_not_judged_when_no_integration_branch_exists(
+        git_repo: GitRepo) -> None:
     """symfony has no `main` and no `master`; its branches are version numbers
     and its default is `8.2`. With the default configuration the rule asked
     whether each tag was an ancestor of a branch that does not exist, got
@@ -198,7 +201,8 @@ def test_a_tag_is_not_judged_when_no_integration_branch_exists(git_repo) -> None
     assert "dead-release-tag" not in _tags(repo, "Released in v2.1.0.\n")
 
 
-def test_a_tag_on_no_branch_is_still_reported_when_a_trunk_exists(git_repo) -> None:
+def test_a_tag_on_no_branch_is_still_reported_when_a_trunk_exists(
+        git_repo: GitRepo) -> None:
     """The control. Where an integration branch DOES exist, a tag that never
     reached it is still the finding this rule is for - a release abandoned or
     rewritten away."""
@@ -214,7 +218,7 @@ def test_a_tag_on_no_branch_is_still_reported_when_a_trunk_exists(git_repo) -> N
 
 # --- how a pin is written ----------------------------------------------------
 
-def _pins(repo, text):
+def _pins(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import pinned_ref as rule_pinned_ref
     from extant import session as hc
@@ -222,7 +226,7 @@ def _pins(repo, text):
     return [f.kind for f in rule_pinned_ref.check(hc.context(repo), text)]
 
 
-def test_an_empty_rev_is_a_placeholder_not_a_broken_pin(git_repo) -> None:
+def test_an_empty_rev_is_a_placeholder_not_a_broken_pin(git_repo: GitRepo) -> None:
     """`rev: ''` is pre-commit's OWN documented placeholder - the state a
     snippet ships in for `pre-commit autoupdate` to fill.
 
@@ -239,7 +243,7 @@ def test_an_empty_rev_is_a_placeholder_not_a_broken_pin(git_repo) -> None:
     assert _pins(repo, text) == []
 
 
-def test_a_quoted_rev_is_the_same_pin_as_a_bare_one(git_repo) -> None:
+def test_a_quoted_rev_is_the_same_pin_as_a_bare_one(git_repo: GitRepo) -> None:
     """`rev: 'v1.2.3'` names the same tag as `rev: v1.2.3`, and looking it up
     with the quotes attached finds nothing.
 
@@ -257,7 +261,7 @@ def test_a_quoted_rev_is_the_same_pin_as_a_bare_one(git_repo) -> None:
     assert _pins(repo, text) == []
 
 
-def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo) -> None:
+def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo: GitRepo) -> None:
     """The control. Stripping quotes must not stop the rule reading the pin."""
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
@@ -270,7 +274,7 @@ def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo) -> None:
 
 # --- how a merge claim writes its commit ------------------------------------
 
-def _merge(repo, text):
+def _merge(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     from extant import session as hc
@@ -278,7 +282,7 @@ def _merge(repo, text):
     return [f.kind for f in rule_merge.check(hc.context(repo), text)]
 
 
-def test_a_merge_claim_may_write_its_commit_without_backticks(git_repo) -> None:
+def test_a_merge_claim_may_write_its_commit_without_backticks(git_repo: GitRepo) -> None:
     """The rule's largest measured blind spot.
 
     basilisk-labs/agentplane writes 32 claims as
@@ -301,7 +305,7 @@ def test_a_merge_claim_may_write_its_commit_without_backticks(git_repo) -> None:
     assert "false-merge-claim" not in _merge(repo, text)
 
 
-def test_a_longer_hex_run_is_not_truncated_into_a_commit(git_repo) -> None:
+def test_a_longer_hex_run_is_not_truncated_into_a_commit(git_repo: GitRepo) -> None:
     """The boundary the closing backtick used to provide.
 
     Without a trailing guard, `at 0123...` of 46 hex characters matches its
@@ -317,7 +321,8 @@ def test_a_longer_hex_run_is_not_truncated_into_a_commit(git_repo) -> None:
 
 # --- whose release is it, anyway ---------------------------------------------
 
-def test_a_claimed_release_that_was_never_tagged_is_silent_by_default(git_repo) -> None:
+def test_a_claimed_release_that_was_never_tagged_is_silent_by_default(
+        git_repo: GitRepo) -> None:
     """The default, and the measurement behind it.
 
     "No such tag exists" is not a question git can settle. A version in prose
@@ -345,7 +350,7 @@ def test_a_claimed_release_that_was_never_tagged_is_silent_by_default(git_repo) 
     assert "dead-release-tag" not in kinds, kinds
 
 
-def test_the_settleable_half_is_checked_whatever_the_setting(git_repo) -> None:
+def test_the_settleable_half_is_checked_whatever_the_setting(git_repo: GitRepo) -> None:
     """The half that needs no assertion: the tag IS here, and it shipped on
     nothing. That was right 7 times out of 7 on the same corpus, so it is
     always checked - turning the setting off must not disable the rule."""
@@ -365,7 +370,7 @@ def test_the_settleable_half_is_checked_whatever_the_setting(git_repo) -> None:
     assert "dead-release-tag" in kinds, kinds
 
 
-def test_an_annotated_tag_resolves_to_the_commit_it_tags(git_repo) -> None:
+def test_an_annotated_tag_resolves_to_the_commit_it_tags(git_repo: GitRepo) -> None:
     """An annotated tag is an OBJECT, and its own SHA is in no rev-list.
 
     `^{commit}` dereferences it; the ref table gets the same answer from

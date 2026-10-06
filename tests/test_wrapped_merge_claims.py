@@ -22,15 +22,22 @@ be read as a promise. A claim may wrap ONE line break and no more.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
+from conftest import GitRepo
 
-def _config():
+if TYPE_CHECKING:
+    from extant.config import Config
+
+
+def _config() -> Config:
     from extant import session as hc
     return hc._ACTIVE
 
 
-def _claims(text: str):
+def _claims(text: str) -> list[tuple[int, str, str]]:
     from extant.commits import merge_claims
     return merge_claims(_config(), text)
 
@@ -132,7 +139,7 @@ def test_a_claim_is_not_joined_across_a_blanked_fence() -> None:
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_a_wrapped_claim_is_found_with_either_terminator(newline) -> None:
+def test_a_wrapped_claim_is_found_with_either_terminator(newline: str) -> None:
     """CRLF is what a Windows checkout hands the scanner.
 
     `\\s+` covers `\\r` as well as `\\n`, so this passes for the same reason the
@@ -146,7 +153,7 @@ def test_a_wrapped_claim_is_found_with_either_terminator(newline) -> None:
     assert (number, sha) == (1, "abc1234")
 
 
-def test_a_false_wrapped_claim_reaches_the_rule(git_repo) -> None:
+def test_a_false_wrapped_claim_reaches_the_rule(git_repo: GitRepo) -> None:
     """End to end, because the scanner is not the thing anyone runs.
 
     A commit that exists and is not an ancestor of `main`, claimed as merged

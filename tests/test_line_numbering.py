@@ -23,6 +23,8 @@ every offset that lands between a CR and its LF.
 from __future__ import annotations
 
 import random
+import re
+from typing import Iterator
 
 import pytest
 
@@ -101,7 +103,8 @@ def test_randomised_mixed_terminator_texts_agree_at_every_offset() -> None:
     assert checked > 1000, "the soak generated too little to mean anything"
 
 
-def test_one_document_is_scanned_once_however_many_claims_it_carries() -> None:
+def test_one_document_is_scanned_once_however_many_claims_it_carries(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """The cost contract, and the whole reason for the change.
 
     Asserted as SCANS rather than as seconds, because a timing assertion on a
@@ -111,24 +114,21 @@ def test_one_document_is_scanned_once_however_many_claims_it_carries() -> None:
     from extant import text as markup
 
     real = markup.LINE_BREAK
-    scans = []
+    scans: list[str] = []
 
     class Counting:
-        def finditer(self, *args, **kwargs):
+        def finditer(self, text: str) -> Iterator[re.Match[str]]:
             scans.append("finditer")
-            return real.finditer(*args, **kwargs)
+            return real.finditer(text)
 
-        def findall(self, *args, **kwargs):
+        def findall(self, text: str) -> list[object]:
             scans.append("findall")
-            return real.findall(*args, **kwargs)
+            return real.findall(text)
 
     document = "".join(f"line {i} of the document\r\n" for i in range(400))
-    markup.LINE_BREAK = Counting()
-    try:
-        numbers = [markup.line_number_at(document, offset)
-                   for offset in range(0, len(document), 7)]
-    finally:
-        markup.LINE_BREAK = real
+    monkeypatch.setattr(markup, "LINE_BREAK", Counting())
+    numbers = [markup.line_number_at(document, offset)
+               for offset in range(0, len(document), 7)]
 
     print(f"{len(numbers)} lookups over {len(document)} characters "
           f"cost {len(scans)} scan(s)")

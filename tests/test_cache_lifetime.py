@@ -16,17 +16,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import GitRepo, Reconfigure
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def git(repo, *args):
+def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True,
                           text=True, encoding="utf-8", check=True).stdout
 
 
-def test_a_tag_created_between_two_calls_is_seen_by_the_second(git_repo, reconfigure) -> None:
+def test_a_tag_created_between_two_calls_is_seen_by_the_second(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The reason the tag list is reset per call, stated in a comment beside it
     and until this test was written guarded by nothing.
 

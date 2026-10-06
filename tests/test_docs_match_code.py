@@ -166,7 +166,9 @@ def test_the_python_floor_is_stated_consistently() -> None:
     external links are deliberately never checked.
     """
     try:
-        import tomllib
+        # Arrives in 3.11, past the checker's 3.10 target; extant/config.py
+        # says why the suppression stands.
+        import tomllib  # type: ignore[import-not-found]
     except ModuleNotFoundError:      # Python < 3.11, see requirements-test.txt
         import tomli as tomllib
 

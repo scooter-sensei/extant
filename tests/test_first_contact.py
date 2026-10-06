@@ -22,7 +22,8 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 COLLECTOR = PAYLOAD / "extant_collect.py"
 
 
-def run(repo: Path, *args: str, collector: Path | None = None):
+def run(repo: Path, *args: str, collector: Path | None = None
+        ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(collector or COLLECTOR), "--repo", str(repo),
          *args],
@@ -45,7 +46,7 @@ def git(repo: Path, *args: str) -> None:
                    capture_output=True)
 
 
-def test_a_sweep_of_a_repository_with_no_commits_says_so(tmp_path) -> None:
+def test_a_sweep_of_a_repository_with_no_commits_says_so(tmp_path: Path) -> None:
     """An UNBORN HEAD has no tree, so `git ls-tree HEAD` exits 128.
 
     That reached the user as a CalledProcessError traceback. A repository
@@ -62,7 +63,7 @@ def test_a_sweep_of_a_repository_with_no_commits_says_so(tmp_path) -> None:
     assert done.returncode == 0, combined
 
 
-def test_selftest_without_the_primary_document_reports_it(tmp_path) -> None:
+def test_selftest_without_the_primary_document_reports_it(tmp_path: Path) -> None:
     """`diag` is defined 87 lines further down the same function.
 
     Calling it from this branch raised UnboundLocalError, so the message
@@ -83,7 +84,8 @@ def test_selftest_without_the_primary_document_reports_it(tmp_path) -> None:
     assert done.returncode == 1, combined
 
 
-def test_a_configured_consistency_timeout_reaches_the_built_config(tmp_path) -> None:
+def test_a_configured_consistency_timeout_reaches_the_built_config(
+        tmp_path: Path) -> None:
     """The setting was inert on every CLI run, and looked configured.
 
     `_apply_config()` ran at import and set a module global from it; a later
@@ -111,7 +113,7 @@ def test_a_configured_consistency_timeout_reaches_the_built_config(tmp_path) -> 
         f"config and the built Config disagree: {done.stdout!r} {done.stderr!r}")
 
 
-def test_write_baseline_resolves_against_the_repository(tmp_path) -> None:
+def test_write_baseline_resolves_against_the_repository(tmp_path: Path) -> None:
     """A relative `--write-baseline` was resolved against the process cwd.
 
     The READ path resolves against `--repo`, so a git hook - which passes

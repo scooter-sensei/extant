@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _install_into
+from conftest import GitRepo, _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -84,7 +84,7 @@ def install_collector(repo: Path) -> Path:
 
 
 @pytest.fixture
-def three_documents(git_repo):
+def three_documents(git_repo: GitRepo) -> Path:
     """Three unconfigured documents, each carrying the same three candidates."""
     repo, commit = git_repo
     for name in ("README.md", "docs/a.md", "docs/b.md"):
@@ -92,7 +92,7 @@ def three_documents(git_repo):
     return repo
 
 
-def test_every_rule_reports_a_denominator(three_documents) -> None:
+def test_every_rule_reports_a_denominator(three_documents: Path) -> None:
     """No rule may be absent from the line.
 
     Imported from RULES rather than written out, so a fourteenth rule that
@@ -105,7 +105,7 @@ def test_every_rule_reports_a_denominator(three_documents) -> None:
     assert not missing, f"rules with no denominator: {missing}"
 
 
-def test_candidates_are_summed_across_documents(three_documents) -> None:
+def test_candidates_are_summed_across_documents(three_documents: Path) -> None:
     """The sum, which is the point of reporting it at all.
 
     Catches an implementation that reports only the last document's counts, or
@@ -116,7 +116,7 @@ def test_candidates_are_summed_across_documents(three_documents) -> None:
     assert reported["dead-md-link"] == 3, reported
 
 
-def test_a_rule_that_examined_nothing_anywhere_is_named(three_documents) -> None:
+def test_a_rule_that_examined_nothing_anywhere_is_named(three_documents: Path) -> None:
     """Zeros are REPORTED, not filtered.
 
     A rule examining nothing across a whole repository is the loudest possible
@@ -133,7 +133,8 @@ def test_a_rule_that_examined_nothing_anywhere_is_named(three_documents) -> None
     assert any("false-merge-claim" in ln for ln in zeros), output
 
 
-def test_a_markdown_only_rule_is_not_counted_for_an_rst_document(git_repo) -> None:
+def test_a_markdown_only_rule_is_not_counted_for_an_rst_document(
+        git_repo: GitRepo) -> None:
     """`[text](url)` in an `.rst` file is not a link, and no rule reads it.
 
     The positive control is in the same test and is what makes it mean
@@ -152,7 +153,7 @@ def test_a_markdown_only_rule_is_not_counted_for_an_rst_document(git_repo) -> No
         f"never ran on it: {reported}")
 
 
-def test_an_entry_scoped_rule_is_counted_only_where_it_runs(git_repo) -> None:
+def test_an_entry_scoped_rule_is_counted_only_where_it_runs(git_repo: GitRepo) -> None:
     """Entry-scoped rules run on the primary document and nowhere else.
 
     `NEXT_SESSION.md` is the default primary document, so it needs no
@@ -185,7 +186,7 @@ def test_an_entry_scoped_rule_is_counted_only_where_it_runs(git_repo) -> None:
     assert reported["dead-sha"] == 2, reported
 
 
-def test_a_claim_inside_a_code_block_is_not_counted(git_repo) -> None:
+def test_a_claim_inside_a_code_block_is_not_counted(git_repo: GitRepo) -> None:
     """The denominator reads PROSE, because six of the rules do.
 
     They open with `text = _prose(text)` - claims inside code are examples, not
@@ -213,7 +214,8 @@ def test_a_claim_inside_a_code_block_is_not_counted(git_repo) -> None:
         f"a path pointer inside a fence is read by no rule: {reported}")
 
 
-def test_a_repository_rule_is_counted_once_not_once_per_document(git_repo) -> None:
+def test_a_repository_rule_is_counted_once_not_once_per_document(
+        git_repo: GitRepo) -> None:
     """A repository-scoped rule runs once for the whole survey, so its
     candidates are the repository's, not each document's.
 

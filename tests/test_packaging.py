@@ -404,7 +404,7 @@ def test_the_action_carries_no_version_of_its_own() -> None:
         "be an eighth file carrying one, and nothing cross-checks it.")
 
 
-def test_every_flag_the_action_passes_exists(tmp_path) -> None:
+def test_every_flag_the_action_passes_exists(tmp_path: Path) -> None:
     """The published entry point must not name a mode the CLI dropped.
 
     Same failure as a documented flag that does not exist, one layer out: the
@@ -454,7 +454,7 @@ def _action_script() -> str:
     return "\n".join(body) + "\n"
 
 
-def _run_action(tmp_path, **inputs) -> tuple[int, str]:
+def _run_action(tmp_path: Path, **inputs: str) -> tuple[int, str]:
     """Run the step's script under bash with a stub `extant` on PATH that
     prints the arguments it was handed. (exit code, combined output)."""
     import os
@@ -484,7 +484,7 @@ def _run_action(tmp_path, **inputs) -> tuple[int, str]:
     return done.returncode, done.stdout + done.stderr
 
 
-def test_the_action_gates_a_range_when_given_its_base(tmp_path) -> None:
+def test_the_action_gates_a_range_when_given_its_base(tmp_path: Path) -> None:
     """`mode: introduced-since` with `since: <ref>` runs the diff-scoped gate
     - the row CORPUS.md measures pins zero paths, and a pull request's base
     is what the workflow already knows."""
@@ -494,7 +494,7 @@ def test_the_action_gates_a_range_when_given_its_base(tmp_path) -> None:
             "[--format=github]") in out, out
 
 
-def test_the_actions_base_reaches_the_cli_as_one_argument(tmp_path) -> None:
+def test_the_actions_base_reaches_the_cli_as_one_argument(tmp_path: Path) -> None:
     """`since` is one argument whatever it holds. It was spliced into a
     string the step then word-split, so a value with a space became extra
     flags - `--sha-map` among them, the one mode that rewrites documents -
@@ -510,7 +510,7 @@ def test_the_actions_base_reaches_the_cli_as_one_argument(tmp_path) -> None:
     assert "[--introduced-since=-x] [--repo]" in out, out
 
 
-def test_the_action_refuses_the_range_mode_without_a_base(tmp_path) -> None:
+def test_the_action_refuses_the_range_mode_without_a_base(tmp_path: Path) -> None:
     """A mode that needs a ref and was given none fails the step with a
     named reason, rather than pasting an empty argument onto the command line
     and letting the CLI's own refusal explain a different problem."""
@@ -520,7 +520,7 @@ def test_the_action_refuses_the_range_mode_without_a_base(tmp_path) -> None:
     assert "extant [" not in out, out
 
 
-def test_the_action_ignores_since_outside_the_range_mode(tmp_path) -> None:
+def test_the_action_ignores_since_outside_the_range_mode(tmp_path: Path) -> None:
     code, out = _run_action(tmp_path, mode="verify", since="origin/main")
     assert code == 0, out
     assert "extant [--verify] [--repo] [.] [--format=github]" in out, out
@@ -707,7 +707,7 @@ def test_configuration_is_applied_in_exactly_one_place() -> None:
     )
 
 
-def test_reload_config_rebuilds_the_computed_values_at_runtime(tmp_path) -> None:
+def test_reload_config_rebuilds_the_computed_values_at_runtime(tmp_path: Path) -> None:
     """The behaviour, not the source text.
 
     The check above reads the module and asks whether `reload_config` contains
@@ -755,7 +755,7 @@ def test_reload_config_rebuilds_the_computed_values_at_runtime(tmp_path) -> None
         hc.CONFIG, hc._ACTIVE = saved_config, saved_active
 
 
-def test_reload_config_actually_changes_the_derived_values(tmp_path) -> None:
+def test_reload_config_actually_changes_the_derived_values(tmp_path: Path) -> None:
     """Catches a reload that updates CONFIG and leaves the built Config behind."""
     import sys
 
@@ -859,7 +859,8 @@ def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
             gated = next((why for cls, why in too_new_nodes
                           if cls and isinstance(node, cls)), None)
             if gated:
-                offenders.append(f"{rel}:{node.lineno}: {gated}")
+                line = node.lineno if isinstance(node, (ast.stmt, ast.expr)) else "?"
+                offenders.append(f"{rel}:{line}: {gated}")
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
                     why = TOO_NEW.get(alias.name)
@@ -945,7 +946,8 @@ def _canonical(value: object) -> object:
     return repr(value)
 
 
-def _module_state(payload_dir, repo, reload_to=None):
+def _module_state(payload_dir: Path, repo: Path, reload_to: Path | None = None
+                  ) -> dict[str, str | list[str]]:
     """Every module global, from a subprocess that imports the payload.
 
     `reload_to` runs `reload_config` against that repository after importing,
@@ -1012,10 +1014,12 @@ def _module_state(payload_dir, repo, reload_to=None):
     assert "<<<JSON>>>" in proc.stdout, (
         f"the probe process produced no state:\n{proc.stdout}\n{proc.stderr}"
     )
-    return json.loads(proc.stdout.split("<<<JSON>>>", 1)[1])
+    state = json.loads(proc.stdout.split("<<<JSON>>>", 1)[1])
+    assert isinstance(state, dict), state
+    return state
 
 
-def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path) -> None:
+def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path: Path) -> None:
     """THE guard for the whole staleness class, stated as the real invariant.
 
     After `reload_config(repo)`, this module must hold exactly what it would
@@ -1085,7 +1089,7 @@ def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path) -> None:
     )
 
 
-def test_the_console_entry_point_accepts_every_mode(tmp_path) -> None:
+def test_the_console_entry_point_accepts_every_mode(tmp_path: Path) -> None:
     """`extant --sweep` must not have `--verify` inserted in front of it.
 
     The entry point inserts a default mode when none is given, and it decided

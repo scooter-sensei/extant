@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _abbrev, _install_into
+from conftest import GitRepo, _abbrev, _install_into
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -60,7 +60,7 @@ def run_installer(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 @requires_sh
-def test_guard_allows_commit_on_trunk(git_repo) -> None:
+def test_guard_allows_commit_on_trunk(git_repo: GitRepo) -> None:
     """Catches a guard that blocks unconditionally, making commits impossible."""
     repo, commit = git_repo
     commit("NEXT_SESSION.md", "# Status\n", "init")
@@ -71,7 +71,7 @@ def test_guard_allows_commit_on_trunk(git_repo) -> None:
 
 
 @requires_sh
-def test_guard_blocks_off_trunk_commit_in_main_tree(git_repo) -> None:
+def test_guard_blocks_off_trunk_commit_in_main_tree(git_repo: GitRepo) -> None:
     """Catches a guard that never fires - the state it actually shipped in."""
     repo, commit = git_repo
     commit("NEXT_SESSION.md", "# Status\n", "init")
@@ -84,7 +84,7 @@ def test_guard_blocks_off_trunk_commit_in_main_tree(git_repo) -> None:
 
 
 @requires_sh
-def test_guard_reads_trunk_from_config(git_repo) -> None:
+def test_guard_reads_trunk_from_config(git_repo: GitRepo) -> None:
     """The regression test for the bug this file exists because of.
 
     The guard hardcoded `main`, so on a repo whose .extant.toml correctly said
@@ -104,7 +104,7 @@ def test_guard_reads_trunk_from_config(git_repo) -> None:
 
 
 @requires_sh
-def test_guard_message_names_the_configured_trunk(git_repo) -> None:
+def test_guard_message_names_the_configured_trunk(git_repo: GitRepo) -> None:
     """Catches a guard that reads the config but still says 'main' to the user.
 
     Advice naming a branch the repo does not have is worse than no advice: it
@@ -124,7 +124,7 @@ def test_guard_message_names_the_configured_trunk(git_repo) -> None:
 
 
 @requires_sh
-def test_guard_exempts_linked_worktrees(git_repo, tmp_path: Path) -> None:
+def test_guard_exempts_linked_worktrees(git_repo: GitRepo, tmp_path: Path) -> None:
     """Catches a guard that blocks the very place work is supposed to happen.
 
     Feature work lives on a topic branch in a linked worktree, which is exactly
@@ -196,7 +196,7 @@ def _using_the_tool(repo: Path, doc: str = "STATUS.md") -> None:
 
 
 @requires_sh
-def test_verify_hook_reads_the_configured_document(git_repo) -> None:
+def test_verify_hook_reads_the_configured_document(git_repo: GitRepo) -> None:
     """Catches a hook that guards its work with a hardcoded document name.
 
     extant-verify tested `[ -f NEXT_SESSION.md ]` before doing anything, while
@@ -225,7 +225,8 @@ def test_verify_hook_reads_the_configured_document(git_repo) -> None:
 
 
 @requires_sh
-def test_verify_hook_stays_quiet_when_no_document_is_configured(git_repo) -> None:
+def test_verify_hook_stays_quiet_when_no_document_is_configured(
+        git_repo: GitRepo) -> None:
     """The other half: a repo not using the system must not be nagged.
 
     Without this, the fix above could be 'warn always', which is the failure
@@ -242,7 +243,8 @@ def test_verify_hook_stays_quiet_when_no_document_is_configured(git_repo) -> Non
 
 
 @requires_sh
-def test_after_rewrite_still_runs_while_rebase_state_is_present(git_repo) -> None:
+def test_after_rewrite_still_runs_while_rebase_state_is_present(
+        git_repo: GitRepo) -> None:
     """The one that decides whether post-rewrite is a hook or a decoration.
 
     Measured on git 2.53.0: when post-rewrite fires at the end of a rebase,
@@ -268,7 +270,8 @@ def test_after_rewrite_still_runs_while_rebase_state_is_present(git_repo) -> Non
 
 
 @requires_sh
-def test_after_rewrite_declines_an_amend_post_commit_already_reported(git_repo) -> None:
+def test_after_rewrite_declines_an_amend_post_commit_already_reported(
+        git_repo: GitRepo) -> None:
     """Both hooks fire for `git commit --amend`; only one should report.
 
     Measured on git 2.53.0: an amend fires post-commit and then post-rewrite,
@@ -289,7 +292,8 @@ def test_after_rewrite_declines_an_amend_post_commit_already_reported(git_repo) 
 
 
 @requires_sh
-def test_the_installed_post_rewrite_hook_drains_the_pairs_git_writes(git_repo) -> None:
+def test_the_installed_post_rewrite_hook_drains_the_pairs_git_writes(
+        git_repo: GitRepo) -> None:
     """Unread, git blocks on a full pipe and the rebase HANGS.
 
     post-rewrite is the only hook git feeds on stdin - one `<old> <new>` pair
@@ -325,7 +329,7 @@ def test_the_installed_post_rewrite_hook_drains_the_pairs_git_writes(git_repo) -
 
 
 @requires_sh
-def test_after_rewrite_appends_the_pairs_to_the_journal(git_repo) -> None:
+def test_after_rewrite_appends_the_pairs_to_the_journal(git_repo: GitRepo) -> None:
     """The one record a rebase leaves. git writes `<old> <new> [extra]` per
     rewritten commit to this hook's stdin and to nothing else; the hook keeps
     the two ids, in the commit-map's own spelling, under the shared git
@@ -347,7 +351,7 @@ def test_after_rewrite_appends_the_pairs_to_the_journal(git_repo) -> None:
 
 
 @requires_sh
-def test_an_amend_is_journaled_before_the_hook_declines_it(git_repo) -> None:
+def test_an_amend_is_journaled_before_the_hook_declines_it(git_repo: GitRepo) -> None:
     """post-commit already reported the amend, so the hook prints nothing -
     but the rewritten id is a fact only this hook is told, so it is kept."""
     repo, commit = git_repo
@@ -362,7 +366,8 @@ def test_an_amend_is_journaled_before_the_hook_declines_it(git_repo) -> None:
 
 
 @requires_sh
-def test_the_hook_names_the_documents_that_cite_a_rewritten_commit(git_repo) -> None:
+def test_the_hook_names_the_documents_that_cite_a_rewritten_commit(
+        git_repo: GitRepo) -> None:
     """After a local rebase the old ids still resolve through the reflog, so
     `--verify` finds nothing while every clone already sees them dead. The
     hook says which tracked documents cite a rewritten commit - one `git
@@ -384,7 +389,8 @@ def test_the_hook_names_the_documents_that_cite_a_rewritten_commit(git_repo) -> 
 
 
 @requires_sh
-def test_a_rewrite_that_no_document_cites_is_journaled_in_silence(git_repo) -> None:
+def test_a_rewrite_that_no_document_cites_is_journaled_in_silence(
+        git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("STATUS.md", "# Status\n\nNothing cited.\n", "docs: status")
     _using_the_tool(repo)
@@ -399,7 +405,7 @@ def test_a_rewrite_that_no_document_cites_is_journaled_in_silence(git_repo) -> N
 
 @requires_sh
 def test_a_real_rebase_journals_its_pairs_and_the_finding_names_the_new_id(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The fixture the design named: git itself fires the installed hook.
 
     A document cites a commit on a branch; the branch is rebased; the reflog
@@ -439,7 +445,7 @@ def test_a_real_rebase_journals_its_pairs_and_the_finding_names_the_new_id(
 
 
 @requires_sh
-def test_default_install_wires_post_rewrite(git_repo) -> None:
+def test_default_install_wires_post_rewrite(git_repo: GitRepo) -> None:
     """A rewrite renames every commit at once, so it must be a default hook.
 
     Measured 2026-08-30 on a real agent-written project: 12 of its 12 dead SHA
@@ -466,7 +472,8 @@ def test_default_install_wires_post_rewrite(git_repo) -> None:
 
 
 @requires_sh
-def test_appending_behind_an_exit_is_not_reported_as_installed(git_repo) -> None:
+def test_appending_behind_an_exit_is_not_reported_as_installed(
+        git_repo: GitRepo) -> None:
     """A hook that already ends in `exit 0` never reaches what we append.
 
     The installer appends rather than replaces, which is right - it must not
@@ -501,7 +508,7 @@ def test_appending_behind_an_exit_is_not_reported_as_installed(git_repo) -> None
 
 
 @requires_sh
-def test_a_hook_that_hands_off_with_exec_is_also_unreachable(git_repo) -> None:
+def test_a_hook_that_hands_off_with_exec_is_also_unreachable(git_repo: GitRepo) -> None:
     """`exec` never returns either, and it is how a hook delegates.
 
     A hook whose last line is `exec "$(dirname "$0")/_/husky.sh"` hands the
@@ -527,7 +534,7 @@ def test_a_hook_that_hands_off_with_exec_is_also_unreachable(git_repo) -> None:
 
 
 @requires_sh
-def test_the_guard_refuses_to_install_where_it_could_not_run(git_repo) -> None:
+def test_the_guard_refuses_to_install_where_it_could_not_run(git_repo: GitRepo) -> None:
     """The blocking guard must not be installed unreachable.
 
     `--with-trunk-guard` is an explicit request to be blocked, and the shim it
@@ -578,7 +585,7 @@ def test_installer_references_only_hooks_that_exist() -> None:
 
 
 @requires_sh
-def test_default_install_does_not_add_a_blocking_hook(git_repo) -> None:
+def test_default_install_does_not_add_a_blocking_hook(git_repo: GitRepo) -> None:
     """The default must never install something that can refuse a commit.
 
     Every default hook here is advisory: it runs after the commit is already
@@ -607,7 +614,7 @@ def test_default_install_does_not_add_a_blocking_hook(git_repo) -> None:
 
 
 @requires_sh
-def test_the_guard_installs_when_asked_for(git_repo) -> None:
+def test_the_guard_installs_when_asked_for(git_repo: GitRepo) -> None:
     """Opt-in must actually opt in, or the flag is decoration."""
     import shutil
     repo, commit = git_repo
@@ -624,7 +631,7 @@ def test_the_guard_installs_when_asked_for(git_repo) -> None:
 
 
 @requires_sh
-def test_an_unknown_flag_is_rejected_rather_than_ignored(git_repo) -> None:
+def test_an_unknown_flag_is_rejected_rather_than_ignored(git_repo: GitRepo) -> None:
     """A misspelled --with-trunk-guard must not silently install nothing.
 
     Quietly ignoring an unrecognised option is how someone believes they have
@@ -645,7 +652,7 @@ def test_an_unknown_flag_is_rejected_rather_than_ignored(git_repo) -> None:
 
 
 @requires_sh
-def test_the_verify_hook_reports_findings_it_actually_found(git_repo) -> None:
+def test_the_verify_hook_reports_findings_it_actually_found(git_repo: GitRepo) -> None:
     """The formatter, end to end, through the real hook and a real --verify.
 
     tests/test_hook_builtins.py proves `extant_findings_summary` answers what
@@ -682,7 +689,7 @@ def test_the_verify_hook_reports_findings_it_actually_found(git_repo) -> None:
 
 @requires_sh
 def test_the_verify_hook_does_not_count_a_check_that_did_not_finish(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """A run that exits 2 checked nothing, and the hook said it had found 0.
 
     Every non-zero exit used to be read as findings: "[extant] STATUS.md has
@@ -713,7 +720,7 @@ def test_the_verify_hook_does_not_count_a_check_that_did_not_finish(
 
 
 @requires_sh
-def test_the_verify_hook_says_nothing_about_a_clean_document(git_repo) -> None:
+def test_the_verify_hook_says_nothing_about_a_clean_document(git_repo: GitRepo) -> None:
     """The other direction, so the test above cannot pass by always reporting.
 
     A hook that printed a summary whether or not anything was wrong is a hook

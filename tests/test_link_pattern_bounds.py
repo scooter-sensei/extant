@@ -26,9 +26,13 @@ from __future__ import annotations
 
 import concurrent.futures
 import time
+from typing import Callable, TypeVar
 
 
-def _with_deadline(call, *, seconds: float):
+T = TypeVar("T")
+
+
+def _with_deadline(call: Callable[[], T], *, seconds: float) -> T:
     """Run `call`, failing the test rather than hanging the suite.
 
     Borrowed deliberately from tests/test_consistency_timeout.py, for the same

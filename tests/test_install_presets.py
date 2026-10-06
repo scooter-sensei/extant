@@ -19,10 +19,13 @@ import subprocess
 import sys
 import tempfile
 try:
-    import tomllib
+    # Arrives in 3.11, past the checker's 3.10 target; extant/config.py
+    # says why the suppression stands.
+    import tomllib  # type: ignore[import-not-found]
 except ModuleNotFoundError:      # Python < 3.11, see requirements-test.txt
     import tomli as tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import described
@@ -81,7 +84,7 @@ def make_repo(tmp_path: Path, **files: str) -> Path:
     return repo
 
 
-def test_make_repo_builds_what_it_built_the_long_way(tmp_path) -> None:
+def test_make_repo_builds_what_it_built_the_long_way(tmp_path: Path) -> None:
     """Catches the copied project drifting from the one `_SETUP` builds.
 
     Compared on what tests/test_fixture_templates.py compares, and on the
@@ -114,7 +117,9 @@ def test_make_repo_builds_what_it_built_the_long_way(tmp_path) -> None:
     assert identity(copied) == identity(built) == ["t@t", "T"]
 
 
-def config_of(repo: Path) -> dict:
+# The parsed TOML, as `tomllib.load` returns it: the tests index into it,
+# and a key the installer did not write raises there.
+def config_of(repo: Path) -> dict[str, Any]:
     """The effective settings, merged the way the loader merges them.
 
     Settings may sit at the top level or under `[extant]`, and the loader reads
@@ -133,7 +138,7 @@ README = "# Demo\n\nShipped in `deadbeef1234567`.\n"
 CONTRIBUTING = "# Contributing\n\nRun the setup script.\n"
 
 
-def test_readme_preset_works_with_no_status_document(tmp_path) -> None:
+def test_readme_preset_works_with_no_status_document(tmp_path: Path) -> None:
     """The bug this file was written for.
 
     `--preset readme` is documented as "no status file needed", and it names
@@ -156,7 +161,7 @@ def test_readme_preset_works_with_no_status_document(tmp_path) -> None:
     assert config_of(repo)["primary_doc"] == "README.md"
 
 
-def test_readme_preset_adds_the_extra_document_it_names(tmp_path) -> None:
+def test_readme_preset_adds_the_extra_document_it_names(tmp_path: Path) -> None:
     """Catches a preset that sets the primary document and drops the rest."""
     repo = make_repo(tmp_path, **{"README.md": README, "CONTRIBUTING.md": CONTRIBUTING})
 
@@ -165,7 +170,7 @@ def test_readme_preset_adds_the_extra_document_it_names(tmp_path) -> None:
     assert config_of(repo)["extra_docs"] == ["CONTRIBUTING.md"]
 
 
-def test_an_explicit_preset_outranks_a_detected_document(tmp_path) -> None:
+def test_an_explicit_preset_outranks_a_detected_document(tmp_path: Path) -> None:
     """Asking for a preset is an instruction, so it wins on the document.
 
     This test asserted the opposite first, on the strength of a docstring
@@ -184,7 +189,8 @@ def test_an_explicit_preset_outranks_a_detected_document(tmp_path) -> None:
     assert config_of(repo)["primary_doc"] == "README.md"
 
 
-def test_the_archive_is_placed_beside_the_document_the_preset_chose(tmp_path) -> None:
+def test_the_archive_is_placed_beside_the_document_the_preset_chose(
+        tmp_path: Path) -> None:
     """Catches the document being switched AFTER its neighbours were derived.
 
     The archive is placed beside the primary document and the evidence quotes
@@ -210,7 +216,7 @@ def test_the_archive_is_placed_beside_the_document_the_preset_chose(tmp_path) ->
     )
 
 
-def test_a_preset_skips_extra_documents_that_are_absent(tmp_path) -> None:
+def test_a_preset_skips_extra_documents_that_are_absent(tmp_path: Path) -> None:
     """A preset must not name a file the project does not have.
 
     Its first act would then be a false positive, reporting a missing document
@@ -224,7 +230,8 @@ def test_a_preset_skips_extra_documents_that_are_absent(tmp_path) -> None:
     assert "CONTRIBUTING.md" not in config_of(repo).get("extra_docs", [])
 
 
-def test_no_document_and_no_preset_still_fails_and_says_what_to_do(tmp_path) -> None:
+def test_no_document_and_no_preset_still_fails_and_says_what_to_do(
+        tmp_path: Path) -> None:
     """The fix must not turn the genuine no-document case into a silent pass.
 
     Without a preset there is nothing to check, so exiting 0 would install a
@@ -345,7 +352,8 @@ CONSISTENCY_CASES = {
 
 
 @pytest.mark.parametrize("preset", sorted(CONSISTENCY_CASES))
-def test_preset_consistency_check_fires_when_the_files_disagree(preset, tmp_path) -> None:
+def test_preset_consistency_check_fires_when_the_files_disagree(
+        preset: str, tmp_path: Path) -> None:
     """The half that matters: a check that cannot fail is not a check.
 
     Both directions are asserted. Clean files must pass, because a check that
@@ -379,7 +387,8 @@ def test_preset_consistency_check_fires_when_the_files_disagree(preset, tmp_path
     assert "inconsistent-artifact" in broken.stdout
 
 
-def test_a_preset_skips_a_consistency_check_whose_files_are_absent(tmp_path) -> None:
+def test_a_preset_skips_a_consistency_check_whose_files_are_absent(
+        tmp_path: Path) -> None:
     """Found by mutation: emitting the check regardless left the suite green.
 
     A check naming a file the project does not have reports a finding on the
@@ -406,7 +415,7 @@ def test_a_preset_skips_a_consistency_check_whose_files_are_absent(tmp_path) -> 
     assert "skipped" in result.stdout, "the skip must be reported, not silent"
 
 
-def test_a_preset_locates_a_file_the_project_keeps_deeper(tmp_path) -> None:
+def test_a_preset_locates_a_file_the_project_keeps_deeper(tmp_path: Path) -> None:
     """A preset names root paths; real projects nest the thing one level down.
 
     Measured 2026-08-05: not one published Helm repository keeps `Chart.yaml`
@@ -436,7 +445,7 @@ def test_a_preset_locates_a_file_the_project_keeps_deeper(tmp_path) -> None:
     assert "located" in result.stdout, "a moved path must be reported, not silent"
 
 
-def test_an_ambiguous_location_is_refused_rather_than_guessed(tmp_path) -> None:
+def test_an_ambiguous_location_is_refused_rather_than_guessed(tmp_path: Path) -> None:
     """The control, and the reason this resolves by UNIQUENESS.
 
     A chart collection carries one `Chart.yaml` per chart, so "the chart
@@ -465,7 +474,7 @@ def test_an_ambiguous_location_is_refused_rather_than_guessed(tmp_path) -> None:
     )
 
 
-def test_a_preset_actually_switches_off_what_it_disables(tmp_path) -> None:
+def test_a_preset_actually_switches_off_what_it_disables(tmp_path: Path) -> None:
     """Also found by mutation: nothing asserted the `disable` list did anything.
 
     A README has no dated entries, so the phase-grouping and plan-scanning
@@ -488,7 +497,7 @@ def test_a_preset_actually_switches_off_what_it_disables(tmp_path) -> None:
         )
 
 
-def test_enterprise_preset_collects_the_long_lived_documents(tmp_path) -> None:
+def test_enterprise_preset_collects_the_long_lived_documents(tmp_path: Path) -> None:
     """Its value is the document set, so that is what is pinned.
 
     An LTS project's oldest links live in its policy and upgrade notes. This
@@ -529,7 +538,8 @@ def _document_presets() -> list[str]:
 
 
 @pytest.mark.parametrize("preset", _document_presets())
-def test_every_document_preset_writes_loadable_toml(preset, tmp_path) -> None:
+def test_every_document_preset_writes_loadable_toml(preset: str, tmp_path: Path
+                                                    ) -> None:
     """Catches an installer that emits a config the tool then refuses to read.
 
     It has happened: a preset switching a feature off wrote `plans_dir = ` with
@@ -552,7 +562,7 @@ def test_every_document_preset_writes_loadable_toml(preset, tmp_path) -> None:
     assert config_of(repo)["primary_doc"] == "README.md"
 
 
-def test_an_unrecognised_observation_still_renders_valid_toml(tmp_path) -> None:
+def test_an_unrecognised_observation_still_renders_valid_toml(tmp_path: Path) -> None:
     """The renderer quotes by an allowlist of KEY NAMES, which cannot cover a
     key nobody has thought of yet.
 
@@ -584,7 +594,7 @@ def test_an_unrecognised_observation_still_renders_valid_toml(tmp_path) -> None:
 
 # --- other agents -------------------------------------------------------------
 
-def test_the_installer_writes_the_cross_platform_skill(tmp_path) -> None:
+def test_the_installer_writes_the_cross_platform_skill(tmp_path: Path) -> None:
     """Agent Skills is an open standard, and `.agents/skills/` is where it lives.
 
     One SKILL.md is read by Codex, Gemini CLI, Copilot, Cursor and Kimi Code as
@@ -612,7 +622,8 @@ def test_the_installer_writes_the_cross_platform_skill(tmp_path) -> None:
     assert "description:" in text, "the description is what an agent matches on"
 
 
-def test_no_claude_directory_appears_in_a_repo_with_no_sign_of_claude(tmp_path) -> None:
+def test_no_claude_directory_appears_in_a_repo_with_no_sign_of_claude(
+        tmp_path: Path) -> None:
     """The one Claude-only artifact must not be written unasked.
 
     `.agents/skills/` is the open standard and is always written. The slash
@@ -644,7 +655,7 @@ def test_no_claude_directory_appears_in_a_repo_with_no_sign_of_claude(tmp_path) 
     )
 
 
-def test_claude_evidence_brings_the_slash_command_back(tmp_path) -> None:
+def test_claude_evidence_brings_the_slash_command_back(tmp_path: Path) -> None:
     """A repo that does use Claude Code still gets the command, unprompted.
 
     Otherwise the fix for over-installing would be a regression for everyone it
@@ -665,7 +676,7 @@ def test_claude_evidence_brings_the_slash_command_back(tmp_path) -> None:
         )
 
 
-def test_the_slash_command_can_be_forced_and_suppressed(tmp_path) -> None:
+def test_the_slash_command_can_be_forced_and_suppressed(tmp_path: Path) -> None:
     """Both overrides work, which is why the flag has three states and not two.
 
     A plain store_true could not distinguish "left at the default" from
@@ -690,7 +701,7 @@ def test_the_slash_command_can_be_forced_and_suppressed(tmp_path) -> None:
     )
 
 
-def test_no_hook_ships_advice_only_one_agent_can_follow(tmp_path) -> None:
+def test_no_hook_ships_advice_only_one_agent_can_follow(tmp_path: Path) -> None:
     """The guard's help text is read by whoever it just blocked.
 
     It suggested `git worktree add .claude/worktrees/<name>`, which is this
@@ -710,7 +721,7 @@ def test_no_hook_ships_advice_only_one_agent_can_follow(tmp_path) -> None:
     )
 
 
-def test_the_cross_platform_skill_is_rendered_for_this_repo(tmp_path) -> None:
+def test_the_cross_platform_skill_is_rendered_for_this_repo(tmp_path: Path) -> None:
     """Rendered from the same observations as the slash command, not copied.
 
     A verbatim template would tell every project it was some other project, and
@@ -729,7 +740,7 @@ def test_the_cross_platform_skill_is_rendered_for_this_repo(tmp_path) -> None:
     assert "README.md" in text, "the skill does not name the document it checks"
 
 
-def test_both_agent_files_describe_the_same_document(tmp_path) -> None:
+def test_both_agent_files_describe_the_same_document(tmp_path: Path) -> None:
     """The Claude command and the portable skill must not diverge.
 
     They are rendered from one set of observations for exactly this reason: two
@@ -757,7 +768,7 @@ def test_both_agent_files_describe_the_same_document(tmp_path) -> None:
     assert "docs/STATUS.md" in skill, skill[:400]
 
 
-def test_a_hand_edited_agent_skill_is_not_overwritten(tmp_path) -> None:
+def test_a_hand_edited_agent_skill_is_not_overwritten(tmp_path: Path) -> None:
     """Re-running setup must not silently discard local edits.
 
     The generated skill is a file humans then add to: a team's own conventions,
@@ -893,7 +904,8 @@ def test_the_installer_asserts_release_claims_are_local() -> None:
     assert tomllib.loads(rendered)["extant"]["release_claims_name_our_tags"] is True
 
 
-def test_the_installer_emits_a_merge_claim_that_names_its_own_ref(tmp_path) -> None:
+def test_the_installer_emits_a_merge_claim_that_names_its_own_ref(
+        tmp_path: Path) -> None:
     """The installed config OVERRIDES the default, so the collector supporting
     two trunks is not enough on its own.
 
@@ -951,7 +963,7 @@ def test_the_installer_emits_a_merge_claim_that_names_its_own_ref(tmp_path) -> N
     )
 
 
-def test_a_preset_consistency_check_needs_its_files_to_exist(tmp_path) -> None:
+def test_a_preset_consistency_check_needs_its_files_to_exist(tmp_path: Path) -> None:
     """A check naming an absent file reports a finding on the first run, which
     teaches the reader that this tool complains about nothing.
 
@@ -972,7 +984,8 @@ def test_a_preset_consistency_check_needs_its_files_to_exist(tmp_path) -> None:
     obs, _notes = apply_preset("python", [], repo)
     emitted = [o for o in obs if o.key == "consistency" and o.value]
     for o in emitted:
-        for _check, sources in dict(o.value).items():   # type: ignore[arg-type]
+        assert isinstance(o.value, dict), o
+        for _check, sources in o.value.items():
             for path in sources:
                 assert (repo / path).is_file(), (
                     f"emitted a consistency check naming {path!r}, which this "
@@ -1006,7 +1019,7 @@ def test_a_preset_consistency_check_needs_its_files_to_exist(tmp_path) -> None:
 # closing advice say so.
 
 def test_an_undetermined_pattern_is_left_to_the_shipped_default_and_says_so(
-        tmp_path) -> None:
+        tmp_path: Path) -> None:
     repo = make_repo(tmp_path, **{"README.md": README})
     result = run_installer(repo, "--preset", "readme")
     assert result.returncode == 0, result.stdout + result.stderr
@@ -1025,7 +1038,7 @@ def test_an_undetermined_pattern_is_left_to_the_shipped_default_and_says_so(
     assert "check nothing" not in result.stdout, result.stdout
 
 
-def test_a_default_observation_is_not_written_as_if_measured(tmp_path) -> None:
+def test_a_default_observation_is_not_written_as_if_measured(tmp_path: Path) -> None:
     """`release_tag` with no version-shaped tags was written live as the
     default pattern, marked [default], so the file read as a project that
     had set it - the one thing the run now reports differently."""
@@ -1037,7 +1050,7 @@ def test_a_default_observation_is_not_written_as_if_measured(tmp_path) -> None:
 
 
 def test_phase_grouping_is_switched_off_when_no_convention_is_found(
-        tmp_path) -> None:
+        tmp_path: Path) -> None:
     """Item (i). `extant/collect.py`'s `parse_phase` says the installer leaves
     these unset when it detects no convention, meaning OFF; unset meant the
     shipped phase patterns, and every commit was labelled "unknown" - the
@@ -1052,7 +1065,7 @@ def test_phase_grouping_is_switched_off_when_no_convention_is_found(
     assert "phase_task" in off and "phase_bare" in off, result.stdout
 
 
-def test_a_bare_phase_convention_keeps_its_pattern(tmp_path) -> None:
+def test_a_bare_phase_convention_keeps_its_pattern(tmp_path: Path) -> None:
     import sys
 
     sys.path.insert(0, str(SKILL_ROOT / "payload"))
@@ -1105,7 +1118,7 @@ def test_the_installer_knows_which_settings_can_be_switched_off() -> None:
     assert SWITCHABLE == DISABLEABLE
 
 
-def test_the_derived_table_names_a_default_and_an_off_setting(tmp_path) -> None:
+def test_the_derived_table_names_a_default_and_an_off_setting(tmp_path: Path) -> None:
     """The table above the advice printed "NOT DETERMINED" for a setting
     that runs on the shipped default, and a blank for one switched off."""
     repo = make_repo(tmp_path, **{"README.md": README})

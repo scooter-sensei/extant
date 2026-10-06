@@ -13,12 +13,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _kinds(repo, text, fmt="rst"):
+def _kinds(repo: Path, text: str, fmt: str = "rst") -> list[str]:
     from extant import session as hc
     hc.set_document(doc_format=fmt)
     try:
@@ -27,7 +29,7 @@ def _kinds(repo, text, fmt="rst"):
         hc.set_document(doc_format="markdown")
 
 
-def test_rst_is_swept(git_repo) -> None:
+def test_rst_is_swept(git_repo: GitRepo) -> None:
     """numpy is 555 rst against 14 md. A markdown-only glob sees 14."""
     from extant import session as hc
     from extant import refs
@@ -38,7 +40,7 @@ def test_rst_is_swept(git_repo) -> None:
     assert sorted(refs.tracked_markdown(hc.context(repo))) == ["README.md", "doc/guide.rst"]
 
 
-def test_markdown_link_syntax_is_not_applied_to_rst(git_repo) -> None:
+def test_markdown_link_syntax_is_not_applied_to_rst(git_repo: GitRepo) -> None:
     """`[x](y)` is markdown's alone, and in Python it is a subscript then a
     call. numpy writes `np.dtype[mp.mpf](dps=100)` in a doctest, and every one
     of its 23 link findings was that shape - false by construction, not by
@@ -51,7 +53,7 @@ def test_markdown_link_syntax_is_not_applied_to_rst(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, text)
 
 
-def test_the_same_text_is_still_checked_as_markdown(git_repo) -> None:
+def test_the_same_text_is_still_checked_as_markdown(git_repo: GitRepo) -> None:
     """The skip follows the FORMAT, not the syntax, or it would switch the
     link rule off for markdown documents that mention Python."""
     repo, commit = git_repo
@@ -61,7 +63,7 @@ def test_the_same_text_is_still_checked_as_markdown(git_repo) -> None:
                                     fmt="markdown")
 
 
-def test_an_rst_literal_block_is_not_prose(git_repo) -> None:
+def test_an_rst_literal_block_is_not_prose(git_repo: GitRepo) -> None:
     """A block opens with a line ending in `::` and runs until the indentation
     returns. Left in place, numpy's `float64('1e10000')` was read as a commit.
     """
@@ -73,7 +75,7 @@ def test_an_rst_literal_block_is_not_prose(git_repo) -> None:
     assert not [k for k in _kinds(repo, text) if "sha" in k]
 
 
-def test_an_rst_doctest_is_not_prose(git_repo) -> None:
+def test_an_rst_doctest_is_not_prose(git_repo: GitRepo) -> None:
     """`>>>` opens a doctest, which is code however it is indented."""
     repo, commit = git_repo
     commit("README.md", "x\n", "chore: init")
@@ -82,7 +84,7 @@ def test_an_rst_doctest_is_not_prose(git_repo) -> None:
     assert not [k for k in _kinds(repo, text) if "sha" in k]
 
 
-def test_a_claim_in_rst_prose_is_still_checked(git_repo) -> None:
+def test_a_claim_in_rst_prose_is_still_checked(git_repo: GitRepo) -> None:
     """The half that makes rst support worth having. Stripping code must not
     become stripping the document: a dead SHA in ordinary prose still fires,
     which is what these repositories are full of."""
@@ -124,7 +126,7 @@ def test_a_dot_earlier_in_the_path_is_not_the_suffix() -> None:
 
 
 def test_the_markdown_link_rule_is_gated_by_format_not_only_by_literals(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """Two mechanisms suppress a markdown link in rst, and only one is the point.
 
     `_MARKDOWN_ONLY` skips the rule outright; rst literal-stripping blanks

@@ -11,13 +11,14 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "harnesses"))
 
 
-def _harness():
+def _harness() -> tuple[ModuleType, ModuleType]:
     """Imported late: `fuzz.py` pulls in the other harness modules."""
     import fuzz
     import fuzz_selfcheck
@@ -44,7 +45,8 @@ def test_only_the_hang_breakage_outlasts_the_budget() -> None:
     (5.0, 15.0),     # a slower one, three times what it took
     (60.0, 90.0),    # never more than the corpus's own TIMEOUT
 ])
-def test_the_red_budget_scales_from_the_clean_half(clean, expected) -> None:
+def test_the_red_budget_scales_from_the_clean_half(clean: float, expected: float
+                                                   ) -> None:
     """Catches the budget losing its floor, its scale or its ceiling.
 
     The floor and the scale are what stop a red half that did NOT hang - a
@@ -57,7 +59,7 @@ def test_the_red_budget_scales_from_the_clean_half(clean, expected) -> None:
 
 
 def test_a_bound_reaches_every_run_and_is_lifted_however_the_block_ends(
-        monkeypatch, tmp_path) -> None:
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Catches `bounded` not reaching `run_mode`, or leaking past its block.
 
     The first leaves the HANG breakage paying the full TIMEOUT twice, which

@@ -581,8 +581,9 @@ jobs:
       # and mypy 2 does not; a test that skipped there would print as a pass
       # on the one leg whose floor it cannot see anyway. The version is
       # printed first so a verdict that moved between releases can be told
-      # from one that moved with the code. About three seconds on the
-      # development machine; every error names its file and line.
+      # from one that moved with the code. About nine seconds over 146 files
+      # on the development machine, from the cold cache a runner always
+      # has; every error names its file and line.
       # `[tool.mypy]` in pyproject.toml is the whole configuration: the
       # files, the 3.10 target, `strict`.
       - name: Do the types still agree with the code?

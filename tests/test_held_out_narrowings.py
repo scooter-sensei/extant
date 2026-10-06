@@ -16,8 +16,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -37,28 +43,28 @@ def _clear() -> None:
     hc._SCOPE = hc.RunScope()
 
 
-def _links(repo, text) -> list[str]:
+def _links(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import md_link as rule_md_link
     _clear()
     return [f.subject for f in rule_md_link.check(hc.context(repo), text)]
 
 
-def _shas(repo, text) -> list[str]:
+def _shas(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import sha as rule_sha
     _clear()
     return [f.subject for f in rule_sha.check(hc.context(repo), text)]
 
 
-def _anchors(repo, text) -> list[str]:
+def _anchors(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import md_anchor as rule_md_anchor
     _clear()
     return [f.subject for f in rule_md_anchor.check(hc.context(repo), text)]
 
 
-def _pointers(repo, text) -> list[str]:
+def _pointers(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import path_pointer as rule_path_pointer
     _clear()
@@ -69,7 +75,7 @@ def _pointers(repo, text) -> list[str]:
 # 1. A leading slash is a site root, never a repository root.  6,360 findings
 # --------------------------------------------------------------------------
 
-def test_a_site_declared_one_level_down_is_detected(git_repo) -> None:
+def test_a_site_declared_one_level_down_is_detected(git_repo: GitRepo) -> None:
     """The largest class by far: 83% of everything the sweep reported.
 
     The shape was never the problem. Detection simply did not reach the
@@ -88,7 +94,7 @@ def test_a_site_declared_one_level_down_is_detected(git_repo) -> None:
     assert _links(repo, text) == []
 
 
-def test_a_site_declared_inside_docs_is_detected(git_repo) -> None:
+def test_a_site_declared_inside_docs_is_detected(git_repo: GitRepo) -> None:
     """llama_index declares MkDocs at `docs/api_reference/mkdocs.yml`.
 
     The search reached `*/docs` but never `docs/*`, which is the mirror of a
@@ -100,7 +106,7 @@ def test_a_site_declared_inside_docs_is_detected(git_repo) -> None:
     assert _links(repo, "See [api](/python/framework/instrumentation).\n") == []
 
 
-def test_fern_declares_a_site(git_repo) -> None:
+def test_fern_declares_a_site(git_repo: GitRepo) -> None:
     """Fern serves `.mdx` by route from `fern/docs.yml`.
 
     Found by the tree-scoping change rather than by the original sweep:
@@ -114,7 +120,7 @@ def test_fern_declares_a_site(git_repo) -> None:
     assert _links(repo, "See [create](/api-reference/browser/create).\n") == []
 
 
-def test_a_numbered_docs_tree_is_a_site(git_repo) -> None:
+def test_a_numbered_docs_tree_is_a_site(git_repo: GitRepo) -> None:
     """svelte's pages are built by svelte.dev, so no config exists here.
 
     Nothing reads an ordering prefix except a generator building an ordered
@@ -127,7 +133,7 @@ def test_a_numbered_docs_tree_is_a_site(git_repo) -> None:
 
 
 def test_a_bare_name_does_not_resolve_across_translation_trees(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The regression the corpus caught, which widening detection caused.
 
     fastapi builds a separate site per language and keeps `newsletter.md`
@@ -151,7 +157,7 @@ def test_a_bare_name_does_not_resolve_across_translation_trees(
 
 
 def test_a_bare_name_still_resolves_inside_its_own_tree(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The English page linking to the English file is fine, and the
     suppression this narrows must still work where it was right."""
     from extant import session as hc
@@ -166,7 +172,7 @@ def test_a_bare_name_still_resolves_inside_its_own_tree(
 
 
 def test_a_lone_language_shaped_directory_is_not_a_tree(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Recognised by siblings, not by the name. A single `docs/id/` is an
     "id" directory, and treating it as a language would split a namespace
     that a flat-namespace generator really does resolve across.
@@ -187,7 +193,8 @@ def test_a_lone_language_shaped_directory_is_not_a_tree(
     assert _links(repo, "See [contexts](contexts.md).\n") == []
 
 
-def _resolves(repo, monkeypatch, document: str, target: str, *,
+def _resolves(repo: Path, monkeypatch: pytest.MonkeyPatch, document: str,
+              target: str, *,
               numbered: bool = False) -> bool:
     """Ask the bare-name or the numbered-route resolver directly, as
     `document` - the two questions the link rules gate on, without the
@@ -202,7 +209,7 @@ def _resolves(repo, monkeypatch, document: str, target: str, *,
 
 @pytest.mark.parametrize("root", ["docs", "site/docs"])
 def test_a_document_directly_inside_a_language_directory_is_in_its_tree(
-        git_repo, monkeypatch, root: str) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch, root: str) -> None:
     """The trees above put their pages a level BELOW the language
     directory - `docs/de/docs/help.md` - which is fastapi's layout. Directly
     inside it, `docs/de/help.md`, the document is in the `de` tree just the
@@ -221,7 +228,8 @@ def test_a_document_directly_inside_a_language_directory_is_in_its_tree(
     (("en", "de", "fr"), True),
 ])
 def test_three_language_siblings_make_a_tree_and_two_do_not(
-        git_repo, monkeypatch, languages: tuple[str, ...], is_tree: bool) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        languages: tuple[str, ...], is_tree: bool) -> None:
     """The threshold is three, and the two tests above sit at one and at
     four, so neither said which side of it two and three fall on. A tree
     keeps `de`'s link to an English-only page from resolving; no tree lets
@@ -235,7 +243,7 @@ def test_three_language_siblings_make_a_tree_and_two_do_not(
 
 
 def test_each_language_shaped_parent_counts_its_own_siblings(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """`docs/` holds three languages; the root holds one directory shaped
     like a language, `id/`, which is not a tree. Counted once and shared,
     the first parent's three made `id/` a tree too, and a page at the root
@@ -248,7 +256,7 @@ def test_each_language_shaped_parent_counts_its_own_siblings(
 
 
 def test_a_bare_name_resolves_with_a_document_tracked_at_the_root(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A tracked path with no directory - `README.md` - has a basename all
     the same. Taken from the wrong end of the split, the index raised on it,
     and every repository has one (Phase 63)."""
@@ -259,7 +267,7 @@ def test_a_bare_name_resolves_with_a_document_tracked_at_the_root(
 
 
 def test_a_readme_outside_the_site_tree_is_still_judged(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A repository with a site somewhere is not a repository whose every
     markdown file is a page.
 
@@ -284,7 +292,7 @@ def test_a_readme_outside_the_site_tree_is_still_judged(
 
 
 def test_a_page_inside_the_site_tree_is_still_suppressed(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The other side of the same scoping, so it cannot become a blanket
     re-enable."""
     from extant import session as hc
@@ -296,7 +304,7 @@ def test_a_page_inside_the_site_tree_is_still_suppressed(
     assert _links(repo, "See [the guide](guide.md).\n") == []
 
 
-def test_a_numbered_fixture_deep_in_a_package_is_not_a_site(git_repo) -> None:
+def test_a_numbered_fixture_deep_in_a_package_is_not_a_site(git_repo: GitRepo) -> None:
     """Bounded to the conventional documentation directories, for the reason
     `_site_dirs` bounds its own config search.
 
@@ -318,7 +326,7 @@ def test_a_numbered_fixture_deep_in_a_package_is_not_a_site(git_repo) -> None:
         hc._DOC = hc.DocScope()
 
 
-def test_a_uuid_inside_an_identifier_is_not_a_sha(git_repo) -> None:
+def test_a_uuid_inside_an_identifier_is_not_a_sha(git_repo: GitRepo) -> None:
     """`\\b` fails between an underscore and a hex digit, so a UUID embedded in
     an identifier was not recognised and its trailing field read as a SHA."""
     repo, commit = git_repo
@@ -327,7 +335,7 @@ def test_a_uuid_inside_an_identifier_is_not_a_sha(git_repo) -> None:
     assert _shas(repo, text) == []
 
 
-def test_an_ordinary_bare_sha_still_fires(git_repo) -> None:
+def test_an_ordinary_bare_sha_still_fires(git_repo: GitRepo) -> None:
     """The control for the UUID change.
 
     The token that was wrongly reported is the UUID's LAST field, preceded by
@@ -341,7 +349,7 @@ def test_an_ordinary_bare_sha_still_fires(git_repo) -> None:
     assert _shas(repo, "See 9dc767d0aa11 for the fix.\n") == ["9dc767d0aa11"]
 
 
-def test_a_uuid_without_a_prefix_is_still_skipped(git_repo) -> None:
+def test_a_uuid_without_a_prefix_is_still_skipped(git_repo: GitRepo) -> None:
     """The case that already worked, kept working."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -349,7 +357,7 @@ def test_a_uuid_without_a_prefix_is_still_skipped(git_repo) -> None:
     assert _shas(repo, text) == []
 
 
-def test_one_numbered_file_is_not_a_site(git_repo) -> None:
+def test_one_numbered_file_is_not_a_site(git_repo: GitRepo) -> None:
     """Three in a directory, not one. Somebody numbering a single document is
     not a convention with a consumer, and treating it as one would silence
     root-absolute links across ordinary repositories.
@@ -361,7 +369,8 @@ def test_one_numbered_file_is_not_a_site(git_repo) -> None:
         "/reference/config"]
 
 
-def test_root_absolute_link_still_resolves_when_the_file_is_there(git_repo) -> None:
+def test_root_absolute_link_still_resolves_when_the_file_is_there(
+        git_repo: GitRepo) -> None:
     """Silence must not come from having stopped looking.
 
     A root-absolute target that DOES name a file still resolves, so the
@@ -372,7 +381,7 @@ def test_root_absolute_link_still_resolves_when_the_file_is_there(git_repo) -> N
     assert _links(repo, "See [guide](/docs/guide.md).\n") == []
 
 
-def test_a_relative_dead_link_still_fires(git_repo) -> None:
+def test_a_relative_dead_link_still_fires(git_repo: GitRepo) -> None:
     """The rule's whole point, unaffected by the narrowing above."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -383,7 +392,7 @@ def test_a_relative_dead_link_still_fires(git_repo) -> None:
 # 2. A docs tree that orders pages by filename prefix.        139 findings
 # --------------------------------------------------------------------------
 
-def test_ordering_prefix_is_stripped_from_the_route(git_repo) -> None:
+def test_ordering_prefix_is_stripped_from_the_route(git_repo: GitRepo) -> None:
     """svelte links to `04-custom-elements.md` as `custom-elements`.
 
     The prefix is the evidence that something strips it, so this needs no
@@ -395,7 +404,8 @@ def test_ordering_prefix_is_stripped_from_the_route(git_repo) -> None:
     assert _links(repo, text) == []
 
 
-def test_an_unprefixed_document_does_not_answer_to_a_bare_name(git_repo) -> None:
+def test_an_unprefixed_document_does_not_answer_to_a_bare_name(
+        git_repo: GitRepo) -> None:
     """Without this the narrowing becomes `_unique_basename` with its gate
     removed, silencing a link to `foo` anywhere a `foo.md` exists at all.
 
@@ -407,7 +417,7 @@ def test_an_unprefixed_document_does_not_answer_to_a_bare_name(git_repo) -> None
     assert _links(repo, "See [setup](setup).\n") == ["setup"]
 
 
-def test_two_documents_answering_one_route_are_not_guessed(git_repo) -> None:
+def test_two_documents_answering_one_route_are_not_guessed(git_repo: GitRepo) -> None:
     """Exactly one match, never "at least one"."""
     repo, commit = git_repo
     commit("docs/01-a/02-setup.md", "# A\n", "seed")
@@ -416,7 +426,7 @@ def test_two_documents_answering_one_route_are_not_guessed(git_repo) -> None:
 
 
 def test_an_unprefixed_document_listed_first_does_not_end_the_index(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Documents without a prefix are passed over, not a reason to stop:
     `README.md` sorts before `docs/`, and stopping there indexed nothing.
     The tests above track the numbered documents alone (Phase 63)."""
@@ -434,7 +444,7 @@ def test_an_unprefixed_document_listed_first_does_not_end_the_index(
     "documentation/docs/misc/custom-elements",
 ])
 def test_a_route_resolves_at_every_depth_up_to_the_whole(
-        git_repo, monkeypatch, target: str) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch, target: str) -> None:
     """A target names the route's last segment, its last two, three, or the
     whole of it, and each is one document. Every way of building those
     suffixes wrongly - an extra depth, a missing one, a whole route counted
@@ -446,7 +456,7 @@ def test_a_route_resolves_at_every_depth_up_to_the_whole(
 
 
 def test_nothing_resolves_when_the_listing_cannot_be_read(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The degraded path, which no test took: the tracked-file listing
     fails, the index each resolver builds is empty, and neither resolves
     anything - so the link is reported rather than silently passed. Both
@@ -455,7 +465,7 @@ def test_nothing_resolves_when_the_listing_cannot_be_read(
     repo, commit = git_repo
     commit("docs/07-misc/04-custom-elements.md", "# CE\n", "seed")
 
-    def listing_fails(ctx):
+    def listing_fails(ctx: Context) -> list[str]:
         raise OSError("the listing cannot be read")
 
     monkeypatch.setattr(text, "tracked_markdown", listing_fails)
@@ -468,7 +478,7 @@ def test_nothing_resolves_when_the_listing_cannot_be_read(
 # 3. A SHA that is link text for somebody else's commit.       192 findings
 # --------------------------------------------------------------------------
 
-def _with_origin(repo, url: str) -> None:
+def _with_origin(repo: Path, url: str) -> None:
     """Give the fixture an `origin`, the repository's own statement of what
     it is - the thing a linked SHA's URL is compared with."""
     import subprocess
@@ -476,14 +486,14 @@ def _with_origin(repo, url: str) -> None:
                    check=True, capture_output=True, stdin=subprocess.DEVNULL)
 
 
-def _examined_shas(repo, text) -> int:
+def _examined_shas(repo: Path, text: str) -> int:
     from extant import session as hc
     from extant.rules import sha as rule_sha
     _clear()
     return rule_sha.examined(hc.context(repo), text)
 
 
-def test_a_sha_linked_to_a_commit_url_is_not_this_repos_claim(git_repo) -> None:
+def test_a_sha_linked_to_a_commit_url_is_not_this_repos_claim(git_repo: GitRepo) -> None:
     """Changesets writes release notes this way, and a monorepo that absorbed
     another project keeps citing the original. The URL states whose commit it
     is; `_URL` has always dropped a BARE hex run inside a link target for that
@@ -503,7 +513,8 @@ def test_a_sha_linked_to_a_commit_url_is_not_this_repos_claim(git_repo) -> None:
     assert _examined_shas(repo, text) == 0
 
 
-def test_a_backticked_sha_linked_to_this_repositorys_own_commit_is_checked(git_repo) -> None:
+def test_a_backticked_sha_linked_to_this_repositorys_own_commit_is_checked(
+        git_repo: GitRepo) -> None:
     """The other half, which the skip never had until 2026-09-22: when the
     URL names THIS repository, the claim is ours and checkable - and this is
     the changelog entry whose commit a squash or a force-push takes away,
@@ -523,7 +534,7 @@ def test_a_backticked_sha_linked_to_this_repositorys_own_commit_is_checked(git_r
     assert _examined_shas(repo, text) == 1
 
 
-def test_a_backticked_sha_with_no_link_still_fires(git_repo) -> None:
+def test_a_backticked_sha_with_no_link_still_fires(git_repo: GitRepo) -> None:
     """The qualification is the link, not the backticks."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -531,7 +542,8 @@ def test_a_backticked_sha_with_no_link_still_fires(git_repo) -> None:
     assert _shas(repo, text) == ["adb8bf2a4caeead9a1a255740c7abe8666a6f852"]
 
 
-def test_a_bare_sha_linked_to_another_repositorys_commit_is_not_this_repos_claim(git_repo) -> None:
+def test_a_bare_sha_linked_to_another_repositorys_commit_is_not_this_repos_claim(
+        git_repo: GitRepo) -> None:
     """The same shape WITHOUT backticks - the conventional-changelog spelling,
     which is how release-please, standard-version and the changelogs they
     generate write every entry - and the argument is the same: the URL says
@@ -555,7 +567,8 @@ def test_a_bare_sha_linked_to_another_repositorys_commit_is_not_this_repos_claim
     assert _examined_shas(repo, text) == 0
 
 
-def test_a_bare_sha_linked_to_this_repositorys_own_commit_is_still_checked(git_repo) -> None:
+def test_a_bare_sha_linked_to_this_repositorys_own_commit_is_still_checked(
+        git_repo: GitRepo) -> None:
     """The URL names `origin`, so the claim is this repository's, and the
     token does not resolve here: reported, as a rewrite casualty in a
     changelog should be."""
@@ -569,7 +582,8 @@ def test_a_bare_sha_linked_to_this_repositorys_own_commit_is_still_checked(git_r
     assert _examined_shas(repo, text) == 1
 
 
-def test_the_owner_comparison_reads_through_scheme_host_and_suffix(git_repo) -> None:
+def test_the_owner_comparison_reads_through_scheme_host_and_suffix(
+        git_repo: GitRepo) -> None:
     """`git@github.com:o/r.git` and `https://www.github.com/o/r` are one
     repository. moby's vendored changelogs link through `www.github.com`
     and `api.github.com/repos/...`, and an SSH origin is the common
@@ -584,7 +598,8 @@ def test_the_owner_comparison_reads_through_scheme_host_and_suffix(git_repo) -> 
     assert _shas(repo, text) == ["8ea71e5"]
 
 
-def test_a_linked_sha_is_not_examined_when_the_repository_has_no_origin(git_repo) -> None:
+def test_a_linked_sha_is_not_examined_when_the_repository_has_no_origin(
+        git_repo: GitRepo) -> None:
     """Without an origin nothing can say whether the URL names this
     repository, and a rule only asks what git in THIS repository can settle:
     the site is skipped, the caution the backticked skip took from the start.
@@ -598,7 +613,8 @@ def test_a_linked_sha_is_not_examined_when_the_repository_has_no_origin(git_repo
     assert _examined_shas(repo, text) == 0
 
 
-def test_a_relative_commit_link_is_this_repositorys_and_checked_once(git_repo) -> None:
+def test_a_relative_commit_link_is_this_repositorys_and_checked_once(
+        git_repo: GitRepo) -> None:
     """`[8ea71e5](../../commit/8ea71e5)` is how a hand-written changelog
     links its own commit, and GitHub renders it as one. Its head names no
     owner, so the comparison read it as foreign and the bare spelling
@@ -617,7 +633,8 @@ def test_a_relative_commit_link_is_this_repositorys_and_checked_once(git_repo) -
     assert _examined_shas(repo, backticked) == 1
 
 
-def test_a_bare_sha_as_link_text_of_a_non_commit_url_still_fires(git_repo) -> None:
+def test_a_bare_sha_as_link_text_of_a_non_commit_url_still_fires(
+        git_repo: GitRepo) -> None:
     """A link is only a qualification when it names a commit, blob, tree,
     pull or compare page. Link text pointing anywhere else is a bare token
     like any other, whoever the URL belongs to."""
@@ -628,7 +645,8 @@ def test_a_bare_sha_as_link_text_of_a_non_commit_url_still_fires(git_repo) -> No
     assert _shas(repo, text) == ["abc1234"]
 
 
-def test_a_bare_range_linked_to_another_repositorys_compare_page_belongs_to_it(git_repo) -> None:
+def test_a_bare_range_linked_to_another_repositorys_compare_page_belongs_to_it(
+        git_repo: GitRepo) -> None:
     """`[a..b](.../compare/a..b)` is the range arm the backticked pattern
     already has, in the bare spelling. The span covers both ends."""
     repo, commit = git_repo
@@ -639,7 +657,8 @@ def test_a_bare_range_linked_to_another_repositorys_compare_page_belongs_to_it(g
     assert _shas(repo, text) == []
 
 
-def test_a_bare_range_linked_to_this_repositorys_compare_page_is_checked_at_both_ends(git_repo) -> None:
+def test_a_bare_range_linked_to_this_repositorys_compare_page_is_checked_at_both_ends(
+        git_repo: GitRepo) -> None:
     """The own arm of the range: both ends are this repository's claims."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -649,7 +668,7 @@ def test_a_bare_range_linked_to_this_repositorys_compare_page_is_checked_at_both
     assert _shas(repo, text) == ["a1b2c3d", "e4f5a6b"]
 
 
-def test_a_bare_range_outside_a_link_still_fires_at_both_ends(git_repo) -> None:
+def test_a_bare_range_outside_a_link_still_fires_at_both_ends(git_repo: GitRepo) -> None:
     """The other half of the pair above: the same range with no link behind
     it is two bare claims, and both are reported."""
     repo, commit = git_repo
@@ -659,7 +678,7 @@ def test_a_bare_range_outside_a_link_still_fires_at_both_ends(git_repo) -> None:
 
 
 def test_two_linked_commits_on_a_line_are_each_judged_by_their_own_url(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """Ours first, then somebody else's: the first is checked and the second
     set aside. Stopping at the first link this repository owns left every
     later link on the line unexamined - its text read as our claim. Found by
@@ -673,7 +692,7 @@ def test_two_linked_commits_on_a_line_are_each_judged_by_their_own_url(
 
 
 def test_a_plain_backticked_sha_after_a_foreign_link_is_still_read(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """A linked commit set aside ends nothing: the plain backticked SHA after
     it on the same line is this document's claim. Found by mutmut (Phase
     64)."""
@@ -686,7 +705,7 @@ def test_a_plain_backticked_sha_after_a_foreign_link_is_still_read(
 
 
 def test_a_live_commit_linked_by_this_repositorys_own_url_is_not_reported(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The tests above link DEAD commits, so a batch that never asked git
     about a linked token passed them all: dead either way. The rule reads
     which tokens are alive from the one `cat-file` batch the document
@@ -712,7 +731,7 @@ def test_a_live_commit_linked_by_this_repositorys_own_url_is_not_reported(
 # 4. A hex run inside a filename is part of the filename.      144 findings
 # --------------------------------------------------------------------------
 
-def test_a_hash_prefixed_asset_name_is_not_a_sha(git_repo) -> None:
+def test_a_hash_prefixed_asset_name_is_not_a_sha(git_repo: GitRepo) -> None:
     """Documentation platforms mint asset names by prefixing a content hash.
 
     `83f686b` has a word boundary either side and is valid hex, so it read as
@@ -724,7 +743,7 @@ def test_a_hash_prefixed_asset_name_is_not_a_sha(git_repo) -> None:
     assert _shas(repo, text) == []
 
 
-def test_a_bare_sha_beside_an_image_still_fires(git_repo) -> None:
+def test_a_bare_sha_beside_an_image_still_fires(git_repo: GitRepo) -> None:
     """The suppression covers the filename span, not the whole line."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -772,7 +791,7 @@ def test_the_asset_pattern_still_matches_a_real_asset() -> None:
 # 5. A ref pinned to another repository.                        14 findings
 # --------------------------------------------------------------------------
 
-def test_an_action_pinned_by_sha_is_not_this_repos_commit(git_repo) -> None:
+def test_an_action_pinned_by_sha_is_not_this_repos_commit(git_repo: GitRepo) -> None:
     """`owner/repo@` names whose commit it is, and it is not this one's.
 
     Pinning an action by SHA is what security guidance asks for, so a rule
@@ -788,7 +807,7 @@ def test_an_action_pinned_by_sha_is_not_this_repos_commit(git_repo) -> None:
 # 6. A changeset id was minted by a tool, not by git.           50 findings
 # --------------------------------------------------------------------------
 
-def test_a_changeset_entry_is_not_a_commit_reference(git_repo) -> None:
+def test_a_changeset_entry_is_not_a_commit_reference(git_repo: GitRepo) -> None:
     """Gated on the repository actually using the tool, because the line shape
     alone is how a person writes a REAL commit reference too.
     """
@@ -798,7 +817,7 @@ def test_a_changeset_entry_is_not_a_commit_reference(git_repo) -> None:
     assert _shas(repo, text) == []
 
 
-def test_the_same_line_still_fires_without_changesets(git_repo) -> None:
+def test_the_same_line_still_fires_without_changesets(git_repo: GitRepo) -> None:
     """The gate is the directory, not the wording.
 
     Mutation check: dropping the `_uses_changesets` condition turns this red,
@@ -814,7 +833,7 @@ def test_the_same_line_still_fires_without_changesets(git_repo) -> None:
 # 7. Thirty-two hex characters is a digest.                     45 findings
 # --------------------------------------------------------------------------
 
-def test_a_thirty_two_character_hex_run_is_not_a_commit(git_repo) -> None:
+def test_a_thirty_two_character_hex_run_is_not_a_commit(git_repo: GitRepo) -> None:
     """MD5 and a dash-free UUID are both 32. Git abbreviations run 7 to 12 and
     a full object name is 40, so nothing legitimate sits at exactly 32.
     """
@@ -824,7 +843,7 @@ def test_a_thirty_two_character_hex_run_is_not_a_commit(git_repo) -> None:
     assert _shas(repo, text) == []
 
 
-def test_a_forty_character_hex_run_still_fires(git_repo) -> None:
+def test_a_forty_character_hex_run_still_fires(git_repo: GitRepo) -> None:
     """The exclusion is a length, and it must not have taken the neighbours."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -836,7 +855,8 @@ def test_a_forty_character_hex_run_still_fires(git_repo) -> None:
 # 8. A pointer resolves beside the document that cites it.      61 findings
 # --------------------------------------------------------------------------
 
-def test_a_pointer_resolves_relative_to_its_own_document(git_repo, monkeypatch) -> None:
+def test_a_pointer_resolves_relative_to_its_own_document(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A nested SKILL.md saying "see `references/cli.md`" was reported dead
     while the file sat in the very next directory entry.
 
@@ -850,7 +870,8 @@ def test_a_pointer_resolves_relative_to_its_own_document(git_repo, monkeypatch) 
     assert _pointers(repo, "See `references/cli.md` for the flags.\n") == []
 
 
-def test_a_pointer_to_nothing_still_fires(git_repo, monkeypatch) -> None:
+def test_a_pointer_to_nothing_still_fires(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Neither the root nor the document's directory has it."""
     from extant import session as hc
     repo, commit = git_repo
@@ -860,7 +881,8 @@ def test_a_pointer_to_nothing_still_fires(git_repo, monkeypatch) -> None:
         "references/gone.md"]
 
 
-def test_a_pointer_that_is_link_text_defers_to_its_url(git_repo, monkeypatch) -> None:
+def test_a_pointer_that_is_link_text_defers_to_its_url(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """`read [`PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md)`.
 
     The text names the file, the URL says where it is. Reading the text as a
@@ -877,7 +899,8 @@ def test_a_pointer_that_is_link_text_defers_to_its_url(git_repo, monkeypatch) ->
     assert _pointers(repo, text) == []
 
 
-def test_link_text_still_fires_when_the_url_is_dead_too(git_repo, monkeypatch) -> None:
+def test_link_text_still_fires_when_the_url_is_dead_too(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Deferring to the URL is not the same as ignoring the claim.
 
     Roo-Code cites an `ADDING-EVALS.md` that is absent both as text and as
@@ -891,7 +914,7 @@ def test_link_text_still_fires_when_the_url_is_dead_too(git_repo, monkeypatch) -
     assert _pointers(repo, text) == ["packages/evals/ADDING-EVALS.md"]
 
 
-def test_a_root_relative_pointer_is_unaffected(git_repo) -> None:
+def test_a_root_relative_pointer_is_unaffected(git_repo: GitRepo) -> None:
     """The original behaviour, with no document directory set."""
     repo, commit = git_repo
     commit("docs/plan.md", "# Plan\n", "seed")
@@ -902,7 +925,7 @@ def test_a_root_relative_pointer_is_unaffected(git_repo) -> None:
 # 9. An emoji heading keeps a leading dash in its anchor.       58 findings
 # --------------------------------------------------------------------------
 
-def test_an_emoji_heading_anchors_with_a_leading_dash(git_repo) -> None:
+def test_an_emoji_heading_anchors_with_a_leading_dash(git_repo: GitRepo) -> None:
     """GitHub does not trim the edges of a slug. The emoji is dropped and the
     space after it still becomes a dash, so the anchor opens with one.
 
@@ -917,7 +940,7 @@ def test_an_emoji_heading_anchors_with_a_leading_dash(git_repo) -> None:
     assert _anchors(repo, text) == []
 
 
-def test_the_trimmed_spelling_still_works(git_repo) -> None:
+def test_the_trimmed_spelling_still_works(git_repo: GitRepo) -> None:
     """Adding a variant must not have cost the one that was already right."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -951,7 +974,7 @@ def test_the_untrimmed_slug_contributes_only_what_trimming_loses() -> None:
         "-component-structure")
 
 
-def test_an_anchor_matching_no_spelling_still_fires(git_repo) -> None:
+def test_an_anchor_matching_no_spelling_still_fires(git_repo: GitRepo) -> None:
     """Two extra spellings are still not all of them."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -965,7 +988,7 @@ def test_an_anchor_matching_no_spelling_still_fires(git_repo) -> None:
 # 10. Setext headings are headings.                              3 findings
 # --------------------------------------------------------------------------
 
-def test_underlined_headings_offer_anchors(git_repo) -> None:
+def test_underlined_headings_offer_anchors(git_repo: GitRepo) -> None:
     """A document written entirely in this style offered NO anchors at all,
     so every link into it read as dead. The failure is total rather than
     partial, which is what makes 3 findings worth a fix.
@@ -981,7 +1004,7 @@ def test_underlined_headings_offer_anchors(git_repo) -> None:
     assert _anchors(repo, text) == []
 
 
-def test_frontmatter_does_not_invent_a_heading(git_repo) -> None:
+def test_frontmatter_does_not_invent_a_heading(git_repo: GitRepo) -> None:
     """The closing `---` of YAML frontmatter follows a non-blank line, which
     would otherwise promote `title: something` to a heading and offer an
     anchor the document does not have.
@@ -996,7 +1019,7 @@ def test_frontmatter_does_not_invent_a_heading(git_repo) -> None:
     assert _anchors(repo, text) == ["#title-something"]
 
 
-def test_a_dead_anchor_in_a_setext_document_still_fires(git_repo) -> None:
+def test_a_dead_anchor_in_a_setext_document_still_fires(git_repo: GitRepo) -> None:
     """Parsing more headings must not mean accepting every fragment."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -1091,7 +1114,7 @@ def test_a_heading_after_an_excluded_title_is_still_read(first: str) -> None:
 # 11. A word spelled in hex digits is a word.         7 of 152 visible clones
 # --------------------------------------------------------------------------
 
-def test_the_algorithm_name_ed25519_is_not_a_sha(git_repo) -> None:
+def test_the_algorithm_name_ed25519_is_not_a_sha(git_repo: GitRepo) -> None:
     """`ed25519` is seven characters, every one a hex digit, with a letter
     and a digit among them - the exact shape both shape tests admit - and it
     names a signature scheme, never a commit. Found on 2026-09-22 in the
@@ -1107,7 +1130,7 @@ def test_the_algorithm_name_ed25519_is_not_a_sha(git_repo) -> None:
     assert _shas(repo, text) == []
 
 
-def test_a_bare_sha_beside_the_word_still_fires(git_repo) -> None:
+def test_a_bare_sha_beside_the_word_still_fires(git_repo: GitRepo) -> None:
     """The skip is one word, not a shape: a hex run one character longer is a
     candidate exactly as before. Backticked candidates come first, the order
     `_sha_sites` has always reported in."""
@@ -1294,21 +1317,21 @@ def test_the_bare_sha_gate_yields_the_same_tokens_as_the_scan_it_replaces() -> N
 # to a file that exists. The pairs below pin both halves of that.
 # --------------------------------------------------------------------------
 
-def test_a_www_prefixed_target_is_a_url_not_a_path(git_repo) -> None:
+def test_a_www_prefixed_target_is_a_url_not_a_path(git_repo: GitRepo) -> None:
     """`www.` is unambiguous: no file is named `www.something.something`."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
     assert _links(repo, "See [docs](www.skyvern.com/docs).\n") == []
 
 
-def test_a_bare_hostname_with_a_path_is_a_url(git_repo) -> None:
+def test_a_bare_hostname_with_a_path_is_a_url(git_repo: GitRepo) -> None:
     """qmk writes `github.com/josh-l-wang` eighteen times over."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
     assert _links(repo, "See [author](github.com/josh-l-wang).\n") == []
 
 
-def test_a_bare_hostname_with_no_path_is_still_a_url(git_repo) -> None:
+def test_a_bare_hostname_with_no_path_is_still_a_url(git_repo: GitRepo) -> None:
     """`webbench.ai` and `hanboards.com` carry no path at all.
 
     This is the arm that cannot be made safe by requiring a `/`, and it is
@@ -1320,7 +1343,7 @@ def test_a_bare_hostname_with_no_path_is_still_a_url(git_repo) -> None:
     assert _links(repo, "See [bench](webbench.ai).\n") == []
 
 
-def test_a_national_domain_is_a_url_too(git_repo) -> None:
+def test_a_national_domain_is_a_url_too(git_repo: GitRepo) -> None:
     """The half the first fix missed, found by auditing it.
 
     `anomalykb.co`, `imaginaerraum.de` and `fablab-bayreuth.de` survived a TLD
@@ -1335,7 +1358,7 @@ def test_a_national_domain_is_a_url_too(git_repo) -> None:
     assert _links(repo, "See [lab](fablab-bayreuth.de/x).\n") == []
 
 
-def test_a_markdown_file_is_not_a_moldovan_hostname(git_repo) -> None:
+def test_a_markdown_file_is_not_a_moldovan_hostname(git_repo: GitRepo) -> None:
     """The one that would have been catastrophic.
 
     `.md` is the ccTLD for Moldova, `.rs` for Serbia, `.py` for Paraguay and
@@ -1357,7 +1380,8 @@ def test_a_markdown_file_is_not_a_moldovan_hostname(git_repo) -> None:
     assert _links(repo, "See [gone](infra.tf).\n") == ["infra.tf"]
 
 
-def test_a_dead_relative_link_that_merely_contains_a_dot_still_fires(git_repo) -> None:
+def test_a_dead_relative_link_that_merely_contains_a_dot_still_fires(
+        git_repo: GitRepo) -> None:
     """Silence must not come from having stopped looking.
 
     A target whose final segment is not a recognised TLD is still a path, and
@@ -1368,7 +1392,8 @@ def test_a_dead_relative_link_that_merely_contains_a_dot_still_fires(git_repo) -
     assert _links(repo, "See [gone](my.config.yaml).\n") == ["my.config.yaml"]
 
 
-def test_a_hostname_shaped_file_that_exists_is_still_reachable(git_repo) -> None:
+def test_a_hostname_shaped_file_that_exists_is_still_reachable(
+        git_repo: GitRepo) -> None:
     """The suppression is lexical, so a real file named like a host is the one
     place it could cost something.
 
@@ -1382,7 +1407,7 @@ def test_a_hostname_shaped_file_that_exists_is_still_reachable(git_repo) -> None
     assert (repo / "example.com").is_file()
 
 
-def test_an_anchor_into_a_schemeless_url_is_not_checked(git_repo) -> None:
+def test_an_anchor_into_a_schemeless_url_is_not_checked(git_repo: GitRepo) -> None:
     """`dead-md-anchor` reads the same `EXTERNAL`, so one fix moves both.
 
     `nodejs.org/api/process.html#a-note-on-process-io` was being asked whether
@@ -1395,7 +1420,7 @@ def test_an_anchor_into_a_schemeless_url_is_not_checked(git_repo) -> None:
     ) == []
 
 
-def test_an_anchor_into_a_real_local_document_still_fires(git_repo) -> None:
+def test_an_anchor_into_a_real_local_document_still_fires(git_repo: GitRepo) -> None:
     """The other half of the pair, so the silence above is not the rule
     breaking."""
     repo, commit = git_repo

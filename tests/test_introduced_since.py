@@ -18,9 +18,10 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 import pytest
-from conftest import raising_rule
+from conftest import GitRepo, raising_rule
 from extant.session import ZERO_DEFAULT
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
@@ -31,13 +32,14 @@ DEAD = "dead" + "0" * 36
 DEAD_TOO = "beef" + "1" * 36
 
 
-def _run(repo, *args):
+def _run(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, check=True,
                           capture_output=True, text=True).stdout
 
 
-def _gate(repo, ref, fmt="text"):
-    """Run the mode in process and hand back (exit code, stdout, stderr)."""
+def _gate(repo: Path, ref: str, fmt: str = "text") -> int:
+    """Run the mode in process and hand back its exit code; what it printed
+    is the caller's `capsys`."""
     from extant import session as hc
     from extant.introduced_since import run_introduced_since
 
@@ -47,7 +49,8 @@ def _gate(repo, ref, fmt="text"):
 
 # --- the gate ---------------------------------------------------------------
 
-def test_a_finding_on_a_line_the_range_wrote_gates(git_repo, capsys) -> None:
+def test_a_finding_on_a_line_the_range_wrote_gates(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     repo, commit = git_repo
     commit("docs/notes.md", "# Notes\n\nNothing here yet.\n", "docs: start")
     commit("docs/notes.md", f"# Notes\n\nNothing here yet.\n\nMerged at `{DEAD}`.\n",
@@ -61,7 +64,7 @@ def test_a_finding_on_a_line_the_range_wrote_gates(git_repo, capsys) -> None:
 
 
 def test_a_finding_on_a_line_the_range_did_not_touch_does_not_gate(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The claim is still false, and the mode does not care: it was not written
     by this change. It is counted as set aside so the reader knows the
     document is not clean, only that this range did not make it dirty."""
@@ -78,7 +81,8 @@ def test_a_finding_on_a_line_the_range_did_not_touch_does_not_gate(
     assert "1 finding(s) in the changed document(s) sit on lines the range did not touch" in out, out
 
 
-def test_a_document_the_range_did_not_change_is_not_read(git_repo, capsys) -> None:
+def test_a_document_the_range_did_not_change_is_not_read(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """Only changed documents can carry an introduced line, so the others are
     not read - and the denominator says how many were left unread, because a
     gate that quietly narrowed its population would print exactly what a gate
@@ -97,7 +101,7 @@ def test_a_document_the_range_did_not_change_is_not_read(git_repo, capsys) -> No
 
 
 def test_a_rule_that_read_no_changed_document_is_not_said_to_have_examined_nothing(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """Catches the gate's NOTE offering two explanations that are both wrong.
 
     The sweep's copy of this NOTE was split in Phase 57: a rule that read no
@@ -127,7 +131,8 @@ def test_a_rule_that_read_no_changed_document_is_not_said_to_have_examined_nothi
     assert "false-merge-claim (merge_claim)" in default, lines
 
 
-def test_the_base_is_the_merge_base_not_the_ref(git_repo, capsys) -> None:
+def test_the_base_is_the_merge_base_not_the_ref(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """On a branch that has diverged from REF, a plain `diff REF` shows every
     line REF has since deleted as a `+` line - lines this branch never wrote.
     The merge base is where the two histories fork, and only its lines are
@@ -151,7 +156,8 @@ def test_the_base_is_the_merge_base_not_the_ref(git_repo, capsys) -> None:
     assert "examined 1 changed document(s) since main" in out, out
 
 
-def test_a_working_tree_edit_is_an_introduced_line(git_repo, capsys) -> None:
+def test_a_working_tree_edit_is_an_introduced_line(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The sweep reads the working tree, so the diff has to be against the
     working tree too - against HEAD, a line added in the working tree above a
     committed claim would shift every number the diff reports."""
@@ -168,7 +174,8 @@ def test_a_working_tree_edit_is_an_introduced_line(git_repo, capsys) -> None:
     assert "docs/notes.md: line 7: [dead-sha]" in out, out
 
 
-def test_a_modified_line_gates_on_what_it_already_held(git_repo, capsys) -> None:
+def test_a_modified_line_gates_on_what_it_already_held(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """A reflowed or reworded line is a `+` line, so a claim already on it is
     gated as this change's. That is the same rule GitHub's own annotations
     follow, and it is stated rather than tuned away: whoever edits a line owns
@@ -187,7 +194,8 @@ def test_a_modified_line_gates_on_what_it_already_held(git_repo, capsys) -> None
 # --- the refusals and the empty result --------------------------------------
 
 @pytest.mark.parametrize("fmt", ["text", "sarif"])
-def test_an_unresolvable_ref_refuses_rather_than_passing(git_repo, capsys, fmt) -> None:
+def test_an_unresolvable_ref_refuses_rather_than_passing(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], fmt: str) -> None:
     """`--deleted-since` examines nothing and exits 0 on a bad ref, and that is
     right for a mode that never gates. This one gates, so a range it cannot
     compute is a run that cannot proceed: exit 2, nothing on stdout - a SARIF
@@ -205,7 +213,7 @@ def test_an_unresolvable_ref_refuses_rather_than_passing(git_repo, capsys, fmt) 
 
 @pytest.mark.parametrize("fmt", ["text", "sarif"])
 def test_a_range_writing_no_document_is_a_result_not_a_refusal(
-        git_repo, capsys, fmt) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], fmt: str) -> None:
     """`--introduced-since HEAD` wrote nothing, and saying so is an answer: the
     denominator is printed and exit is 0. SARIF still emits a document, for
     the reason `_report_empty_survey` gives - a machine consumer handed zero
@@ -227,7 +235,7 @@ def test_a_range_writing_no_document_is_a_result_not_a_refusal(
 
 # --- reading the diff -------------------------------------------------------
 
-def test_a_deleted_block_introduces_no_lines(git_repo) -> None:
+def test_a_deleted_block_introduces_no_lines(git_repo: GitRepo) -> None:
     """A pure deletion is `@@ -a,b +c,0 @@`: a position and a count of zero,
     and a parser that reads the position as a line would gate on whatever
     now sits there."""
@@ -244,7 +252,8 @@ def test_a_deleted_block_introduces_no_lines(git_repo) -> None:
     assert lines.get("docs/notes.md", set()) == set(), lines
 
 
-def test_added_and_modified_lines_are_numbered_in_the_new_file(git_repo) -> None:
+def test_added_and_modified_lines_are_numbered_in_the_new_file(
+        git_repo: GitRepo) -> None:
     from extant.introduced_since import introduced_lines
 
     repo, commit = git_repo
@@ -257,7 +266,8 @@ def test_added_and_modified_lines_are_numbered_in_the_new_file(git_repo) -> None
     assert lines["docs/notes.md"] == {3, 4, 6, 8, 9}, lines
 
 
-def test_a_staged_new_document_is_gated_before_it_is_committed(git_repo, capsys) -> None:
+def test_a_staged_new_document_is_gated_before_it_is_committed(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The pre-commit shape the review's 4.11 asked about (Phase 51): a plan
     document written this session, `git add`ed, never yet committed. It is in
     the diff against HEAD (`+++ b/docs/plan.md`, every line a `+`) and NOT in
@@ -282,7 +292,7 @@ def test_a_staged_new_document_is_gated_before_it_is_committed(git_repo, capsys)
 
 
 def test_an_uncommitted_rename_with_an_edit_is_read_under_its_new_name(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """`git mv docs/old.md docs/new.md`, a claim appended, nothing committed.
     With `--find-renames` the diff files the edit under `b/docs/new.md`; HEAD's
     tree still holds `docs/old.md`. Listing from HEAD's tree dropped the
@@ -306,7 +316,7 @@ def test_an_uncommitted_rename_with_an_edit_is_read_under_its_new_name(
 
 
 def test_a_renamed_and_edited_document_is_read_under_its_new_name(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """HEAD's tree holds the new path and so does the sweep, so the diff's
     `+++ b/` side is the name the finding has to be filed under."""
     repo, commit = git_repo
@@ -323,7 +333,8 @@ def test_a_renamed_and_edited_document_is_read_under_its_new_name(
     assert "docs/new-name.md: line 5: [dead-sha]" in out, out
 
 
-def test_a_moved_document_with_no_edited_line_is_not_gated(git_repo, capsys) -> None:
+def test_a_moved_document_with_no_edited_line_is_not_gated(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The stated limit. A pure rename has no `+` line, so a relative link the
     move broke is a claim the change BROKE without writing - `--verify` and
     `--sweep` report it, this mode does not, and the docstring says so."""
@@ -363,7 +374,8 @@ def test_a_c_quoted_path_is_unquoted() -> None:
 
 
 @pytest.mark.skipif(os.name == "nt", reason="a tab is illegal in a Windows filename")
-def test_a_document_whose_name_git_quotes_is_still_gated(git_repo, capsys) -> None:
+def test_a_document_whose_name_git_quotes_is_still_gated(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     repo, commit = git_repo
     commit("docs/tab\tbed.md", "# Notes\n", "docs")
     commit("docs/tab\tbed.md", f"# Notes\n\nMerged at `{DEAD}`.\n", "docs: claim")
@@ -376,7 +388,7 @@ def test_a_document_whose_name_git_quotes_is_still_gated(git_repo, capsys) -> No
 
 
 def test_a_document_git_reads_as_binary_is_counted_not_examined(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """A NUL byte makes git call the file binary and print no hunks. The sweep
     would read it - a NUL is valid UTF-8 - so leaving it out has to be said,
     or it is a document that was silently not gated."""
@@ -399,7 +411,7 @@ def test_a_document_git_reads_as_binary_is_counted_not_examined(
 
 
 def test_a_bare_carriage_return_document_is_surveyed_not_gated(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """extant counts a bare `\\r` as a line break and git does not, so the two
     numberings diverge from that character on. Measured at 1 of 78,878 corpus
     documents - a raster fixture - so the answer is to name it, not to map
@@ -419,7 +431,8 @@ def test_a_bare_carriage_return_document_is_surveyed_not_gated(
 
 # --- what the denominator says ----------------------------------------------
 
-def test_repository_rules_are_not_run_and_the_output_says_so(git_repo, capsys) -> None:
+def test_repository_rules_are_not_run_and_the_output_says_so(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """Their findings sit at line 1 of `.gitattributes` or `.extant.toml`, a
     line nothing wrote, so they cannot be placed on an introduced line. Not
     run, and named rather than silently absent from the examined line."""
@@ -448,7 +461,8 @@ def test_repository_rules_are_not_run_and_the_output_says_so(git_repo, capsys) -
             f"{kind} appears in the examined line although it did not run:\n{out}")
 
 
-def test_exclude_paths_are_honoured_and_counted(git_repo, capsys) -> None:
+def test_exclude_paths_are_honoured_and_counted(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     repo, commit = git_repo
     commit(".extant.toml", 'exclude_paths = ["vendor/"]\n', "config")
     commit("vendor/lib/README.md", "# Lib\n", "vendored")
@@ -463,7 +477,7 @@ def test_exclude_paths_are_honoured_and_counted(git_repo, capsys) -> None:
 
 
 def test_a_configured_document_the_exclusions_remove_is_a_conflict(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     repo, commit = git_repo
     commit(".extant.toml", 'exclude_paths = ["NEXT_SESSION.md"]\n', "config")
     commit("NEXT_SESSION.md", "# S\n", "docs")
@@ -476,7 +490,8 @@ def test_a_configured_document_the_exclusions_remove_is_a_conflict(
     assert "CONFLICT" in printed.err, printed.err
 
 
-def test_a_rule_that_raised_fails_the_run(git_repo, capsys) -> None:
+def test_a_rule_that_raised_fails_the_run(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     repo, commit = git_repo
     commit("docs/notes.md", "# Notes\n", "docs")
     commit("docs/notes.md", "# Notes\n\nMore.\n", "docs: edit")
@@ -489,7 +504,8 @@ def test_a_rule_that_raised_fails_the_run(git_repo, capsys) -> None:
     assert "ERRORED" in out and broken.kind in out, out
 
 
-def test_the_next_run_does_not_inherit_a_rule_that_raised(git_repo, capsys) -> None:
+def test_the_next_run_does_not_inherit_a_rule_that_raised(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The order the test above ran in when the suite was reordered: a gate run
     with a raising rule, then an ordinary one in the same process. The second
     exited 1 naming `dead-sha raised RuntimeError: deliberate` - not the rule,
@@ -511,7 +527,8 @@ def test_the_next_run_does_not_inherit_a_rule_that_raised(git_repo, capsys) -> N
     assert "ERRORED" not in out, out
 
 
-def test_github_annotations_are_errors_on_gated_lines_only(git_repo, capsys) -> None:
+def test_github_annotations_are_errors_on_gated_lines_only(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     repo, commit = git_repo
     commit("docs/notes.md", f"# Notes\n\nMerged at `{DEAD}`.\n", "docs: old claim")
     commit("docs/notes.md", f"# Notes\n\nMerged at `{DEAD}`.\n\nAnd at `{DEAD_TOO}`.\n",
@@ -527,7 +544,8 @@ def test_github_annotations_are_errors_on_gated_lines_only(git_repo, capsys) -> 
         + "` does not resolve in this repo"], annotations
 
 
-def test_the_flags_that_suppress_or_rewrite_are_refused(git_repo, capsys) -> None:
+def test_the_flags_that_suppress_or_rewrite_are_refused(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """A baseline is a ratchet against OLD findings and this mode has none by
     construction; `--suggest-fixes` and `--sha-map` write. Refused with exit
     2 the way `--sweep` refuses them, rather than silently ignored."""
@@ -544,7 +562,8 @@ def test_the_flags_that_suppress_or_rewrite_are_refused(git_repo, capsys) -> Non
         assert printed.out == "", (flag, printed.out)
 
 
-def test_the_mode_is_reachable_through_the_command_line(git_repo, capsys) -> None:
+def test_the_mode_is_reachable_through_the_command_line(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     from extant.cli import main
 
     repo, commit = git_repo
@@ -559,7 +578,7 @@ def test_the_mode_is_reachable_through_the_command_line(git_repo, capsys) -> Non
 
 
 def test_a_changed_document_that_is_not_utf8_is_counted_as_unreadable(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """git diffs it happily - a latin-1 byte is text to git - so it reaches
     the survey, which cannot decode it. Named and counted, exit 0: a fact
     about the repository, not about this change."""
@@ -577,7 +596,7 @@ def test_a_changed_document_that_is_not_utf8_is_counted_as_unreadable(
 
 
 def test_a_sarif_result_on_an_introduced_line_is_an_error_that_gates(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     repo, commit = git_repo
     commit("docs/notes.md", "# Notes\n", "docs")
     commit("docs/notes.md", f"# Notes\n\nMerged at `{DEAD}`.\n", "docs: claim")
@@ -605,7 +624,7 @@ def _shallow_copy(source: Path, into: Path, depth: int) -> Path:
 
 
 def test_a_base_beyond_a_depth_limited_checkouts_history_refuses(
-        git_repo, tmp_path, capsys) -> None:
+        git_repo: GitRepo, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The likely first bug report from CI: `actions/checkout` defaults to
     depth 1, so `HEAD~1` is not there to diff against. A refusal that names
     the depth, not a gate that examined nothing and passed."""
@@ -622,7 +641,7 @@ def test_a_base_beyond_a_depth_limited_checkouts_history_refuses(
 
 
 def test_a_depth_limited_checkout_whose_base_is_present_says_it_is_shallow(
-        git_repo, tmp_path, capsys) -> None:
+        git_repo: GitRepo, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """With the base inside the depth the gate runs, and the note is what
     separates a wall of dead SHAs caused by the checkout from a document
     full of invented ones."""
@@ -638,7 +657,8 @@ def test_a_depth_limited_checkout_whose_base_is_present_says_it_is_shallow(
     assert "NOTE: this is a shallow repository" in out, out
 
 
-def test_the_mode_stays_within_its_spawn_budget(git_repo, monkeypatch) -> None:
+def test_the_mode_stays_within_its_spawn_budget(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Counted at the subprocess boundary, as tests/test_spawn_budget.py counts
     `--verify`, because the diff is read as bytes outside the seam.
 
@@ -658,9 +678,9 @@ def test_the_mode_stays_within_its_spawn_budget(git_repo, monkeypatch) -> None:
     commit("docs/notes.md", f"# Notes\n\nMerged at `{DEAD}`.\n", "docs: claim")
 
     spawns: list[list[str]] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def counting(args, *rest, **kwargs):
+    def counting(args: list[str], *rest: object, **kwargs: object) -> object:
         if args and args[0] == "git":
             spawns.append(list(args))
         return real(args, *rest, **kwargs)
@@ -672,8 +692,9 @@ def test_the_mode_stays_within_its_spawn_budget(git_repo, monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("parallel", [False, True])
-def test_the_gate_lists_the_tree_once(git_repo, capsys, monkeypatch, tmp_path,
-                                      parallel) -> None:
+def test_the_gate_lists_the_tree_once(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, parallel: bool) -> None:
     """The gate lists HEAD's tree to count what the range left alone, and
     then neither seeded its scope with the list nor handed it to `survey`,
     so a document reaching `sites.py` had it listed again - in this process,

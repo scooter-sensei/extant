@@ -30,8 +30,11 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
+
+from conftest import GitRepo, Reconfigure
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -45,7 +48,7 @@ def git(repo: Path, *args: str, stdin: str = "") -> str:
     ).stdout.strip()
 
 
-def counted(monkeypatch, spawns: list[str]) -> None:
+def counted(monkeypatch: pytest.MonkeyPatch, spawns: list[str]) -> None:
     """Record every git command line, then run it for real.
 
     The whole line rather than the subcommand, for the reason
@@ -53,9 +56,9 @@ def counted(monkeypatch, spawns: list[str]) -> None:
     prefix, and a count that cannot tell them apart reports duplicates that are
     not duplicates.
     """
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def record(cmd, *a, **kw):
+    def record(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)
@@ -64,7 +67,7 @@ def counted(monkeypatch, spawns: list[str]) -> None:
 
 
 @pytest.fixture()
-def tagged(git_repo):
+def tagged(git_repo: GitRepo) -> tuple[Path, str, str]:
     """A repository with one tag and one branch, on different commits."""
     repo, commit = git_repo
     first = commit("a.py", "a = 1\n", "chore: init")
@@ -74,7 +77,8 @@ def tagged(git_repo):
     return repo, first, second
 
 
-def test_a_qualified_ref_resolves_to_what_its_bare_name_resolves_to(tagged) -> None:
+def test_a_qualified_ref_resolves_to_what_its_bare_name_resolves_to(
+        tagged: tuple[Path, str, str]) -> None:
     """The equivalence the whole change rests on, for both kinds of ref.
 
     Compared against `rev-parse` itself rather than against the bare spelling
@@ -94,7 +98,7 @@ def test_a_qualified_ref_resolves_to_what_its_bare_name_resolves_to(tagged) -> N
 
 
 def test_a_qualified_ref_costs_no_process_the_table_already_paid_for(
-        monkeypatch, tagged) -> None:
+        monkeypatch: pytest.MonkeyPatch, tagged: tuple[Path, str, str]) -> None:
     """The 14 spawns, pinned shut.
 
     Counted AFTER the table is built, because building it is the one call this
@@ -120,7 +124,7 @@ def test_a_qualified_ref_costs_no_process_the_table_already_paid_for(
 
 
 def test_a_qualified_tag_ref_never_resolves_to_a_branch_of_that_name(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The failure mode of looking in `tags or heads` for a qualified ref.
 
     A repository carrying both `refs/tags/dup` and `refs/heads/dup` is the only
@@ -147,7 +151,8 @@ def test_a_qualified_tag_ref_never_resolves_to_a_branch_of_that_name(
         assert refs.resolve_ref(ctx, "dup") == first
 
 
-def test_a_spelling_no_table_holds_still_falls_through_to_git(tagged) -> None:
+def test_a_spelling_no_table_holds_still_falls_through_to_git(
+        tagged: tuple[Path, str, str]) -> None:
     """A raw SHA, `HEAD` and `main~1` are legitimate inputs and no table has them.
 
     The table is a fast path, not a replacement. A version of this change that
@@ -175,7 +180,8 @@ def _tag_a_non_commit(repo: Path) -> tuple[str, str]:
     return blob, tree
 
 
-def test_a_tag_pointing_at_a_tree_or_a_blob_resolves_to_nothing(git_repo) -> None:
+def test_a_tag_pointing_at_a_tree_or_a_blob_resolves_to_nothing(
+        git_repo: GitRepo) -> None:
     """`ref_table` said `%(*objectname)` is what `^{commit}` does. It is not.
 
     `^{commit}` on a tag that names a tree or a blob resolves to NOTHING - there
@@ -206,7 +212,7 @@ def test_a_tag_pointing_at_a_tree_or_a_blob_resolves_to_nothing(git_repo) -> Non
 
 
 def test_the_table_agrees_with_rev_parse_about_every_ref_in_the_repository(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The equivalence proof, run rather than quoted.
 
     Commit tags, annotated and lightweight, a branch, and the two non-commit
@@ -245,7 +251,7 @@ def test_the_table_agrees_with_rev_parse_about_every_ref_in_the_repository(
 
 
 def test_a_pin_that_names_a_real_tag_asks_no_process_of_its_own(
-        monkeypatch, git_repo) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     """`dead-pinned-ref` went to git directly and never reached `resolve_ref`.
 
     Same question, same tags-before-heads precedence git itself uses, and one
@@ -280,7 +286,7 @@ def test_a_pin_that_names_a_real_tag_asks_no_process_of_its_own(
 
 
 def test_a_pin_naming_a_version_that_does_not_exist_is_still_reported(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The other direction, so the test above cannot pass by going silent."""
     from extant import session as hc
     from extant.rules import pinned_ref
@@ -311,7 +317,8 @@ def test_a_pin_naming_a_version_that_does_not_exist_is_still_reported(
 # tagged at their own name - so it is not zero, and the question is a
 # branch's existence, not a ref's.
 
-def test_a_name_that_is_only_a_tag_is_not_a_branch(tagged) -> None:
+def test_a_name_that_is_only_a_tag_is_not_a_branch(
+        tagged: tuple[Path, str, str]) -> None:
     from extant import session as hc
     from extant.refs import branch_exists
     repo, _first, _second = tagged
@@ -322,7 +329,8 @@ def test_a_name_that_is_only_a_tag_is_not_a_branch(tagged) -> None:
             "a tag named like a branch answered as a branch")
 
 
-def test_a_name_that_is_both_a_tag_and_a_branch_is_a_branch(tagged) -> None:
+def test_a_name_that_is_both_a_tag_and_a_branch_is_a_branch(
+        tagged: tuple[Path, str, str]) -> None:
     from extant import session as hc
     from extant.refs import branch_exists
     repo, _first, _second = tagged
@@ -332,7 +340,7 @@ def test_a_name_that_is_both_a_tag_and_a_branch_is_a_branch(tagged) -> None:
 
 
 def test_a_local_branch_costs_no_process_the_table_already_paid_for(
-        tagged, monkeypatch) -> None:
+        tagged: tuple[Path, str, str], monkeypatch: pytest.MonkeyPatch) -> None:
     """The ref table one `for-each-ref` builds already lists every local
     branch, so asking git again per branch claim was the spawn the review's
     6.4 named as a performance fix wearing a behaviour question's clothing.
@@ -353,7 +361,7 @@ def test_a_local_branch_costs_no_process_the_table_already_paid_for(
 
 
 def test_a_remote_tracking_name_still_resolves_the_way_git_resolves_it(
-        git_repo, tmp_path) -> None:
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """A spelling no table holds - `origin/feature` is a remote-tracking ref,
     not a local head - falls through to git exactly as before, so nothing a
     document names today stops existing."""
@@ -374,7 +382,9 @@ def test_a_remote_tracking_name_still_resolves_the_way_git_resolves_it(
         assert branch_exists(ctx, "feature") is False
 
 
-def test_unknown_branch_reports_a_name_that_is_only_a_tag(tagged, reconfigure) -> None:
+def test_unknown_branch_reports_a_name_that_is_only_a_tag(
+        tagged: tuple[Path, str, str],
+        reconfigure: Reconfigure) -> None:
     """The rule's question is whether the BRANCH exists or a merge commit
     names it; a tag by that name is neither."""
     import re

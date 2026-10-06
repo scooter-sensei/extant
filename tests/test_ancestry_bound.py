@@ -21,9 +21,10 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
-from conftest import committer, described, init_repo
+from conftest import Commit, committer, described, init_repo
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
@@ -44,7 +45,7 @@ def _entry(body: str) -> str:
             f"{body}\n\n## 1. Layout\n")
 
 
-def _build_history(repo: Path, commit) -> dict[str, str]:
+def _build_history(repo: Path, commit: Commit) -> dict[str, str]:
     """main: c1 c2 c3 [merge topic: t1 t2] c4 c5; side: s1 s2 s3, never merged.
 
     Ancestors of main include the root, a second-parent commit and the tip -
@@ -69,7 +70,8 @@ def _build_history(repo: Path, commit) -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
-def history_template(tmp_path_factory) -> tuple[Path, dict[str, str]]:
+def history_template(
+        tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, str]]:
     """The history above, BUILT ONCE - per worker under `-n`.
 
     Every test in this file asked the same questions of the same shape and
@@ -87,7 +89,9 @@ def history_template(tmp_path_factory) -> tuple[Path, dict[str, str]]:
 
 
 @pytest.fixture
-def history(tmp_path, history_template) -> tuple[Path, dict[str, str]]:
+def history(
+        tmp_path: Path,
+        history_template: tuple[Path, dict[str, str]]) -> tuple[Path, dict[str, str]]:
     """One test's own copy of the history, where `git_repo` would have put it."""
     template, ids = history_template
     repo = tmp_path / "repo"
@@ -96,7 +100,7 @@ def history(tmp_path, history_template) -> tuple[Path, dict[str, str]]:
 
 
 def test_a_copied_history_answers_what_a_built_one_answers(
-        history, tmp_path) -> None:
+        history: tuple[Path, dict[str, str]], tmp_path: Path) -> None:
     """Catches the template drifting from the shape every test here reads.
 
     Built the long way with the same helper, then compared on the properties
@@ -136,12 +140,12 @@ def test_a_copied_history_answers_what_a_built_one_answers(
                 == git(built, "log", "-1", "--format=%s", built_ids[name])), name
 
 
-def _spawns(monkeypatch) -> list[tuple[list[str], bytes | str | None]]:
+def _spawns(monkeypatch: pytest.MonkeyPatch) -> list[tuple[list[str], object]]:
     """Every git process at the subprocess boundary: (argv, stdin payload)."""
-    real = subprocess.run
-    seen: list[tuple[list[str], bytes | str | None]] = []
+    real: Callable[..., object] = subprocess.run
+    seen: list[tuple[list[str], object]] = []
 
-    def counted(cmd, *a, **kw):
+    def counted(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             seen.append(([str(c) for c in cmd[1:]], kw.get("input")))
         return real(cmd, *a, **kw)
@@ -150,7 +154,8 @@ def _spawns(monkeypatch) -> list[tuple[list[str], bytes | str | None]]:
     return seen
 
 
-def _batches(seen) -> list[tuple[list[str], bytes | str | None]]:
+def _batches(seen: list[tuple[list[str], object]]
+             ) -> list[tuple[list[str], object]]:
     return [(argv, payload) for argv, payload in seen if "--stdin" in argv
             and argv[0] == "rev-list"]
 
@@ -158,7 +163,7 @@ def _batches(seen) -> list[tuple[list[str], bytes | str | None]]:
 BOUNDS = (1, 3, None)   # None means the shipped default
 
 
-def _bound(monkeypatch, value):
+def _bound(monkeypatch: pytest.MonkeyPatch, value: int | None) -> int:
     from extant import refs
     if value is not None:
         monkeypatch.setattr(refs, "INDEX_BOUND", value)
@@ -167,7 +172,9 @@ def _bound(monkeypatch, value):
 
 # --- the index itself --------------------------------------------------------
 
-def test_a_hit_is_proof_and_a_miss_asks_only_past_the_bound(history, monkeypatch) -> None:
+def test_a_hit_is_proof_and_a_miss_asks_only_past_the_bound(
+        history: tuple[Path, dict[str, str]],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     from extant import refs
     from extant import session as hc
     repo, ids = history
@@ -192,7 +199,9 @@ def test_a_hit_is_proof_and_a_miss_asks_only_past_the_bound(history, monkeypatch
         ["rev-list", "-n", "3", "main"]], "one bounded rev-list per ref per scope"
 
 
-def test_the_default_bound_indexes_a_small_history_completely(history, monkeypatch) -> None:
+def test_the_default_bound_indexes_a_small_history_completely(
+        history: tuple[Path, dict[str, str]],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     from extant import refs
     from extant import session as hc
     repo, ids = history
@@ -212,7 +221,9 @@ def test_the_default_bound_indexes_a_small_history_completely(history, monkeypat
 # --- the rules, under every bound -------------------------------------------
 
 @pytest.mark.parametrize("bound", BOUNDS)
-def test_the_merge_rule_answers_the_same_under_every_bound(history, monkeypatch, bound) -> None:
+def test_the_merge_rule_answers_the_same_under_every_bound(
+        history: tuple[Path, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
+        bound: int | None) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     repo, ids = history
@@ -228,7 +239,9 @@ def test_the_merge_rule_answers_the_same_under_every_bound(history, monkeypatch,
 
 
 @pytest.mark.parametrize("bound", BOUNDS)
-def test_the_release_rule_answers_the_same_under_every_bound(history, monkeypatch, bound) -> None:
+def test_the_release_rule_answers_the_same_under_every_bound(
+        history: tuple[Path, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
+        bound: int | None) -> None:
     from extant import session as hc
     from extant.rules import release_tag as rule_release
     repo, ids = history
@@ -244,7 +257,9 @@ def test_the_release_rule_answers_the_same_under_every_bound(history, monkeypatc
 
 
 @pytest.mark.parametrize("bound", BOUNDS)
-def test_the_live_claim_rule_answers_the_same_under_every_bound(history, monkeypatch, bound) -> None:
+def test_the_live_claim_rule_answers_the_same_under_every_bound(
+        history: tuple[Path, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
+        bound: int | None) -> None:
     from extant import session as hc
     from extant.rules import live_claim as rule_live
     repo, ids = history
@@ -260,7 +275,9 @@ def test_the_live_claim_rule_answers_the_same_under_every_bound(history, monkeyp
 
 # --- the batch: one per rule and ref, full SHAs, none when nothing misses ----
 
-def test_one_batch_per_rule_and_ref_fed_full_shas(history, monkeypatch) -> None:
+def test_one_batch_per_rule_and_ref_fed_full_shas(
+        history: tuple[Path, dict[str, str]],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     from extant.rules import release_tag as rule_release
@@ -285,12 +302,16 @@ def test_one_batch_per_rule_and_ref_fed_full_shas(history, monkeypatch) -> None:
         assert isinstance(payload, bytes), "fed as bytes; text mode writes CRLF on Windows"
         lines = payload.decode("ascii").split("\n")
         assert lines[-1] == "" and all(HEX40.match(line) for line in lines[:-1]), lines
-    fed = set(batches[0][1].decode("ascii").split())
+    first = batches[0][1]
+    assert isinstance(first, bytes), first
+    fed = set(first.decode("ascii").split())
     assert fed == {ids["c1"], ids["t1"], ids["s2"]}, (
         "the abbreviated claims were widened to the full SHAs cat-file returned")
 
 
-def test_nothing_is_fed_that_the_index_already_holds(history, monkeypatch) -> None:
+def test_nothing_is_fed_that_the_index_already_holds(
+        history: tuple[Path, dict[str, str]],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     repo, ids = history
@@ -303,7 +324,9 @@ def test_nothing_is_fed_that_the_index_already_holds(history, monkeypatch) -> No
     assert _batches(seen) == [], "the tip is the first line of the bounded index"
 
 
-def test_a_settled_answer_is_not_asked_twice_in_one_run(history, monkeypatch) -> None:
+def test_a_settled_answer_is_not_asked_twice_in_one_run(
+        history: tuple[Path, dict[str, str]],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     repo, ids = history
@@ -319,15 +342,17 @@ def test_a_settled_answer_is_not_asked_twice_in_one_run(history, monkeypatch) ->
 
 # --- the abort, the memo's key, and the token memo --------------------------
 
-def test_an_aborted_batch_falls_back_to_one_merge_base_per_miss(history, monkeypatch) -> None:
+def test_an_aborted_batch_falls_back_to_one_merge_base_per_miss(
+        history: tuple[Path, dict[str, str]],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     from extant import refs
     from extant import session as hc
     from extant.git import CountingGit, SubprocessGit
     repo, ids = history
     _bound(monkeypatch, 1)
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def aborting(cmd, *a, **kw):
+    def aborting(cmd: Sequence[str], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git" and "--stdin" in cmd:
             return subprocess.CompletedProcess(cmd, 128, b"", b"fatal: bad revision\n")
         return real(cmd, *a, **kw)
@@ -345,7 +370,9 @@ def test_an_aborted_batch_falls_back_to_one_merge_base_per_miss(history, monkeyp
         "the fallback is one merge-base per miss, and it answered")
 
 
-def test_settled_answers_are_keyed_by_repository(history, tmp_path, monkeypatch) -> None:
+def test_settled_answers_are_keyed_by_repository(
+        history: tuple[Path, dict[str, str]], tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """Two repositories with a `main` each, one run scope, a commit only one
     of them holds: the first repository's yes must not leak into the second."""
     import shutil
@@ -364,7 +391,8 @@ def test_settled_answers_are_keyed_by_repository(history, tmp_path, monkeypatch)
         assert refs.reachable_from(hc.context(repo), only_there, "main") is False
 
 
-def test_tokens_are_memoised_as_the_full_sha_git_returned(history) -> None:
+def test_tokens_are_memoised_as_the_full_sha_git_returned(
+        history: tuple[Path, dict[str, str]]) -> None:
     from extant import refs
     from extant import session as hc
     repo, ids = history
@@ -384,7 +412,7 @@ def test_tokens_are_memoised_as_the_full_sha_git_returned(history) -> None:
 
 
 def test_a_token_not_yet_resolved_is_resolved_the_way_dead_sha_resolves_it(
-        history, monkeypatch) -> None:
+        history: tuple[Path, dict[str, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     """One token, one resolver: a SHA-shaped rev that no batch has seen goes
     through `cat-file --batch-check`, never through the ref table."""
     from extant import refs

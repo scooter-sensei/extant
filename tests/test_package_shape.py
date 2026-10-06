@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import GitRepo
+
 REPO = Path(__file__).resolve().parent.parent
 PAYLOAD = REPO / "plugin" / "skills" / "extant" / "payload"
 
@@ -28,7 +30,7 @@ def test_package_version_matches_pyproject() -> None:
         f"package says {extant.__version__}, pyproject says {declared.group(1)}")
 
 
-def test_shim_refuses_a_mismatched_package(tmp_path) -> None:
+def test_shim_refuses_a_mismatched_package(tmp_path: Path) -> None:
     """The failure mode this guards: a user has locally modified
     tools/extant_collect.py, install refuses to overwrite it, the new package
     lands beside it, and the OLD shim keeps running while everything looks
@@ -51,7 +53,7 @@ def test_shim_refuses_a_mismatched_package(tmp_path) -> None:
         "the failure did not say what was wrong")
 
 
-def test_installer_copies_the_whole_package(tmp_path) -> None:
+def test_installer_copies_the_whole_package(tmp_path: Path) -> None:
     """A directory copy that silently drops files leaves a package that
     imports until it reaches the missing module.
     """
@@ -76,7 +78,7 @@ def test_installer_copies_the_whole_package(tmp_path) -> None:
     assert actions, "copy_payload reported nothing it did"
 
 
-def test_git_helpers_differ_in_their_failure_behaviour(git_repo) -> None:
+def test_git_helpers_differ_in_their_failure_behaviour(git_repo: GitRepo) -> None:
     """`run` raises where `soft` swallows. Collapsing them turns error paths
     into success paths, which is silent by construction.
 
@@ -126,7 +128,7 @@ def test_git_helpers_differ_in_their_failure_behaviour(git_repo) -> None:
         raise AssertionError("run must raise on failure, not return empty")
 
 
-def test_the_base_git_refuses_to_answer_rather_than_guessing(git_repo) -> None:
+def test_the_base_git_refuses_to_answer_rather_than_guessing(git_repo: GitRepo) -> None:
     """`Git` itself is not a working implementation, and must not become one.
 
     A base class that returned "" from both methods would satisfy every caller
@@ -148,7 +150,7 @@ def test_the_base_git_refuses_to_answer_rather_than_guessing(git_repo) -> None:
             f"that returns a value makes every rule silently pass")
 
 
-def test_counting_git_records_one_entry_per_call(git_repo) -> None:
+def test_counting_git_records_one_entry_per_call(git_repo: GitRepo) -> None:
     """One entry per call, including a soft one.
 
     The wrapper-counting this replaces saw TWO for every soft call, because
@@ -213,7 +215,8 @@ def test_finding_fields_are_frozen_and_ordered() -> None:
     assert [f.name for f in dataclasses.fields(Located)] == [
         "path", "finding", "primary", "gating", "stratum"]
     try:
-        Finding(1, "k", "d").line = 2
+        # Assigning to a frozen field on purpose: the raise is the subject.
+        Finding(1, "k", "d").line = 2  # type: ignore[misc]
     except dataclasses.FrozenInstanceError:
         pass
     else:

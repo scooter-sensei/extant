@@ -20,20 +20,29 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Literal
+
+import pytest
+
+from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.contract import Rule
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _counting_anchors(monkeypatch) -> list[str]:
+def _counting_anchors(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Replace the rule's binding of `anchors` with one that records its calls."""
+    from extant.anchors import anchors as real
     from extant.rules import md_anchor as rule_md_anchor
 
     slugged: list[str] = []
-    real = rule_md_anchor.anchors
 
-    def counted(text: str):
+    def counted(text: str) -> set[str]:
         slugged.append(text)
         return real(text)
 
@@ -42,7 +51,7 @@ def _counting_anchors(monkeypatch) -> list[str]:
 
 
 def test_own_headings_are_not_slugged_for_a_document_with_no_same_document_fragment(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A document with headings and links but no `#fragment` into itself
     offers nothing the slugging could decide, so it is not asked for."""
     from extant import session as hc
@@ -59,7 +68,7 @@ def test_own_headings_are_not_slugged_for_a_document_with_no_same_document_fragm
 
 
 def test_a_same_document_fragment_reads_the_headings_once(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The headings are still read where a fragment needs them - once, not
     once per fragment - and the verdicts are the ones they always were."""
     from extant import session as hc
@@ -77,7 +86,9 @@ def test_a_same_document_fragment_reads_the_headings_once(
         "fragments; one read answers all of them")
 
 
-def _fake_rule(kind: str, scope: str, examined):
+def _fake_rule(kind: str,
+               scope: Literal["whole-file", "newest-entry", "repository"],
+               examined: Callable[[Context, str], int]) -> Rule:
     from extant.contract import Rule
     return Rule(kind=kind, sequence=99, check=lambda ctx, text: [],
                 scope=scope, in_archive=False, falsifiable="a fixture",
@@ -85,7 +96,7 @@ def _fake_rule(kind: str, scope: str, examined):
 
 
 def test_count_examined_skips_the_denominator_of_a_rule_the_caller_excludes(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """`applies` says which rules read this document; the others are not
     asked. A denominator that RAISES for an excluded rule is neither counted
     nor recorded as an error - its `check` never ran either, so recording it
@@ -94,7 +105,7 @@ def test_count_examined_skips_the_denominator_of_a_rule_the_caller_excludes(
     from extant import session as hc
     repo, _commit = git_repo
 
-    def exploding(ctx, text):
+    def exploding(ctx: Context, text: str) -> int:
         raise RuntimeError("asked for a denominator nobody will read")
 
     fake = _fake_rule("fake-entry-rule", "newest-entry", exploding)
@@ -117,7 +128,7 @@ def test_count_examined_skips_the_denominator_of_a_rule_the_caller_excludes(
 
 
 def test_the_sweep_does_not_count_a_denominator_it_discards(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Outside the primary document an entry-scoped rule reads nothing, and
     the sweep prints no count for it - so it must not compute one. Measured
     on ruff, which has no primary document: the two entry-scoped rules'
@@ -130,7 +141,7 @@ def test_the_sweep_does_not_count_a_denominator_it_discards(
 
     asked: list[str] = []
 
-    def recording(ctx, text):
+    def recording(ctx: Context, text: str) -> int:
         asked.append(text)
         return 0
 

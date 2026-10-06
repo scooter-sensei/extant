@@ -17,14 +17,20 @@ from __future__ import annotations
 
 import concurrent.futures
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable, TypeVar
 
 import pytest
 
+from conftest import GitRepo, Reconfigure
 
-def _with_deadline(call, *, seconds: float):
+T = TypeVar("T")
+
+
+def _with_deadline(call: Callable[[], T], *, seconds: float) -> T:
     """Run `call`, failing the test rather than hanging the suite.
 
     The thread cannot be killed - `re` holds the GIL while matching, which is
@@ -58,7 +64,8 @@ VALUE = re.compile(r'"v": "([^"]+)"')
 
 
 def test_a_timeout_turns_a_hang_into_a_finding(
-        git_repo, monkeypatch, reconfigure) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        reconfigure: Reconfigure) -> None:
     from extant import session as hc
     from extant.rules import consistency as rule_consistency
     from extant.rules import consistency as rule
@@ -90,7 +97,9 @@ def test_a_timeout_turns_a_hang_into_a_finding(
     assert any("gave up" in f.detail for f in findings), [f.detail for f in findings]
 
 
-def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
+def test_the_default_spawns_nothing(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        reconfigure: Reconfigure) -> None:
     """The control, and the reason this is opt-in.
 
     If the default reached for a subprocess, every user would pay a spawn per
@@ -110,17 +119,20 @@ def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
     reconfigure(consistency_timeout=None)
 
     spawned: list[object] = []
-    # The rule's OWN subprocess module, not one re-exported by whatever the
-    # test imported the tool under. `hc.subprocess` worked only because the
-    # shim happened to `import subprocess` itself, so the patch was landing on
-    # a module object the rule reached by coincidence rather than by call.
-    real_run = rule.subprocess.run
+    # The module the rule calls through: it does `import subprocess` and calls
+    # `subprocess.run`, so this patch is what it reaches. Not one re-exported
+    # by whatever the test imported the tool under: `hc.subprocess` worked
+    # only because the shim happened to `import subprocess` itself, so the
+    # patch was landing on a module object the rule reached by coincidence
+    # rather than by call. (`rule.subprocess` is this same object, which the
+    # rule does not export.)
+    real_run: Callable[..., object] = subprocess.run
 
-    def watched(*args, **kwargs):
+    def watched(*args: object, **kwargs: object) -> object:
         spawned.append(args)
         return real_run(*args, **kwargs)
 
-    monkeypatch.setattr(rule.subprocess, "run", watched)
+    monkeypatch.setattr(subprocess, "run", watched)
 
     findings = rule_consistency.check(hc.context(repo), "")
     assert any("disagree" in f.detail for f in findings), [f.detail for f in findings]
@@ -128,7 +140,8 @@ def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
 
 
 def test_a_bounded_search_still_returns_the_captured_value(
-        git_repo, monkeypatch, reconfigure) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        reconfigure: Reconfigure) -> None:
     """The other control. A timeout that broke normal matching would make every
     consistency check report a disagreement between a value and nothing."""
     from extant import session as hc

@@ -117,6 +117,7 @@ def test_no_function_outgrows_the_reason_for_this_split() -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                assert node.end_lineno is not None, node.name
                 span = node.end_lineno - node.lineno + 1
                 where = (f"{path.relative_to(PACKAGE).as_posix()}:"
                         f"{node.name}:{node.lineno}")
@@ -155,7 +156,9 @@ def test_the_package_has_no_import_cycles() -> None:
     assert graph, "no modules parsed; this test would pass vacuously"
     print(f"checked {len(graph)} modules for import cycles")
 
-    seen, stack, cycles = set(), [], []
+    seen: set[str] = set()
+    stack: list[str] = []
+    cycles: list[str] = []
 
     def walk(node: str) -> None:
         if node in stack:
@@ -406,7 +409,7 @@ def test_no_rule_counts_what_it_will_not_judge() -> None:
         top = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
         local = set(top)
 
-        def called(node) -> set:
+        def called(node: ast.AST) -> set[str]:
             """Module-level functions this one calls, at any nesting depth."""
             return {c.func.id for c in ast.walk(node)
                     if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)

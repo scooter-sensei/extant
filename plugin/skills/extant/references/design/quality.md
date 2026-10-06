@@ -2474,3 +2474,123 @@ capture groups, which the configuration loader refuses - and the rest read
 so far are idioms: a cached helper redefined over the one that filled the
 cache, `append(...) or {}` in a monkeypatched lambda, private names reached
 across modules.
+
+## The tests typed: 1,640 errors, and a test of a pattern the tool refuses
+
+Phase 67, the second half of the type-checking tranche: `tests` and
+`.github/scripts` join `[tool.mypy]` files, so the self-check job's mypy
+step now holds every Python file the project maintains. The release gate
+`publish.yml` runs was the last one outside it.
+
+**Measured first**, with the repository's own settings and those two
+directories added, under mypy 2.4.0, the version CI's self-check job
+installed on the pull request before (2.3.1 here gave the same 1,640, line
+for line): 1,640 errors in 79 of 146 files, the tests' 1,637 and the
+gate's 3. Of the tests', 1,271 were `no-untyped-def`, 252 calls into
+functions those leave untyped, 18 bare generics, and 96 beyond an
+annotation - all 96 read in context, not sampled.
+
+**A correction, dated 2026-10-06.** The section above gives the second
+half as "1,331 of them a missing `-> None`". The messages say otherwise:
+986 were functions whose fixture parameters carried no type, 185 had
+nothing annotated, 100 lacked only a return type, and mypy suggested
+`-> None` for 56. The figure counted one error code; the sentence
+described a different shape inside it.
+
+**By script, then by hand.** Unannotated parameters by where their value
+comes from: 874 a project fixture (`git_repo` 768 of them), 471 a pytest
+builtin, 182 a helper's own, 66 a `parametrize` argument. So a script
+annotated by NAME, only on a test or a fixture, and only a name no
+`parametrize` on that function claims: 1,305 parameters and 153 `-> None`
+in 69 files, after the eleven fixtures that declared no type were given
+one by hand. Its imports follow the house layout, and a second pass
+rewrapped the 234 signatures it pushed past 89 columns - the suite's own
+width, which 26 signature lines exceeded before - in the suite's own
+form. 1,640 became 579; the rest is hand work. conftest.py names the
+shapes most tests take: `Commit`, `GitRepo` (`tuple[Path, Commit]`) and
+`Reconfigure`. Both scripts are in the measurement apparatus
+(`m27_annotate.py`, `m27_rewrap.py`).
+
+**The test outside the domain.**
+`test_a_top_level_alternative_without_the_literal_keeps_the_full_scan` set
+`path_pointer` to a pattern with a capture group in each alternative. The
+loader refuses `path_pointer` with any count but one, and the test
+asserted sites holding tuples, which `_path_pointer_sites_uncached` never
+returns. Its subject - a literal mandatory in one alternative and absent
+from the other gates nothing - holds in the domain, and the obvious
+rewrite would have lost it: `(?:see `|read )(...)` has one group, but its
+backtick sits inside a group, where `required_literals` never looks, so
+the top-level `|` branch would go untested. The test now reads `` see
+`([\w./-]+\.md)`|read [\w./-]+\.md ``. The alternation stays top-level;
+the second alternative captures nothing, and `findall` hands back `""`
+for it, which is a site - what tells a scanned line from a gated one. It
+was watched red against `mutate.py`'s "the derivation ignores a top-level
+alternation" and green without it.
+
+**Names a module does not export: 14 errors in 9 files, each import
+rewritten** to where the name is defined, as decided over a per-module
+setting, which would also have admitted every later case unseen.
+`Finding` from `extant.finding`; `main` from `extant.cli` (the same
+object the shim binds; these tests call it in process); `anchors` and
+`project_anchors` from their modules, while the patch still replaces the
+rule's own binding; `subprocess` and `time` imported by the test, the
+same module objects the rule and the gate call through; Hypothesis's
+`Constants` from `constants_ast`.
+
+**Nine suppressions in the tests**, one code each, the reason on the line
+above:
+- six deliberate violations: two frozen fields assigned to prove they
+  raise (`misc`), the wrong config type passed to test the message it
+  raises, two `None` contexts a rule must never read, and the one
+  replace-by-field-name line (`arg-type` each). That last one was two
+  copies; it is one conftest helper, `configured`, which the
+  `reconfigure` fixture and a plain helper both call;
+- three `import tomllib` (`import-not-found`). A switch on
+  `sys.version_info` needs no suppression, and was the design; the suite
+  refused it, because test_packaging.py's floor check accepts a `tomllib`
+  import only under try/except. So they carry extant/config.py's form and
+  its suppression, for its reason.
+Three stale suppressions went.
+
+**Seven explicit `Any`**, where the package has none: each where a parsed
+document crosses a function boundary and its keys are then read - three
+SARIF documents or result lists, corpus_render.py's figures twice, the
+installer's TOML twice. A TypedDict per document would restate its
+writer here, and a key the writer did not produce raises in the test that
+reads it. Every other parsed document stays an unannotated local or is
+narrowed with `isinstance` before it is returned; 22 narrowings in all,
+`extant.collect`'s `dict[str, object]` bundle among them, since typing
+the bundle would have changed the payload.
+
+**Spies** that forward to `subprocess.run`, `open` or a rule function
+hold the original as `Callable[..., object]` and return `object`: their
+result is read only by the code under test, through `monkeypatch`, which
+mypy does not check against the original. An import an annotation alone
+needs is taken at run time where that costs nothing - a name from
+`typing`, `types`, `re` or `pathlib`, `pytest`, one of conftest's
+aliases, or one more name from a module the test already imports - and
+under `TYPE_CHECKING` otherwise, as the package's `Config`, `Context`,
+`Finding` and `Rule` are in 18 files. So no test imports a module at run
+time that it did not import before, beyond the standard library,
+`pytest`, conftest and the rewritten imports above (`extant.finding`,
+`extant.cli`, `extant.anchors`, Hypothesis's `constants_ast`); every
+name taken at run time exists on 3.9, and conftest's aliases are
+subscriptions 3.9 evaluates.
+
+**Found on the way:** `_gate` in test_introduced_since.py said it returned
+(exit code, stdout, stderr) and returns the exit code. The gate script's
+`fetch` returned the API's `workflow_runs` unchecked; anything but a list
+now reads as no run found, which fails the gate.
+
+**Cost.** A cold `python -m mypy` took 4 seconds over 60 files and takes 9
+over 146; warm, under one either way.
+
+**Gated, Phase 67.** 1,697 tests: on Windows 1,689 pass and 8 skip on
+each code commit's own tree and the tip, on Linux 1,695 and 2,
+serially and in CI's shuffled order. mypy clean on 60 files for the
+first two commits and on 146 for the third; 452 anchors match on every
+tree. `--verify` exits 0 on every tree and on a main-only clone with the
+branch merged; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since origin/main` reads 180 introduced lines with
+0 findings. Neither the payload nor a harness changed, so neither the
+identity gate nor the chain was run.

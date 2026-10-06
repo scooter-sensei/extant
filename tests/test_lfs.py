@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
+
 POINTER = ("version https://git-lfs.github.com/spec/v1\n"
            "oid sha256:" + "a" * 64 + "\nsize 4096\n")
 
@@ -47,7 +49,7 @@ def commit_raw(repo: Path, rel: str, content: str, message: str) -> None:
 
 
 @pytest.fixture()
-def lfs_repo(git_repo):
+def lfs_repo(git_repo: GitRepo) -> GitRepo:
     """A repo whose .gitattributes routes binaries to LFS.
 
     Pointer files are written by hand rather than through the LFS binary,
@@ -64,7 +66,7 @@ def lfs_repo(git_repo):
     return repo, commit
 
 
-def test_a_binary_stored_raw_under_an_lfs_filter_is_reported(lfs_repo) -> None:
+def test_a_binary_stored_raw_under_an_lfs_filter_is_reported(lfs_repo: GitRepo) -> None:
     """The bug this rule exists for, and it is silent everywhere else.
 
     A binary committed from a clone with no LFS filter installed. Git accepts
@@ -84,7 +86,7 @@ def test_a_binary_stored_raw_under_an_lfs_filter_is_reported(lfs_repo) -> None:
     assert "Assets/raw.wav" in findings[0].detail
 
 
-def test_a_proper_pointer_is_silent(lfs_repo) -> None:
+def test_a_proper_pointer_is_silent(lfs_repo: GitRepo) -> None:
     """The direction that stops the rule flagging every asset in the project."""
     from extant import session as hc
     from extant.rules import lfs as rule_lfs
@@ -94,7 +96,7 @@ def test_a_proper_pointer_is_silent(lfs_repo) -> None:
     assert rule_lfs.check(hc.context(repo), "") == []
 
 
-def test_a_file_outside_every_lfs_pattern_is_ignored(lfs_repo) -> None:
+def test_a_file_outside_every_lfs_pattern_is_ignored(lfs_repo: GitRepo) -> None:
     """`.gitattributes` claims nothing about a .cs file, so neither does this."""
     from extant import session as hc
     from extant.rules import lfs as rule_lfs
@@ -104,7 +106,7 @@ def test_a_file_outside_every_lfs_pattern_is_ignored(lfs_repo) -> None:
     assert rule_lfs.check(hc.context(repo), "") == []
 
 
-def test_a_repository_without_lfs_is_silent_and_cheap(git_repo) -> None:
+def test_a_repository_without_lfs_is_silent_and_cheap(git_repo: GitRepo) -> None:
     """Most projects do not use LFS and must pay nothing.
 
     Measured at 0 ms against this repository, against 262 ms for a 7802-file
@@ -119,7 +121,7 @@ def test_a_repository_without_lfs_is_silent_and_cheap(git_repo) -> None:
     assert rule_lfs._lfs_governed(hc.context(repo)) == []
 
 
-def test_the_denominator_counts_every_governed_path(lfs_repo) -> None:
+def test_the_denominator_counts_every_governed_path(lfs_repo: GitRepo) -> None:
     """The failure that made this rule look perfect while it was 75% blind.
 
     Paths were piped to `git check-attr` with text=True, so Windows appended a
@@ -141,7 +143,7 @@ def test_the_denominator_counts_every_governed_path(lfs_repo) -> None:
                         "Assets/c.wav", "Assets/d.wav"}, governed
 
 
-def test_a_path_with_a_space_is_still_examined(lfs_repo) -> None:
+def test_a_path_with_a_space_is_still_examined(lfs_repo: GitRepo) -> None:
     """Git QUOTES paths containing spaces or non-ASCII unless asked for `-z`,
     and game projects are full of both. A line-and-colon parse skips exactly
     those assets, silently."""
@@ -156,7 +158,7 @@ def test_a_path_with_a_space_is_still_examined(lfs_repo) -> None:
     assert [f.kind for f in rule_lfs.check(hc.context(repo), "")] == ["raw-lfs-blob"]
 
 
-def test_a_large_raw_binary_is_judged_without_reading_it(lfs_repo) -> None:
+def test_a_large_raw_binary_is_judged_without_reading_it(lfs_repo: GitRepo) -> None:
     """A blob larger than any pointer is settled by its size alone. That is
     what keeps the rule affordable on a repository of real assets, so it must
     still be REPORTED rather than skipped as unreadable."""
@@ -171,7 +173,7 @@ def test_a_large_raw_binary_is_judged_without_reading_it(lfs_repo) -> None:
     assert "40000-byte" in findings[0].detail
 
 
-def test_the_rule_reads_the_committed_tree_not_the_index(lfs_repo) -> None:
+def test_the_rule_reads_the_committed_tree_not_the_index(lfs_repo: GitRepo) -> None:
     """Reading `git ls-files` made the rule examine ZERO paths on a repository
     whose checkout had not completed, while .gitattributes sat there declaring
     47 LFS patterns. It runs after a commit, so the committed tree is the thing
@@ -248,7 +250,8 @@ def test_the_engine_presets_check_the_version_files_that_really_hold_it() -> Non
          'config_version=5\nconfig/features=PackedStringArray("4.7", "C#")\n', "4.7"),
     ],
 )
-def test_each_preset_pattern_matches_the_real_string(preset, path, text, expected) -> None:
+def test_each_preset_pattern_matches_the_real_string(
+        preset: str, path: str, text: str, expected: str) -> None:
     """Verbatim strings from the two projects. A consistency block whose
     patterns match nothing reports agreement vacuously, which is worse than
     having no block at all - so each side is pinned to a real capture."""
@@ -267,7 +270,7 @@ def test_each_preset_pattern_matches_the_real_string(preset, path, text, expecte
     assert match.group(1) == expected
 
 
-def test_an_empty_file_under_a_filter_is_not_a_violation(git_repo) -> None:
+def test_an_empty_file_under_a_filter_is_not_a_violation(git_repo: GitRepo) -> None:
     """git-lfs passes zero bytes through rather than writing a pointer.
 
     There is nothing to store, so a 0-byte blob under an LFS filter is LFS
@@ -298,7 +301,7 @@ def test_an_empty_file_under_a_filter_is_not_a_violation(git_repo) -> None:
     )
 
 
-def test_a_non_empty_raw_blob_is_still_a_violation(git_repo) -> None:
+def test_a_non_empty_raw_blob_is_still_a_violation(git_repo: GitRepo) -> None:
     """The other half. Skipping by size must not become skipping the rule."""
     from extant import session as hc
     from extant.rules import lfs as rule_lfs

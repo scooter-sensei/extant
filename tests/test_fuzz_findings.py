@@ -20,15 +20,22 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
+
+from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from fuzz import RepoPlan
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _sweep(repo: Path, *extra: str):
+def _sweep(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     """Drive the real entry point, so the test sees what a consumer sees."""
     return subprocess.run(
         [sys.executable, str(PAYLOAD / "extant_collect.py"), "--sweep",
@@ -36,7 +43,7 @@ def _sweep(repo: Path, *extra: str):
         capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
-def _repo_without_markdown(git_repo) -> Path:
+def _repo_without_markdown(git_repo: GitRepo) -> Path:
     repo, commit = git_repo
     commit("f.txt", "not a document\n", "chore: a file git tracks")
     return repo
@@ -44,7 +51,8 @@ def _repo_without_markdown(git_repo) -> Path:
 
 # --- seed 1, property FORMATS: a machine format went silent ------------
 
-def test_a_sweep_with_no_documents_still_emits_a_sarif_document(git_repo) -> None:
+def test_a_sweep_with_no_documents_still_emits_a_sarif_document(
+        git_repo: GitRepo) -> None:
     """Empty stdout and "I examined nothing" are different facts.
 
     The fuzzer generated a repository git tracked no markdown in and asked for
@@ -66,7 +74,7 @@ def test_a_sweep_with_no_documents_still_emits_a_sarif_document(git_repo) -> Non
     assert doc["runs"][0].get("results") == [], doc["runs"][0].get("results")
 
 
-def test_that_sarif_document_carries_a_denominator_of_zero(git_repo) -> None:
+def test_that_sarif_document_carries_a_denominator_of_zero(git_repo: GitRepo) -> None:
     """A report with no results has to say how much it looked at.
 
     Zero results and zero documents examined are the same output without this,
@@ -84,7 +92,7 @@ def test_that_sarif_document_carries_a_denominator_of_zero(git_repo) -> None:
     assert all(n == 0 for n in examined.values()), examined
 
 
-def test_the_text_sweep_is_unchanged_by_that_fix(git_repo) -> None:
+def test_the_text_sweep_is_unchanged_by_that_fix(git_repo: GitRepo) -> None:
     """The diagnostic belonged on stderr and still does.
 
     Text output was already honest here - it says so in a sentence. Catches a
@@ -99,7 +107,7 @@ def test_the_text_sweep_is_unchanged_by_that_fix(git_repo) -> None:
     assert "git tracks none in this repository" in done.stderr, done.stderr
 
 
-def test_a_sweep_that_does_find_documents_is_untouched(git_repo) -> None:
+def test_a_sweep_that_does_find_documents_is_untouched(git_repo: GitRepo) -> None:
     """The guard must apply only to the empty case.
 
     Catches a fix that took the early return for every sweep, which would make
@@ -117,15 +125,18 @@ def test_a_sweep_that_does_find_documents_is_untouched(git_repo) -> None:
 # --- seed 20260824, property DENOMINATOR: found > examined --------------
 
 
-def _examined(doc: dict) -> dict:
+# `doc` is a SARIF document as `json.loads` returns it.
+def _examined(doc: dict[str, Any]) -> dict[str, int]:
     """The per-rule denominators out of a SARIF run, wherever they are."""
     run = doc["runs"][0]
-    return (run.get("properties", {}).get("examined")
-            or (run.get("invocations") or [{}])[0]
-            .get("properties", {}).get("examined"))
+    examined = (run.get("properties", {}).get("examined")
+                or (run.get("invocations") or [{}])[0]
+                .get("properties", {}).get("examined"))
+    assert isinstance(examined, dict), run
+    return examined
 
 
-def _anchor_repo(git_repo, link: str) -> Path:
+def _anchor_repo(git_repo: GitRepo, link: str) -> Path:
     repo, commit = git_repo
     commit("docs/note.md", "# Note\n\n## A real heading\n\ntext\n",
            "docs: a note with one heading")
@@ -135,7 +146,7 @@ def _anchor_repo(git_repo, link: str) -> Path:
 
 
 def test_a_cross_file_anchor_is_counted_by_the_rule_that_judges_it(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """A finding against a denominator of zero says two opposite things.
 
     `dead-md-anchor` judges `[x](docs/note.md#heading)` and its denominator
@@ -168,7 +179,7 @@ def test_a_cross_file_anchor_is_counted_by_the_rule_that_judges_it(
 
 
 def test_the_widened_denominator_counts_sites_rather_than_hashes(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """Both callers must read the sites the rule can DECIDE, not every `#`.
 
     A denominator that counted anchors the rule declines to judge would be
@@ -187,7 +198,7 @@ def test_the_widened_denominator_counts_sites_rather_than_hashes(
 
 
 def test_an_anchor_on_a_file_that_is_not_there_is_still_not_counted(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The other half of the same property, in its own case.
 
     `dead-md-link` owns a target that does not resolve, and this rule has
@@ -204,7 +215,7 @@ def test_an_anchor_on_a_file_that_is_not_there_is_still_not_counted(
     assert _examined(doc)["dead-md-anchor"] == 0, _examined(doc)
 
 
-def _floor_repo(git_repo, stated: str) -> Path:
+def _floor_repo(git_repo: GitRepo, stated: str) -> Path:
     repo, commit = git_repo
     commit("pyproject.toml", '[project]\nname = "w"\nrequires-python = ">=3.9"\n',
            "chore: a manifest that declares a floor")
@@ -214,7 +225,7 @@ def _floor_repo(git_repo, stated: str) -> Path:
     return repo
 
 
-def test_a_sweep_counts_the_manifest_floor_claims_it_reports(git_repo) -> None:
+def test_a_sweep_counts_the_manifest_floor_claims_it_reports(git_repo: GitRepo) -> None:
     """The same conflation reached through the survey rather than the rule.
 
     `manifest-floor-mismatch` keys on WHICH document it is reading, and a
@@ -238,7 +249,7 @@ def test_a_sweep_counts_the_manifest_floor_claims_it_reports(git_repo) -> None:
     assert examined["manifest-floor-mismatch"] >= len(found), examined
 
 
-def test_a_sweep_counts_a_floor_the_manifest_agrees_with(git_repo) -> None:
+def test_a_sweep_counts_a_floor_the_manifest_agrees_with(git_repo: GitRepo) -> None:
     """Examined is the population, not the findings.
 
     A denominator that only appeared when the rule spoke would report perfect
@@ -258,7 +269,7 @@ def test_a_sweep_counts_a_floor_the_manifest_agrees_with(git_repo) -> None:
 # --- seed 20260824, property DENOMINATOR: one fault reported twice ------
 
 
-def _lfs_repo(git_repo) -> Path:
+def _lfs_repo(git_repo: GitRepo) -> Path:
     """A raw blob at a path `.gitattributes` routes through an LFS filter.
 
     Written past the filter with `hash-object --no-filters` and straight into
@@ -287,7 +298,7 @@ def _lfs_repo(git_repo) -> Path:
     return repo
 
 
-def test_a_repository_rule_reports_its_one_fault_once(git_repo) -> None:
+def test_a_repository_rule_reports_its_one_fault_once(git_repo: GitRepo) -> None:
     """One repository, one raw blob, one finding.
 
     A repository-scoped rule reads no document, and `--sweep` ran it twice:
@@ -309,7 +320,7 @@ def test_a_repository_rule_reports_its_one_fault_once(git_repo) -> None:
 
 
 def test_that_fault_is_attributed_to_the_file_that_declares_it(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """WHERE the surviving copy points, which is the half a count cannot see.
 
     The two copies were not interchangeable: one was attributed to the status
@@ -346,7 +357,7 @@ def _installed(repo: Path) -> Path:
     return repo / "tools" / "extant_collect.py"
 
 
-def _collect(repo: Path, *extra: str):
+def _collect(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--collect", *extra,
          "--repo", str(repo)],
@@ -355,7 +366,7 @@ def _collect(repo: Path, *extra: str):
 
 
 def test_collect_without_a_project_interpreter_reports_rather_than_crashes(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """No `.venv`, so `suite_command` cannot resolve - and that is not a bug.
 
     `run_suite` raises RuntimeError here on purpose, and its docstring says the
@@ -385,7 +396,7 @@ def test_collect_without_a_project_interpreter_reports_rather_than_crashes(
 
 
 def test_collect_writes_a_bundle_when_the_suite_command_needs_no_interpreter(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The other half, and the reason the generator now sets `suite_command`.
 
     Without a runnable command every `--collect` run declines at the same
@@ -408,7 +419,7 @@ def test_collect_writes_a_bundle_when_the_suite_command_needs_no_interpreter(
 
 # --- seed 20260824, property CRASH: the one mode that rewrites --------
 
-def _archive(repo: Path):
+def _archive(repo: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--archive", "--repo", str(repo)],
         cwd=str(repo),
@@ -416,7 +427,7 @@ def _archive(repo: Path):
 
 
 def test_archive_refuses_an_undecodable_document_rather_than_crashing(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """A UTF-16 status document met the only irreversible write in the product.
 
     Every other mode guards this read - `--validate`, `--verify`, `--selftest`
@@ -462,7 +473,7 @@ ENTRY_DOC = (
 )
 
 
-def _validate(repo: Path):
+def _validate(repo: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--validate", "NEXT_SESSION.md",
          "--repo", str(repo)],
@@ -470,8 +481,8 @@ def _validate(repo: Path):
         capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
-def _denominators(out: str) -> dict:
-    counts = {}
+def _denominators(out: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for part in out.split("checked NEXT_SESSION.md:")[-1].split("\n")[0].split(","):
         bits = part.strip().rsplit(" ", 1)
         if len(bits) == 2 and bits[1].isdigit():
@@ -480,7 +491,7 @@ def _denominators(out: str) -> dict:
 
 
 def test_entry_rules_read_a_document_written_with_bare_carriage_returns(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The same claims, in three line endings, examined the same number of times.
 
     `^` in a MULTILINE pattern follows a NEWLINE, and a bare `\r` is not one,
@@ -517,7 +528,7 @@ def test_entry_rules_read_a_document_written_with_bare_carriage_returns(
         assert counts.get("unknown-branch") == 2, (name, counts)
 
 
-def test_normalising_a_bare_cr_does_not_move_any_offset(git_repo) -> None:
+def test_normalising_a_bare_cr_does_not_move_any_offset(git_repo: GitRepo) -> None:
     """Line numbers survive the normalisation, which is why it is length-preserving.
 
     A CR-only document reports its findings at the lines they are actually on.
@@ -545,7 +556,9 @@ def test_normalising_a_bare_cr_does_not_move_any_offset(git_repo) -> None:
     assert lines["cr"] == lines["lf"], lines
 
 
-def _sha_map_run(repo: Path, map_path: str, *extra: str):
+def _sha_map_run(
+        repo: Path, map_path: str,
+        *extra: str) -> subprocess.CompletedProcess[str]:
     """Drive `--sha-map` through the real entry point, as a consumer would."""
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--validate",
@@ -556,7 +569,7 @@ def _sha_map_run(repo: Path, map_path: str, *extra: str):
 
 
 def test_sha_map_naming_a_missing_file_reports_rather_than_crashes(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`--sha-map` opened its path directly, so a map that is not there crashed.
 
     `load_sha_map` called `open()` with no handler above it, so naming a map
@@ -598,7 +611,7 @@ def test_sha_map_naming_a_missing_file_reports_rather_than_crashes(
 
 
 def test_check_text_refuses_an_unreadable_sha_map_the_same_way(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The second call site, which is the half that makes this one finding.
 
     `--validate` and `--check-text` both read `--sha-map`, and both opened it
@@ -625,7 +638,7 @@ def test_check_text_refuses_an_unreadable_sha_map_the_same_way(
 
 
 def test_sha_map_still_rewrites_the_document_when_the_map_is_there(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The other half of the fix: refusing must not have cost the repair.
 
     A guard that turned a crash into a refusal for EVERY input would pass the
@@ -656,7 +669,7 @@ def test_sha_map_still_rewrites_the_document_when_the_map_is_there(
     assert dead[:12] not in rewritten, rewritten
 
 
-def _search(repo: Path, needle: str = "Phase"):
+def _search(repo: Path, needle: str = "Phase") -> subprocess.CompletedProcess[str]:
     """Drive `--search` through the real entry point, as a consumer would."""
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--search", needle,
@@ -669,7 +682,7 @@ CONFIG = 'primary_doc = "NEXT_SESSION.md"\ntrunk = "main"\n'
 
 
 def test_search_on_a_utf16_document_reports_rather_than_crashes(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`--search` read its documents with no handler, so UTF-16 killed it.
 
     The same finding as `--archive` above, one mode over and found the same
@@ -706,7 +719,7 @@ def test_search_on_a_utf16_document_reports_rather_than_crashes(
 
 
 def test_search_names_the_archive_when_the_archive_is_the_bad_one(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """It must name the document that failed, not the one it guessed.
 
     `--search` reads TWO documents - the live one and the archive - which is
@@ -735,7 +748,7 @@ def test_search_names_the_archive_when_the_archive_is_the_bad_one(
 
 
 def test_search_still_finds_entries_when_both_documents_are_readable(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The other half: refusing must not have cost the search.
 
     A guard that refused for every input would pass both tests above and
@@ -752,7 +765,7 @@ def test_search_still_finds_entries_when_both_documents_are_readable(
 
 
 def test_archive_on_a_missing_document_reports_rather_than_crashes(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`primary_doc` naming a file that is not there, at the irreversible write.
 
     `entries.archive` opens `primary_doc` as the first thing it does, and
@@ -796,7 +809,7 @@ def test_archive_on_a_missing_document_reports_rather_than_crashes(
     assert not done.stdout.strip(), done.stdout
 
 
-def test_archive_still_archives_when_the_document_is_there(git_repo) -> None:
+def test_archive_still_archives_when_the_document_is_there(git_repo: GitRepo) -> None:
     """The other half: guarding the read must not have disabled the write.
 
     A guard that refused for every input would pass the test above and silently
@@ -826,14 +839,14 @@ def test_archive_still_archives_when_the_document_is_there(git_repo) -> None:
 sys.path.insert(0, str(Path(__file__).resolve().parent / "harnesses"))
 
 
-def _rmtree_helpers():
+def _rmtree_helpers() -> ModuleType:
     """Imported late: `fuzz.py` pulls in the other harness modules."""
     import fuzz
     return fuzz
 
 
-def test_present_answers_rather_than_raising_when_stat_is_denied(monkeypatch,
-                                                                 tmp_path):
+def test_present_answers_rather_than_raising_when_stat_is_denied(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """`Path.exists()` is not a yes-or-no below Python 3.14.
 
     It swallows only the errnos that mean "not there"; EACCES is not one, so a
@@ -844,7 +857,7 @@ def test_present_answers_rather_than_raising_when_stat_is_denied(monkeypatch,
     """
     fuzz = _rmtree_helpers()
 
-    def denied(self, **kwargs):
+    def denied(self: Path, **kwargs: object) -> None:
         raise PermissionError(13, "Permission denied")
 
     # Monkeypatched rather than subclassed: `Path` cannot be subclassed
@@ -856,7 +869,8 @@ def test_present_answers_rather_than_raising_when_stat_is_denied(monkeypatch,
 
 @pytest.mark.skipif(os.name == "nt",
                     reason="Windows has no search bit to strip")
-def test_rmtree_removes_a_tree_whose_directories_lost_their_search_bit(tmp_path):
+def test_rmtree_removes_a_tree_whose_directories_lost_their_search_bit(
+        tmp_path: Path) -> None:
     """A directory needs +x, and the chmod used to hand it a file's mode.
 
     `S_IWRITE | S_IREAD` is 0o600. Applied to a directory on POSIX that is the
@@ -875,8 +889,8 @@ def test_rmtree_removes_a_tree_whose_directories_lost_their_search_bit(tmp_path)
     assert not root.exists()
 
 
-def test_rmtree_asks_for_a_mode_a_directory_can_be_entered_with(tmp_path,
-                                                                monkeypatch):
+def test_rmtree_asks_for_a_mode_a_directory_can_be_entered_with(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The same defect, checked where there is no search bit to strip.
 
     The test above skips on Windows, so on the development machine nothing
@@ -890,9 +904,9 @@ def test_rmtree_asks_for_a_mode_a_directory_can_be_entered_with(tmp_path,
     (root / "objects" / "loose").write_text("x", encoding="utf-8")
 
     asked: dict[str, int] = {}
-    real = Path.chmod
+    real: Callable[..., None] = Path.chmod
 
-    def record(self, mode, **kwargs):
+    def record(self: Path, mode: int, **kwargs: object) -> None:
         asked[self.name] = mode
         return real(self, mode, **kwargs)
 
@@ -904,7 +918,8 @@ def test_rmtree_asks_for_a_mode_a_directory_can_be_entered_with(tmp_path,
     assert not asked["loose"] & stat.S_IXUSR, oct(asked["loose"])
 
 
-def test_relax_leaves_a_symlink_alone(tmp_path, monkeypatch):
+def test_relax_leaves_a_symlink_alone(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`chmod` follows symlinks, and this generator makes them deliberately.
 
     A repository can hold `escape -> <arena>`, so re-moding a link while
@@ -924,7 +939,8 @@ def test_relax_leaves_a_symlink_alone(tmp_path, monkeypatch):
     fuzz._relax(target, stat.S_IRWXU)
 
 
-def test_shrink_reports_a_feature_set_that_actually_reproduces(monkeypatch):
+def test_shrink_reports_a_feature_set_that_actually_reproduces(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """ddmin reduced against the survivors instead of against the plan.
 
     `items` shrinks as ddmin succeeds while `plan` never does, so a `dropped`
@@ -957,7 +973,8 @@ def test_shrink_reports_a_feature_set_that_actually_reproduces(monkeypatch):
     # Monotone and deliberately not keyed on a NAME: the violation needs any
     # two features at once. The full set reproduces, so the baseline holds and
     # the reduction is the part under test.
-    def reproduces(pkg, arena, candidate, signature):
+    def reproduces(pkg: object, arena: object, candidate: RepoPlan,
+                   signature: object) -> bool:
         return len(candidate.features) >= 2
 
     monkeypatch.setattr(fuzz, "_still_fails", reproduces)

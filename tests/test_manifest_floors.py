@@ -13,8 +13,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from conftest import _install_into
+from conftest import GitRepo, _install_into
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -23,7 +27,7 @@ sys.path.insert(0, str(PAYLOAD))
 PYPROJECT = '[project]\nname = "x"\nrequires-python = ">=3.10"\n'
 
 
-def _prepare(git_repo, manifest: str = PYPROJECT):
+def _prepare(git_repo: GitRepo, manifest: str = PYPROJECT) -> Path:
     """A repository carrying a manifest, and a clean rule cache."""
     from extant import session as hc
     repo, commit = git_repo
@@ -35,7 +39,7 @@ def _prepare(git_repo, manifest: str = PYPROJECT):
     return repo
 
 
-def _check(repo, text: str, doc: str = "README.md"):
+def _check(repo: Path, text: str, doc: str = "README.md") -> list[Finding]:
     """Findings from the rule alone, for a document at `doc`."""
     from extant import session as hc
     from extant.rules import manifest_floor as rule_manifest_floor
@@ -47,7 +51,7 @@ def _check(repo, text: str, doc: str = "README.md"):
         hc.set_document(doc_path=None)
 
 
-def _examined(repo, text: str, doc: str = "README.md") -> int:
+def _examined(repo: Path, text: str, doc: str = "README.md") -> int:
     from extant import session as hc
     from extant.rules import manifest_floor as rule_manifest_floor
     hc._SCOPE.manifest_floors = {}
@@ -60,13 +64,13 @@ def _examined(repo, text: str, doc: str = "README.md") -> int:
 
 # --- the contradiction itself ------------------------------------------
 
-def test_agreement_is_silent(git_repo) -> None:
+def test_agreement_is_silent(git_repo: GitRepo) -> None:
     """Catches a rule that fires on every floor it can parse."""
     repo = _prepare(git_repo)
     assert _check(repo, "This requires Python 3.10+.\n") == []
 
 
-def test_a_doc_offering_an_older_floor_is_reported(git_repo) -> None:
+def test_a_doc_offering_an_older_floor_is_reported(git_repo: GitRepo) -> None:
     """The datasette case, and the harmful direction.
 
     Its README offered Python 3.8 while `pyproject.toml` said `>=3.10`, so a
@@ -79,20 +83,21 @@ def test_a_doc_offering_an_older_floor_is_reported(git_repo) -> None:
     assert "3.8" in findings[0].detail and ">=3.10" in findings[0].detail
 
 
-def test_a_doc_demanding_a_newer_floor_is_also_reported(git_repo) -> None:
+def test_a_doc_demanding_a_newer_floor_is_also_reported(git_repo: GitRepo) -> None:
     """Catches a rule that only compares in one direction."""
     repo = _prepare(git_repo)
     assert len(_check(repo, "This requires Python 3.12+.\n")) == 1
 
 
-def test_the_finding_names_the_manifest_it_disagreed_with(git_repo) -> None:
+def test_the_finding_names_the_manifest_it_disagreed_with(git_repo: GitRepo) -> None:
     """A finding a reader cannot act on is only half a finding."""
     repo = _prepare(git_repo)
     detail = _check(repo, "Requires Python 3.8+.\n")[0].detail
     assert "pyproject.toml" in detail
 
 
-def test_the_wording_does_not_promise_an_install_failure_for_go(git_repo) -> None:
+def test_the_wording_does_not_promise_an_install_failure_for_go(
+        git_repo: GitRepo) -> None:
     """Ecosystem semantics differ and the text must not overclaim.
 
     `requires-python` is a hard gate, but the `go` directive makes the
@@ -110,7 +115,7 @@ def test_the_wording_does_not_promise_an_install_failure_for_go(git_repo) -> Non
 
 # --- which documents are read ------------------------------------------
 
-def test_a_changelog_is_not_read(git_repo) -> None:
+def test_a_changelog_is_not_read(git_repo: GitRepo) -> None:
     """97 of 169 raw disagreements were this.
 
     "Aider now requires Python >= 3.9" was true the day it was written; the
@@ -122,7 +127,7 @@ def test_a_changelog_is_not_read(git_repo) -> None:
                   doc="CHANGELOG.md") == []
 
 
-def test_a_readme_inside_a_historical_directory_is_not_read(git_repo) -> None:
+def test_a_readme_inside_a_historical_directory_is_not_read(git_repo: GitRepo) -> None:
     """The one shape where the two document filters do not overlap.
 
     `changelog/README.md` satisfies the entry-point name and sits under a
@@ -136,7 +141,7 @@ def test_a_readme_inside_a_historical_directory_is_not_read(git_repo) -> None:
                   doc="changelog/README.md") == []
 
 
-def test_an_ordinary_document_is_not_read(git_repo) -> None:
+def test_an_ordinary_document_is_not_read(git_repo: GitRepo) -> None:
     """ruff's docs discuss Python versions constantly and almost none of it is
     ruff's own floor. Catches a rule keyed on the sentence alone."""
     repo = _prepare(git_repo)
@@ -144,14 +149,14 @@ def test_an_ordinary_document_is_not_read(git_repo) -> None:
                   doc="docs/internals/design.md") == []
 
 
-def test_an_install_guide_is_read(git_repo) -> None:
+def test_an_install_guide_is_read(git_repo: GitRepo) -> None:
     """Entry point is not only the README. Catches an over-narrow filter."""
     repo = _prepare(git_repo)
     assert len(_check(repo, "Requires Python 3.8+.\n",
                       doc="docs/installation.md")) == 1
 
 
-def test_a_document_with_no_path_is_not_guessed_at(git_repo) -> None:
+def test_a_document_with_no_path_is_not_guessed_at(git_repo: GitRepo) -> None:
     """An unset document path means the caller did not say which document
     this is.
 
@@ -168,7 +173,7 @@ def test_a_document_with_no_path_is_not_guessed_at(git_repo) -> None:
 
 # --- what makes a sentence operative -----------------------------------
 
-def test_a_bare_mention_is_not_a_floor(git_repo) -> None:
+def test_a_bare_mention_is_not_a_floor(git_repo: GitRepo) -> None:
     """"Python 3.8" with no `+`, `>=` or "or later" states no minimum.
 
     The sentence carries a requirement VERB on purpose, so the operative test
@@ -180,13 +185,14 @@ def test_a_bare_mention_is_not_a_floor(git_repo) -> None:
     assert _check(repo, "This requires Python 3.8.\n") == []
 
 
-def test_a_floor_with_no_verb_and_no_label_is_not_read(git_repo) -> None:
+def test_a_floor_with_no_verb_and_no_label_is_not_read(git_repo: GitRepo) -> None:
     """Catches dropping the operative-use test and keying on shape."""
     repo = _prepare(git_repo)
     assert _check(repo, "Python 3.8+ appears in this sentence.\n") == []
 
 
-def test_a_bare_requirements_label_makes_the_list_below_it_operative(git_repo) -> None:
+def test_a_bare_requirements_label_makes_the_list_below_it_operative(
+        git_repo: GitRepo) -> None:
     """The caddy shape: no verb in the sentence, no matching heading.
 
     Catches keying on the verb alone, which misses one of the most common ways
@@ -197,7 +203,7 @@ def test_a_bare_requirements_label_makes_the_list_below_it_operative(git_repo) -
     assert len(_check(repo, text)) == 1
 
 
-def test_a_heading_retires_the_label_above_it(git_repo) -> None:
+def test_a_heading_retires_the_label_above_it(git_repo: GitRepo) -> None:
     """Catches a label that leaks into every later section of the document."""
     repo = _prepare(git_repo)
     text = ("Requirements:\n\n- Python 3.10+\n\n"
@@ -205,7 +211,7 @@ def test_a_heading_retires_the_label_above_it(git_repo) -> None:
     assert _check(repo, text) == []
 
 
-def test_a_third_party_subject_is_not_this_project(git_repo) -> None:
+def test_a_third_party_subject_is_not_this_project(git_repo: GitRepo) -> None:
     """"Remove if Python 3.13+ support lands in pydub upstream" is about pydub.
 
     Catches a rule that reads any floor in an operative sentence as the
@@ -217,7 +223,7 @@ def test_a_third_party_subject_is_not_this_project(git_repo) -> None:
 
 # --- reading the numbers -----------------------------------------------
 
-def test_a_language_name_inside_another_word_is_not_a_floor(git_repo) -> None:
+def test_a_language_name_inside_another_word_is_not_a_floor(git_repo: GitRepo) -> None:
     """The largest defect the corpus measurement contained.
 
     Without word boundaries and with re.I, `Go` matches inside "Django 4.2",
@@ -242,7 +248,7 @@ def test_a_language_name_inside_another_word_is_not_a_floor(git_repo) -> None:
     assert _check(repo, text) == []
 
 
-def test_a_coarser_statement_is_not_a_disagreement(git_repo) -> None:
+def test_a_coarser_statement_is_not_a_disagreement(git_repo: GitRepo) -> None:
     """"Python 3" against `>=3.10` is coarser, not contradictory.
 
     Catches a rule that manufactures a finding out of rounding.
@@ -251,7 +257,7 @@ def test_a_coarser_statement_is_not_a_disagreement(git_repo) -> None:
     assert _check(repo, "This requires Python 3 or later.\n") == []
 
 
-def test_only_the_lower_bound_of_a_capped_manifest_is_read(git_repo) -> None:
+def test_only_the_lower_bound_of_a_capped_manifest_is_read(git_repo: GitRepo) -> None:
     """`>=3.9,<4.0` has floor 3.9.
 
     Catches folding the upper bound in, which would report every capped
@@ -262,7 +268,7 @@ def test_only_the_lower_bound_of_a_capped_manifest_is_read(git_repo) -> None:
     assert _check(repo, "Requires Python 3.9+.\n") == []
 
 
-def test_a_disjunction_is_not_examined_rather_than_guessed(git_repo) -> None:
+def test_a_disjunction_is_not_examined_rather_than_guessed(git_repo: GitRepo) -> None:
     """vite declares `^20.19.0 || >=22.12.0`.
 
     Reading the first branch would report "Node 22+" as wrong when the
@@ -284,20 +290,21 @@ def test_a_disjunction_is_not_examined_rather_than_guessed(git_repo) -> None:
 
 # --- the denominator ---------------------------------------------------
 
-def test_a_document_with_no_floor_reports_nothing_examined(git_repo) -> None:
+def test_a_document_with_no_floor_reports_nothing_examined(git_repo: GitRepo) -> None:
     """Silence is this rule's normal output, so 0 findings and 0 examined must
     be distinguishable. Catches a denominator counted before the keying."""
     repo = _prepare(git_repo)
     assert _examined(repo, "Nothing about versions here.\n") == 0
 
 
-def test_an_examined_floor_is_counted_even_when_it_agrees(git_repo) -> None:
+def test_an_examined_floor_is_counted_even_when_it_agrees(git_repo: GitRepo) -> None:
     """Catches a denominator that counts findings rather than candidates."""
     repo = _prepare(git_repo)
     assert _examined(repo, "This requires Python 3.10+.\n") == 1
 
 
-def test_a_site_the_rule_cannot_decide_is_not_counted_as_examined(git_repo) -> None:
+def test_a_site_the_rule_cannot_decide_is_not_counted_as_examined(
+        git_repo: GitRepo) -> None:
     """The express case, and a real discrepancy caught by an acceptance run.
 
     `expressjs/express` states "Node 18" against `>= 18`: two coarse
@@ -315,7 +322,7 @@ def test_a_site_the_rule_cannot_decide_is_not_counted_as_examined(git_repo) -> N
     assert _check(repo, "This requires Node 18 or later.\n") == []
 
 
-def test_count_examined_exposes_the_rule(git_repo) -> None:
+def test_count_examined_exposes_the_rule(git_repo: GitRepo) -> None:
     """The registry's denominator must reach the reported one."""
     from extant import session as hc
     repo = _prepare(git_repo)
@@ -329,7 +336,7 @@ def test_count_examined_exposes_the_rule(git_repo) -> None:
 
 # --- wiring ------------------------------------------------------------
 
-def test_validate_passes_the_document_path_through(git_repo) -> None:
+def test_validate_passes_the_document_path_through(git_repo: GitRepo) -> None:
     """The rule is useless unless the dispatcher tells it which file this is.
 
     Catches wiring `doc=` into the signature and forgetting to hand it over
@@ -343,7 +350,7 @@ def test_validate_passes_the_document_path_through(git_repo) -> None:
     assert "manifest-floor-mismatch" in {f.kind for f in findings}
 
 
-def test_a_real_sweep_reaches_the_rule(git_repo) -> None:
+def test_a_real_sweep_reaches_the_rule(git_repo: GitRepo) -> None:
     """End to end, as a subprocess, through `--sweep`.
 
     The unit tests above pass `doc=` to `validate` themselves, so all of them
@@ -366,7 +373,7 @@ def test_a_real_sweep_reaches_the_rule(git_repo) -> None:
     assert "manifest-floor-mismatch" in combined, combined
 
 
-def test_verify_reaches_the_rule_for_an_extra_document(git_repo) -> None:
+def test_verify_reaches_the_rule_for_an_extra_document(git_repo: GitRepo) -> None:
     """--verify is a separate wiring from --sweep, and it was missed.
 
     0.17.0 shipped with the rule working in --sweep and silent in --verify:
@@ -400,7 +407,7 @@ def test_verify_reaches_the_rule_for_an_extra_document(git_repo) -> None:
         f"the finding fired but the denominator said 0:\n{combined}")
 
 
-def test_verify_reaches_the_rule_for_the_primary_document(git_repo) -> None:
+def test_verify_reaches_the_rule_for_the_primary_document(git_repo: GitRepo) -> None:
     """`primary_doc` is configurable, and a project may point it at a README.
 
     The extra-document path and the primary-document path are two separate
@@ -426,7 +433,7 @@ def test_verify_reaches_the_rule_for_the_primary_document(git_repo) -> None:
         f"the primary document was not read as itself:\n{combined}")
 
 
-def test_the_document_path_is_restored_after_validate(git_repo) -> None:
+def test_the_document_path_is_restored_after_validate(git_repo: GitRepo) -> None:
     """A leaked global makes the NEXT document be judged as this one."""
     from extant import session as hc
     repo = _prepare(git_repo)
@@ -439,7 +446,7 @@ def test_the_document_path_is_restored_after_validate(git_repo) -> None:
         hc.set_document(doc_path=None)
 
 
-def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
+def test_the_probe_makes_a_clean_document_fire(git_repo: GitRepo) -> None:
     """A rule that cannot state how to make itself fire cannot be shown to
     work. Catches a probe that corrupts a mention rather than the claim."""
     from extant import session as hc
@@ -459,7 +466,7 @@ def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
         hc.set_document(doc_path=None)
 
 
-def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
+def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo: GitRepo) -> None:
     """None is the honest answer for a document stating no floor, and
     `--selftest` reports it as NO PROBE rather than as a pass."""
     from extant import session as hc

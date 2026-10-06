@@ -19,6 +19,15 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Iterator
+
+import pytest
+
+from conftest import GitRepo, Reconfigure
+
+if TYPE_CHECKING:
+    from extant.config import Config
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -26,7 +35,7 @@ sys.path.insert(0, str(PAYLOAD))
 
 
 def test_the_remote_is_asked_for_once_rather_than_once_per_document(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """`own_remote` answers a question about the REPOSITORY.
 
     It was being called once per document by the pinned-ref rule. Profiled over
@@ -70,7 +79,8 @@ def test_the_remote_is_asked_for_once_rather_than_once_per_document(
     assert first == refs.own_remote(hc.context(repo))
 
 
-def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) -> None:
+def test_no_origin_is_a_cached_answer_not_a_cache_miss(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """`None` means "this repository has no origin", which is a real answer.
 
     Storing it in a dict that is probed with `if not cached` would re-ask every
@@ -99,7 +109,7 @@ def test_no_origin_is_a_cached_answer_not_a_cache_miss(git_repo, monkeypatch) ->
     )
 
 
-def test_the_remote_is_re_read_between_validate_calls(git_repo) -> None:
+def test_the_remote_is_re_read_between_validate_calls(git_repo: GitRepo) -> None:
     """Memoising the origin must not outlive the call, and once it did.
 
     The first version of this cache was never reset, on the reasoning that a
@@ -138,7 +148,7 @@ def test_the_remote_is_re_read_between_validate_calls(git_repo) -> None:
 
 
 def test_a_resolved_sha_is_re_read_between_validate_calls(
-        git_repo, tmp_path) -> None:
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """The same lifetime rule, applied to the cache Task 7 added.
 
     Whether a SHA resolves is memoised so that two rules asking about
@@ -210,7 +220,7 @@ def test_a_resolved_sha_is_re_read_between_validate_calls(
 
 
 def test_a_sweep_still_shares_the_remote_across_documents(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The reset above must not undo the reason the cache exists.
 
     Per-call is correct outside a sweep and would be ruinous inside one: the
@@ -251,7 +261,7 @@ def test_a_sweep_still_shares_the_remote_across_documents(
     )
 
 
-def test_a_sweep_holds_one_cache_scope_and_gives_it_back(git_repo) -> None:
+def test_a_sweep_holds_one_cache_scope_and_gives_it_back(git_repo: GitRepo) -> None:
     """The scope is the safety argument, so the scope is what gets asserted.
 
     `validate()` rebuilds its caches per call because the repository may have
@@ -281,7 +291,7 @@ def test_a_sweep_holds_one_cache_scope_and_gives_it_back(git_repo) -> None:
 
 
 def test_the_scope_is_released_even_when_a_document_explodes(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A crash mid-sweep must not leave the process holding a stale cache.
 
     This is the half a `try/finally` exists for, and the half that is easy to
@@ -292,7 +302,7 @@ def test_the_scope_is_released_even_when_a_document_explodes(
     repo, commit = git_repo
     commit("docs/a.md", "# A\n", "chore: a")
 
-    def exploding(*args, **kwargs):
+    def exploding(*args: object, **kwargs: object) -> None:
         raise RuntimeError("rule blew up")
 
     monkeypatch.setattr(hc, "validate", exploding)
@@ -318,7 +328,7 @@ def test_the_scope_is_released_even_when_a_document_explodes(
     )
 
 
-def test_validate_outside_a_sweep_still_gets_fresh_answers(git_repo) -> None:
+def test_validate_outside_a_sweep_still_gets_fresh_answers(git_repo: GitRepo) -> None:
     """The documented promise the scope suspends, still holding everywhere else.
 
     A caller that creates a file between two checks must see the new answer.
@@ -346,7 +356,7 @@ def test_validate_outside_a_sweep_still_gets_fresh_answers(git_repo) -> None:
     )
 
 
-def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
+def test_ancestry_is_re_read_between_validate_calls(git_repo: GitRepo) -> None:
     """The filesystem is only half of what these caches hold.
 
     `scope.dircache` uses None to mean "off", so failing to reset it merely turns
@@ -371,7 +381,7 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     from extant import session as hc
     repo, commit = git_repo
 
-    def git(*args):
+    def git(*args: str) -> str:
         return subprocess.run(["git", *args], cwd=repo, check=True,
                               capture_output=True, text=True).stdout.strip()
 
@@ -396,7 +406,8 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo) -> None:
     )
 
 
-def test_tags_are_re_read_between_validate_calls(git_repo, reconfigure) -> None:
+def test_tags_are_re_read_between_validate_calls(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The tag list and the prefix convention read from it are per-call too.
 
     Both are plain dicts that default to empty, so a missing reset makes them
@@ -431,7 +442,7 @@ def test_tags_are_re_read_between_validate_calls(git_repo, reconfigure) -> None:
 
 
 def test_integration_refs_are_asked_for_once_not_once_per_claim(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """`_integration_refs` answers a question about the REPOSITORY.
 
     It was consulted once per claim and each miss spawned a `for-each-ref`.
@@ -469,7 +480,8 @@ def test_integration_refs_are_asked_for_once_not_once_per_claim(
     )
 
 
-def test_one_ref_scan_answers_branches_tags_and_lookups(git_repo, monkeypatch) -> None:
+def test_one_ref_scan_answers_branches_tags_and_lookups(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Branches, tags and ref lookups are ONE `for-each-ref`, not four calls.
 
     Measured on this project's own status document: a validate spawned eight
@@ -492,9 +504,9 @@ def test_one_ref_scan_answers_branches_tags_and_lookups(git_repo, monkeypatch) -
                capture_output=True)
 
     calls: list[str] = []
-    real = sp.run
+    real: Callable[..., object] = sp.run
 
-    def counted(cmd, *a, **k):
+    def counted(cmd: object, *a: object, **k: object) -> object:
         if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "git":
             calls.append(" ".join(str(x) for x in cmd[1:3]))
         return real(cmd, *a, **k)
@@ -516,7 +528,7 @@ def test_one_ref_scan_answers_branches_tags_and_lookups(git_repo, monkeypatch) -
     )
 
 
-def test_a_bare_name_resolves_the_way_git_resolves_it(git_repo) -> None:
+def test_a_bare_name_resolves_the_way_git_resolves_it(git_repo: GitRepo) -> None:
     """Git tries `refs/tags/<name>` BEFORE `refs/heads/<name>` for a bare name.
 
     A repository with a branch and a tag of the same name is rare and real, and
@@ -548,7 +560,7 @@ def test_a_bare_name_resolves_the_way_git_resolves_it(git_repo) -> None:
     )
 
 
-def test_the_ref_table_is_re_read_between_validate_calls(git_repo) -> None:
+def test_the_ref_table_is_re_read_between_validate_calls(git_repo: GitRepo) -> None:
     """Same lifetime as every other answer git gives here. A branch created
     between two validations must be seen, or the table is a correctness bug
     wearing a performance costume."""
@@ -580,7 +592,7 @@ def test_the_ref_table_is_re_read_between_validate_calls(git_repo) -> None:
 
 
 def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The one memo that is NOT a field of the run scope, and why.
 
     Both halves are asserted, because each alone permits the other's bug.
@@ -612,7 +624,7 @@ def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
     calls: list[str] = []
     real = line_pointer._line_pointer_sites_uncached
 
-    def counted(ctx, text):
+    def counted(ctx: Context, text: str) -> object:
         calls.append(text)
         return real(ctx, text)
 
@@ -638,7 +650,7 @@ def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
 
 
 def test_the_candidate_scans_run_once_per_document_not_once_per_caller(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Three callers ask the same question about one document; one scan answers.
 
     `find_sha_candidates` and `merge_claims` are each read by
@@ -665,11 +677,11 @@ def test_the_candidate_scans_run_once_per_document_not_once_per_caller(
     real_sha = commits._find_sha_candidates
     real_claims = commits._merge_claims
 
-    def counted_sha(text, own):
+    def counted_sha(text: str, own: Callable[[], str | None]) -> object:
         sha_scans.append(text)
         return real_sha(text, own)
 
-    def counted_claims(config, prose):
+    def counted_claims(config: Config, prose: str) -> object:
         claim_scans.append(prose)
         return real_claims(config, prose)
 
@@ -688,7 +700,7 @@ def test_the_candidate_scans_run_once_per_document_not_once_per_caller(
 
 
 def test_a_changed_merge_pattern_is_not_answered_from_the_previous_one(
-        reconfigure) -> None:
+        reconfigure: Reconfigure) -> None:
     """The half of the key that `_STRIPPED` is missing.
 
     `merge_claims` reads two configured values - the pattern and the trunk -
@@ -719,7 +731,7 @@ def test_a_changed_merge_pattern_is_not_answered_from_the_previous_one(
 
 
 def test_the_path_pointer_scan_runs_once_per_document_not_once_per_caller(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Two callers ask the same question about one document; one scan answers.
 
     The redundancy `f3fb482` removed from `find_sha_candidates` and
@@ -744,7 +756,7 @@ def test_the_path_pointer_scan_runs_once_per_document_not_once_per_caller(
     scans: list[str] = []
     real = rule_path_pointer._path_pointer_sites_uncached
 
-    def counted(ctx, text):
+    def counted(ctx: Context, text: str) -> object:
         scans.append(text)
         return real(ctx, text)
 
@@ -761,7 +773,7 @@ def test_the_path_pointer_scan_runs_once_per_document_not_once_per_caller(
 
 
 def test_a_changed_path_pointer_pattern_is_not_answered_from_the_previous_one(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The half of the key `_STRIPPED` is missing, checked on the new memo.
 
     `_path_pointer_sites` reads the text, the PATTERN and the document FORMAT,
@@ -819,7 +831,7 @@ def test_a_changed_path_pointer_pattern_is_not_answered_from_the_previous_one(
         "so a reconfigured `path_pointer` would never reach the scanner")
 
 
-def test_the_path_pointer_denominator_did_not_move(git_repo) -> None:
+def test_the_path_pointer_denominator_did_not_move(git_repo: GitRepo) -> None:
     """The count must be what the blob scan it replaced counted.
 
     `examined` used to run `path_pointer.findall` over the whole prose blob;
@@ -901,17 +913,17 @@ class _CountingPattern:
         self.inner = pattern
         self.scans = 0
 
-    def findall(self, text: str):
+    def findall(self, text: str) -> list[object]:
         self.scans += 1
         return self.inner.findall(text)
 
-    def finditer(self, text: str):
+    def finditer(self, text: str) -> Iterator[re.Match[str]]:
         self.scans += 1
         return self.inner.finditer(text)
 
 
 def test_the_link_scan_runs_once_per_document_not_once_per_caller(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Two callers ask which files one document links to; one scan answers.
 
     `link_sites` was the last per-document scanner both a rule's `check` and
@@ -968,7 +980,7 @@ def test_the_link_scan_is_not_answered_across_a_format_change() -> None:
 
 
 def test_the_link_and_pointer_scans_are_not_answered_across_a_path_change(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The third input of the blanking, missing from two memos above it.
 
     Since 2026-09-22 the blanking reads the document's PATH - `.mdx` has no
@@ -1000,7 +1012,7 @@ def test_the_link_and_pointer_scans_are_not_answered_across_a_path_change(
 
 
 def test_the_line_pointer_scan_is_not_answered_across_a_path_change(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The third memo of that shape, which the two above were repaired
     without: `_POINTER_SITES` (extant/rules/line_pointer.py) blanks through
     `prose`, which reads the path, and kept the text, the repository and the
@@ -1020,7 +1032,7 @@ def test_the_line_pointer_scan_is_not_answered_across_a_path_change(
 
 
 def test_the_release_scan_runs_once_per_document_not_once_per_caller(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The same question, for the release-claim scan `check` and `examined`
     both read through `_release_sites`: 1,301 calls on ruff's 650 documents,
     and every second one a re-walk of prose the first had just read."""
@@ -1038,7 +1050,7 @@ def test_the_release_scan_runs_once_per_document_not_once_per_caller(
 
 
 def test_a_changed_release_pattern_is_not_answered_from_the_previous_one(
-        reconfigure) -> None:
+        reconfigure: Reconfigure) -> None:
     """The pattern is in the key, as it is for `merge_claims`: the same text
     object under a reconfigured `release_tag` reaches the scanner."""
     from extant import session as hc

@@ -23,16 +23,17 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from conftest import _install_into                        # noqa: E402
+from conftest import GitRepo, _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _sweep(repo: Path, *extra: str):
+def _sweep(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     """Drive the real entry point, from the repository under test.
 
     INSTALLED as `tools/` rather than run out of this source tree, because
@@ -47,16 +48,19 @@ def _sweep(repo: Path, *extra: str):
         capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
-def _examined(repo: Path) -> dict:
+def _examined(repo: Path) -> dict[str, int]:
     """The per-rule denominators out of a SARIF run, wherever they are."""
     doc = json.loads(_sweep(repo, "--format=sarif").stdout)
     run = doc["runs"][0]
-    return (run.get("properties", {}).get("examined")
-            or (run.get("invocations") or [{}])[0]
-            .get("properties", {}).get("examined"))
+    examined = (run.get("properties", {}).get("examined")
+                or (run.get("invocations") or [{}])[0]
+                .get("properties", {}).get("examined"))
+    assert isinstance(examined, dict), run
+    return examined
 
 
-def _found(repo: Path, kind: str) -> list:
+# SARIF results as `json.loads` returns them; the callers read their keys.
+def _found(repo: Path, kind: str) -> list[dict[str, Any]]:
     doc = json.loads(_sweep(repo, "--format=sarif").stdout)
     return [r for r in doc["runs"][0]["results"] if r["ruleId"] == kind]
 
@@ -65,7 +69,7 @@ def _found(repo: Path, kind: str) -> list:
 
 
 def test_links_the_rule_never_judges_are_not_counted_as_examined(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`examined` scanned the document itself instead of reading the scanner.
 
     `check` refuses both of these unconditionally, in every repository: `@`
@@ -88,7 +92,7 @@ def test_links_the_rule_never_judges_are_not_counted_as_examined(
     assert _examined(repo)["dead-md-link"] == 0, _examined(repo)
 
 
-def test_a_link_the_rule_does_judge_is_still_counted(git_repo) -> None:
+def test_a_link_the_rule_does_judge_is_still_counted(git_repo: GitRepo) -> None:
     """The guard on the case above, because narrowing can empty a count.
 
     A resolvable link is examined and clean and must still be counted; a dead
@@ -112,7 +116,7 @@ def _entry(body: str) -> str:
 
 
 def test_an_entry_making_no_live_claim_examines_no_live_claims(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The rule returns before reading a single token, and counted them anyway.
 
     `check` requires a live phrase in the newest entry and gives up on the
@@ -140,7 +144,7 @@ def test_an_entry_making_no_live_claim_examines_no_live_claims(
 
 
 def test_an_entry_that_does_make_a_live_claim_still_counts_it(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The guard: the gate must narrow the count, not empty it.
 
     With a live phrase present the rule reads every branch token in the entry,
@@ -161,7 +165,7 @@ def test_an_entry_that_does_make_a_live_claim_still_counts_it(
 
 
 def test_a_merge_claim_on_a_sha_that_does_not_resolve_is_not_counted(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`dead-sha` owns this claim, and the count said this rule read it too.
 
     The rule skips a claim whose commit does not resolve, deliberately and for
@@ -184,7 +188,7 @@ def test_a_merge_claim_on_a_sha_that_does_not_resolve_is_not_counted(
     assert _examined(repo)["false-merge-claim"] == 0, _examined(repo)
 
 
-def test_a_merge_claim_the_rule_can_settle_is_still_counted(git_repo) -> None:
+def test_a_merge_claim_the_rule_can_settle_is_still_counted(git_repo: GitRepo) -> None:
     """The guard: a claim naming a real ref and a real commit is examined.
 
     True or false, this one the rule decides, so it must appear in the
@@ -205,7 +209,7 @@ def test_a_merge_claim_the_rule_can_settle_is_still_counted(git_repo) -> None:
 
 
 def test_a_release_claim_this_project_does_not_own_is_not_counted(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """Off by default, and the count read as though it were on.
 
     `release_claims_name_our_tags` says every version this document names is
@@ -226,7 +230,7 @@ def test_a_release_claim_this_project_does_not_own_is_not_counted(
 
 
 def test_a_release_claim_backed_by_a_real_tag_is_still_counted(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The guard: a version with a tag behind it is a claim the rule settles.
 
     The tag is on `main`, so this is the examined-and-clean case - the one a
@@ -247,7 +251,7 @@ def test_a_release_claim_backed_by_a_real_tag_is_still_counted(
 
 
 def test_a_changeset_entry_the_rule_steps_over_is_not_counted(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """A changesets repository mints these, and no author wrote them.
 
     `.changeset/` release notes open each line with the changeset id, which is
@@ -273,7 +277,7 @@ def test_a_changeset_entry_the_rule_steps_over_is_not_counted(
 
 
 def test_the_same_line_is_counted_and_reported_without_changesets(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The control, and it is what makes the case above mean anything.
 
     Identical bytes in a repository that does NOT use changesets are a bare

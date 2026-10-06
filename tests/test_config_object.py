@@ -13,6 +13,10 @@ import dataclasses
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from extant.config import StatusConfig
 
 PAYLOAD = Path(__file__).resolve().parent.parent / "plugin" / "skills" / "extant" / "payload"
 sys.path.insert(0, str(PAYLOAD))
@@ -29,7 +33,7 @@ EXPECTED = {
 }
 
 
-def _defaults(tmp_path: Path):
+def _defaults(tmp_path: Path) -> StatusConfig:
     """The default StatusConfig.
 
     `StatusConfig()` cannot be called bare: every field before `source` is
@@ -52,7 +56,7 @@ def _defaults(tmp_path: Path):
     return status
 
 
-def test_config_carries_every_derived_value(tmp_path) -> None:
+def test_config_carries_every_derived_value(tmp_path: Path) -> None:
     from extant.config import Config
 
     built = Config.build(_defaults(tmp_path))
@@ -62,7 +66,7 @@ def test_config_carries_every_derived_value(tmp_path) -> None:
         f"missing {sorted(EXPECTED - names)}, unexpected {sorted(names - EXPECTED)}")
 
 
-def test_a_rebuilt_config_differs_in_every_value_that_changed(tmp_path) -> None:
+def test_a_rebuilt_config_differs_in_every_value_that_changed(tmp_path: Path) -> None:
     """A rebuild that copies some values and computes others is where the
     forgotten special case lives. `section_header` is COMPUTED from
     entry_prefix, so a rebuild that only copies leaves it stale.
@@ -85,7 +89,7 @@ def _canonical(value: object) -> object:
     return value
 
 
-def test_every_reader_is_handed_the_one_built_config(tmp_path) -> None:
+def test_every_reader_is_handed_the_one_built_config(tmp_path: Path) -> None:
     """`config()` and `context(repo).config` hand out ONE object, and it is
     what a fresh build from the current CONFIG gives.
 

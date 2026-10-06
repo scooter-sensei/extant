@@ -37,7 +37,7 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 import pytest
 
@@ -232,7 +232,16 @@ def ignore_tree(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
-@settings(max_examples=max(1, settings.default.max_examples // 20))
+def _a_twentieth_of_the_budget() -> int:
+    """The loaded profile's `max_examples` over twenty, and at least one."""
+    loaded = settings.default
+    assert loaded is not None, "no Hypothesis profile is loaded"
+    budget = loaded.max_examples
+    assert isinstance(budget, int), budget
+    return max(1, budget // 20)
+
+
+@settings(max_examples=_a_twentieth_of_the_budget())
 @given(cases=st.lists(pattern_and_paths(), min_size=1, max_size=BATCH))
 @example(cases=[("a/**b", ["a/xb", "a/x/b"]), ("a**/a", ["a/a", "aaa"]),
                 ("***/b", ["b", "x/b"]), ("docs/?.md", ["docs/a.md", "docs/a/b.md"])])
@@ -282,7 +291,11 @@ def test_exclusion_agrees_with_git_check_ignore(
 _ESCAPE = re.compile(r"%[0-9A-Fa-f]{2}")
 
 
-@given(st.text(st.characters(exclude_categories=("Cs",)), max_size=40))
+# Surrogates, which no `str` a document holds can carry.
+_NO_SURROGATES: tuple[Literal["Cs"]] = ("Cs",)
+
+
+@given(st.text(st.characters(exclude_categories=_NO_SURROGATES), max_size=40))
 def test_percent_decoding_undoes_percent_encoding(target: str) -> None:
     from urllib.parse import quote
     assert percent_decoded(quote(target, safe="/")) == target

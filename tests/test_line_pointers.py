@@ -16,26 +16,33 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _reset():
+def _reset() -> None:
     from extant import session as hc
     hc._SCOPE = hc.RunScope()
     hc._DOC = hc.DocScope()
 
 
-def _check(repo, text: str):
+def _check(repo: Path, text: str) -> list[Finding]:
     from extant import session as hc
     from extant.rules import line_pointer as rule_line_pointer
     _reset()
     return rule_line_pointer.check(hc.context(repo), text)
 
 
-def _examined(repo, text: str) -> int:
+def _examined(repo: Path, text: str) -> int:
     from extant import session as hc
     from extant.rules import line_pointer as rule_line_pointer
     _reset()
@@ -44,7 +51,7 @@ def _examined(repo, text: str) -> int:
 
 # --- the claim itself --------------------------------------------------
 
-def test_a_line_past_the_end_is_reported(git_repo) -> None:
+def test_a_line_past_the_end_is_reported(git_repo: GitRepo) -> None:
     """The corpus case: a plan says modify line 211 of a 167-line file.
 
     Catches a rule that only checks the path and never counts the lines.
@@ -58,7 +65,7 @@ def test_a_line_past_the_end_is_reported(git_repo) -> None:
     assert findings[0].subject == "src/app.py:123"
 
 
-def test_a_line_inside_the_file_is_silent(git_repo) -> None:
+def test_a_line_inside_the_file_is_silent(git_repo: GitRepo) -> None:
     """Catches a rule that fires on every pointer it can parse."""
     repo, commit = git_repo
     commit("src/app.py", "".join(f"line {n}\n" for n in range(1, 41)),
@@ -66,7 +73,7 @@ def test_a_line_inside_the_file_is_silent(git_repo) -> None:
     assert _check(repo, "See `src/app.py:40` for the detail.\n") == []
 
 
-def test_the_last_line_is_inside_the_file(git_repo) -> None:
+def test_the_last_line_is_inside_the_file(git_repo: GitRepo) -> None:
     """An off-by-one here reports every pointer at the final line.
 
     Catches `cited < total` where `cited <= total` is meant.
@@ -77,7 +84,7 @@ def test_the_last_line_is_inside_the_file(git_repo) -> None:
     assert len(_check(repo, "See `src/app.py:4`.\n")) == 1
 
 
-def test_a_one_line_file_reads_as_singular(git_repo) -> None:
+def test_a_one_line_file_reads_as_singular(git_repo: GitRepo) -> None:
     """Prose detail, and the only place a plural is computed."""
     repo, commit = git_repo
     commit("one.py", "solo\n", "feat: one")
@@ -86,7 +93,7 @@ def test_a_one_line_file_reads_as_singular(git_repo) -> None:
 
 # --- what it refuses to judge -----------------------------------------
 
-def test_a_pointer_inside_a_fence_is_not_read(git_repo) -> None:
+def test_a_pointer_inside_a_fence_is_not_read(git_repo: GitRepo) -> None:
     """A pasted traceback is a record of what was true when captured.
 
     Catches dropping `_prose`, which is what keeps stack traces out.
@@ -100,7 +107,7 @@ def test_a_pointer_inside_a_fence_is_not_read(git_repo) -> None:
     assert _check(repo, text) == []
 
 
-def test_a_pointer_inside_an_rst_literal_block_is_not_read(git_repo) -> None:
+def test_a_pointer_inside_an_rst_literal_block_is_not_read(git_repo: GitRepo) -> None:
     """reStructuredText code blocks are INDENTATION, not fences.
 
     The corpus harness missed this and reported a pytest transcript as a
@@ -122,7 +129,7 @@ def test_a_pointer_inside_an_rst_literal_block_is_not_read(git_repo) -> None:
         hc.set_document(doc_format="markdown")
 
 
-def test_a_path_the_repository_does_not_track_is_not_judged(git_repo) -> None:
+def test_a_path_the_repository_does_not_track_is_not_judged(git_repo: GitRepo) -> None:
     """6,474 of 6,525 corpus pointers were this: third-party paths and
     transcripts. Whether a path exists is `dead-path-pointer`'s question, and
     asking it again here reports one fault twice under two names.
@@ -134,7 +141,7 @@ def test_a_path_the_repository_does_not_track_is_not_judged(git_repo) -> None:
     assert _check(repo, "See `vendor/other/thing.py:900`.\n") == []
 
 
-def test_a_time_or_a_port_is_not_a_pointer(git_repo) -> None:
+def test_a_time_or_a_port_is_not_a_pointer(git_repo: GitRepo) -> None:
     """`localhost:8080` and `12:30` share the shape and are not pointers.
 
     Catches a pattern without the extension requirement or the boundaries.
@@ -147,7 +154,7 @@ def test_a_time_or_a_port_is_not_a_pointer(git_repo) -> None:
     assert _examined(repo, text) == 0
 
 
-def test_a_wrong_case_path_is_not_judged(git_repo) -> None:
+def test_a_wrong_case_path_is_not_judged(git_repo: GitRepo) -> None:
     """Resolution is case-correct, and only that guard rejects this.
 
     On a case-insensitive filesystem `is_file()` says yes to `src/app.py`
@@ -161,7 +168,7 @@ def test_a_wrong_case_path_is_not_judged(git_repo) -> None:
     assert _check(repo, "See `src/app.py:99`.\n") == []
 
 
-def test_a_directory_is_not_counted_as_a_file(git_repo) -> None:
+def test_a_directory_is_not_counted_as_a_file(git_repo: GitRepo) -> None:
     """A path can resolve and still be uncountable.
 
     `pkg.d` exists, so resolution passes; it is not a file, so counting
@@ -174,7 +181,7 @@ def test_a_directory_is_not_counted_as_a_file(git_repo) -> None:
     assert _examined(repo, "See `pkg.d:99`.\n") == 0
 
 
-def test_an_extensionless_name_is_not_a_pointer(git_repo) -> None:
+def test_an_extensionless_name_is_not_a_pointer(git_repo: GitRepo) -> None:
     """`Makefile:99` is not read, and that is a deliberate narrowing.
 
     The pattern requires an extension because the corpus form is
@@ -188,7 +195,7 @@ def test_an_extensionless_name_is_not_a_pointer(git_repo) -> None:
     assert _check(repo, "See Makefile:99 for the target.\n") == []
 
 
-def test_a_dotted_suffix_after_the_number_is_not_a_line(git_repo) -> None:
+def test_a_dotted_suffix_after_the_number_is_not_a_line(git_repo: GitRepo) -> None:
     """`app.py:2.0` names a version, not line 2.
 
     Asserted on the DENOMINATOR rather than on findings: without the trailing
@@ -202,7 +209,7 @@ def test_a_dotted_suffix_after_the_number_is_not_a_line(git_repo) -> None:
 
 # --- narrowings found by a gap audit, pinned so they stay deliberate ---
 
-def test_a_range_is_read_to_its_end(git_repo) -> None:
+def test_a_range_is_read_to_its_end(git_repo: GitRepo) -> None:
     """`app.py:2-9` on a three-line file is REPORTED: lines 4 to 9 are not
     there.
 
@@ -222,7 +229,7 @@ def test_a_range_is_read_to_its_end(git_repo) -> None:
     assert _check(repo, "See `app.py:1-3`.\n") == []
 
 
-def test_a_line_column_pointer_is_judged_on_its_line(git_repo) -> None:
+def test_a_line_column_pointer_is_judged_on_its_line(git_repo: GitRepo) -> None:
     """`app.py:2:14` is line 2, column 14, and only the line is checkable."""
     repo, commit = git_repo
     commit("app.py", "a\nb\nc\n", "feat: app")
@@ -230,14 +237,14 @@ def test_a_line_column_pointer_is_judged_on_its_line(git_repo) -> None:
     assert len(_check(repo, "See `app.py:9:14`.\n")) == 1
 
 
-def test_line_zero_is_not_a_line(git_repo) -> None:
+def test_line_zero_is_not_a_line(git_repo: GitRepo) -> None:
     """Catches counting `:0` as a pointer, which every file would fail."""
     repo, commit = git_repo
     commit("app.py", "a\nb\nc\n", "feat: app")
     assert _examined(repo, "See `app.py:0`.\n") == 0
 
 
-def test_a_seven_digit_line_is_not_examined(git_repo) -> None:
+def test_a_seven_digit_line_is_not_examined(git_repo: GitRepo) -> None:
     """The digit cap, pinned. Without it the pattern would match the first
     six digits and judge a line the document never cited."""
     repo, commit = git_repo
@@ -245,14 +252,15 @@ def test_a_seven_digit_line_is_not_examined(git_repo) -> None:
     assert _examined(repo, "See `app.py:1234567`.\n") == 0
 
 
-def test_an_empty_file_has_no_first_line(git_repo) -> None:
+def test_an_empty_file_has_no_first_line(git_repo: GitRepo) -> None:
     """0 lines is a real count, not a failure to count."""
     repo, commit = git_repo
     commit("empty.py", "", "feat: empty")
     assert "has 0 lines" in _check(repo, "See `empty.py:1`.\n")[0].detail
 
 
-def test_a_file_without_a_trailing_newline_counts_its_last_line(git_repo) -> None:
+def test_a_file_without_a_trailing_newline_counts_its_last_line(
+        git_repo: GitRepo) -> None:
     """`a\\nb` is two lines. Counting newlines rather than lines would say one
     and report the final line of every such file as missing."""
     repo, commit = git_repo
@@ -263,14 +271,14 @@ def test_a_file_without_a_trailing_newline_counts_its_last_line(git_repo) -> Non
 
 # --- the denominator ---------------------------------------------------
 
-def test_a_resolvable_pointer_is_counted_even_when_it_is_fine(git_repo) -> None:
+def test_a_resolvable_pointer_is_counted_even_when_it_is_fine(git_repo: GitRepo) -> None:
     """Catches a denominator that counts findings rather than candidates."""
     repo, commit = git_repo
     commit("src/app.py", "a\nb\nc\n", "feat: app")
     assert _examined(repo, "See `src/app.py:2`.\n") == 1
 
 
-def test_an_undecidable_pointer_is_not_counted_as_examined(git_repo) -> None:
+def test_an_undecidable_pointer_is_not_counted_as_examined(git_repo: GitRepo) -> None:
     """Coverage the rule does not have must not be claimed.
 
     Catches counting every `path:line` match, which on the corpus would have
@@ -281,7 +289,7 @@ def test_an_undecidable_pointer_is_not_counted_as_examined(git_repo) -> None:
     assert _examined(repo, "See `nowhere/absent.py:5`.\n") == 0
 
 
-def test_count_examined_exposes_the_rule(git_repo) -> None:
+def test_count_examined_exposes_the_rule(git_repo: GitRepo) -> None:
     """The registry's denominator must reach the reported one."""
     from extant import session as hc
     repo, commit = git_repo
@@ -293,7 +301,7 @@ def test_count_examined_exposes_the_rule(git_repo) -> None:
 
 # --- probe -------------------------------------------------------------
 
-def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
+def test_the_probe_makes_a_clean_document_fire(git_repo: GitRepo) -> None:
     """A rule that cannot say how to make itself fire cannot be shown to work."""
     from extant import session as hc
     from extant.rules import line_pointer as rule_line_pointer
@@ -308,7 +316,7 @@ def test_the_probe_makes_a_clean_document_fire(git_repo) -> None:
     assert len(rule_line_pointer.check(hc.context(repo), probed)) == 1
 
 
-def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
+def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo: GitRepo) -> None:
     """None is the honest answer, and `--selftest` reports it as NO PROBE."""
     from extant import session as hc
     from extant.rules import line_pointer as rule_line_pointer
@@ -320,7 +328,8 @@ def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo) -> None:
 
 # --- the gate in front of the scan -------------------------------------
 
-def _sites_without_the_gate(ctx, text: str):
+def _sites_without_the_gate(ctx: Context, text: str
+                            ) -> list[tuple[int, str, int, int, int | None]]:
     """`_line_pointer_sites_uncached` as it stood at 7c51c2f.
 
     A deliberate second copy, with the same maintenance contract the bare-SHA
@@ -350,7 +359,7 @@ def _sites_without_the_gate(ctx, text: str):
 
 
 def test_the_colon_gate_finds_every_pointer_the_ungated_scan_finds(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """A line with no colon is skipped, and nothing else is.
 
     `_LINE_POINTER` opens with a lookbehind and a nested
@@ -421,7 +430,8 @@ def test_the_colon_gate_finds_every_pointer_the_ungated_scan_finds(
         "rule finds fewer pointers and says nothing about it")
 
 
-def test_the_line_pointer_pattern_cannot_match_without_a_colon(git_repo) -> None:
+def test_the_line_pointer_pattern_cannot_match_without_a_colon(
+        git_repo: GitRepo) -> None:
     """The property `b5308b1`'s gate rests on, pinned against the pattern.
 
     `_line_pointer_sites_uncached` skips any line with no `:` in it before

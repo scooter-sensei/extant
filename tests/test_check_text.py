@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _install_into
+from conftest import GitRepo, _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -33,7 +33,7 @@ sys.path.insert(0, str(PAYLOAD))
 
 
 def check_text(repo: Path, document: str, *args: str,
-               raw: bytes | None = None) -> subprocess.CompletedProcess:
+               raw: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
     """Run `--check-text` against `repo`, feeding `document` on stdin."""
     tools = _install_into(repo)
     payload = raw if raw is not None else document.encode("utf-8")
@@ -44,13 +44,13 @@ def check_text(repo: Path, document: str, *args: str,
     )
 
 
-def output(done: subprocess.CompletedProcess) -> str:
+def output(done: subprocess.CompletedProcess[bytes]) -> str:
     return (done.stdout + done.stderr).decode("utf-8", errors="replace")
 
 
 # --- the mode does what --validate does ---------------------------------------
 
-def test_a_false_claim_on_stdin_is_reported_and_gates(git_repo) -> None:
+def test_a_false_claim_on_stdin_is_reported_and_gates(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     done = check_text(repo, "The fix landed in `abc1234f`.\n")
@@ -59,14 +59,14 @@ def test_a_false_claim_on_stdin_is_reported_and_gates(git_repo) -> None:
     assert "abc1234f" in output(done)
 
 
-def test_a_document_with_nothing_wrong_exits_zero(git_repo) -> None:
+def test_a_document_with_nothing_wrong_exits_zero(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     done = check_text(repo, "Nothing checkable is written here.\n")
     assert done.returncode == 0, output(done)
 
 
-def test_a_live_sha_on_stdin_produces_no_finding(git_repo) -> None:
+def test_a_live_sha_on_stdin_produces_no_finding(git_repo: GitRepo) -> None:
     """The other half of the first test, and not redundant with it.
 
     A mode that reported everything would pass the first test while being
@@ -78,7 +78,7 @@ def test_a_live_sha_on_stdin_produces_no_finding(git_repo) -> None:
     assert done.returncode == 0, output(done)
 
 
-def test_the_denominator_is_printed_for_every_rule(git_repo) -> None:
+def test_the_denominator_is_printed_for_every_rule(git_repo: GitRepo) -> None:
     """"Nothing found" and "nothing checked" must not look alike here either.
 
     This is the promise the whole tool is built on, and a new mode is exactly
@@ -96,7 +96,7 @@ def test_the_denominator_is_printed_for_every_rule(git_repo) -> None:
 
 # --- the narrowing that must never be silent ----------------------------------
 
-def test_without_as_path_the_narrower_question_is_stated(git_repo) -> None:
+def test_without_as_path_the_narrower_question_is_stated(git_repo: GitRepo) -> None:
     """The one thing this mode could get quietly wrong.
 
     Without a path the filename-keyed rules report 0 examined, which is
@@ -111,7 +111,7 @@ def test_without_as_path_the_narrower_question_is_stated(git_repo) -> None:
     assert "key on the filename" in text
 
 
-def test_with_as_path_the_note_is_absent(git_repo) -> None:
+def test_with_as_path_the_note_is_absent(git_repo: GitRepo) -> None:
     """The other direction: a mode that always warns trains its reader to skip.
 
     Without this, the fix above could be "print the note unconditionally",
@@ -123,7 +123,8 @@ def test_with_as_path_the_note_is_absent(git_repo) -> None:
     assert "no --as-path" not in text, text
 
 
-def test_as_path_decides_what_a_relative_link_resolves_against(git_repo) -> None:
+def test_as_path_decides_what_a_relative_link_resolves_against(
+        git_repo: GitRepo) -> None:
     """A link is relative to its DOCUMENT, so a document with no location
     cannot resolve one the way the same text on disk would.
 
@@ -145,7 +146,7 @@ def test_as_path_decides_what_a_relative_link_resolves_against(git_repo) -> None
         "still called it fine")
 
 
-def test_as_path_decides_the_markup_language(git_repo) -> None:
+def test_as_path_decides_the_markup_language(git_repo: GitRepo) -> None:
     """`[text](url)` is markdown and nothing else.
 
     In reStructuredText that shape occurs in ordinary Python - numpy writes
@@ -163,7 +164,8 @@ def test_as_path_decides_the_markup_language(git_repo) -> None:
         "ran a markdown-only rule over reStructuredText: " + as_rst)
 
 
-def test_as_path_is_refused_rather_than_ignored_without_check_text(git_repo) -> None:
+def test_as_path_is_refused_rather_than_ignored_without_check_text(
+        git_repo: GitRepo) -> None:
     """A flag that cannot apply must say so, not evaporate.
 
     `--validate` already knows where its file is, so an `--as-path` beside it
@@ -183,7 +185,7 @@ def test_as_path_is_refused_rather_than_ignored_without_check_text(git_repo) -> 
 
 # --- what it must NOT do ------------------------------------------------------
 
-def test_it_writes_no_file_even_when_given_a_sha_map(git_repo) -> None:
+def test_it_writes_no_file_even_when_given_a_sha_map(git_repo: GitRepo) -> None:
     """`--sha-map` REWRITES a document, and there is no document to rewrite.
 
     The translation still applies in memory, so the findings match what the
@@ -211,7 +213,8 @@ def test_it_writes_no_file_even_when_given_a_sha_map(git_repo) -> None:
     assert "writes no file" in output(done), output(done)
 
 
-def test_stdin_that_is_not_utf8_is_reported_not_silently_replaced(git_repo) -> None:
+def test_stdin_that_is_not_utf8_is_reported_not_silently_replaced(
+        git_repo: GitRepo) -> None:
     """Decoding with errors="replace" would run every rule over corrupted text.
 
     The findings would then be about bytes that are not there, which is worse
@@ -225,7 +228,7 @@ def test_stdin_that_is_not_utf8_is_reported_not_silently_replaced(git_repo) -> N
     assert "not valid UTF-8" in output(done), output(done)
 
 
-def test_suggest_fixes_without_a_path_says_why(git_repo) -> None:
+def test_suggest_fixes_without_a_path_says_why(git_repo: GitRepo) -> None:
     """A patch names the file it applies to, so it needs one.
 
     Emitting a diff headed with an invented filename would produce something
@@ -239,7 +242,7 @@ def test_suggest_fixes_without_a_path_says_why(git_repo) -> None:
 
 # --- the promises shared with --validate --------------------------------------
 
-def test_the_baseline_suppresses_and_says_how_much(git_repo) -> None:
+def test_the_baseline_suppresses_and_says_how_much(git_repo: GitRepo) -> None:
     """A baseline that hides its own size is the denominator failure again.
 
     Wired through the same `Collector` as `--validate`, and this is what pins
@@ -267,7 +270,8 @@ def test_the_baseline_suppresses_and_says_how_much(git_repo) -> None:
     assert "0 new finding(s)" in output(again), output(again)
 
 
-def test_sarif_carries_the_denominator_and_nothing_else_is_on_stdout(git_repo) -> None:
+def test_sarif_carries_the_denominator_and_nothing_else_is_on_stdout(
+        git_repo: GitRepo) -> None:
     """SARIF must be the only thing on stdout or it is not parseable JSON.
 
     Every human diagnostic moves to stderr in that mode, and a new mode is
@@ -292,7 +296,7 @@ def test_sarif_carries_the_denominator_and_nothing_else_is_on_stdout(git_repo) -
     assert "examined:" in notes, notes
 
 
-def test_github_annotations_name_the_document(git_repo) -> None:
+def test_github_annotations_name_the_document(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("a.py", "a = 1\n", "feat: a")
     named = output(check_text(repo, "Landed in `abc1234f`.\n",
@@ -303,7 +307,7 @@ def test_github_annotations_name_the_document(git_repo) -> None:
     assert "file=<stdin>" in anonymous, anonymous
 
 
-def test_entry_scoped_rules_are_not_tied_to_as_path(git_repo) -> None:
+def test_entry_scoped_rules_are_not_tied_to_as_path(git_repo: GitRepo) -> None:
     """Whether a document has dated entries is a property of the TEXT.
 
     Written first as `has_entries=bool(--as-path)`, which is wrong: a status
@@ -326,7 +330,7 @@ def test_entry_scoped_rules_are_not_tied_to_as_path(git_repo) -> None:
 
 # --- what a gap audit found, each with the damage it did ----------------------
 
-def test_it_refuses_to_write_a_baseline_over_the_projects_own(git_repo) -> None:
+def test_it_refuses_to_write_a_baseline_over_the_projects_own(git_repo: GitRepo) -> None:
     """Measured destroying one: two entries became one, and the run exited 0.
 
     `--write-baseline` records what THIS run found and replaces the file. Over
@@ -358,7 +362,7 @@ def test_it_refuses_to_write_a_baseline_over_the_projects_own(git_repo) -> None:
     assert after == recorded, "the project's baseline was overwritten"
 
 
-def test_it_refuses_to_judge_a_baseline_it_cannot_see(git_repo) -> None:
+def test_it_refuses_to_judge_a_baseline_it_cannot_see(git_repo: GitRepo) -> None:
     """Measured calling live entries STALE and advising their deletion.
 
     `--baseline-check` asks which recorded entries this RUN did not encounter.
@@ -384,7 +388,7 @@ def test_it_refuses_to_judge_a_baseline_it_cannot_see(git_repo) -> None:
         "reported the project's live baseline entries as stale")
 
 
-def test_reading_a_baseline_is_still_allowed(git_repo) -> None:
+def test_reading_a_baseline_is_still_allowed(git_repo: GitRepo) -> None:
     """The other direction: refusing all three would break the useful case.
 
     A caller checking a draft wants what the project already forgave applied
@@ -407,7 +411,8 @@ def test_reading_a_baseline_is_still_allowed(git_repo) -> None:
     assert "suppressed by" in output(done), output(done)
 
 
-def test_sarif_without_a_path_is_refused_rather_than_made_invalid(git_repo) -> None:
+def test_sarif_without_a_path_is_refused_rather_than_made_invalid(
+        git_repo: GitRepo) -> None:
     """`<stdin>` is not a URI, and SARIF requires one.
 
     Measured: `artifactLocation.uri` came out as `<stdin>`, and `<` and `>` are
@@ -433,7 +438,8 @@ def test_sarif_without_a_path_is_refused_rather_than_made_invalid(git_repo) -> N
         assert not set(uri) & set("<>\"{}|\\^` "), f"{uri!r} is not a URI"
 
 
-def test_nothing_on_stdin_is_reported_rather_than_reported_clean(git_repo) -> None:
+def test_nothing_on_stdin_is_reported_rather_than_reported_clean(
+        git_repo: GitRepo) -> None:
     """An empty document printed every rule at 0 and exited 0.
 
     Which is "nothing was checked" wearing the exact appearance of "nothing was
@@ -451,7 +457,7 @@ def test_nothing_on_stdin_is_reported_rather_than_reported_clean(git_repo) -> No
         assert "nothing arrived on stdin" in output(done), output(done)
 
 
-def test_as_path_must_stay_inside_the_repository(git_repo) -> None:
+def test_as_path_must_stay_inside_the_repository(git_repo: GitRepo) -> None:
     """Measured accepting `../../../etc/passwd` and printing it as the name.
 
     An asserted path is a claim about where the document would live. One that
@@ -470,7 +476,7 @@ def test_as_path_must_stay_inside_the_repository(git_repo) -> None:
     assert ok.returncode == 0, output(ok)
 
 
-def test_both_gating_modes_share_one_tail(git_repo) -> None:
+def test_both_gating_modes_share_one_tail(git_repo: GitRepo) -> None:
     """Structural, because the drift would be invisible in any single run.
 
     `--validate` and `--check-text` make the same promises about output: the

@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Iterable
 
-from conftest import _install_into
+from conftest import GitRepo, _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -34,7 +35,7 @@ PATHS = [
 ]
 
 
-def _split(patterns):
+def _split(patterns: Iterable[str]) -> tuple[list[str], dict[str, int]]:
     from extant import session as hc
     from extant import exclusions
     return exclusions.excluded_documents(list(PATHS), tuple(patterns))
@@ -270,7 +271,7 @@ def test_a_comment_is_not_named_an_unusable_pattern() -> None:
     assert exclusions.unusable_note(["# drafts [old]", "drafts/**"]) is None
 
 
-def test_the_sweep_names_an_unusable_pattern_and_why(git_repo) -> None:
+def test_the_sweep_names_an_unusable_pattern_and_why(git_repo: GitRepo) -> None:
     """Printed beside the counts, and kept OUT of the "may be stale" line,
     which would send the reader to look for the directory rather than at the
     pattern."""
@@ -289,7 +290,7 @@ def test_the_sweep_names_an_unusable_pattern_and_why(git_repo) -> None:
     assert "vendor/**" in stale and "!docs" not in stale and "[a-z]" not in stale, stale
 
 
-def test_introduced_since_names_an_unusable_pattern_too(git_repo) -> None:
+def test_introduced_since_names_an_unusable_pattern_too(git_repo: GitRepo) -> None:
     """The second caller of the same exclusions, which the plan's first
     version of this item did not name."""
     import subprocess
@@ -320,7 +321,7 @@ def test_an_unusable_pattern_excludes_nothing_rather_than_everything() -> None:
 # End to end, through the sweep
 # --------------------------------------------------------------------------
 
-def _sweep(repo):
+def _sweep(repo: Path) -> tuple[int, str]:
     """Run the INSTALLED shape, which is the only one that reads the target's
     own configuration.
 
@@ -339,7 +340,7 @@ def _sweep(repo):
     return done.returncode, done.stdout + done.stderr
 
 
-def test_the_sweep_prints_what_it_excluded(git_repo) -> None:
+def test_the_sweep_prints_what_it_excluded(git_repo: GitRepo) -> None:
     """A count nobody sees is the same as no count. This is the setting that
     can make a repository look clean by not looking at it, so what it removed
     is printed beside what was read."""
@@ -359,7 +360,7 @@ def test_the_sweep_prints_what_it_excluded(git_repo) -> None:
     assert "nope.md" not in output, output
 
 
-def test_the_sweep_names_a_pattern_that_matched_nothing(git_repo) -> None:
+def test_the_sweep_names_a_pattern_that_matched_nothing(git_repo: GitRepo) -> None:
     """The failure that survives forever otherwise."""
     repo, commit = git_repo
     commit("README.md", "x\n", "seed")
@@ -370,7 +371,7 @@ def test_the_sweep_names_a_pattern_that_matched_nothing(git_repo) -> None:
     assert "vendor/**" in output, output
 
 
-def test_excluding_a_configured_document_is_refused(git_repo) -> None:
+def test_excluding_a_configured_document_is_refused(git_repo: GitRepo) -> None:
     """One setting says gate on this file and another says never read it.
     Reported rather than resolved, because either answer silently overrides
     something the author wrote - and the dangerous direction is quietly
@@ -386,7 +387,7 @@ def test_excluding_a_configured_document_is_refused(git_repo) -> None:
     assert "STATUS.md" in output, output
 
 
-def test_excluding_everything_says_so(git_repo) -> None:
+def test_excluding_everything_says_so(git_repo: GitRepo) -> None:
     """Zero documents swept because a pattern removed them all is a different
     fact from zero documents tracked, and they printed identically."""
     repo, commit = git_repo

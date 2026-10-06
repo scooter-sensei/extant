@@ -24,6 +24,7 @@ markdown.
 from __future__ import annotations
 
 import textwrap
+from typing import Any
 
 # The tiers whose precision is worth reporting. The agent corpus is excluded
 # because it is 17 of 17 inside the retired design corpus, so its precision was
@@ -41,7 +42,7 @@ BANNER = (
 )
 
 
-def _n(value) -> str:
+def _n(value: object) -> str:
     """Thousands separators, and a visible marker when a figure is absent.
 
     An absent number must never render as an empty gap, which reads as prose
@@ -116,7 +117,7 @@ def _rewrap(lines: list[str]) -> list[str]:
     return out
 
 
-def _buckets_section(fig: dict) -> list[str]:
+def _buckets_section(fig: dict[str, Any]) -> list[str]:
     """What a change breaks without writing it: the replay's changes swept at
     each commit and at its first parent (tranche 20, Phase 58).
 
@@ -130,7 +131,9 @@ def _buckets_section(fig: dict) -> list[str]:
     table = bk["buckets"]
 
     def cell(label: str, mode: str, key: str) -> int:
-        return table[label][mode][key]
+        value = table[label][mode][key]
+        assert isinstance(value, int), (label, mode, key, value)
+        return value
 
     rows = [
         ("introduced - new, on a line the change wrote (today's gate)", "introduced"),
@@ -242,7 +245,10 @@ def _buckets_section(fig: dict) -> list[str]:
     return L
 
 
-def render(fig: dict) -> str:
+# `fig` is the figures file as `json.load` returns it. Typing every key
+# would restate its writer, extant-hardening/corpus_report.py, here; a
+# missing or misspelt key raises in the round-trip test instead.
+def render(fig: dict[str, Any]) -> str:
     c, h, prov = fig["corpus"], fig["holdout"], fig["provenance"]
     census, pilot = fig["sha_census"], fig["agent_pilot"]
     bench = c["per_tier"]["bench"]
