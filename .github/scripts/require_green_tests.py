@@ -37,7 +37,7 @@ API = "https://api.github.com"
 PASS, FAIL, PENDING = "pass", "fail", "pending"
 
 
-def decide(runs: list[dict]) -> tuple[str, str]:
+def decide(runs: list[dict[str, object]]) -> tuple[str, str]:
     """(verdict, human sentence) for the runs matching one commit.
 
     Newest first, which is how the API returns them. The NEWEST decides,
@@ -63,7 +63,7 @@ def decide(runs: list[dict]) -> tuple[str, str]:
     return FAIL, f"newest run concluded {conclusion}: {where}"
 
 
-def fetch(repo: str, workflow: str, sha: str, token: str) -> list[dict]:
+def fetch(repo: str, workflow: str, sha: str, token: str) -> list[dict[str, object]]:
     url = f"{API}/repos/{repo}/actions/workflows/{workflow}/runs?head_sha={sha}"
     request = urllib.request.Request(url, headers={
         "Accept": "application/vnd.github+json",
@@ -72,7 +72,10 @@ def fetch(repo: str, workflow: str, sha: str, token: str) -> list[dict]:
     })
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.load(response)
-    return payload.get("workflow_runs", [])
+    runs = payload.get("workflow_runs", [])
+    # A list is the shape `decide` reads. Anything else is no run found,
+    # which fails the gate rather than passing it.
+    return runs if isinstance(runs, list) else []
 
 
 def main(argv: list[str] | None = None) -> int:
