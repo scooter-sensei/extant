@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.30.0 (2026-10-06)
 
-Above 0.29.0, unreleased: Phases 60 to 66. No rule added or removed,
+Phases 60 to 66, the work that followed 0.29.0. No rule added or removed,
 thirteen as before; no mode added. Three exit codes moved, each to 2, and
 one `--archive` defect that deleted a person's section is repaired.
 
