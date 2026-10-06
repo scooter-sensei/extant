@@ -163,9 +163,9 @@ def examined(repo: Path) -> dict[str, int]:
     totals: dict[str, int] = {}
     previous_format = hc._DOC.doc_format
     try:
-        for relative in refs.tracked_markdown(ec.context(repo)):
+        for relative in refs.tracked_markdown(hc.context(repo)):
             try:
-                text = (repo / relative).read_text(encoding="utf-8")
+                document = (repo / relative).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
             # Set per document, because `count_examined` reads it. Most of what
@@ -175,7 +175,7 @@ def examined(repo: Path) -> dict[str, int]:
             # alone carries 555 of them. The counts were wrong in the column
             # this harness exists to provide.
             hc.set_document(doc_format=text.format_for(relative))
-            for kind, count in hc.count_examined(repo, text).items():
+            for kind, count in hc.count_examined(repo, document).items():
                 totals[kind] = totals.get(kind, 0) + count
     finally:
         hc.set_document(doc_format=previous_format)
