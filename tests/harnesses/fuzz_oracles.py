@@ -44,6 +44,21 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, Collection, Iterable
+
+if TYPE_CHECKING:
+    from typing import Callable, TypeVar
+
+    from _typeshed import SupportsRichComparison
+
+    # Under TYPE_CHECKING because 3.9 evaluates a module-level alias on
+    # import and cannot evaluate `X | None`. How every oracle runs extant:
+    # the repository and the arguments in, the finished process out - or
+    # None when it did not finish inside the time budget.
+    Run = Callable[[Path, list[str]], subprocess.CompletedProcess[str] | None]
+    Found = tuple[str, int, str, str]   # (path, line, kind, detail)
+    Fault = tuple[str, str]             # (property, what was seen)
+    Comparable = TypeVar("Comparable", bound=SupportsRichComparison)
 
 __all__ = [
     "DidNotRun", "ORACLES", "Result", "finding_count", "findings_in",
@@ -65,11 +80,11 @@ PRIMARY = "NEXT_SESSION.md"
 REPOSITORY_RULES = ("raw-lfs-blob", "inconsistent-artifact")
 
 
-def _document_only(findings):
+def _document_only(findings: Iterable[Found]) -> set[Found]:
     return {f for f in findings if f[2] not in REPOSITORY_RULES}
 
 
-def _own(findings):
+def _own(findings: Iterable[Found]) -> set[Found]:
     """Only what the document UNDER TEST reported about itself.
 
     A gating run also reads the archive and every `extra_docs` entry, and
@@ -122,7 +137,8 @@ FINDING = re.compile(
 class Result:
     """What one oracle concluded: faults, or why it did not run."""
 
-    def __init__(self, faults=None, skipped: str | None = None) -> None:
+    def __init__(self, faults: Iterable[Fault] | None = None,
+                 skipped: str | None = None) -> None:
         self.faults = list(faults or ())
         self.skipped = skipped
 
@@ -148,7 +164,7 @@ GROUPED = re.compile(
 _LOCATION = re.compile(r"^ {4}(?P<path>.+?):(?P<lines>\d+(?:, \d+)*)$", re.M)
 
 
-def findings_in(out: str):
+def findings_in(out: str) -> set[Found]:
     """Every finding in an output, as (path, line, kind, detail)."""
     found = {(m.group("path") or "", int(m.group("line")),
               m.group("kind"), m.group("detail"))
@@ -196,13 +212,20 @@ class DidNotRun(Exception):
     """
 
 
-def _text(done) -> str:
+def _finished(done: subprocess.CompletedProcess[str] | None
+              ) -> subprocess.CompletedProcess[str]:
+    """The run, or DidNotRun when it did not finish inside the budget."""
     if done is None:
         raise DidNotRun("a run did not finish inside the time budget")
-    return (done.stdout or "") + (done.stderr or "")
+    return done
 
 
-def _stdout(done) -> str:
+def _text(done: subprocess.CompletedProcess[str] | None) -> str:
+    finished = _finished(done)
+    return (finished.stdout or "") + (finished.stderr or "")
+
+
+def _stdout(done: subprocess.CompletedProcess[str] | None) -> str:
     """stdout ALONE, for the machine formats.
 
     SARIF is a document on stdout and diagnostics go to stderr, so the merged
@@ -210,16 +233,15 @@ def _stdout(done) -> str:
     "SARIF did not parse" against perfectly good SARIF for exactly that
     reason - a fault in the oracle presented as a fault in the tool, which is
     the most expensive kind to leave lying around."""
-    if done is None:
-        raise DidNotRun("a run did not finish inside the time budget")
-    return done.stdout or ""
+    return _finished(done).stdout or ""
 
 
-def _validate(run, repo: Path, doc: str = PRIMARY, *extra):
+def _validate(run: Run, repo: Path, doc: str = PRIMARY, *extra: str
+              ) -> subprocess.CompletedProcess[str] | None:
     return run(repo, ["--validate", doc, *extra])
 
 
-def _readable(repo: Path, name: str = PRIMARY):
+def _readable(repo: Path, name: str = PRIMARY) -> tuple[Path, bytes | None]:
     path = repo / name
     try:
         return path, path.read_bytes()
@@ -227,7 +249,7 @@ def _readable(repo: Path, name: str = PRIMARY):
         return path, None
 
 
-def _describe(a, b) -> str:
+def _describe(a: set[Comparable], b: set[Comparable]) -> str:
     """The smallest true statement about how two finding sets differ."""
     only_a = sorted(a - b)[:2]
     only_b = sorted(b - a)[:2]
@@ -241,7 +263,7 @@ def _describe(a, b) -> str:
 
 # --- the oracles ------------------------------------------------------
 
-def oracle_fence(run, repo: Path) -> Result:
+def oracle_fence(run: Run, repo: Path) -> Result:
     """Junk inside a code fence changes nothing.
 
     `strip_code` blanks a fence with spaces, so what is inside it is not prose
@@ -274,7 +296,7 @@ def oracle_fence(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_indented(run, repo: Path) -> Result:
+def oracle_indented(run: Run, repo: Path) -> Result:
     """Junk inside an INDENTED code block changes nothing.
 
     CommonMark's other code block, blanked since Phase 53 by
@@ -322,7 +344,7 @@ def oracle_indented(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_shift(run, repo: Path) -> Result:
+def oracle_shift(run: Run, repo: Path) -> Result:
     """One line inserted at the top moves every finding down by exactly one.
 
     This is the line-number contract stated as a property. `line_breaks` and
@@ -354,7 +376,7 @@ def oracle_shift(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_crlf(run, repo: Path) -> Result:
+def oracle_crlf(run: Run, repo: Path) -> Result:
     """Rewriting LF to CRLF changes no finding and no line number.
 
     The contract this project has already broken once. `strip_code` rebuilt
@@ -386,7 +408,7 @@ def oracle_crlf(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_relocate(run, repo: Path) -> Result:
+def oracle_relocate(run: Run, repo: Path) -> Result:
     """The same document under another name reports the same findings.
 
     A SIBLING name, never another directory. Relative links and path pointers
@@ -416,7 +438,7 @@ def oracle_relocate(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_monotone(run, repo: Path) -> Result:
+def oracle_monotone(run: Run, repo: Path) -> Result:
     """Adding an unrelated document removes no finding from another one."""
     path, original = _readable(repo)
     if original is None:
@@ -437,7 +459,7 @@ def oracle_monotone(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_baseline(run, repo: Path) -> Result:
+def oracle_baseline(run: Run, repo: Path) -> Result:
     """Recording every finding and then honouring that record reports none.
 
     The baseline is a SUPPRESSION, and this project's own rule is that a
@@ -459,7 +481,7 @@ def oracle_baseline(run, repo: Path) -> Result:
         after = findings_in(out)
     finally:
         marker.unlink(missing_ok=True)
-    faults = []
+    faults: list[Fault] = []
     if after:
         faults.append(("BASELINE", f"{len(after)} finding(s) survived a "
                                    f"baseline recording all {len(before)}: "
@@ -482,7 +504,7 @@ def oracle_baseline(run, repo: Path) -> Result:
     return Result(faults)
 
 
-def oracle_process(run, repo: Path) -> Result:
+def oracle_process(run: Run, repo: Path) -> Result:
     """One process reading two documents agrees with two processes reading one.
 
     This is the `scope.py` class. That module exists because 26 module-level
@@ -522,7 +544,7 @@ def oracle_process(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_mode_agrees(run, repo: Path) -> Result:
+def oracle_mode_agrees(run: Run, repo: Path) -> Result:
     """`--sweep` and `--verify` agree about the document they both read.
 
     They already do not, and knowingly: repository-scoped rules are attributed
@@ -581,7 +603,7 @@ def oracle_mode_agrees(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_denominator_agrees(run, repo: Path) -> Result:
+def oracle_denominator_agrees(run: Run, repo: Path) -> Result:
     """The denominator SARIF carries equals the one the text run printed.
 
     `format_sarif` emits `examined: <kind> <n>, ...` as a notification, in the
@@ -616,7 +638,7 @@ def oracle_denominator_agrees(run, repo: Path) -> Result:
     return Result()
 
 
-def oracle_github(run, repo: Path) -> Result:
+def oracle_github(run: Run, repo: Path) -> Result:
     """The github format reports as many findings as the text run.
 
     SARIF was cross-checked from the start and this format never was, so a
@@ -671,7 +693,7 @@ def _lines_the_range_wrote(repo: Path, ref: str) -> set[tuple[str, int]]:
     return wrote
 
 
-def oracle_introduced(run, repo: Path) -> Result:
+def oracle_introduced(run: Run, repo: Path) -> Result:
     """Every finding `--introduced-since` GATES sits on a line the range wrote.
 
     The mode's whole promise is that a pull request fails only on the claims
@@ -702,13 +724,13 @@ def oracle_introduced(run, repo: Path) -> Result:
                             encoding="utf-8", errors="replace").stdout.strip()
     if not parent:
         return Result(skipped="the only document-writing commit is the root")
-    done = run(repo, ["--introduced-since", parent])
+    done = _finished(run(repo, ["--introduced-since", parent]))
     out = _text(done)
     if done.returncode == 2 or "examined " not in out:
         return Result(skipped="--introduced-since declined: "
                               + (out.strip().splitlines() or ["no output"])[0][:80])
     wrote = _lines_the_range_wrote(repo, parent)
-    faults = []
+    faults: list[Fault] = []
     for path, line, kind, detail in sorted(findings_in(out)):
         where = (path or PRIMARY).replace("\\", "/")
         if (where, line) not in wrote:
@@ -736,15 +758,16 @@ ORACLES = (
 )
 
 
-def run_all(run, repo: Path, only=None):
+def run_all(run: Run, repo: Path, only: Collection[str] | None = None
+            ) -> tuple[list[Fault], dict[str, str]]:
     """Every oracle over one repository.
 
     Returns (faults, skipped) where `skipped` maps an oracle's name to the
     reason it did not run, so the caller can print how much of this was
     actually held rather than how much was attempted.
     """
-    faults = []
-    skipped = {}
+    faults: list[Fault] = []
+    skipped: dict[str, str] = {}
     for name, oracle in ORACLES:
         if only is not None and name not in only:
             continue

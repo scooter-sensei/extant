@@ -78,6 +78,7 @@ import subprocess
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Sequence
 
 # A hex run long enough to be a commit. The same lower bound the tool's own
 # bare-SHA scanner uses, so a token this masks is one a rule would have read.
@@ -183,7 +184,8 @@ def normalise(text: str, repo: Path) -> str:
     return _HEX.sub("<SHA>", out)
 
 
-def fingerprint(repo: Path) -> tuple:
+def fingerprint(repo: Path
+                ) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...], str]:
     """What the repository IS, apart from the payload it happens to carry.
 
     THE CONTROL WENT RED ONCE, UNDER LOAD, AND THIS IS WHY IT COULD. Two builds
@@ -250,7 +252,7 @@ def fingerprint(repo: Path) -> tuple:
     tracked = sorted(line.strip() for line in
                      git("ls-tree", "-r", "--name-only", "HEAD").splitlines()
                      if line.strip() and not line.strip().startswith("tools/"))
-    texts = []
+    texts: list[tuple[str, str]] = []
     for relative in tracked:
         try:
             raw = (repo / relative).read_bytes()
@@ -269,7 +271,12 @@ def fingerprint(repo: Path) -> tuple:
     return (tuple(refs), tuple(texts), commits)
 
 
-def _sarif_examined(run: dict) -> dict:
+def _json_object(value: object) -> dict[str, object]:
+    """`value` if it is a JSON object, and an empty one if it is anything else."""
+    return value if isinstance(value, dict) else {}
+
+
+def _sarif_examined(run: dict[str, object]) -> dict[str, int]:
     """The per-rule denominators, from wherever this version puts them.
 
     Two places, because the property moved: `runs[0].properties` now, and
@@ -277,19 +284,22 @@ def _sarif_examined(run: dict) -> dict:
     what lets this compare across the move instead of reporting every rule as
     having appeared or vanished.
     """
-    found = (run.get("properties") or {}).get("examined")
+    found = _json_object(run.get("properties")).get("examined")
     if found is None:
-        invocations = run.get("invocations") or [{}]
-        found = (invocations[0].get("properties") or {}).get("examined")
-    return found if isinstance(found, dict) else {}
+        invocations = run.get("invocations")
+        first = invocations[0] if isinstance(invocations, list) and invocations else None
+        found = _json_object(_json_object(first).get("properties")).get("examined")
+    if not isinstance(found, dict):
+        return {}
+    return {rule: count for rule, count in found.items() if isinstance(count, int)}
 
 
 @dataclass(frozen=True)
 class Report:
     """What one version said about one repository."""
 
-    findings: tuple           # (ruleId, uri, line, normalised message)
-    examined: tuple           # (rule, count), sorted
+    findings: tuple[tuple[str, str, int, str], ...]   # (ruleId, uri, line, normalised message)
+    examined: tuple[tuple[str, int], ...]             # (rule, count), sorted
     mode_exit: int            # exit code of the repository's drawn mode
     mode_text: str            # its normalised stdout+stderr
     sarif_ok: bool            # did the sweep produce parseable SARIF at all
@@ -304,7 +314,9 @@ class Report:
     timed_out: bool = False
 
 
-def observe(repo: Path, mode, run_mode) -> Report:
+def observe(repo: Path, mode: Sequence[str],
+            run_mode: Callable[[Path, list[str]], subprocess.CompletedProcess[str] | None],
+            ) -> Report:
     """Run one version against one repository and record what it said.
 
     TWO runs, and they answer different questions. The SARIF sweep is the
@@ -319,8 +331,8 @@ def observe(repo: Path, mode, run_mode) -> Report:
     sweep = run_mode(repo, ["--sweep", "--format=sarif"])
     if sweep is None:
         timed_out = True
-    findings: list[tuple] = []
-    examined: dict = {}
+    findings: list[tuple[str, str, int, str]] = []
+    examined: dict[str, int] = {}
     sarif_ok = False
     if sweep is not None:
         blob = sweep.stdout or ""

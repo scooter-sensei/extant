@@ -41,10 +41,21 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 COLLECTOR = (Path(__file__).resolve().parent.parent.parent / "plugin" / "skills"
              / "extant" / "payload" / "extant_collect.py")
 SWEPT = re.compile(r"swept (\d+) markdown file")
+
+
+class Measured(TypedDict):
+    """One repository's line in the baseline, as `--update` writes it."""
+
+    files: int
+    findings: int
+    by_rule: dict[str, int]
+    digest: dict[str, str]
+    examined: dict[str, int]
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -163,9 +174,9 @@ def examined(repo: Path) -> dict[str, int]:
     totals: dict[str, int] = {}
     previous_format = hc._DOC.doc_format
     try:
-        for relative in refs.tracked_markdown(ec.context(repo)):
+        for relative in refs.tracked_markdown(hc.context(repo)):
             try:
-                text = (repo / relative).read_text(encoding="utf-8")
+                document = (repo / relative).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
             # Set per document, because `count_examined` reads it. Most of what
@@ -175,7 +186,7 @@ def examined(repo: Path) -> dict[str, int]:
             # alone carries 555 of them. The counts were wrong in the column
             # this harness exists to provide.
             hc.set_document(doc_format=text.format_for(relative))
-            for kind, count in hc.count_examined(repo, text).items():
+            for kind, count in hc.count_examined(repo, document).items():
                 totals[kind] = totals.get(kind, 0) + count
     finally:
         hc.set_document(doc_format=previous_format)
@@ -217,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     broken: list[tuple[str, str]] = []
-    results: dict[str, dict[str, int]] = {}
+    results: dict[str, Measured] = {}
     totals: dict[str, int] = {}
     looked: dict[str, int] = {}
     by_format: dict[str, int] = {}
@@ -304,8 +315,8 @@ def main(argv: list[str] | None = None) -> int:
         missing = sorted(set(previous) - set(results))
         print(f"compared {len(results)} against {len(previous)} recorded: "
               f"{len(moved)} changed, {len(missing)} no longer measured")
-        for name, was, now in moved:
-            print(f"  {name:<22} {was} -> {now}")
+        for name, before, after in moved:
+            print(f"  {name:<22} {before} -> {after}")
 
         # THREE THINGS A TOTAL CANNOT SEE, each of which happened during the
         # work that added them:
@@ -336,8 +347,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"compared. Re-run with --update to deepen it.")
         for name in sorted(detailed):
             was, now = previous[name], results[name]
-            for label, key in (("rule", "by_rule"), ("examined", "examined")):
-                old_map, new_map = was.get(key, {}), now.get(key, {})
+            for label, old_map, new_map in (
+                    ("rule", was.get("by_rule", {}), now["by_rule"]),
+                    ("examined", was.get("examined", {}), now["examined"])):
                 for rule in sorted(set(old_map) | set(new_map)):
                     a, b = old_map.get(rule, 0), new_map.get(rule, 0)
                     if a != b:

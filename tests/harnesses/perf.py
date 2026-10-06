@@ -35,13 +35,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 PKG = Path(sys.argv[1])
 ARENA = Path(sys.argv[2])
 PY = sys.executable
 
 
-def sh(cwd: Path, *args: str, check: bool = False):
+def sh(cwd: Path, *args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", check=check)
 
@@ -66,7 +67,7 @@ def write(repo: Path, rel: str, text: str) -> None:
         fh.write(text)
 
 
-def timed(fn, runs: int = 3) -> float:
+def timed(fn: Callable[[], object], runs: int = 3) -> float:
     """Median of `runs`, to blunt one-off noise."""
     samples = []
     for _ in range(runs):
@@ -106,8 +107,8 @@ def hook_latency() -> None:
     sh(repo, "git", "add", "-A")
     sh(repo, "git", "commit", "-qm", "real sha")
 
-    def commit_once(tag: str):
-        def run():
+    def commit_once(tag: str) -> Callable[[], None]:
+        def run() -> None:
             write(repo, f"f_{tag}_{time.time_ns()}.txt", "x\n")
             sh(repo, "git", "add", "-A")
             sh(repo, "git", "commit", "-qm", f"chore: {tag}")
@@ -246,8 +247,8 @@ def baseline_cost() -> None:
     write(repo, "NEXT_SESSION.md",
           f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
 
-    def validate(*extra: str):
-        def run():
+    def validate(*extra: str) -> Callable[[], None]:
+        def run() -> None:
             sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
                str(repo), "--validate", "NEXT_SESSION.md", *extra)
         return run
@@ -284,9 +285,10 @@ def format_cost() -> None:
     write(repo, "NEXT_SESSION.md",
           f"# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{body}\n\n## 1. Ref\n")
     for fmt in ("text", "github", "sarif"):
-        elapsed = timed(lambda f=fmt: sh(
-            repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
-            str(repo), "--validate", "NEXT_SESSION.md", f"--format={f}"), runs=3)
+        def render(f: str = fmt) -> None:
+            sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
+               str(repo), "--validate", "NEXT_SESSION.md", f"--format={f}")
+        elapsed = timed(render, runs=3)
         out = sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
                  str(repo), "--validate", "NEXT_SESSION.md", f"--format={fmt}")
         kb = len(out.stdout.encode("utf-8")) / 1024
@@ -377,7 +379,7 @@ def generator_cliff() -> None:
         sh(repo, "git", "add", "-A")
         sh(repo, "git", "commit", "-qm", "doc")
 
-        def validate():
+        def validate() -> None:
             sh(repo, PY, str(repo / "tools/extant_collect.py"), "--repo",
                str(repo), "--validate", "NEXT_SESSION.md")
 

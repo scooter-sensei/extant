@@ -58,14 +58,14 @@ import random
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional, TypedDict
 
-__all__ = ["Axis", "AXES", "AxisBuild", "Effect", "axis_by_name",
+__all__ = ["Axis", "AXES", "AxisBuild", "AxisFacts", "Effect", "axis_by_name",
            "axes_for", "draw_axes", "commit_map_path", "opens_a_fence",
            "PHASES"]
 
 
-def opens_a_fence(lines) -> bool:
+def opens_a_fence(lines: Iterable[str]) -> bool:
     """Does this text leave a markdown code fence OPEN at its end?
 
     Asked of the harness's OWN text, and only ever of that. Every fence this
@@ -110,6 +110,23 @@ def opens_a_fence(lines) -> bool:
 PHASES = ("config", "document", "final")
 
 
+class AxisFacts(TypedDict, total=False):
+    """What an axis's build learned, for its `confirm` to read back.
+
+    Each key is set only once the step that earns it succeeded, so an
+    absent key is the evidence that it did not - never a default.
+    """
+
+    encoding: str
+    release_gate: bool
+    raised_rule: str
+    site_marker: str
+    annotated_tag: str
+    packed_refs: bool
+    commit_map_claimed: bool
+    commit_map: str
+
+
 @dataclass
 class AxisBuild:
     """What an axis is handed, and what it may ask about the repository."""
@@ -123,8 +140,8 @@ class AxisBuild:
     # Feature names this repository drew. The raising axis reads it, and the
     # reason is under `_raise_a_rule`: silencing a rule some feature is aiming
     # at would make the reach ledger report that feature as broken.
-    features: frozenset
-    facts: dict
+    features: frozenset[str]
+    facts: AxisFacts
     # Whether the text that will precede the NEWEST ENTRY leaves a code fence
     # open. `strip_code` blanks a fence to the END OF THE DOCUMENT, so when
     # this is set every entry line is invisible to every rule - measured
@@ -138,7 +155,7 @@ class AxisBuild:
     # claim the harness itself blanked.
     entry_is_blanked: bool = False
 
-    def git(self, *args: str):
+    def git(self, *args: str) -> object:
         return self.sh(self.repo, "git", *args)
 
     def head(self) -> str:
@@ -150,14 +167,14 @@ class AxisBuild:
 class Effect:
     """What an axis contributes, beyond whatever it wrote to disk itself."""
 
-    config: tuple = ()      # bare TOML keys, merged the way features' are
-    prose: tuple = ()       # lines for the document preamble
+    config: tuple[str, ...] = ()   # bare TOML keys, merged the way features' are
+    prose: tuple[str, ...] = ()    # lines for the document preamble
     # Lines for the NEWEST phase entry, which is a DIFFERENT POPULATION from
     # the preamble and not a stylistic choice. `stale-live-claim` and
     # `unknown-branch` read only that entry, so a branch claim written into the
     # preamble is invisible to them - which is exactly how the raising axis
     # aimed at `branch_token` silently stopped raising anything.
-    entry: tuple = ()
+    entry: tuple[str, ...] = ()
     note: str = ""          # what to print beside the axis in the recipe
 
 
@@ -214,7 +231,7 @@ def _encode(build: AxisBuild) -> Optional[Effect]:
     return Effect(note=f"primary document written as {spelling}")
 
 
-def _encoded(repo: Path, out: str, facts: dict) -> Optional[bool]:
+def _encoded(repo: Path, out: str, facts: AxisFacts) -> Optional[bool]:
     """Did the run behave as though it met the encoding?
 
     Three spellings must still be READ: CRLF, a BOM and a bare CR are all
@@ -299,7 +316,7 @@ def _has_denominator(out: str) -> bool:
 _RELEASE_GATE = "release_claims_name_our_tags = true"
 
 
-def _release_gate(build: AxisBuild) -> tuple:
+def _release_gate(build: AxisBuild) -> tuple[str, ...]:
     """The release key, emitted at most once per repository."""
     if "release-tag" in build.features:
         # The feature emits it itself. A copy here is the duplicate.
@@ -420,7 +437,7 @@ def _raise_a_rule(build: AxisBuild) -> Optional[Effect]:
                   note=f"{key} pattern with no capture group, so {kind} raises")
 
 
-def _raised(repo: Path, out: str, facts: dict) -> Optional[bool]:
+def _raised(repo: Path, out: str, facts: AxisFacts) -> Optional[bool]:
     """`ERRORED:` naming the rule this axis aimed at.
 
     Naming it, rather than merely finding the word, because any rule raising
@@ -514,7 +531,7 @@ def _generated_site(build: AxisBuild) -> Optional[Effect]:
         note=f"generated site declared by {name}, with routes to forgive")
 
 
-def _site_declared(repo: Path, out: str, facts: dict) -> Optional[bool]:
+def _site_declared(repo: Path, out: str, facts: AxisFacts) -> Optional[bool]:
     """The routes were EXAMINED and not reported.
 
     Both halves, because either alone is satisfiable by the wrong thing. "Not
@@ -644,7 +661,7 @@ def _recut_annotated_tag(build: AxisBuild) -> None:
     build.facts["annotated_tag"] = "v1.0"
 
 
-def _annotated(repo: Path, out: str, facts: dict) -> Optional[bool]:
+def _annotated(repo: Path, out: str, facts: AxisFacts) -> Optional[bool]:
     """The annotated tag did not read as a DEAD one.
 
     A real assertion rather than a note that a tag exists. An annotated tag is
@@ -721,7 +738,7 @@ def _pack_the_refs(build: AxisBuild) -> None:
     build.facts["packed_refs"] = True
 
 
-def _packed(repo: Path, out: str, facts: dict) -> Optional[bool]:
+def _packed(repo: Path, out: str, facts: AxisFacts) -> Optional[bool]:
     """A branch that exists, read out of `packed-refs`, was not called unknown.
 
     The same assertion shape as the annotated tag, against the other half of
@@ -881,7 +898,7 @@ def _write_commit_map(build: AxisBuild) -> None:
     build.facts["commit_map"] = head[:12]
 
 
-def _mapped(repo: Path, out: str, facts: dict) -> Optional[bool]:
+def _mapped(repo: Path, out: str, facts: AxisFacts) -> Optional[bool]:
     """A `dead-sha` finding that names the replacement.
 
     The distinctive half of the output - "the rewrite map records it as" - so
@@ -905,7 +922,7 @@ class Axis:
     widens: str
     phase: str
     apply: Callable[[AxisBuild], Optional[Effect]]
-    confirm: Callable[[Path, str, dict], Optional[bool]]
+    confirm: Callable[[Path, str, AxisFacts], Optional[bool]]
     # How often the swarm draws it. Not all equal, and the two that are rarer
     # say why beside them.
     odds: float = 0.5
@@ -913,7 +930,7 @@ class Axis:
     # than checked inside `apply`, so the driver can decline it BEFORE it runs
     # and record the decline in the "could not build" column - which is where a
     # shape that was not tested belongs.
-    states: tuple = _HAS_A_BUILD
+    states: tuple[str, ...] = _HAS_A_BUILD
     # Work that must happen AFTER the last `git add -A`, exactly as
     # `Feature.finalize` does and for the same reason. THREE axes need it, and
     # all three for one shape: the axis has to contribute DOCUMENT TEXT, which
@@ -960,11 +977,11 @@ def axis_by_name(name: str) -> Optional[Axis]:
     return None
 
 
-def axes_for(phase: str) -> tuple:
+def axes_for(phase: str) -> tuple[Axis, ...]:
     return tuple(a for a in AXES if a.phase == phase)
 
 
-def draw_axes(rng: random.Random) -> tuple:
+def draw_axes(rng: random.Random) -> tuple[str, ...]:
     """Which axes this repository carries.
 
     Independent inclusion at each axis's own odds, matching how features are

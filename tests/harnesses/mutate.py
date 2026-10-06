@@ -3079,10 +3079,14 @@ def install_restore_guard(backups: dict[Path, str]) -> None:
             except OSError:
                 pass
 
+    def interrupted(*_args: object) -> None:
+        restore()
+        sys.exit(130)
+
     atexit.register(restore)
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
-            signal.signal(sig, lambda *_a: (restore(), sys.exit(130)))
+            signal.signal(sig, interrupted)
         except (ValueError, OSError, AttributeError):
             pass    # not the main thread, or the platform lacks the signal
 

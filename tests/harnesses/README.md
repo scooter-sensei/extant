@@ -1016,6 +1016,13 @@ repositories skipped because Git Bash paths are not Windows paths, two clones
 that failed on MAX_PATH and reported no documentation, and one whose checkout
 never completed and read as clean.
 
+Being hand-run is its weakness too. From 2026-08-17, when the modes moved out
+of the shim, until Phase 66 it raised `NameError` on the first repository of
+every run: the per-rule denominators named the session module by an alias
+only another function imported. No CI job runs it, so nothing noticed;
+mypy over the harnesses did. `tests/test_corpus_harness.py` now calls that
+column on a two-document repository.
+
 ### The column that says whether a corpus can gate anything
 
 `files swept` says the run happened. **`found / examined` per rule** says which

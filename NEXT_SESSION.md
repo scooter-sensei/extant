@@ -6,6 +6,57 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 66 - The harnesses type-checked, and a harness broken for seven weeks (unreleased, 2026-10-06)
+
+**Status.** Built and gated; the first half of the type-checking tranche.
+- 1,697 tests across 83 files, of which 1,689 pass and 8 skip on this
+  machine - the same 8 skips as before. On Linux 1,695 pass and 2 skip,
+  serially and in CI's shuffled order.
+- smoke, scenarios (213 of 213), fuzz (0 violations), the fuzzer's
+  self-check (23 of 23) and its differential green on an extract of the
+  tree; `corpus.py` run end to end on two clones, baseline written and
+  compared.
+- `python -m mypy`: no issues in 60 files - the 47 it checked before and
+  the 13 under `tests/harnesses/`.
+- 452 mutation anchors match; none added, for the reason below.
+- The payload did not change, so the identity gate was not run.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.29.0.
+
+**What changed.**
+- **`tests/harnesses/` joins `[tool.mypy]`.** Measured first: 170 errors
+  in 12 files, 141 of them a missing annotation or type argument. All 170
+  are gone, so the self-check job's existing mypy step now holds the
+  harnesses too.
+- **`corpus.py` runs again.** Its per-rule denominators raised
+  `NameError` on every call from 2026-08-17, when the modes moved out of
+  the shim: the function named the session module by an alias another
+  function had imported, and bound `text` to each document while
+  `text.format_for` still meant the module. The harness is hand-run, so
+  no job noticed. tests/test_corpus_harness.py calls the column on a
+  markdown claim and the same sentence in a reStructuredText literal
+  block, watched red against each way it was broken.
+- **Two annotations that stated the wrong thing, corrected.**
+  `stress.py`'s `verdict_for` was declared to take a float and branched
+  on None, which every timed-out run hands it. `corpus.py` declared its
+  results a map of counts while every entry mixes counts and maps - now a
+  `TypedDict` of the baseline line it writes.
+- No explicit `Any`, as in the package. Parsed JSON stays an unannotated
+  local; the one parameter that received it, `RepoPlan.from_dict`, became
+  `from_json`, which parses inside; the SARIF walk narrows each level, so
+  a malformed value reads as absent where it raised - identical on SARIF
+  this tool writes. Aliases holding `X | None` sit under `TYPE_CHECKING`,
+  since 3.9 evaluates a module-level alias on import.
+
+**Not done, and why.** No mutation anchor for the `corpus.py` repair:
+`mutate.py` mutates what ships and what installs it, and a name bound in
+one function and read in another is the class mypy in CI now refuses.
+The tests themselves are the second half: 1,779 errors over 84 files,
+1,671 of them a missing annotation.
+
+The numbers are in "The harnesses typed" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 65 - The two defects the cross-check found, repaired: a spaced closing tag, and an indented setext heading (unreleased, 2026-10-04)
 
 **Status.** Built and gated, then amended by its gap audit on 2026-10-05.

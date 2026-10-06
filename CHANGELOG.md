@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.29.0, unreleased: Phases 60 to 65. No rule added or removed,
+Above 0.29.0, unreleased: Phases 60 to 66. No rule added or removed,
 thirteen as before; no mode added. Three exit codes moved, each to 2, and
 one `--archive` defect that deleted a person's section is repaired.
 
@@ -56,6 +56,12 @@ underline indented four or more is no longer taken for one, since to
 CommonMark it continues the paragraph. The spaces are counted from the
 margin, not from inside a list item. None of these moved any output over
 the 152 corpus clones.
+
+Phase 66 type-checks the harnesses under `tests/harnesses/` with the
+package: nothing a user runs changed. It found that `corpus.py`, the
+hand-run harness that sweeps a directory of clones, had raised `NameError`
+on its first repository since 2026-08-17; it runs again, and a test now
+calls the column that broke. Its record is Phase 66 in NEXT_SESSION.md.
 
 **`exclude_paths` reads a run of stars the way git does.** A `**` spans
 directories only as a whole segment - `**/`, `/**/`, a trailing `/**` - and

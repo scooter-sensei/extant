@@ -96,6 +96,7 @@ Where each section went, by its title:
 - Six invariants held as properties: two defects, and the generator that decides what a property can find
 - The gap audit of the properties: nine findings, and a derandomized run that was not
 - mutmut as a cross-check: what the hand-chosen anchors missed
+- The harnesses typed: 170 errors, and a harness broken for seven weeks
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 
