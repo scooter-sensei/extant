@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _install_into
+from conftest import GitRepo, _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -64,7 +64,7 @@ def commit_raw(repo: Path, rel: str, content: str, message: str) -> None:
 
 
 @pytest.fixture()
-def lfs_repo_without_a_status_document(git_repo):
+def lfs_repo_without_a_status_document(git_repo: GitRepo) -> GitRepo:
     """An LFS fault, some markdown, and deliberately NO status document.
 
     The absence is the point. With `NEXT_SESSION.md` present the rule runs and
@@ -81,7 +81,7 @@ def lfs_repo_without_a_status_document(git_repo):
 
 
 def test_a_raw_lfs_blob_is_reported_by_a_sweep(
-        lfs_repo_without_a_status_document) -> None:
+        lfs_repo_without_a_status_document: GitRepo) -> None:
     """The gap. Catches repository-scoped rules gated on a document that a
     swept repository has no reason to contain."""
     repo, _ = lfs_repo_without_a_status_document
@@ -89,7 +89,7 @@ def test_a_raw_lfs_blob_is_reported_by_a_sweep(
 
 
 def test_the_repository_finding_is_reported_once_not_once_per_document(
-        lfs_repo_without_a_status_document) -> None:
+        lfs_repo_without_a_status_document: GitRepo) -> None:
     """The reason the gate exists, which the fix must not undo.
 
     One repository-wide disagreement reported once per swept markdown file is
@@ -103,7 +103,7 @@ def test_the_repository_finding_is_reported_once_not_once_per_document(
     assert output.count("raw-lfs-blob]") == 1, output
 
 
-def test_a_repository_with_no_fault_stays_silent(git_repo) -> None:
+def test_a_repository_with_no_fault_stays_silent(git_repo: GitRepo) -> None:
     """Catches a fix that reports the rule rather than its findings.
 
     Matched on `[raw-lfs-blob]`, the bracketed form a rendered FINDING carries,
@@ -120,7 +120,7 @@ def test_a_repository_with_no_fault_stays_silent(git_repo) -> None:
     assert "raw-lfs-blob 0" in output, output
 
 
-def test_an_inconsistent_artifact_is_reported_by_a_sweep(git_repo) -> None:
+def test_an_inconsistent_artifact_is_reported_by_a_sweep(git_repo: GitRepo) -> None:
     """The same gap for the other repository-scoped rule.
 
     The payload is copied into `tools/` because configuration loads relative to
@@ -145,7 +145,7 @@ def test_an_inconsistent_artifact_is_reported_by_a_sweep(git_repo) -> None:
 
 
 def test_a_sweep_still_cannot_fail_the_build(
-        lfs_repo_without_a_status_document) -> None:
+        lfs_repo_without_a_status_document: GitRepo) -> None:
     """The README promises a sweep never gates, and a repository finding sits
     in no configured document, so it must not change that.
 

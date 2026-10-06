@@ -6,7 +6,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_defaults_reproduce_this_projects_behaviour(tmp_path):
+def test_defaults_reproduce_this_projects_behaviour(tmp_path: Path) -> None:
     """A repo with no .extant.toml must behave exactly as before the config
     layer existed. If this drifts, every existing test is silently testing a
     different configuration than the tool ships with.
@@ -30,7 +30,7 @@ def test_defaults_reproduce_this_projects_behaviour(tmp_path):
     assert cfg.pointer_prefix == built.pointer_prefix
 
 
-def test_every_pattern_compiles_and_matches_something_real():
+def test_every_pattern_compiles_and_matches_something_real() -> None:
     """The failure this guards against actually happened during development: the
     default merge_claim pattern was written with doubled braces (escaped for
     str.format, but substituted with str.replace), so it compiled fine and
@@ -48,7 +48,7 @@ def test_every_pattern_compiles_and_matches_something_real():
         "unsubstituted template braces left in the compiled pattern"
 
 
-def test_toml_overrides_are_applied(tmp_path):
+def test_toml_overrides_are_applied(tmp_path: Path) -> None:
     from extant.config import load_config
     (tmp_path / ".extant.toml").write_text(
         '[extant]\n'
@@ -75,7 +75,7 @@ def test_toml_overrides_are_applied(tmp_path):
         assert match.group(2) == "abc1234"
 
 
-def test_unknown_keys_are_reported_not_swallowed(tmp_path):
+def test_unknown_keys_are_reported_not_swallowed(tmp_path: Path) -> None:
     """A typo'd key that quietly does nothing is the same class of failure as a
     pattern that matches nothing."""
     from extant.config import load_config
@@ -87,14 +87,14 @@ def test_unknown_keys_are_reported_not_swallowed(tmp_path):
     assert cfg.primary_doc == "NEXT_SESSION.md"  # unchanged by the typo
 
 
-def test_config_without_a_status_table_still_loads(tmp_path):
+def test_config_without_a_status_table_still_loads(tmp_path: Path) -> None:
     """Accept a bare top-level table too, so a minimal config need not nest."""
     from extant.config import load_config
     (tmp_path / ".extant.toml").write_text('primary_doc = "FLAT.md"\n', encoding="utf-8")
     assert load_config(tmp_path).primary_doc == "FLAT.md"
 
 
-def test_regex_in_a_basic_string_gives_an_actionable_error(tmp_path):
+def test_regex_in_a_basic_string_gives_an_actionable_error(tmp_path: Path) -> None:
     """A regex in a double-quoted TOML string fails to parse, and the bare
     decoder error names only a line and column. porting.md explicitly asks
     people to hand-write these patterns, so the error must state the cause and
@@ -114,7 +114,7 @@ def test_regex_in_a_basic_string_gives_an_actionable_error(tmp_path):
         raise AssertionError("expected a ValueError explaining the escape problem")
 
 
-def test_a_literal_string_regex_loads_fine(tmp_path):
+def test_a_literal_string_regex_loads_fine(tmp_path: Path) -> None:
     """The documented correct form."""
     from extant.config import load_config
     (tmp_path / ".extant.toml").write_text(
@@ -124,14 +124,14 @@ def test_a_literal_string_regex_loads_fine(tmp_path):
     assert cfg.branch_token.search("on branch `feature/x` now")
 
 
-def test_suite_command_defaults_to_pytest():
+def test_suite_command_defaults_to_pytest() -> None:
     from extant.config import load_config
     cfg = load_config(PACKAGE_ROOT)
     assert "{python}" in " ".join(cfg.suite_command)
     assert "pytest" in " ".join(cfg.suite_command)
 
 
-def test_a_non_python_runner_can_be_configured(tmp_path):
+def test_a_non_python_runner_can_be_configured(tmp_path: Path) -> None:
     """A JS, Rust or .NET project must be able to use the measured path. The
     counts come from configured patterns, so any runner that prints totals
     works."""
@@ -151,7 +151,7 @@ def test_a_non_python_runner_can_be_configured(tmp_path):
     assert cfg.suite_failed.search(jest).group(1) == "3"
 
 
-def test_cargo_and_dotnet_output_can_be_matched(tmp_path):
+def test_cargo_and_dotnet_output_can_be_matched(tmp_path: Path) -> None:
     """Real output shapes from two other ecosystems."""
     from extant.config import load_config
     (tmp_path / ".extant.toml").write_text(
@@ -166,7 +166,7 @@ def test_cargo_and_dotnet_output_can_be_matched(tmp_path):
     assert cfg.suite_failed.search(cargo).group(1) == "0"
 
 
-def test_phase_grouping_can_be_switched_off(tmp_path):
+def test_phase_grouping_can_be_switched_off(tmp_path: Path) -> None:
     """A project with no phase or ticket cadence must not inherit this one's
     regex and label every commit 'unknown'."""
     from extant.config import load_config
@@ -177,7 +177,7 @@ def test_phase_grouping_can_be_switched_off(tmp_path):
     assert cfg.phase_task is None and cfg.phase_bare is None
 
 
-def test_plans_dir_can_be_switched_off(tmp_path):
+def test_plans_dir_can_be_switched_off(tmp_path: Path) -> None:
     from extant.config import load_config
     (tmp_path / ".extant.toml").write_text(
         "[extant]\nplans_dir = ''\n", encoding="utf-8"
@@ -185,7 +185,7 @@ def test_plans_dir_can_be_switched_off(tmp_path):
     assert load_config(tmp_path).plans_dir == ""
 
 
-def test_a_duplicate_key_is_not_blamed_on_regex_quoting(tmp_path):
+def test_a_duplicate_key_is_not_blamed_on_regex_quoting(tmp_path: Path) -> None:
     """Every hint must fit the error it is attached to.
 
     The escape hint used to be unconditional, so a duplicate key produced
@@ -213,7 +213,7 @@ def test_a_duplicate_key_is_not_blamed_on_regex_quoting(tmp_path):
     )
 
 
-def test_an_escape_error_still_gets_the_quoting_hint(tmp_path):
+def test_an_escape_error_still_gets_the_quoting_hint(tmp_path: Path) -> None:
     """The other half: narrowing the hint must not remove it where it applies."""
     from extant.config import load_config
     # Raw string: the FILE must literally contain a backslash-d inside a
@@ -232,7 +232,7 @@ def test_an_escape_error_still_gets_the_quoting_hint(tmp_path):
     assert "LITERAL strings" in message, message
 
 
-def test_an_unrecognised_toml_error_gets_a_generic_hint(tmp_path):
+def test_an_unrecognised_toml_error_gets_a_generic_hint(tmp_path: Path) -> None:
     """A cause the dispatch does not know must fall back honestly rather than
     guessing, which is the whole point of the change."""
     from extant.config import load_config
@@ -250,7 +250,7 @@ def test_an_unrecognised_toml_error_gets_a_generic_hint(tmp_path):
 
 
 def test_the_target_repositorys_unreadable_config_exits_2_not_a_traceback(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The shim catches a ValueError from the configuration it loads at
     IMPORT - the one beside it, which is the target only when the tool is
     installed in the repository it checks. `main()` re-reads the TARGET's
@@ -278,7 +278,7 @@ def test_the_target_repositorys_unreadable_config_exits_2_not_a_traceback(
     assert "not valid TOML" in done.stderr or "Illegal" in done.stderr, done.stderr
 
 
-def test_top_level_keys_survive_a_status_subtable(tmp_path):
+def test_top_level_keys_survive_a_status_subtable(tmp_path: Path) -> None:
     """Writing [extant.consistency.x] must not discard settings above it.
 
     TOML turns that header into a `status` key, and choosing between the two
@@ -303,7 +303,7 @@ def test_top_level_keys_survive_a_status_subtable(tmp_path):
     assert "node" in cfg.consistency
 
 
-def test_a_key_set_in_both_places_is_refused(tmp_path):
+def test_a_key_set_in_both_places_is_refused(tmp_path: Path) -> None:
     """Two homes for one setting means the wrong one can be read while the
     right one sits there looking correct."""
     from extant.config import load_config
@@ -333,6 +333,8 @@ def test_a_key_set_in_both_places_is_refused(tmp_path):
 import subprocess
 import sys
 import textwrap
+
+from conftest import GitRepo
 
 PAYLOAD = str(Path(__file__).resolve().parents[1]
               / "plugin" / "skills" / "extant" / "payload")
@@ -367,7 +369,7 @@ def test_the_module_imports_with_no_toml_parser_at_all() -> None:
     assert "TOMLLIB None" in result.stdout
 
 
-def test_defaults_work_with_no_parser_and_no_config_file(tmp_path) -> None:
+def test_defaults_work_with_no_parser_and_no_config_file(tmp_path: Path) -> None:
     """A repository with no config never parses TOML: the defaults are Python.
 
     So the degradation is precise rather than wholesale - the tool is fully
@@ -390,7 +392,7 @@ def test_defaults_work_with_no_parser_and_no_config_file(tmp_path) -> None:
     assert "SOURCE defaults" in result.stdout
 
 
-def test_a_config_file_with_no_parser_names_the_remedy(tmp_path) -> None:
+def test_a_config_file_with_no_parser_names_the_remedy(tmp_path: Path) -> None:
     """The one case that must fail, and it must fail with a sentence.
 
     Silently ignoring a config file the user wrote would be the worst outcome
@@ -414,7 +416,7 @@ def test_a_config_file_with_no_parser_names_the_remedy(tmp_path) -> None:
     assert ".extant.toml" in combined, combined
 
 
-def test_a_pattern_that_does_not_compile_names_the_setting(tmp_path) -> None:
+def test_a_pattern_that_does_not_compile_names_the_setting(tmp_path: Path) -> None:
     """A typo in a configured regex must say WHICH regex, in WHOSE file.
 
     `_compile_consistency` has always done this for the consistency block. The
@@ -444,7 +446,7 @@ def test_a_pattern_that_does_not_compile_names_the_setting(tmp_path) -> None:
     assert ".extant.toml" in message
 
 
-def test_every_configured_pattern_reports_its_own_name(tmp_path) -> None:
+def test_every_configured_pattern_reports_its_own_name(tmp_path: Path) -> None:
     """Each one, not just the first. A helper applied to nine of ten settings
     leaves the tenth failing exactly the way this test was written to stop."""
     import pytest
@@ -502,7 +504,7 @@ def _refused(tmp_path: Path, line: str) -> str:
     return str(caught.value)
 
 
-def test_a_string_where_an_array_is_documented_is_refused(tmp_path) -> None:
+def test_a_string_where_an_array_is_documented_is_refused(tmp_path: Path) -> None:
     """`suite_command = "pytest"` used to become six one-letter arguments.
 
     Each of the six array settings, not just the first, and the message names
@@ -516,7 +518,7 @@ def test_a_string_where_an_array_is_documented_is_refused(tmp_path) -> None:
         assert "array of strings" in message, message
 
 
-def test_an_entry_prefix_naming_no_heading_is_refused(tmp_path) -> None:
+def test_an_entry_prefix_naming_no_heading_is_refused(tmp_path: Path) -> None:
     """`entry_prefix = ""` raised IndexError at import, out of the section
     header the Config derives from its first word - a traceback naming
     `split()[0]` for a setting typed into `.extant.toml`, on every run,
@@ -528,7 +530,7 @@ def test_an_entry_prefix_naming_no_heading_is_refused(tmp_path) -> None:
         assert "entry_prefix" in message and ".extant.toml" in message, message
 
 
-def test_a_code_suffix_without_its_dot_is_refused(tmp_path) -> None:
+def test_a_code_suffix_without_its_dot_is_refused(tmp_path: Path) -> None:
     """The TODO scan compares `Path.suffix`, which carries the dot, so `"py"`
     matched no file and the bundle reported no TODOs - which reads exactly as
     a tree with none. Harmless while nothing read `code_suffixes`; since
@@ -539,13 +541,13 @@ def test_a_code_suffix_without_its_dot_is_refused(tmp_path) -> None:
         assert "code_suffixes" in message and ".extant.toml" in message, message
 
 
-def test_an_array_holding_a_non_string_is_refused(tmp_path) -> None:
+def test_an_array_holding_a_non_string_is_refused(tmp_path: Path) -> None:
     """`["docs/a.md", 3]` would have become the document "3"."""
     message = _refused(tmp_path, 'extra_docs = ["docs/a.md", 3]')
     assert "extra_docs" in message and "array of strings" in message, message
 
 
-def test_an_array_where_a_string_is_documented_is_refused(tmp_path) -> None:
+def test_an_array_where_a_string_is_documented_is_refused(tmp_path: Path) -> None:
     """`trunk = ["main"]` used to become the branch "['main']", and a pattern
     given as an array compiled to one that matches nothing - the exact silent
     shape `compiled` exists to refuse. All twenty, including the two optional
@@ -556,7 +558,8 @@ def test_an_array_where_a_string_is_documented_is_refused(tmp_path) -> None:
         assert "a string" in message, message
 
 
-def test_a_quoted_number_where_an_integer_is_documented_is_refused(tmp_path) -> None:
+def test_a_quoted_number_where_an_integer_is_documented_is_refused(
+        tmp_path: Path) -> None:
     """`int("3")` accepted the quotes; `int(True)` accepted a boolean; both
     are documented as an integer and TOML has one."""
     for line in ['retain_entries = "3"', "retain_entries = true",
@@ -566,7 +569,7 @@ def test_a_quoted_number_where_an_integer_is_documented_is_refused(tmp_path) -> 
         assert "an integer" in message, message
 
 
-def test_a_quoted_boolean_is_refused(tmp_path) -> None:
+def test_a_quoted_boolean_is_refused(tmp_path: Path) -> None:
     """`bool("false")` is True. A setting written to switch a rule OFF
     switched it on, and nothing said so."""
     message = _refused(tmp_path, 'release_claims_name_our_tags = "false"')
@@ -574,7 +577,7 @@ def test_a_quoted_boolean_is_refused(tmp_path) -> None:
     assert "a boolean" in message, message
 
 
-def test_every_documented_shape_still_loads(tmp_path) -> None:
+def test_every_documented_shape_still_loads(tmp_path: Path) -> None:
     """The refusals above must not have narrowed what a correct file may say:
     every shape as documented, the two optional patterns switched off with an
     empty string, and the timeout absent."""

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
 from test_introduced_since import _shallow_copy
 from test_partial_repository import partial_repo  # noqa: F401 - a fixture
 
@@ -34,7 +35,8 @@ def _notes(out: str, word: str) -> list[str]:
 
 # --- the two notes --sweep never printed --------------------------------------
 
-def test_sweep_says_the_repository_is_partial(partial_repo, capsys) -> None:  # noqa: F811
+def test_sweep_says_the_repository_is_partial(  # noqa: F811
+        partial_repo, capsys: pytest.CaptureFixture[str]) -> None:
     """The same sentence `--verify` prints, once, beside the denominators."""
     from extant import session as hc
     from extant import sweep
@@ -46,7 +48,9 @@ def test_sweep_says_the_repository_is_partial(partial_repo, capsys) -> None:  # 
     assert len(_notes(out, "partial")) == 1, out
 
 
-def test_sweep_says_the_repository_is_shallow(git_repo, tmp_path, capsys) -> None:
+def test_sweep_says_the_repository_is_shallow(
+        git_repo: GitRepo, tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
     from extant import session as hc
     from extant import sweep
     repo, commit = git_repo
@@ -61,8 +65,9 @@ def test_sweep_says_the_repository_is_shallow(git_repo, tmp_path, capsys) -> Non
     assert len(_notes(out, "shallow")) == 1, out
 
 
-def test_sarif_carries_the_shallow_note_the_text_prints(git_repo, tmp_path,
-                                                        capsys) -> None:
+def test_sarif_carries_the_shallow_note_the_text_prints(
+        git_repo: GitRepo, tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """SARIF is rendered before the checkout's notes were printed, and did not
     carry them: a code-scanning consumer got a shallow copy's dead SHAs with
     nothing to say what the count describes."""
@@ -104,7 +109,8 @@ def _release_history(git_repo):
 
 
 def test_verify_notes_an_index_past_the_bound_without_a_commit_graph(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """The deterministic trigger: the index came back incomplete, and the
     repository has no commit-graph to make the walk past it cheap."""
     from extant import cli, refs
@@ -120,7 +126,8 @@ def test_verify_notes_an_index_past_the_bound_without_a_commit_graph(
 
 
 def test_no_note_once_the_repository_has_a_commit_graph(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     from extant import cli, refs
     repo = _release_history(git_repo)
     git(repo, "commit-graph", "write", "--reachable")
@@ -132,7 +139,8 @@ def test_no_note_once_the_repository_has_a_commit_graph(
     assert _notes(out, "commit-graph") == [], out
 
 
-def test_no_note_when_the_index_held_the_whole_history(git_repo, capsys) -> None:
+def test_no_note_when_the_index_held_the_whole_history(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The default bound covers this history, so nothing was walked."""
     from extant import cli
     repo = _release_history(git_repo)
@@ -143,7 +151,9 @@ def test_no_note_when_the_index_held_the_whole_history(git_repo, capsys) -> None
     assert _notes(out, "commit-graph") == [], out
 
 
-def test_no_note_when_no_rule_asked_ancestry(git_repo, monkeypatch, capsys) -> None:
+def test_no_note_when_no_rule_asked_ancestry(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """A bound the history exceeds is not the trigger; an index that was BUILT
     and came back incomplete is. A document with no release, merge or live
     claim builds none."""
@@ -162,7 +172,9 @@ def test_no_note_when_no_rule_asked_ancestry(git_repo, monkeypatch, capsys) -> N
     assert _notes(out, "commit-graph") == [], out
 
 
-def test_sweep_notes_an_index_past_the_bound(git_repo, monkeypatch, capsys) -> None:
+def test_sweep_notes_an_index_past_the_bound(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """The sequential survey shares the parent's scope, so the flag is read
     from it after the documents are done."""
     from extant import refs, session as hc, sweep
@@ -177,7 +189,9 @@ def test_sweep_notes_an_index_past_the_bound(git_repo, monkeypatch, capsys) -> N
     assert len(_notes(out, "commit-graph")) == 1, out
 
 
-def test_sweep_carries_the_flag_a_worker_reports(git_repo, monkeypatch, capsys) -> None:
+def test_sweep_carries_the_flag_a_worker_reports(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """Workers re-import the real modules, so a low bound set here never
     reaches one; what is pinned is that the parent reads the flag a worker
     hands back and prints the note. Drop the flag from the tuple and a
@@ -204,7 +218,8 @@ def test_sweep_carries_the_flag_a_worker_reports(git_repo, monkeypatch, capsys) 
 
 
 def test_introduced_since_notes_an_index_past_the_bound(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """The gate prints the repository notes after its own survey; the flag
     has to reach it the same way."""
     from extant import refs, session as hc
@@ -219,7 +234,7 @@ def test_introduced_since_notes_an_index_past_the_bound(
     assert len(_notes(out, "commit-graph")) == 1, out
 
 
-def test_a_commit_graph_is_found_by_stat_in_either_spelling(git_repo) -> None:
+def test_a_commit_graph_is_found_by_stat_in_either_spelling(git_repo: GitRepo) -> None:
     """`objects/info/commit-graph` is what `write` leaves; `--split` leaves a
     chain under `commit-graphs/`. Both are one stat on the shared git
     directory, so a linked worktree finds the same file."""

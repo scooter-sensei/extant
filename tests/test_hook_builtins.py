@@ -169,7 +169,7 @@ NAMED_BY_TWELVE = 12
 @pytest.mark.parametrize("config", CONFIGS)
 @pytest.mark.parametrize("shell", SHELLS)
 def test_the_builtin_config_read_matches_the_pipeline_it_replaced(
-        shell, config, tmp_path) -> None:
+        shell, config, tmp_path: Path) -> None:
     path = tmp_path / ".extant.toml"
     write_exactly(path, config)
 
@@ -185,7 +185,7 @@ def test_the_builtin_config_read_matches_the_pipeline_it_replaced(
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_the_config_cases_are_not_all_empty(shell, tmp_path) -> None:
+def test_the_config_cases_are_not_all_empty(shell, tmp_path: Path) -> None:
     """The denominator. Two implementations that both do nothing agree.
 
     This is the check the first attempt at this comparison did not have: its
@@ -262,7 +262,7 @@ OUTPUTS = [
 @pytest.mark.parametrize("output", OUTPUTS)
 @pytest.mark.parametrize("shell", SHELLS)
 def test_the_builtin_formatter_matches_the_pipeline_it_replaced(
-        shell, output, tmp_path) -> None:
+        shell, output, tmp_path: Path) -> None:
     sample = tmp_path / "verify-output.txt"
     write_exactly(sample, output)
 
@@ -297,7 +297,7 @@ def test_the_builtin_formatter_matches_the_pipeline_it_replaced(
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_the_formatter_cases_are_not_all_empty(shell, tmp_path) -> None:
+def test_the_formatter_cases_are_not_all_empty(shell, tmp_path: Path) -> None:
     """The same denominator, for the same reason."""
     counted = []
     for index, case in enumerate(OUTPUTS):

@@ -13,6 +13,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -32,7 +34,7 @@ def _anchor_kinds(repo, text):
     return [f.kind for f in rule_md_anchor.check(hc.context(repo), text)]
 
 
-def test_a_html_target_is_never_judged(git_repo) -> None:
+def test_a_html_target_is_never_judged(git_repo: GitRepo) -> None:
     """MEASURED, not reasoned about: across 20 repositories in two corpora,
     407 markdown links point at a `.html` target and NOT ONE resolves to a
     checked-in file. A link to `.html` is a link to a rendered page.
@@ -51,7 +53,7 @@ def test_a_html_target_is_never_judged(git_repo) -> None:
         repo, "See [the guide](getting_started.html).\n")
 
 
-def test_a_missing_markdown_file_is_still_judged(git_repo) -> None:
+def test_a_missing_markdown_file_is_still_judged(git_repo: GitRepo) -> None:
     """The control. If the .html exemption widened to every extension, the
     rule would stop doing its job entirely."""
     repo, commit = git_repo
@@ -60,7 +62,7 @@ def test_a_missing_markdown_file_is_still_judged(git_repo) -> None:
     assert "dead-md-link" in _kinds(repo, "See [the plan](docs/gone.md).\n")
 
 
-def test_a_nextjs_app_routes_by_path(git_repo) -> None:
+def test_a_nextjs_app_routes_by_path(git_repo: GitRepo) -> None:
     """Nextra builds on Next.js, which routes by file path, so a markdown link
     inside one is a route rather than a file.
 
@@ -74,7 +76,7 @@ def test_a_nextjs_app_routes_by_path(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, "See [docs](/docs/getting-started).\n")
 
 
-def test_docsify_is_declared_inside_its_index_html(git_repo) -> None:
+def test_docsify_is_declared_inside_its_index_html(git_repo: GitRepo) -> None:
     """Docsify ships no config of its own: a single `index.html` loads the
     script and every page is a route resolved at runtime.
 
@@ -91,7 +93,7 @@ def test_docsify_is_declared_inside_its_index_html(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, "See [quickstart](/quickstart).\n")
 
 
-def test_an_unrelated_index_html_is_not_a_generator(git_repo) -> None:
+def test_an_unrelated_index_html_is_not_a_generator(git_repo: GitRepo) -> None:
     """The control for the marker. An `index.html` that says nothing about
     docsify must not silence route checking, or the signature is decoration."""
     repo, commit = git_repo
@@ -101,7 +103,7 @@ def test_an_unrelated_index_html_is_not_a_generator(git_repo) -> None:
     assert "dead-md-link" in _kinds(repo, "See [quickstart](/quickstart).\n")
 
 
-def test_a_site_one_directory_deeper_is_still_found(git_repo) -> None:
+def test_a_site_one_directory_deeper_is_still_found(git_repo: GitRepo) -> None:
     """A site is often a subdirectory of a subdirectory.
 
     Measured on Aider-AI/aider, which keeps a Jekyll site at
@@ -117,7 +119,7 @@ def test_a_site_one_directory_deeper_is_still_found(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, "See [assets](/assets/logo.png).\n")
 
 
-def test_the_deeper_search_stops_at_one_level(git_repo) -> None:
+def test_the_deeper_search_stops_at_one_level(git_repo: GitRepo) -> None:
     """The bound, which is the half that keeps this a signature.
 
     An unbounded walk would scan every directory in the repository to answer a
@@ -131,7 +133,7 @@ def test_the_deeper_search_stops_at_one_level(git_repo) -> None:
     assert "dead-md-link" in _kinds(repo, "See [assets](/assets/logo.png).\n")
 
 
-def test_mintlify_declares_itself_in_mint_json(git_repo) -> None:
+def test_mintlify_declares_itself_in_mint_json(git_repo: GitRepo) -> None:
     """Mintlify serves `.mdx` by route from a single declaration.
 
     Measured on humanlayer/humanlayer, which keeps `docs/mint.json` and
@@ -144,7 +146,7 @@ def test_mintlify_declares_itself_in_mint_json(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, "See [core](/core/require-approval).\n")
 
 
-def test_an_unrelated_json_under_docs_is_not_a_generator(git_repo) -> None:
+def test_an_unrelated_json_under_docs_is_not_a_generator(git_repo: GitRepo) -> None:
     """The control. `docs.json` is too generic a NAME to be a signature.
 
     Treating the filename alone as one would silently stop link checking for
@@ -158,7 +160,7 @@ def test_an_unrelated_json_under_docs_is_not_a_generator(git_repo) -> None:
     assert "dead-md-link" in _kinds(repo, "See [core](/core/require-approval).\n")
 
 
-def test_a_mintlify_docs_json_is_recognised_by_its_content(git_repo) -> None:
+def test_a_mintlify_docs_json_is_recognised_by_its_content(git_repo: GitRepo) -> None:
     """Mintlify renamed `mint.json` to `docs.json`, so a current site declares
     itself in a file whose name says nothing.
 
@@ -177,7 +179,8 @@ def test_a_mintlify_docs_json_is_recognised_by_its_content(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, "See [core](/core/require-approval).\n")
 
 
-def test_the_namespace_search_looks_exactly_where_detection_does(git_repo) -> None:
+def test_the_namespace_search_looks_exactly_where_detection_does(
+        git_repo: GitRepo) -> None:
     """Two searches for "where does this project keep its generator config"
     must not be able to disagree about the same repository.
 
@@ -195,7 +198,8 @@ def test_the_namespace_search_looks_exactly_where_detection_does(git_repo) -> No
     assert "dead-md-anchor" not in _anchor_kinds(repo, "See [w](#widget).\n")
 
 
-def test_a_repository_declaring_no_namespace_still_judges_anchors(git_repo) -> None:
+def test_a_repository_declaring_no_namespace_still_judges_anchors(
+        git_repo: GitRepo) -> None:
     """The control. Without a generator config anywhere, a fragment this
     document does not define is still reported - otherwise the alignment above
     would have silenced the rule rather than located it."""
@@ -206,7 +210,7 @@ def test_a_repository_declaring_no_namespace_still_judges_anchors(git_repo) -> N
     assert "dead-md-anchor" in _anchor_kinds(repo, "See [w](#widget).\n")
 
 
-def test_a_plain_repository_still_judges_routes(git_repo) -> None:
+def test_a_plain_repository_still_judges_routes(git_repo: GitRepo) -> None:
     """The control that matters most. Blind, starlight reported 235 of its own
     working links as dead; universally on, every genuinely dead link in a plain
     repository stops being reported. Detection must stay a property of the
@@ -254,7 +258,7 @@ def test_a_reference_is_split_the_same_way_on_every_platform() -> None:
     assert _components("../docs/guide.md") == ["..", "docs", "guide.md"]
 
 
-def test_a_windows_spelled_pointer_resolves(git_repo) -> None:
+def test_a_windows_spelled_pointer_resolves(git_repo: GitRepo) -> None:
     """The behavioural half, which is only red on a case-sensitive filesystem.
 
     Stated rather than implied: on Windows this passed before the fix too. It
@@ -276,7 +280,7 @@ def test_a_windows_spelled_pointer_resolves(git_repo) -> None:
 
 
 def test_the_anchor_rule_does_not_read_a_file_outside_the_repository(
-        git_repo, tmp_path) -> None:
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """`dead-md-anchor` built its own path and asked the filesystem directly.
 
     `Path(repo) / "C:/x"` is `C:/x`, so a fragment naming an absolute target
@@ -310,7 +314,7 @@ def test_the_anchor_rule_does_not_read_a_file_outside_the_repository(
 
 
 def test_the_anchor_rule_leaves_a_case_only_mismatch_to_the_link_rule(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """A cross-file fragment is judged only when its path resolves exactly as
     written. A case-only mismatch belongs to `dead-md-link`.
 
@@ -348,7 +352,7 @@ def test_the_anchor_rule_leaves_a_case_only_mismatch_to_the_link_rule(
 
 
 def test_an_absolute_target_is_not_answered_by_the_machines_filesystem(
-        git_repo, tmp_path) -> None:
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """A path outside the repository cannot settle a claim about it.
 
     `resolve_reference` answered an absolute target with `Path(raw).exists()`,
@@ -373,7 +377,8 @@ def test_an_absolute_target_is_not_answered_by_the_machines_filesystem(
     assert resolve_reference(ctx, repo, "/" + tmp_path.name) == (False, None)
 
 
-def test_a_root_relative_link_names_the_case_it_should_have_used(git_repo) -> None:
+def test_a_root_relative_link_names_the_case_it_should_have_used(
+        git_repo: GitRepo) -> None:
     """"Does not exist" about a file that DOES exist sends the reader hunting.
 
     A leading slash means the repository root. The rooted probe took only the
@@ -397,7 +402,7 @@ def test_a_root_relative_link_names_the_case_it_should_have_used(git_repo) -> No
 
 
 def test_a_reference_may_not_climb_above_the_repository_root(
-        git_repo, tmp_path) -> None:
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """The last of the three ways a reference could leave the repository.
 
     PHASE 6's audit found three: an absolute path, a drive letter, and the `..`
@@ -436,7 +441,7 @@ def test_a_reference_may_not_climb_above_the_repository_root(
         ctx, repo / "docs", "../../outside-the-repo.md") == (False, None)
 
 
-def test_an_ordinary_dot_dot_reference_still_resolves(git_repo) -> None:
+def test_an_ordinary_dot_dot_reference_still_resolves(git_repo: GitRepo) -> None:
     """The blast radius, which is the whole reason the bound was measured.
 
     Getting the base-versus-repo depth wrong turns every `../README.md` written

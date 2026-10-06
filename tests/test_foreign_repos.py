@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _install_into
+from conftest import GitRepo, _install_into
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -39,7 +39,7 @@ def _kinds(repo: Path, text: str) -> list[str]:
 
 # --- hex that belongs to somebody else ---------------------------------------
 
-def test_a_sha_inside_a_url_is_not_this_repos_problem(git_repo) -> None:
+def test_a_sha_inside_a_url_is_not_this_repos_problem(git_repo: GitRepo) -> None:
     """psf/requests and rust-lang/rfcs. The single biggest false class.
 
     A permalink into ANOTHER repository carries a 40-hex token that this repo's
@@ -61,7 +61,7 @@ def test_a_sha_inside_a_url_is_not_this_repos_problem(git_repo) -> None:
     assert not [k for k in _kinds(repo, text) if "sha" in k], _findings(repo, text)
 
 
-def test_a_bare_sha_outside_a_url_is_still_reported(git_repo) -> None:
+def test_a_bare_sha_outside_a_url_is_still_reported(git_repo: GitRepo) -> None:
     """The other half, or the fix above would be indistinguishable from
     deleting the rule. rust-lang/rfcs writes these in running prose."""
     repo, commit = git_repo
@@ -73,7 +73,7 @@ def test_a_bare_sha_outside_a_url_is_still_reported(git_repo) -> None:
     )
 
 
-def test_a_css_colour_is_not_a_commit(git_repo) -> None:
+def test_a_css_colour_is_not_a_commit(git_repo: GitRepo) -> None:
     """vitejs/vite. `#646cffaa` is eight hex digits with an alpha channel,
     written in prose no code fence covers. A `#` prefix means colour."""
     repo, commit = git_repo
@@ -85,7 +85,8 @@ def test_a_css_colour_is_not_a_commit(git_repo) -> None:
 
 # --- links ---------------------------------------------------------------
 
-def test_a_root_relative_link_resolves_from_the_repository_root(git_repo) -> None:
+def test_a_root_relative_link_resolves_from_the_repository_root(
+        git_repo: GitRepo) -> None:
     """psf/requests. A leading slash is how GitHub renders repo-root links.
 
     Resolved against the DOCUMENT instead, the rule called
@@ -99,7 +100,7 @@ def test_a_root_relative_link_resolves_from_the_repository_root(git_repo) -> Non
     assert "dead-md-link" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_root_relative_link_to_nothing_is_still_reported(git_repo) -> None:
+def test_a_root_relative_link_to_nothing_is_still_reported(git_repo: GitRepo) -> None:
     """In a plain repository, so the fix above cannot become a blanket skip."""
     repo, commit = git_repo
     commit("README.md", "x\n", "chore: init")
@@ -110,7 +111,7 @@ def test_a_root_relative_link_to_nothing_is_still_reported(git_repo) -> None:
     )
 
 
-def test_site_routes_are_not_judged_in_a_generated_docs_tree(git_repo) -> None:
+def test_site_routes_are_not_judged_in_a_generated_docs_tree(git_repo: GitRepo) -> None:
     """vitejs/vite (331 of these) and encode/httpx.
 
     A markdown tree compiled into a website links by ROUTE, not by path.
@@ -131,7 +132,7 @@ def test_site_routes_are_not_judged_in_a_generated_docs_tree(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_the_same_links_are_judged_in_a_plain_repository(git_repo) -> None:
+def test_the_same_links_are_judged_in_a_plain_repository(git_repo: GitRepo) -> None:
     """No generator config, so these are ordinary paths and ordinary rot.
 
     Without this, the site rule could widen to every repository and silently
@@ -146,7 +147,7 @@ def test_the_same_links_are_judged_in_a_plain_repository(git_repo) -> None:
 
 # --- anchors -------------------------------------------------------------
 
-def test_both_heading_slug_conventions_are_accepted(git_repo) -> None:
+def test_both_heading_slug_conventions_are_accepted(git_repo: GitRepo) -> None:
     """vitejs/vite. Renderers disagree and both spellings are correct.
 
     GitHub drops a dot, so `## build.target` offers `#buildtarget`; VitePress
@@ -160,7 +161,7 @@ def test_both_heading_slug_conventions_are_accepted(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_an_anchor_matching_no_heading_is_still_dead(git_repo) -> None:
+def test_an_anchor_matching_no_heading_is_still_dead(git_repo: GitRepo) -> None:
     """encode/httpx had three real ones, and they must survive the change
     above. `#routing` matches no heading under either convention."""
     repo, commit = git_repo
@@ -172,7 +173,7 @@ def test_an_anchor_matching_no_heading_is_still_dead(git_repo) -> None:
 
 # --- what gets swept -----------------------------------------------------
 
-def test_the_sweep_reads_the_commit_not_the_index(git_repo) -> None:
+def test_the_sweep_reads_the_commit_not_the_index(git_repo: GitRepo) -> None:
     """helm, cloned on Windows where MAX_PATH truncated the checkout.
 
     `ls-files` reads the INDEX, which is empty after an incomplete checkout -
@@ -208,7 +209,7 @@ def test_the_sweep_reads_the_commit_not_the_index(git_repo) -> None:
 
 # --- cross-file anchors ---------------------------------------------------
 
-def test_a_fragment_on_another_file_is_checked(git_repo) -> None:
+def test_a_fragment_on_another_file_is_checked(git_repo: GitRepo) -> None:
     """encode/httpx and prometheus. A heading renamed, inbound links left.
 
     All three httpx cases are that same rot: the link asks for
@@ -228,7 +229,7 @@ def test_a_fragment_on_another_file_is_checked(git_repo) -> None:
     assert "dead-md-anchor" in kinds, kinds
 
 
-def test_a_fragment_that_does_exist_elsewhere_is_left_alone(git_repo) -> None:
+def test_a_fragment_that_does_exist_elsewhere_is_left_alone(git_repo: GitRepo) -> None:
     """Or the rule above would be indistinguishable from always firing."""
     repo, commit = git_repo
     commit("docs/auth.md", "# Auth\n\n## Custom authentication schemes\n", "chore: auth")
@@ -241,7 +242,8 @@ def test_a_fragment_that_does_exist_elsewhere_is_left_alone(git_repo) -> None:
     assert "dead-md-anchor" not in kinds, kinds
 
 
-def test_a_fragment_on_a_file_that_is_missing_is_not_this_rules_finding(git_repo) -> None:
+def test_a_fragment_on_a_file_that_is_missing_is_not_this_rules_finding(
+        git_repo: GitRepo) -> None:
     """`dead-md-link` already reports the missing file. Reporting it twice, once
     per rule, would double-count every broken link in a document."""
     repo, commit = git_repo
@@ -255,7 +257,7 @@ def test_a_fragment_on_a_file_that_is_missing_is_not_this_rules_finding(git_repo
     assert "dead-md-anchor" not in kinds, f"double-counted: {kinds}"
 
 
-def test_angle_bracket_headings_keep_their_anchor(git_repo) -> None:
+def test_angle_bracket_headings_keep_their_anchor(git_repo: GitRepo) -> None:
     """prometheus. `### `<relabel_config>`` is a YAML placeholder, not markup.
 
     Stripping angle brackets unconditionally to fix vite's component tags
@@ -272,7 +274,7 @@ def test_angle_bracket_headings_keep_their_anchor(git_repo) -> None:
 
 # --- classes found in the second sweep, ten ecosystems --------------------
 
-def test_any_uri_scheme_counts_as_external(git_repo) -> None:
+def test_any_uri_scheme_counts_as_external(git_repo: GitRepo) -> None:
     """phoenixframework/phoenix links to `irc://irc.libera.chat/elixir`.
 
     The scheme list was enumerated - http, mailto, ftp, tel, data - and an
@@ -286,7 +288,7 @@ def test_any_uri_scheme_counts_as_external(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_percent_encoded_path_resolves(git_repo) -> None:
+def test_a_percent_encoded_path_resolves(git_repo: GitRepo) -> None:
     """nlohmann/json documents `operator[]` and links to
     `operator%5B%5D.md`, which is the same file spelled for a browser."""
     repo, commit = git_repo
@@ -300,7 +302,7 @@ def test_a_percent_encoded_path_resolves(git_repo) -> None:
     assert "dead-md-link" not in kinds, kinds
 
 
-def test_spaces_do_not_collapse_in_a_slug(git_repo) -> None:
+def test_spaces_do_not_collapse_in_a_slug(git_repo: GitRepo) -> None:
     """nlohmann/json's own README. `### Serialization / Deserialization`
     drops the slash and keeps both spaces, so GitHub's anchor carries two
     dashes. Collapsing the run produced one and called the link dead."""
@@ -312,7 +314,8 @@ def test_spaces_do_not_collapse_in_a_slug(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_generator_configured_inside_another_file_is_detected(git_repo) -> None:
+def test_a_generator_configured_inside_another_file_is_detected(
+        git_repo: GitRepo) -> None:
     """Elixir declares ExDoc in mix.exs rather than in a config of its own.
 
     phoenix links to `Mix.Tasks.Phx.Gen.Auth.html`, which ExDoc generates:
@@ -330,7 +333,7 @@ def test_a_generator_configured_inside_another_file_is_detected(git_repo) -> Non
     assert "dead-md-link" not in kinds, kinds
 
 
-def test_an_all_digit_run_is_a_number_not_a_commit(git_repo) -> None:
+def test_an_all_digit_run_is_a_number_not_a_commit(git_repo: GitRepo) -> None:
     """prometheus documents `9223372036854775807`, which is INT64_MAX.
 
     Measured over 1,924 markdown files in 17 repositories: of twelve
@@ -345,7 +348,7 @@ def test_an_all_digit_run_is_a_number_not_a_commit(git_repo) -> None:
     assert not [k for k in _kinds(repo, text) if "sha" in k], _findings(repo, text)
 
 
-def test_a_flattened_guide_resolves_by_unique_basename(git_repo) -> None:
+def test_a_flattened_guide_resolves_by_unique_basename(git_repo: GitRepo) -> None:
     """phoenix links to `contexts.md` from `guides/authn_authz/`, and the file
     lives at `guides/data_modelling/contexts.md`. ExDoc flattens its guides
     into one namespace; a relative path does not.
@@ -365,7 +368,7 @@ def test_a_flattened_guide_resolves_by_unique_basename(git_repo) -> None:
     assert "dead-md-link" not in kinds, kinds
 
 
-def test_an_ambiguous_basename_is_not_guessed(git_repo) -> None:
+def test_an_ambiguous_basename_is_not_guessed(git_repo: GitRepo) -> None:
     """Two files with the same name say nothing about which was meant, so the
     finding stands. Without this the rule above would be a blanket skip."""
     repo, commit = git_repo
@@ -383,7 +386,7 @@ def test_an_ambiguous_basename_is_not_guessed(git_repo) -> None:
 
 # --- third sweep: nine more repositories, sixteen ecosystems --------------
 
-def test_output_survives_a_console_that_cannot_encode_it(tmp_path) -> None:
+def test_output_survives_a_console_that_cannot_encode_it(tmp_path: Path) -> None:
     """jgm/pandoc quotes Japanese, and the run died reporting it.
 
     A finding quotes the document, and a document may be in any language.
@@ -422,7 +425,7 @@ def test_output_survives_a_console_that_cannot_encode_it(tmp_path) -> None:
             f"{mode} should report the dead link: {result.stdout}{result.stderr}")
 
 
-def test_a_generator_macro_is_not_a_path(git_repo) -> None:
+def test_a_generator_macro_is_not_a_path(git_repo: GitRepo) -> None:
     """JuliaLang/julia. Documenter.jl writes `[text](@ref)` for a
     cross-reference, and 1,779 of them were reported as dead files - 96% of
     that repository's findings. An `@` opens a macro, not a path."""
@@ -433,7 +436,7 @@ def test_a_generator_macro_is_not_a_path(git_repo) -> None:
     assert "dead-md-link" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_heading_that_is_itself_a_link_slugs_to_its_text(git_repo) -> None:
+def test_a_heading_that_is_itself_a_link_slugs_to_its_text(git_repo: GitRepo) -> None:
     """Alamofire's changelog: `## [5.12.0](https://.../tag/5.12.0)`, indexed
     as `#5120`. A renderer slugs what the reader SEES and drops the
     destination; folding the URL in produced
@@ -446,7 +449,7 @@ def test_a_heading_that_is_itself_a_link_slugs_to_its_text(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_site_config_in_a_subdirectory_is_found(git_repo) -> None:
+def test_a_site_config_in_a_subdirectory_is_found(git_repo: GitRepo) -> None:
     """jekyll/jekyll keeps its own site under `docs/` with `docs/_config.yml`.
 
     A root-only search missed it and reported 138 of its site routes as dead
@@ -467,7 +470,7 @@ def test_a_site_config_in_a_subdirectory_is_found(git_repo) -> None:
 
 # --- anchor sources a renderer offers that the source does not spell out ---
 
-def test_a_definition_list_term_is_an_anchor(git_repo) -> None:
+def test_a_definition_list_term_is_an_anchor(git_repo: GitRepo) -> None:
     """Hugo documents every configuration key as a definition term.
 
     A renderer supporting the extension gives each `<dt>` an id exactly as it
@@ -483,7 +486,8 @@ def test_a_definition_list_term_is_an_anchor(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_colon_line_after_a_heading_is_not_a_definition_term(git_repo) -> None:
+def test_a_colon_line_after_a_heading_is_not_a_definition_term(
+        git_repo: GitRepo) -> None:
     """The exclusions matter, or every heading becomes an anchor twice over
     and a genuinely dead fragment could be forgiven by coincidence."""
     repo, commit = git_repo
@@ -516,7 +520,7 @@ def test_a_term_after_an_excluded_line_is_still_a_term() -> None:
     assert anchors(text) == {"term"}
 
 
-def test_a_repeated_slug_gets_the_numbered_suffix(git_repo) -> None:
+def test_a_repeated_slug_gets_the_numbered_suffix(git_repo: GitRepo) -> None:
     """Two headings reading the same thing cannot share an id, so a renderer
     numbers the later ones. Hugo's deployment page has a `matchers` term and a
     `## Matchers` section, and links to the second as `#matchers-1`."""
@@ -527,7 +531,7 @@ def test_a_repeated_slug_gets_the_numbered_suffix(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_numbered_suffix_is_not_invented_for_a_unique_slug(git_repo) -> None:
+def test_a_numbered_suffix_is_not_invented_for_a_unique_slug(git_repo: GitRepo) -> None:
     """Numbering starts at the SECOND occurrence. Offering `-1` for a slug
     that appears once would forgive an anchor that really is dead."""
     repo, commit = git_repo
@@ -537,7 +541,7 @@ def test_a_numbered_suffix_is_not_invented_for_a_unique_slug(git_repo) -> None:
     assert "dead-md-anchor" in _kinds(repo, text), _findings(repo, text)
 
 
-def test_an_explicit_attribute_id_is_an_anchor(git_repo) -> None:
+def test_an_explicit_attribute_id_is_an_anchor(git_repo: GitRepo) -> None:
     """pandoc, kramdown and PHP Markdown Extra name a heading outright.
 
     `## Template {#type-template}` overrides whatever the text would slug to,
@@ -568,7 +572,7 @@ def test_an_html_element_named_in_the_source_is_an_anchor(element: str) -> None:
 
 # --- fourth sweep: doc toolchains -----------------------------------------
 
-def test_an_astro_site_links_by_route(git_repo) -> None:
+def test_an_astro_site_links_by_route(git_repo: GitRepo) -> None:
     """withastro/starlight reported 235 of its own links as dead files.
 
     A Starlight docs tree links to `/de/reference/configuration/`, which is a
@@ -586,7 +590,7 @@ def test_an_astro_site_links_by_route(git_repo) -> None:
     assert "dead-md-link" not in kinds, kinds
 
 
-def test_a_myst_target_is_an_anchor(git_repo) -> None:
+def test_a_myst_target_is_an_anchor(git_repo: GitRepo) -> None:
     """MyST names a target on its own line, before the thing it labels.
 
     It sits OUTSIDE the heading, so nothing reading headings would see it.
@@ -599,7 +603,7 @@ def test_a_myst_target_is_an_anchor(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_myst_resolves_a_label_defined_in_another_file(git_repo) -> None:
+def test_myst_resolves_a_label_defined_in_another_file(git_repo: GitRepo) -> None:
     """MyST and Sphinx resolve `#label` against the whole project at once, so
     a target defined elsewhere is reachable from any page. 168 of mystmd's
     findings named a label that exists, just not in the linking file."""
@@ -616,7 +620,7 @@ def test_myst_resolves_a_label_defined_in_another_file(git_repo) -> None:
     assert "dead-md-anchor" not in kinds, kinds
 
 
-def test_a_per_page_generator_keeps_its_anchors_local(git_repo) -> None:
+def test_a_per_page_generator_keeps_its_anchors_local(git_repo: GitRepo) -> None:
     """The measurement that scoped the rule above.
 
     MkDocs anchors are per-page. Applying a project-wide union to every
@@ -640,7 +644,7 @@ def test_a_per_page_generator_keeps_its_anchors_local(git_repo) -> None:
 
 # --- game engine projects -------------------------------------------------
 
-def test_a_heading_nested_in_a_list_item_is_a_heading(git_repo) -> None:
+def test_a_heading_nested_in_a_list_item_is_a_heading(git_repo: GitRepo) -> None:
     """Unity's BossRoom, and every README with an indented contents list.
 
     CommonMark renders `- ### Title` as a real h3 and gives it an id:
@@ -660,7 +664,7 @@ def test_a_heading_nested_in_a_list_item_is_a_heading(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_nested_heading_still_needs_a_real_target(git_repo) -> None:
+def test_a_nested_heading_still_needs_a_real_target(git_repo: GitRepo) -> None:
     """The nested heading is an anchor SOURCE, not a licence to forgive.
 
     One nested heading and no repeat means no `-1` exists, so a link to it is
@@ -673,7 +677,7 @@ def test_a_nested_heading_still_needs_a_real_target(git_repo) -> None:
     assert "dead-md-anchor" in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_raw_asset_under_an_lfs_filter_is_reported(git_repo) -> None:
+def test_a_raw_asset_under_an_lfs_filter_is_reported(git_repo: GitRepo) -> None:
     """The rule the game presets exist for, on the shape a Unity repo has.
 
     Verified against Unity's BossRoom, which declares 47 LFS filters over 480
@@ -704,7 +708,7 @@ def test_a_raw_asset_under_an_lfs_filter_is_reported(git_repo) -> None:
 
 # --- the deferred remainders, examined ------------------------------------
 
-def test_mdx_files_are_swept(git_repo) -> None:
+def test_mdx_files_are_swept(git_repo: GitRepo) -> None:
     """Docusaurus keeps 1,378 `.mdx` against 238 `.md`, so the majority of its
     documentation was invisible. MDX is markdown with JSX; the claims in it rot
     identically."""
@@ -717,7 +721,7 @@ def test_mdx_files_are_swept(git_repo) -> None:
     assert sorted(refs.tracked_markdown(hc.context(repo))) == ["README.md", "docs/page.mdx"]
 
 
-def test_a_jsx_comment_declares_a_heading_id(git_repo) -> None:
+def test_a_jsx_comment_declares_a_heading_id(git_repo: GitRepo) -> None:
     """MDX v3 reads a bare `{#id}` as a JSX expression, so Docusaurus wraps the
     declaration in a comment, as `### baseUrl {/* #baseUrl */}`.
 
@@ -732,7 +736,7 @@ def test_a_jsx_comment_declares_a_heading_id(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_a_directive_option_names_its_block(git_repo) -> None:
+def test_a_directive_option_names_its_block(git_repo: GitRepo) -> None:
     """The third place MyST allows an explicit label, after `(target)=` and
     `{#id}`: a `:label:` or `:name:` option inside a directive.
 
@@ -748,7 +752,8 @@ def test_a_directive_option_names_its_block(git_repo) -> None:
     assert "dead-md-anchor" not in _kinds(repo, text), _findings(repo, text)
 
 
-def test_hugo_partials_are_anchors_on_the_pages_that_include_them(git_repo) -> None:
+def test_hugo_partials_are_anchors_on_the_pages_that_include_them(
+        git_repo: GitRepo) -> None:
     """Hugo's `_`-prefixed content directories are fragments composed into
     other pages, so a term defined there is an anchor on the including page.
     23 of hugoDocs' 23 remaining findings were exactly that.
@@ -766,7 +771,7 @@ def test_hugo_partials_are_anchors_on_the_pages_that_include_them(git_repo) -> N
     assert "dead-md-anchor" not in kinds, kinds
 
 
-def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
+def test_partials_are_not_ambient_outside_hugo(git_repo: GitRepo) -> None:
     """The measurement that scoped the rule above.
 
     Seven of 38 corpus repositories keep markdown under a `_` directory and
@@ -786,7 +791,7 @@ def test_partials_are_not_ambient_outside_hugo(git_repo) -> None:
         "a heading in a Jekyll post must not become an ambient anchor: " + str(kinds))
 
 
-def test_inside_hugo_only_underscore_directories_are_ambient(git_repo) -> None:
+def test_inside_hugo_only_underscore_directories_are_ambient(git_repo: GitRepo) -> None:
     """The `_` test is what keeps the rule Hugo's convention rather than a
     project-wide anchor union arriving through the back door.
 
@@ -814,7 +819,7 @@ def test_inside_hugo_only_underscore_directories_are_ambient(git_repo) -> None:
 
 
 def test_the_project_union_is_built_only_when_a_fragment_needs_it(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A performance contract, pinned because nothing else can see it.
 
     Resolving a fragment project-wide means reading every tracked markdown
@@ -885,7 +890,7 @@ def test_the_project_union_is_built_only_when_a_fragment_needs_it(
 
 # --- repositories that actually use Git LFS --------------------------------
 
-def test_a_uuid_is_not_a_commit(git_repo) -> None:
+def test_a_uuid_is_not_a_commit(git_repo: GitRepo) -> None:
     """microsoft/vscode-docs puts a ContentId in every page's frontmatter.
 
     Split on the hyphens, a UUID's 8- and 12-character groups are valid hex
@@ -900,7 +905,7 @@ def test_a_uuid_is_not_a_commit(git_repo) -> None:
     assert not [k for k in _kinds(repo, text) if "sha" in k], _findings(repo, text)
 
 
-def test_a_real_sha_beside_a_uuid_is_still_reported(git_repo) -> None:
+def test_a_real_sha_beside_a_uuid_is_still_reported(git_repo: GitRepo) -> None:
     """The UUID is skipped whole, not by silencing its parts, or a genuine
     reference sitting on the same line would go with it."""
     repo, commit = git_repo
@@ -910,7 +915,7 @@ def test_a_real_sha_beside_a_uuid_is_still_reported(git_repo) -> None:
     assert [k for k in _kinds(repo, text) if "sha" in k], _findings(repo, text)
 
 
-def test_a_root_relative_route_resolves_to_its_document(git_repo) -> None:
+def test_a_root_relative_route_resolves_to_its_document(git_repo: GitRepo) -> None:
     """vscode-docs links to `/api/ux-guidelines/views`, and that file is right
     there as `api/ux-guidelines/views.md`.
 
@@ -929,7 +934,7 @@ def test_a_root_relative_route_resolves_to_its_document(git_repo) -> None:
     assert "dead-md-link" not in kinds, kinds
 
 
-def test_a_route_to_no_document_is_still_reported(git_repo) -> None:
+def test_a_route_to_no_document_is_still_reported(git_repo: GitRepo) -> None:
     """Silenced only when the document EXISTS. 220 of vscode-docs' own routes
     resolve to nothing and are still reported, which is the half that keeps
     the rule worth running."""

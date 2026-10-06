@@ -37,6 +37,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -128,7 +130,7 @@ def with_config(repo: Path, extra: str) -> None:
 
 @pytest.mark.parametrize("extra", VARIANTS)
 def test_the_fast_path_matches_git_or_declines_to_answer(
-        clean_config_scopes, git_repo, extra) -> None:
+        clean_config_scopes: None, git_repo: GitRepo, extra) -> None:
     """The whole contract, in one assertion, over every spelling measured.
 
     A WRONG answer is the only failure. Declining is a pass, and costs a spawn.
@@ -152,7 +154,7 @@ def test_the_fast_path_matches_git_or_declines_to_answer(
 
 
 def test_the_common_spellings_are_actually_answered_from_disk(
-        clean_config_scopes, git_repo) -> None:
+        clean_config_scopes: None, git_repo: GitRepo) -> None:
     """The denominator. A guard that declines everything passes the table above.
 
     These must resolve on the fast path, or this change buys nothing at all and
@@ -194,7 +196,8 @@ def test_the_common_spellings_are_actually_answered_from_disk(
     assert answered == [URL] * 4 + [SPACED], answered
 
 
-def test_a_linked_worktree_reads_the_config_it_actually_shares(git_repo) -> None:
+def test_a_linked_worktree_reads_the_config_it_actually_shares(
+        git_repo: GitRepo) -> None:
     """Its `.git` is a FILE, so a naive read finds no config at all.
 
     Not a corner: phase work in this project happens in linked worktrees by
@@ -216,7 +219,7 @@ def test_a_linked_worktree_reads_the_config_it_actually_shares(git_repo) -> None
 
 
 def test_a_per_worktree_config_file_is_what_makes_the_answer_unsettled(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`extensions.worktreeConfig` alone is not a reason to decline, and was.
 
     Refusing on the word made this change worth nothing on the repository that
@@ -244,7 +247,7 @@ def test_a_per_worktree_config_file_is_what_makes_the_answer_unsettled(
         "answered from the shared config while a per-worktree one overrides it")
 
 
-def test_a_repository_with_no_git_directory_at_all_declines(tmp_path) -> None:
+def test_a_repository_with_no_git_directory_at_all_declines(tmp_path: Path) -> None:
     """The unreadable case answers None rather than inventing an absence.
 
     "This repository has no origin" and "this question could not be settled"
@@ -259,7 +262,8 @@ def test_a_repository_with_no_git_directory_at_all_declines(tmp_path) -> None:
 
 
 def test_the_rule_answers_the_same_thing_without_spawning(
-        clean_config_scopes, monkeypatch, git_repo) -> None:
+        clean_config_scopes: None, monkeypatch: pytest.MonkeyPatch,
+        git_repo: GitRepo) -> None:
     """`dead-pinned-ref`'s own question, and the five spawns it stops costing."""
     from extant import session as hc
     from extant import refs
@@ -286,7 +290,7 @@ def test_the_rule_answers_the_same_thing_without_spawning(
 
 
 def test_the_rule_still_falls_back_when_the_file_cannot_settle_it(
-        monkeypatch, git_repo) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     """A syntax the guard refuses must produce git's answer, not no answer.
 
     Degrade to correct-and-slow is the failure mode this is designed for, and
@@ -318,7 +322,7 @@ def test_the_rule_still_falls_back_when_the_file_cannot_settle_it(
         "the quoted spelling was answered from disk instead of falling back")
 
 
-def test_a_repository_with_no_origin_still_reports_none(git_repo) -> None:
+def test_a_repository_with_no_origin_still_reports_none(git_repo: GitRepo) -> None:
     """The other direction, so the tests above cannot pass by always answering."""
     from extant import session as hc
     from extant import refs
@@ -331,7 +335,7 @@ def test_a_repository_with_no_origin_still_reports_none(git_repo) -> None:
         assert refs.own_remote(hc.context(repo)) is None
 
 
-def test_an_included_file_that_wins_the_lookup_is_declined(git_repo) -> None:
+def test_an_included_file_that_wins_the_lookup_is_declined(git_repo: GitRepo) -> None:
     """The guard against `include`, pinned by the case where it MATTERS.
 
     The `github-actions-includeIf` variant in the table above documents the
@@ -400,7 +404,7 @@ REWRITE = '[url "git@internal:widgets/"]\n\tinsteadOf = https://github.com/acme/
 
 
 @pytest.fixture
-def clean_config_scopes(monkeypatch, tmp_path):
+def clean_config_scopes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Every scope other than the repository's own file, made empty.
 
     The developer-machine shape the fast path exists for, pinned so the tests
@@ -486,7 +490,8 @@ SCOPES = [
 
 @pytest.mark.parametrize("inject", SCOPES)
 def test_a_path_changing_rewrite_in_any_other_scope_is_declined(
-        clean_config_scopes, monkeypatch, tmp_path, git_repo, inject) -> None:
+        clean_config_scopes: None, monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path, git_repo: GitRepo, inject) -> None:
     """The repository's file says github; git, reading the scope, says the
     mirror. The fast path may not answer github."""
     from extant.git import remote_url
@@ -505,8 +510,8 @@ def test_a_path_changing_rewrite_in_any_other_scope_is_declined(
         f"says {MIRROR!r}")
 
 
-def test_clean_other_scopes_still_answer_from_disk(clean_config_scopes,
-                                                   git_repo) -> None:
+def test_clean_other_scopes_still_answer_from_disk(clean_config_scopes: None,
+                                                   git_repo: GitRepo) -> None:
     """The denominator for the table above. Reading more scopes must not
     become declining on every machine, or the spawn saving is gone and every
     row above passes by refusal."""
@@ -519,7 +524,8 @@ def test_clean_other_scopes_still_answer_from_disk(clean_config_scopes,
 
 
 def test_a_config_count_git_refuses_makes_the_fast_path_decline(
-        clean_config_scopes, monkeypatch, git_repo) -> None:
+        clean_config_scopes: None, monkeypatch: pytest.MonkeyPatch,
+        git_repo: GitRepo) -> None:
     """`GIT_CONFIG_COUNT=bogus` fails every git command with "bogus count".
     The fast path could answer where git cannot, and must not: an answer
     from a repository whose git is broken is exactly the kind of quiet
@@ -535,7 +541,8 @@ def test_a_config_count_git_refuses_makes_the_fast_path_decline(
 
 
 def test_the_rule_answers_the_mirror_through_git_when_a_scope_rewrites_it(
-        clean_config_scopes, monkeypatch, git_repo) -> None:
+        clean_config_scopes: None, monkeypatch: pytest.MonkeyPatch,
+        git_repo: GitRepo) -> None:
     """End to end, past the guard: `dead-pinned-ref` asks for its own remote,
     the fast path declines, the spawn answers with the mirror, and the rule
     does not proceed as if the repository were `acme/widget`."""
@@ -595,8 +602,8 @@ INSTALL_LAYOUTS = [
 
 @pytest.mark.parametrize("launcher, prefix, read", INSTALL_LAYOUTS)
 def test_the_system_file_under_the_prefix_of_the_git_on_path_is_read(
-        clean_config_scopes, monkeypatch, tmp_path, launcher, prefix,
-        read) -> None:
+        clean_config_scopes: None, monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path, launcher, prefix, read) -> None:
     """A regression in the install-prefix arm of `_other_config_files`,
     which nothing else here can see.
 

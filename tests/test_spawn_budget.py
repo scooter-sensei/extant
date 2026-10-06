@@ -31,6 +31,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -176,7 +178,7 @@ def _repo_with_a_document(git_repo):
 
 
 def test_a_single_validation_stays_within_its_spawn_budget(
-        monkeypatch, git_repo) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     from extant import session as hc
 
     repo, text = _repo_with_a_document(git_repo)
@@ -198,7 +200,8 @@ def test_a_single_validation_stays_within_its_spawn_budget(
         f"call is necessary, raise CEILING here and say why in the commit.")
 
 
-def test_the_same_question_is_not_asked_twice(monkeypatch, git_repo) -> None:
+def test_the_same_question_is_not_asked_twice(
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     """The two duplicates measured before the refactor, pinned shut.
 
     `remote get-url origin` ran twice because `validate()` opens a scope per
@@ -288,7 +291,7 @@ def _explain_the_remote(spawns: list[str]) -> None:
 @pytest.mark.parametrize("config_declines", [False, True],
                          ids=["as-checked-out", "config-declined"])
 def test_the_verify_cli_stays_within_its_own_spawn_budget(
-        monkeypatch, config_declines: bool) -> None:
+        monkeypatch: pytest.MonkeyPatch, config_declines: bool) -> None:
     """`main()`'s OWN use of run_scope(), not the fixture's.
 
     Run twice: once against the checkout as it is, and once with the remote
@@ -624,7 +627,7 @@ def _ref_tables_built_by(monkeypatch, repo, *flags) -> int:
 
 
 def test_verify_holds_one_scope_unless_a_sha_map_rewrites_between_documents(
-        monkeypatch, git_repo, tmp_path) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo, tmp_path: Path) -> None:
     """Both arms of the review's 5.7, asserted on the same fixture.
 
     Without `--sha-map` nothing rewrites a document between two reads, so

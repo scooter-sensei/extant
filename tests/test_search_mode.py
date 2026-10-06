@@ -21,6 +21,8 @@ import contextlib
 import sys
 from pathlib import Path
 
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -57,7 +59,7 @@ def _document(repo: Path, commit) -> None:
     )
 
 
-def test_a_plain_query_finds_the_entry_that_carries_it(git_repo) -> None:
+def test_a_plain_query_finds_the_entry_that_carries_it(git_repo: GitRepo) -> None:
     """The mode's whole job. Against the broken code this raised
     AttributeError before printing anything."""
     repo, commit = git_repo
@@ -70,7 +72,7 @@ def test_a_plain_query_finds_the_entry_that_carries_it(git_repo) -> None:
     assert "match" in text, text
 
 
-def test_a_query_matching_nothing_says_so_rather_than_failing(git_repo) -> None:
+def test_a_query_matching_nothing_says_so_rather_than_failing(git_repo: GitRepo) -> None:
     """Zero matches is an answer, not an error. Distinguishing the two is the
     same denominator problem the rules have: `0 found` and `it broke` must not
     print alike."""
@@ -84,7 +86,7 @@ def test_a_query_matching_nothing_says_so_rather_than_failing(git_repo) -> None:
     assert "0 match" in text, text
 
 
-def test_a_regex_wildcard_query_does_not_crash(git_repo) -> None:
+def test_a_regex_wildcard_query_does_not_crash(git_repo: GitRepo) -> None:
     """The exact invocation the smoke harness flagged.
 
     `.*` matches every entry, so this also proves the entry SPLIT works
@@ -136,7 +138,7 @@ def _wordy_document(repo: Path, commit) -> None:
     )
 
 
-def test_the_excerpt_stops_and_full_does_not(git_repo) -> None:
+def test_the_excerpt_stops_and_full_does_not(git_repo: GitRepo) -> None:
     """The one thing `--full` is for, asserted on the line that separates them.
 
     A body line past the fourth is what the excerpt drops and what `--full`
@@ -156,7 +158,7 @@ def test_the_excerpt_stops_and_full_does_not(git_repo) -> None:
     assert "fifth line, past where the excerpt stops." in full, full
 
 
-def test_the_excerpt_truncates_a_long_line_and_full_keeps_it(git_repo) -> None:
+def test_the_excerpt_truncates_a_long_line_and_full_keeps_it(git_repo: GitRepo) -> None:
     """The other half of the same flag, and the half a length can pin exactly.
 
     97 rather than "the whole line": asserting only that the 200-character line
@@ -175,7 +177,8 @@ def test_the_excerpt_truncates_a_long_line_and_full_keeps_it(git_repo) -> None:
     assert LONG_LINE in full, "--full prints the line as written"
 
 
-def test_an_empty_query_is_refused_rather_than_matching_everything(git_repo) -> None:
+def test_an_empty_query_is_refused_rather_than_matching_everything(
+        git_repo: GitRepo) -> None:
     """A blank query is a mistake, not a request for every entry.
 
     Whitespace counts as blank, which is the case a bare `.strip()` guard is
@@ -192,7 +195,7 @@ def test_an_empty_query_is_refused_rather_than_matching_everything(git_repo) -> 
         assert "needs something to look for" in text, (query, text)
 
 
-def test_the_note_fires_when_there_was_nothing_to_search(git_repo) -> None:
+def test_the_note_fires_when_there_was_nothing_to_search(git_repo: GitRepo) -> None:
     """The other direction of the denominator, and the one nothing asserted.
 
     A sibling test already checks that this note is ABSENT when an entry was
@@ -213,7 +216,8 @@ def test_the_note_fires_when_there_was_nothing_to_search(git_repo) -> None:
     assert "no entries were found to search" in text, text
 
 
-def test_both_documents_are_searched_and_the_live_one_comes_first(git_repo) -> None:
+def test_both_documents_are_searched_and_the_live_one_comes_first(
+        git_repo: GitRepo) -> None:
     """Entries MOVE between the two documents, so both are searched as one.
 
     The ordering is the useful half: somebody looking for a decision wants the
@@ -236,7 +240,7 @@ def test_both_documents_are_searched_and_the_live_one_comes_first(git_repo) -> N
     assert text.index("Phase 9") < text.index("Phase 0"), text
 
 
-def test_a_reference_section_between_entries_is_not_searched(git_repo) -> None:
+def test_a_reference_section_between_entries_is_not_searched(git_repo: GitRepo) -> None:
     """Search returns dated decisions, and reference material is neither.
 
     An interleaved `## ` section that is not an entry is classified "other" and

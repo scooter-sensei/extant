@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import GitRepo
+
 
 def _config():
     from extant import session as hc
@@ -146,7 +148,7 @@ def test_a_wrapped_claim_is_found_with_either_terminator(newline) -> None:
     assert (number, sha) == (1, "abc1234")
 
 
-def test_a_false_wrapped_claim_reaches_the_rule(git_repo) -> None:
+def test_a_false_wrapped_claim_reaches_the_rule(git_repo: GitRepo) -> None:
     """End to end, because the scanner is not the thing anyone runs.
 
     A commit that exists and is not an ancestor of `main`, claimed as merged

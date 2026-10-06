@@ -79,7 +79,7 @@ def config_of(repo: Path) -> dict:
 # --- what gets enumerated ----------------------------------------------------
 
 
-def test_depth_three_is_included_and_depth_four_is_not(tmp_path) -> None:
+def test_depth_three_is_included_and_depth_four_is_not(tmp_path: Path) -> None:
     """The measured cliff, and the only thing that pins it.
 
     obra/superpowers keeps 29 of its 36 findings at depth 3, under
@@ -108,7 +108,7 @@ def test_depth_three_is_included_and_depth_four_is_not(tmp_path) -> None:
     )
 
 
-def test_an_explicit_depth_moves_the_boundary(tmp_path) -> None:
+def test_an_explicit_depth_moves_the_boundary(tmp_path: Path) -> None:
     """`--wide-docs 4` means four, or the argument is decoration."""
     repo = make_repo(tmp_path, **{
         "README.md": README,
@@ -120,7 +120,7 @@ def test_an_explicit_depth_moves_the_boundary(tmp_path) -> None:
     assert "docs/a/b/c/four.md" in config_of(repo)["extra_docs"]
 
 
-def test_only_the_ordinary_stratum_is_enumerated(tmp_path) -> None:
+def test_only_the_ordinary_stratum_is_enumerated(tmp_path: Path) -> None:
     """The load-bearing restriction, measured rather than assumed.
 
     Without it the same enumeration yields 0.081 findings per pinned path,
@@ -153,7 +153,7 @@ def test_only_the_ordinary_stratum_is_enumerated(tmp_path) -> None:
     assert "excluded as" in result.stdout, result.stdout
 
 
-def test_zero_documents_writes_no_key_rather_than_an_empty_list(tmp_path) -> None:
+def test_zero_documents_writes_no_key_rather_than_an_empty_list(tmp_path: Path) -> None:
     """An empty list is a claim. There is nothing here to claim.
 
     `extra_docs = []` says the project considered the question and settled on
@@ -169,7 +169,7 @@ def test_zero_documents_writes_no_key_rather_than_an_empty_list(tmp_path) -> Non
     assert "extra_docs = []" not in (repo / ".extant.toml").read_text(encoding="utf-8")
 
 
-def test_the_primary_document_is_not_also_an_extra(tmp_path) -> None:
+def test_the_primary_document_is_not_also_an_extra(tmp_path: Path) -> None:
     """A document named twice is validated twice and reported twice."""
     repo = make_repo(tmp_path, **{
         "NEXT_SESSION.md": "# Status\n\n## Phase 1 - x (shipped, 2026-01-01)\n\nNothing.\n",
@@ -183,7 +183,7 @@ def test_the_primary_document_is_not_also_an_extra(tmp_path) -> None:
     assert config["extra_docs"] == ["README.md"]
 
 
-def test_the_archive_is_not_also_an_extra_document(tmp_path) -> None:
+def test_the_archive_is_not_also_an_extra_document(tmp_path: Path) -> None:
     """The archive gets its own pass, so enumerating it gives the file two.
 
     `gate.py` validates `archive_doc` before it reaches `extra_docs`, and the
@@ -213,7 +213,7 @@ def test_the_archive_is_not_also_an_extra_document(tmp_path) -> None:
     assert "README.md" in config["extra_docs"]
 
 
-def test_wide_docs_appends_to_a_preset_rather_than_replacing_it(tmp_path) -> None:
+def test_wide_docs_appends_to_a_preset_rather_than_replacing_it(tmp_path: Path) -> None:
     """The flag composes: the preset settles the document, the flag widens the
     set. Replacing would silently drop what the preset chose deliberately."""
     repo = make_repo(tmp_path, **{
@@ -233,7 +233,7 @@ def test_wide_docs_appends_to_a_preset_rather_than_replacing_it(tmp_path) -> Non
 # --- the nomination, and the precedence around it ----------------------------
 
 
-def test_wide_docs_alone_nominates_the_root_readme(tmp_path) -> None:
+def test_wide_docs_alone_nominates_the_root_readme(tmp_path: Path) -> None:
     """The case the flag was extended to cover, and the first one an adopter
     meets.
 
@@ -255,7 +255,7 @@ def test_wide_docs_alone_nominates_the_root_readme(tmp_path) -> None:
         encoding="utf-8"), "the provenance did not reach the config header"
 
 
-def test_a_root_readme_rst_is_nominated_too(tmp_path) -> None:
+def test_a_root_readme_rst_is_nominated_too(tmp_path: Path) -> None:
     """The suffix, not the heuristic.
 
     `--wide-docs` nominated on 45 of the 50 benchmark repositories, and all
@@ -281,7 +281,7 @@ def test_a_root_readme_rst_is_nominated_too(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("suffix", ["md", "markdown", "mdx", "rst"])
-def test_every_swept_suffix_can_be_nominated(tmp_path, suffix) -> None:
+def test_every_swept_suffix_can_be_nominated(tmp_path: Path, suffix) -> None:
     """The whole of `detect.DOC_SUFFIXES`, not just the two that motivated it.
 
     The comment and the refusal message both name four suffixes. Two of them
@@ -298,7 +298,8 @@ def test_every_swept_suffix_can_be_nominated(tmp_path, suffix) -> None:
     assert config_of(repo)["primary_doc"] == f"README.{suffix}"
 
 
-def test_a_lowercase_readme_is_nominated_under_the_name_git_tracks(tmp_path) -> None:
+def test_a_lowercase_readme_is_nominated_under_the_name_git_tracks(
+        tmp_path: Path) -> None:
     """The name is READ from git, never constructed, and this is why.
 
     `(repo / "README.md").is_file()` is case-INSENSITIVE on Windows, so a
@@ -326,7 +327,7 @@ def test_a_lowercase_readme_is_nominated_under_the_name_git_tracks(tmp_path) -> 
     assert "README.md" not in cfg.get("extra_docs", [])
 
 
-def test_an_untracked_root_readme_is_not_nominated(tmp_path) -> None:
+def test_an_untracked_root_readme_is_not_nominated(tmp_path: Path) -> None:
     """A path git has never heard of must not be pinned into a config.
 
     The filesystem says yes to an untracked README; `.extant.toml` is
@@ -345,7 +346,7 @@ def test_an_untracked_root_readme_is_not_nominated(tmp_path) -> None:
     assert "--wide-docs found no root README" in result.stdout, result.stdout
 
 
-def test_readme_md_still_wins_when_both_spellings_exist(tmp_path) -> None:
+def test_readme_md_still_wins_when_both_spellings_exist(tmp_path: Path) -> None:
     """The order is PINNED rather than incidental.
 
     `detect.DOC_SUFFIXES` states it once and the nomination reads that tuple
@@ -364,7 +365,7 @@ def test_readme_md_still_wins_when_both_spellings_exist(tmp_path) -> None:
         result.stdout
 
 
-def test_an_explicit_doc_outranks_the_nomination(tmp_path) -> None:
+def test_an_explicit_doc_outranks_the_nomination(tmp_path: Path) -> None:
     """Weakest last. Wherever the user has spoken, they win."""
     repo = make_repo(tmp_path, **{
         "README.md": README,
@@ -378,7 +379,7 @@ def test_an_explicit_doc_outranks_the_nomination(tmp_path) -> None:
     assert "nominated by --wide-docs" not in result.stdout
 
 
-def test_a_preset_document_outranks_the_nomination(tmp_path) -> None:
+def test_a_preset_document_outranks_the_nomination(tmp_path: Path) -> None:
     """A preset names its document, and the nomination must not claim it.
 
     Every preset happens to name README.md, so the FILE cannot separate these
@@ -402,7 +403,7 @@ def test_a_preset_document_outranks_the_nomination(tmp_path) -> None:
         encoding="utf-8")
 
 
-def test_a_detected_document_outranks_the_nomination(tmp_path) -> None:
+def test_a_detected_document_outranks_the_nomination(tmp_path: Path) -> None:
     """The third ordering, asserted rather than assumed from the other two."""
     repo = make_repo(tmp_path, **{
         "NEXT_SESSION.md": "# Status\n\n## Phase 1 - x (shipped, 2026-01-01)\n\nNothing.\n",
@@ -416,7 +417,7 @@ def test_a_detected_document_outranks_the_nomination(tmp_path) -> None:
     assert "nominated by --wide-docs" not in result.stdout
 
 
-def test_a_missing_doc_is_still_refused_rather_than_replaced(tmp_path) -> None:
+def test_a_missing_doc_is_still_refused_rather_than_replaced(tmp_path: Path) -> None:
     """Answering a typo with a different file is worse than refusing.
 
     `--doc docs/typo.md` is a statement about which document matters. If the
@@ -431,7 +432,8 @@ def test_a_missing_doc_is_still_refused_rather_than_replaced(tmp_path) -> None:
     assert not (repo / ".extant.toml").exists()
 
 
-def test_no_readme_and_no_document_still_refuses_and_names_the_flag(tmp_path) -> None:
+def test_no_readme_and_no_document_still_refuses_and_names_the_flag(
+        tmp_path: Path) -> None:
     """The existing refusal stands, with one line saying why discovery could
     not help. A flag that appears to do nothing is worse than one that says
     what it looked for."""
@@ -450,7 +452,7 @@ def test_no_readme_and_no_document_still_refuses_and_names_the_flag(tmp_path) ->
 # --- the refusal -------------------------------------------------------------
 
 
-def test_a_missing_strata_module_refuses_rather_than_degrading(tmp_path) -> None:
+def test_a_missing_strata_module_refuses_rather_than_degrading(tmp_path: Path) -> None:
     """The load-bearing safety property of the whole feature.
 
     Unclassified enumeration is not a degraded version of this policy, it is a
@@ -477,7 +479,7 @@ def test_a_missing_strata_module_refuses_rather_than_degrading(tmp_path) -> None
     )
 
 
-def test_an_empty_index_refuses_rather_than_enumerating_nothing(tmp_path) -> None:
+def test_an_empty_index_refuses_rather_than_enumerating_nothing(tmp_path: Path) -> None:
     """`refs.py` records this one twice over: an empty index reads exactly like
     a repository with nothing to check.
 
@@ -510,7 +512,7 @@ def _commit_odd_document(repo: Path, name: str) -> None:
                     "commit", "-m", "odd"], cwd=repo, capture_output=True, check=True)
 
 
-def test_a_non_ascii_document_is_pinned_under_its_own_name(tmp_path) -> None:
+def test_a_non_ascii_document_is_pinned_under_its_own_name(tmp_path: Path) -> None:
     """Catches the installer asking git with the operator's `core.quotePath`.
 
     With it on - git's default - `docs/cafe.md` with an accented e came back
@@ -534,7 +536,7 @@ def test_a_non_ascii_document_is_pinned_under_its_own_name(tmp_path) -> None:
     assert "git quoted" not in result.stdout, result.stdout
 
 
-def test_a_name_holding_a_line_separator_is_pinned_whole(tmp_path) -> None:
+def test_a_name_holding_a_line_separator_is_pinned_whole(tmp_path: Path) -> None:
     """Catches the tracked listing cut where Python breaks lines, not git.
 
     With quoting off, git no longer octal-escapes a name holding U+2028, and
@@ -560,7 +562,7 @@ def test_a_name_holding_a_line_separator_is_pinned_whole(tmp_path) -> None:
 
 @pytest.mark.skipif(sys.platform == "win32",
                     reason="a tab is illegal in a Windows filename")
-def test_a_git_quoted_path_is_left_out_and_counted(tmp_path) -> None:
+def test_a_git_quoted_path_is_left_out_and_counted(tmp_path: Path) -> None:
     """A quoted spelling names no file on disk, so pinning it manufactures a
     finding.
 
@@ -585,7 +587,7 @@ def test_a_git_quoted_path_is_left_out_and_counted(tmp_path) -> None:
     assert "git quoted" in result.stdout, result.stdout
 
 
-def test_no_documents_at_all_is_an_answer_rather_than_a_refusal(tmp_path) -> None:
+def test_no_documents_at_all_is_an_answer_rather_than_a_refusal(tmp_path: Path) -> None:
     """A repository whose documentation is all generated is a real result.
 
     Distinct from the de-duplicated-to-empty case above: there the enumeration
@@ -604,7 +606,7 @@ def test_no_documents_at_all_is_an_answer_rather_than_a_refusal(tmp_path) -> Non
     assert "extra_docs" not in config_of(repo)
 
 
-def test_a_negative_depth_is_refused(tmp_path) -> None:
+def test_a_negative_depth_is_refused(tmp_path: Path) -> None:
     """Not a depth. Silently reading it as root-only would answer a mistyped
     number with a policy nobody asked for."""
     repo = make_repo(tmp_path, **{"README.md": README, "docs__guide.md": "# Guide\n"})
@@ -618,7 +620,7 @@ def test_a_negative_depth_is_refused(tmp_path) -> None:
 # --- what the written config looks like --------------------------------------
 
 
-def test_a_long_extra_docs_list_is_written_one_path_per_line(tmp_path) -> None:
+def test_a_long_extra_docs_list_is_written_one_path_per_line(tmp_path: Path) -> None:
     """An unreviewable config is how a wide extra_docs becomes a place nobody
     looks.
 

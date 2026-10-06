@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo, Reconfigure
+
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 TOOL = SKILL_ROOT / "payload" / "extant_collect.py"
@@ -38,7 +40,7 @@ def run_tool(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 # --- markdown links ----------------------------------------------------------
 
-def test_md_link_to_a_missing_file_is_flagged(git_repo) -> None:
+def test_md_link_to_a_missing_file_is_flagged(git_repo: GitRepo) -> None:
     """Catches the gap that motivated this rule: a plain markdown link was
     invisible, because the path rule only sees backticked paths after an
     operative marker."""
@@ -53,7 +55,7 @@ def test_md_link_to_a_missing_file_is_flagged(git_repo) -> None:
     assert "docs/gone.md" in findings[0].detail
 
 
-def test_md_link_to_an_existing_file_is_silent(git_repo) -> None:
+def test_md_link_to_an_existing_file_is_silent(git_repo: GitRepo) -> None:
     """The false-positive guard. A rule that flags working links is worse than
     no rule, because it trains people to ignore the output."""
     from extant import session as hc
@@ -64,7 +66,7 @@ def test_md_link_to_an_existing_file_is_silent(git_repo) -> None:
     assert rule_md_link.check(hc.context(repo), "See [the plan](docs/plan.md).\n") == []
 
 
-def test_external_links_are_never_checked(git_repo) -> None:
+def test_external_links_are_never_checked(git_repo: GitRepo) -> None:
     """Catches a rule that reaches the network.
 
     Checking external links would make a green run depend on someone else's
@@ -80,7 +82,7 @@ def test_external_links_are_never_checked(git_repo) -> None:
     assert rule_md_link.check(hc.context(repo), text) == []
 
 
-def test_example_links_in_inline_code_are_ignored(git_repo) -> None:
+def test_example_links_in_inline_code_are_ignored(git_repo: GitRepo) -> None:
     """The false positive this project's own README actually produced.
 
     The table row documenting this very rule contains a backticked example
@@ -97,7 +99,7 @@ def test_example_links_in_inline_code_are_ignored(git_repo) -> None:
     assert rule_md_link.check(hc.context(repo), text) == []
 
 
-def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
+def test_a_real_link_beside_an_example_is_still_caught(git_repo: GitRepo) -> None:
     """The other half: stripping inline code must not swallow the whole line.
 
     Without this, the fix above could be 'ignore any line containing a
@@ -116,7 +118,7 @@ def test_a_real_link_beside_an_example_is_still_caught(git_repo) -> None:
     assert "never-real.md" not in findings[0].detail
 
 
-def test_links_inside_code_fences_are_ignored(git_repo) -> None:
+def test_links_inside_code_fences_are_ignored(git_repo: GitRepo) -> None:
     """A README demonstrating link syntax is showing an example, not making a
     promise. Catches a scanner that reads fenced blocks as prose."""
     from extant import session as hc
@@ -130,7 +132,7 @@ def test_links_inside_code_fences_are_ignored(git_repo) -> None:
 
 # --- anchors -----------------------------------------------------------------
 
-def test_anchor_matching_a_heading_is_silent(git_repo) -> None:
+def test_anchor_matching_a_heading_is_silent(git_repo: GitRepo) -> None:
     """Catches a slug function that disagrees with how headings render.
 
     Punctuation and backticks are dropped and spaces become hyphens, so
@@ -144,7 +146,7 @@ def test_anchor_matching_a_heading_is_silent(git_repo) -> None:
     assert rule_md_anchor.check(hc.context(repo), text) == []
 
 
-def test_anchor_matching_is_case_insensitive(git_repo) -> None:
+def test_anchor_matching_is_case_insensitive(git_repo: GitRepo) -> None:
     """Anchors resolve case-insensitively in every renderer that matters.
 
     Found by mutation: making the comparison case-sensitive broke nothing in the
@@ -161,7 +163,7 @@ def test_anchor_matching_is_case_insensitive(git_repo) -> None:
     assert rule_md_anchor.check(hc.context(repo), text) == []
 
 
-def test_anchor_with_no_matching_heading_is_flagged(git_repo) -> None:
+def test_anchor_with_no_matching_heading_is_flagged(git_repo: GitRepo) -> None:
     from extant import session as hc
     from extant.rules import md_anchor as rule_md_anchor
     repo, _ = git_repo
@@ -171,7 +173,8 @@ def test_anchor_with_no_matching_heading_is_flagged(git_repo) -> None:
     assert [f.kind for f in findings] == ["dead-md-anchor"]
 
 
-def test_a_release_claim_ending_a_sentence_is_not_broken_by_the_full_stop(git_repo, reconfigure) -> None:
+def test_a_release_claim_ending_a_sentence_is_not_broken_by_the_full_stop(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """Ordinary English broke this rule.
 
     The version tail was greedy and swallowed the period that ends the
@@ -204,7 +207,7 @@ def _entry(body: str) -> str:
     return f"# Status\n\n## Phase 1 - work (in progress, 2026-01-01)\n\n{body}\n\n## 1. Layout\n"
 
 
-def test_merged_then_deleted_branch_is_not_flagged(git_repo) -> None:
+def test_merged_then_deleted_branch_is_not_flagged(git_repo: GitRepo) -> None:
     """THE false-positive guard, and the reason this rule exists in this shape.
 
     Every one of the four branches named in the corpus this was measured
@@ -226,7 +229,7 @@ def test_merged_then_deleted_branch_is_not_flagged(git_repo) -> None:
     assert rule_branch.check(hc.context(repo), _entry("Shipped on `feature/done`.")) == []
 
 
-def test_branch_git_never_saw_is_flagged(git_repo) -> None:
+def test_branch_git_never_saw_is_flagged(git_repo: GitRepo) -> None:
     """The positive case: a name that exists in neither refs nor merge history
     is a typo or work that was never integrated."""
     from extant import session as hc
@@ -239,7 +242,8 @@ def test_branch_git_never_saw_is_flagged(git_repo) -> None:
     assert [f.kind for f in findings] == ["unknown-branch"]
 
 
-def test_a_file_path_is_not_reported_as_a_branch(git_repo, reconfigure) -> None:
+def test_a_file_path_is_not_reported_as_a_branch(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """THE false positive this rule shipped with, found on a real install.
 
     A branch token and a file path are the same shape. The installer's fallback
@@ -267,7 +271,7 @@ def test_a_file_path_is_not_reported_as_a_branch(git_repo, reconfigure) -> None:
 
 
 def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The same guard, on the other rule that reads branch tokens.
 
     Found by mutation after the fix: removing the guard from
@@ -292,7 +296,8 @@ def test_live_claim_rule_also_refuses_to_treat_a_path_as_a_branch(
     )
 
 
-def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, reconfigure) -> None:
+def test_a_genuine_branch_with_a_dotted_name_still_checks(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The other half: excluding paths must not blind the rule to real branches.
 
     `release/v1.2` ends in a dot and digits. The cheap version of the fix above
@@ -312,7 +317,7 @@ def test_a_genuine_branch_with_a_dotted_name_still_checks(git_repo, reconfigure)
     assert [f.kind for f in findings] == ["unknown-branch"]
 
 
-def test_branch_rule_ignores_older_entries(git_repo) -> None:
+def test_branch_rule_ignores_older_entries(git_repo: GitRepo) -> None:
     """Scoped to the newest entry, like live claims. Older entries name branches
     that were correct when written, and flagging them is noise."""
     from extant import session as hc
@@ -327,7 +332,8 @@ def test_branch_rule_ignores_older_entries(git_repo) -> None:
 
 # --- release tags ------------------------------------------------------------
 
-def test_missing_release_tag_is_flagged(git_repo, reconfigure) -> None:
+def test_missing_release_tag_is_flagged(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     from extant import session as hc
     from extant.rules import release_tag as rule_release_tag
     from extant import session as hc
@@ -340,7 +346,8 @@ def test_missing_release_tag_is_flagged(git_repo, reconfigure) -> None:
     assert [f.kind for f in findings] == ["dead-release-tag"]
 
 
-def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo, reconfigure) -> None:
+def test_tag_that_exists_but_never_reached_trunk_is_flagged(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The half of this rule a mutation campaign found untested.
 
     A tag existing is not the claim; the claim is that it SHIPPED. A tag cut on
@@ -368,7 +375,8 @@ def test_tag_that_exists_but_never_reached_trunk_is_flagged(git_repo, reconfigur
     assert "abandoned" not in findings[0].detail
 
 
-def test_existing_tag_on_trunk_is_silent(git_repo, reconfigure) -> None:
+def test_existing_tag_on_trunk_is_silent(
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """Catches a rule that flags real releases, which would make it unusable for
     the CHANGELOG-keeping projects it exists to serve."""
     from extant import session as hc
@@ -384,7 +392,7 @@ def test_existing_tag_on_trunk_is_silent(git_repo, reconfigure) -> None:
 
 # --- rename hints ------------------------------------------------------------
 
-def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
+def test_dead_pointer_reports_where_the_file_went(git_repo: GitRepo) -> None:
     """Catches the pathspec bug this was first written with.
 
     `git log --diff-filter=R -- <old path>` returns NOTHING once rename
@@ -406,7 +414,7 @@ def test_dead_pointer_reports_where_the_file_went(git_repo) -> None:
 
 
 def test_the_rename_hint_does_not_depend_on_the_repositorys_diff_renames_setting(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`git log --name-status` detects renames only when `diff.renames` says
     so, and the map asked without `-M`, so a repository that disables the
     setting got no hint and no note. Found when the corpus identity gate
@@ -430,7 +438,8 @@ def test_the_rename_hint_does_not_depend_on_the_repositorys_diff_renames_setting
     assert "renamed to `docs/new.md`" in findings[0].message(), findings[0]
 
 
-def test_a_link_relative_to_its_document_still_gets_the_rename_hint(git_repo) -> None:
+def test_a_link_relative_to_its_document_still_gets_the_rename_hint(
+        git_repo: GitRepo) -> None:
     """The hint is looked up under the path the link RESOLVES to.
 
     A link is relative to the document that holds it, and the rule resolves
@@ -458,7 +467,8 @@ def test_a_link_relative_to_its_document_still_gets_the_rename_hint(git_repo) ->
         assert "renamed to `docs/new.md`" in finding.message(), finding
 
 
-def test_a_pointer_beside_its_document_still_gets_the_rename_hint(git_repo) -> None:
+def test_a_pointer_beside_its_document_still_gets_the_rename_hint(
+        git_repo: GitRepo) -> None:
     """`dead-path-pointer` resolves from the root and then from beside the
     document; the hint has to be looked up both ways too, or a nested
     SKILL.md saying "see `references/cli.md`" is told the file does not exist
@@ -479,7 +489,7 @@ def test_a_pointer_beside_its_document_still_gets_the_rename_hint(git_repo) -> N
         findings[0])
 
 
-def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
+def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo: GitRepo) -> None:
     """The patch replaces a link on the page, so it has to be a link that works
     FROM that page. The map answers in repository-relative paths, and splicing
     one into `docs/a.md` - `[it](docs/new.md)` - points at `docs/docs/new.md`.
@@ -505,7 +515,7 @@ def test_the_rename_patch_is_spelled_relative_to_the_document(git_repo) -> None:
 
 
 def test_the_rename_hint_is_a_repair_and_not_part_of_the_findings_identity(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The hint varies with the CHECKOUT - shallow, partial, a rename older
     than the window - while the finding does not, which is the argument that
     moved the commit-map hint out of `detail` and into `repair`. Left inside
@@ -549,7 +559,7 @@ def test_every_rule_declares_a_probe() -> None:
     assert not missing, f"rules with no usable probe: {missing}"
 
 
-def test_selftest_fires_every_probeable_rule(git_repo) -> None:
+def test_selftest_fires_every_probeable_rule(git_repo: GitRepo) -> None:
     """The end-to-end check that the probes actually corrupt what they claim to.
 
     Written after the merge-claim probe was found to be wrong: it replaced a
@@ -578,7 +588,8 @@ def test_selftest_fires_every_probeable_rule(git_repo) -> None:
     assert fired >= 7, f"only {fired} rules could be exercised:\n" + "\n".join(lines)
 
 
-def test_entry_scoped_rules_are_skipped_for_documents_with_no_entries(git_repo) -> None:
+def test_entry_scoped_rules_are_skipped_for_documents_with_no_entries(
+        git_repo: GitRepo) -> None:
     """`has_entries=False` must actually govern which rules run.
 
     A README has no dated entries, so "the newest entry" names nothing and the
@@ -600,7 +611,8 @@ def test_entry_scoped_rules_are_skipped_for_documents_with_no_entries(git_repo) 
     assert "unknown-branch" not in [f.kind for f in without]
 
 
-def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> None:
+def test_selftest_reports_a_rule_that_stays_silent(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """A rule that ignores its own probe must be reported, not counted as fired.
 
     Found by mutation: reporting FIRED unconditionally left the suite green,
@@ -635,7 +647,8 @@ def test_selftest_reports_a_rule_that_stays_silent(git_repo, monkeypatch) -> Non
 
 
 def test_selftest_reports_a_rule_that_raises_instead_of_crashing(
-        git_repo, capsys, monkeypatch) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """The gap `--validate` and `--deleted-since` already closed, missing here
     and worse.
 
@@ -688,7 +701,7 @@ def test_selftest_reports_a_rule_that_raises_instead_of_crashing(
     hc.RULE_ERRORS.clear()
 
 
-def test_extra_docs_are_validated(git_repo) -> None:
+def test_extra_docs_are_validated(git_repo: GitRepo) -> None:
     """Catches an extra_docs setting that nothing reads, which is the exact
     class of defect this project exists to surface.
 
@@ -718,7 +731,7 @@ def test_extra_docs_are_validated(git_repo) -> None:
 
 
 def test_an_extra_documents_denominators_name_only_the_rules_that_read_it(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """Catches the extra-document line restating half of `rule_applies`.
 
     It filtered the repository-scoped rules by hand and nothing else, so it
@@ -758,7 +771,7 @@ def test_an_extra_documents_denominators_name_only_the_rules_that_read_it(
     assert "stale-live-claim" not in named and "unknown-branch" not in named
 
 
-def test_verify_reads_an_rst_extra_document_as_rst(git_repo) -> None:
+def test_verify_reads_an_rst_extra_document_as_rst(git_repo: GitRepo) -> None:
     """Catches --verify reading every document as markdown.
 
     `validate` inherits the markup language rather than deriving it, and the
@@ -795,7 +808,7 @@ def test_verify_reads_an_rst_extra_document_as_rst(git_repo) -> None:
 
 @pytest.mark.parametrize("role", ["primary_doc", "archive_doc"])
 def test_verify_reads_an_rst_status_or_archive_document_as_rst(
-        git_repo, role) -> None:
+        git_repo: GitRepo, role) -> None:
     """The other two places --verify installs a document, closed with the
     extra documents' and pinned apart from them: each named its path and not
     its format, so an `.rst` primary or archive was read as markdown too."""
@@ -824,7 +837,8 @@ def test_verify_reads_an_rst_status_or_archive_document_as_rst(
     assert "[dead-md-link]" not in result.stdout, result.stdout
 
 
-def test_selftest_reads_an_rst_status_document_as_rst(git_repo, capsys) -> None:
+def test_selftest_reads_an_rst_status_document_as_rst(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """Catches --selftest probing text the gate never reads.
 
     It installed the primary document's directory and neither its path nor
@@ -850,7 +864,7 @@ def test_selftest_reads_an_rst_status_document_as_rst(git_repo, capsys) -> None:
 
 
 def test_selftest_corrupts_a_claim_the_rule_reads_not_one_in_a_fence(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """Catches a probe choosing its claim from text the check never reads.
 
     The four probes sharing `sub_group` searched the raw document, and every
@@ -875,7 +889,7 @@ def test_selftest_corrupts_a_claim_the_rule_reads_not_one_in_a_fence(
     assert "FIRED" in line and "DID NOT" not in line, out
 
 
-def test_suggest_fixes_reads_an_rst_status_document_as_rst(git_repo) -> None:
+def test_suggest_fixes_reads_an_rst_status_document_as_rst(git_repo: GitRepo) -> None:
     """Catches the patch generator reading the primary document as markdown.
 
     `run_validate` put the markdown default back after the extra documents
@@ -911,7 +925,7 @@ def test_suggest_fixes_reads_an_rst_status_document_as_rst(git_repo) -> None:
 
 # --- loopholes found by the adversarial smoke test ---------------------------
 
-def test_claims_inside_a_code_fence_are_not_checked(git_repo) -> None:
+def test_claims_inside_a_code_fence_are_not_checked(git_repo: GitRepo) -> None:
     """A fenced block is an example or pasted output, not a promise.
 
     A README showing "Merged to `main` at `abc1234`" as the format to follow was
@@ -933,7 +947,7 @@ def test_claims_inside_a_code_fence_are_not_checked(git_repo) -> None:
     assert rule_path_pointer.check(hc.context(repo), text) == []
 
 
-def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
+def test_a_real_claim_in_backticks_is_still_checked(git_repo: GitRepo) -> None:
     """The other half, and the reason inline code is NOT stripped for claims.
 
     Claims are written in backticks by convention, so blanking inline spans the
@@ -953,7 +967,8 @@ def test_a_real_claim_in_backticks_is_still_checked(git_repo) -> None:
     assert [f.kind for f in findings] == ["dead-sha"]
 
 
-def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_repo) -> None:
+def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(
+        git_repo: GitRepo) -> None:
     """Windows and macOS resolve `docs/PLAN.md` to `docs/plan.md`; Linux does not.
 
     Without this, a document passes on a developer's laptop and fails in CI, or
@@ -972,7 +987,7 @@ def test_wrong_case_path_is_reported_even_on_a_case_insensitive_filesystem(git_r
     assert "docs/plan.md" in findings[0].detail
 
 
-def test_correct_case_path_stays_silent(git_repo) -> None:
+def test_correct_case_path_stays_silent(git_repo: GitRepo) -> None:
     """The guard against a case check that flags everything."""
     from extant import session as hc
     from extant.rules import md_link as rule_md_link
@@ -982,7 +997,8 @@ def test_correct_case_path_stays_silent(git_repo) -> None:
     assert rule_md_link.check(hc.context(repo), "See [plan](docs/plan.md).\n") == []
 
 
-def test_collect_survives_a_repository_with_no_commits(git_repo, tmp_path) -> None:
+def test_collect_survives_a_repository_with_no_commits(
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """`git log` exits 128 on an unborn branch rather than returning nothing.
 
     A freshly initialised repository is a legitimate state for someone just
@@ -996,7 +1012,7 @@ def test_collect_survives_a_repository_with_no_commits(git_repo, tmp_path) -> No
     assert collect.commits_since(repo, "", hc._ACTIVE) == []
 
 
-def test_a_document_that_is_not_utf8_is_reported_not_crashed(git_repo) -> None:
+def test_a_document_that_is_not_utf8_is_reported_not_crashed(git_repo: GitRepo) -> None:
     """Reading with errors='replace' would let every rule run against silently
     corrupted text and report findings about bytes that are not there."""
     repo, commit = git_repo
@@ -1013,7 +1029,7 @@ def test_a_document_that_is_not_utf8_is_reported_not_crashed(git_repo) -> None:
 @pytest.mark.parametrize("fmt", ["text", "sarif"])
 @pytest.mark.parametrize("where", ["archive", "extra"])
 def test_an_undecodable_archive_or_extra_document_is_a_finding_not_a_crash(
-        git_repo, where, fmt) -> None:
+        git_repo: GitRepo, where, fmt) -> None:
     """The primary document's read reported this; the archive's and every
     extra document's, twelve and a hundred and fifty lines further down the
     same function, let `UnicodeDecodeError` out as a traceback - so `--verify`
@@ -1051,7 +1067,8 @@ def test_an_undecodable_archive_or_extra_document_is_a_finding_not_a_crash(
     assert "checked NEXT_SESSION.md" in (result.stdout + result.stderr)
 
 
-def test_library_callers_can_resolve_links_against_the_document(git_repo) -> None:
+def test_library_callers_can_resolve_links_against_the_document(
+        git_repo: GitRepo) -> None:
     """A relative link resolves against its own file, not the repository root.
 
     The CLI has always passed this through a module global, so a library caller
@@ -1074,7 +1091,8 @@ def test_library_callers_can_resolve_links_against_the_document(git_repo) -> Non
     assert with_base == [], f"sibling link reported dead despite base: {with_base}"
 
 
-def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypatch) -> None:
+def test_merge_claims_do_not_spawn_a_git_process_per_mention(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """The performance fix, pinned so it cannot silently regress.
 
     Two git subprocesses per claim was 98 percent of total validation time,
@@ -1116,7 +1134,7 @@ def test_merge_claims_do_not_spawn_a_git_process_per_mention(git_repo, monkeypat
         "seam is not where this rule reaches git")
 
 
-def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
+def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo: GitRepo) -> None:
     """The batch must say no as reliably as it says yes.
 
     Ancestry is answered from one `git rev-list` rather than one merge-base per
@@ -1168,7 +1186,8 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo) -> None:
         assert _ancestor_of(repo, sha, "main") is False
 
 
-def test_a_false_merge_claim_is_still_reported_through_the_batch(git_repo) -> None:
+def test_a_false_merge_claim_is_still_reported_through_the_batch(
+        git_repo: GitRepo) -> None:
     """End to end, because the two halves above could both be right while the
     rule that consumes them is wired wrong."""
     from extant import session as hc
@@ -1184,7 +1203,7 @@ def test_a_false_merge_claim_is_still_reported_through_the_batch(git_repo) -> No
     assert [f.kind for f in findings] == ["false-merge-claim"]
 
 
-def test_directory_listings_are_not_cached_outside_validate(git_repo) -> None:
+def test_directory_listings_are_not_cached_outside_validate(git_repo: GitRepo) -> None:
     """Caching is opted into by validate(), never on by default.
 
     The case check lists a directory per path component, which cost 0.88 of 6.4
@@ -1211,7 +1230,7 @@ def test_directory_listings_are_not_cached_outside_validate(git_repo) -> None:
     )
 
 
-def test_stripped_text_cache_keys_on_identity_not_content(git_repo) -> None:
+def test_stripped_text_cache_keys_on_identity_not_content(git_repo: GitRepo) -> None:
     """Two different strings with equal content must not share a cache entry.
 
     Identity is what makes the strip cache safe without a lifecycle: every rule
@@ -1244,7 +1263,7 @@ CONSISTENCY_CFG = (
 )
 
 
-def test_files_that_agree_are_silent(git_repo) -> None:
+def test_files_that_agree_are_silent(git_repo: GitRepo) -> None:
     """The false-positive guard, and the one that decides whether this rule is
     usable at all. A consistency check that fires on a correct repository would
     be the first rule here to cry wolf."""
@@ -1259,7 +1278,7 @@ def test_files_that_agree_are_silent(git_repo) -> None:
     assert rule_consistency.check(hc.context(repo), "") == []
 
 
-def test_files_that_disagree_are_reported_with_both_values(git_repo) -> None:
+def test_files_that_disagree_are_reported_with_both_values(git_repo: GitRepo) -> None:
     """THE bug this rule exists for: three manifests said 0.1.0 while the
     CHANGELOG said 0.3.0, and nothing could catch it because no rule inspects
     numbers. Comparing files to EACH OTHER is a different question."""
@@ -1279,7 +1298,7 @@ def test_files_that_disagree_are_reported_with_both_values(git_repo) -> None:
     assert "a.json" in detail and "CHANGELOG.md" in detail, detail
 
 
-def test_a_pattern_that_matches_nothing_is_reported(git_repo) -> None:
+def test_a_pattern_that_matches_nothing_is_reported(git_repo: GitRepo) -> None:
     """Silence here would be the worst outcome: the check would compare one
     value against itself and pass forever, which is the exact failure the
     denominator was introduced to make visible."""
@@ -1297,7 +1316,7 @@ def test_a_pattern_that_matches_nothing_is_reported(git_repo) -> None:
     assert "matches nothing" in findings[0].detail
 
 
-def test_a_missing_file_is_reported(git_repo) -> None:
+def test_a_missing_file_is_reported(git_repo: GitRepo) -> None:
     from extant import session as hc
     from extant.rules import consistency as rule_consistency
     repo, commit = git_repo
@@ -1310,7 +1329,7 @@ def test_a_missing_file_is_reported(git_repo) -> None:
     assert any("does not exist" in f.detail for f in findings), findings
 
 
-def test_no_consistency_config_means_no_findings(git_repo) -> None:
+def test_no_consistency_config_means_no_findings(git_repo: GitRepo) -> None:
     """Off unless configured. The files and patterns are per-project, and a
     guessed default would accuse an innocent repository."""
     from extant import session as hc
@@ -1320,7 +1339,8 @@ def test_no_consistency_config_means_no_findings(git_repo) -> None:
     assert rule_consistency.check(hc.context(repo), "") == []
 
 
-def test_the_rule_reads_the_repo_under_test_not_the_installed_one(git_repo) -> None:
+def test_the_rule_reads_the_repo_under_test_not_the_installed_one(
+        git_repo: GitRepo) -> None:
     """Configuration must come from the repository being checked.
 
     This rule reads files by path, so holding one project's file list while
@@ -1339,7 +1359,7 @@ def test_the_rule_reads_the_repo_under_test_not_the_installed_one(git_repo) -> N
     )
 
 
-def test_a_one_file_check_is_rejected_at_load(tmp_path) -> None:
+def test_a_one_file_check_is_rejected_at_load(tmp_path: Path) -> None:
     """A check listing one file can only ever agree with itself.
 
     Accepting it would produce a rule that passes forever while appearing to
@@ -1359,7 +1379,7 @@ def test_a_one_file_check_is_rejected_at_load(tmp_path) -> None:
         raise AssertionError("a single-file consistency check was accepted")
 
 
-def test_a_pattern_without_a_capture_group_is_rejected(tmp_path) -> None:
+def test_a_pattern_without_a_capture_group_is_rejected(tmp_path: Path) -> None:
     """No capture group means no value to compare."""
     from extant.config import load_config
     (tmp_path / ".git").mkdir()
@@ -1377,7 +1397,7 @@ def test_a_pattern_without_a_capture_group_is_rejected(tmp_path) -> None:
 
 # --- search and suggested fixes ----------------------------------------------
 
-def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
+def test_search_returns_whole_entries_from_both_documents(git_repo: GitRepo) -> None:
     """Whole entries, not matching lines, and both documents at once.
 
     Returning lines would make this a worse `grep`. A decision lives in a dated
@@ -1405,7 +1425,7 @@ def test_search_returns_whole_entries_from_both_documents(git_repo) -> None:
     assert "queue approach" in body
 
 
-def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
+def test_search_is_case_insensitive_and_misses_cleanly(git_repo: GitRepo) -> None:
     from extant import cli
     repo, commit = git_repo
     commit("NEXT_SESSION.md",
@@ -1437,7 +1457,7 @@ def test_search_is_case_insensitive_and_misses_cleanly(git_repo) -> None:
 # run_tool() - a real subprocess against the shipped entry point - for the
 # same reason.
 
-def test_cli_search_mode_matches_a_plain_text_query(git_repo) -> None:
+def test_cli_search_mode_matches_a_plain_text_query(git_repo: GitRepo) -> None:
     """A plain query that matches one entry, through the real CLI."""
     repo, commit = git_repo
     commit("NEXT_SESSION.md",
@@ -1453,7 +1473,8 @@ def test_cli_search_mode_matches_a_plain_text_query(git_repo) -> None:
     assert "1 match(es) in 1 entries across 1 document(s)" in result.stdout
 
 
-def test_cli_search_mode_reports_zero_matches_without_crashing(git_repo) -> None:
+def test_cli_search_mode_reports_zero_matches_without_crashing(
+        git_repo: GitRepo) -> None:
     """A query present in no entry.
 
     The denominator must still count the entry that WAS searched, so "found
@@ -1479,7 +1500,7 @@ def test_cli_search_mode_reports_zero_matches_without_crashing(git_repo) -> None
     )
 
 
-def test_cli_search_mode_survives_a_regex_shaped_query(git_repo) -> None:
+def test_cli_search_mode_survives_a_regex_shaped_query(git_repo: GitRepo) -> None:
     """The exact shape of the shipped crash: `--search '.*'`.
 
     ".*" is not treated as a regex anywhere in search_entries() - matching is
@@ -1501,7 +1522,7 @@ def test_cli_search_mode_survives_a_regex_shaped_query(git_repo) -> None:
     assert "1 match(es) in 1 entries across 1 document(s)" in result.stdout
 
 
-def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
+def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo: GitRepo) -> None:
     """The boundary this tool's authority rests on.
 
     It checks claims and never writes them. A validator that edits prose can be
@@ -1534,7 +1555,7 @@ def test_suggested_fix_is_a_patch_and_writes_nothing(git_repo) -> None:
     )
 
 
-def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
+def test_a_merely_missing_file_gets_no_suggestion(git_repo: GitRepo) -> None:
     """Only renames GIT RECORDED are offered. Guessing where a file went is
     exactly the authoring this refuses to do."""
     from extant import session as hc
@@ -1551,7 +1572,7 @@ def test_a_merely_missing_file_gets_no_suggestion(git_repo) -> None:
         hc.validate(repo, missing)) == ""
 
 
-def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
+def test_prose_mentioning_the_old_path_is_left_alone(git_repo: GitRepo) -> None:
     """Replaced only where a path is USED as a reference.
 
     A bare find-and-replace would also rewrite the sentence explaining the move,
@@ -1579,7 +1600,7 @@ def test_prose_mentioning_the_old_path_is_left_alone(git_repo) -> None:
     assert not any("last week" in ln for ln in changed), changed
 
 
-def test_suggest_fixes_puts_nothing_but_the_patch_on_stdout(git_repo) -> None:
+def test_suggest_fixes_puts_nothing_but_the_patch_on_stdout(git_repo: GitRepo) -> None:
     """`--suggest-fixes | git apply` must work, so stdout carries only a patch.
 
     Found by mutation immediately after building the feature: making findings
@@ -1615,7 +1636,7 @@ def test_suggest_fixes_puts_nothing_but_the_patch_on_stdout(git_repo) -> None:
     )
 
 
-def test_the_suggested_patch_actually_applies(git_repo) -> None:
+def test_the_suggested_patch_actually_applies(git_repo: GitRepo) -> None:
     """The only test of this feature that matters. A patch git rejects is
     worthless however well-formed it looks, and the first version was rejected:
     print() rewrote its newlines on Windows."""
@@ -1652,7 +1673,7 @@ def test_the_suggested_patch_actually_applies(git_repo) -> None:
 ], ids=["no-final-newline", "crlf-no-final-newline", "form-feed-in-a-line",
         "line-separator-in-a-line"])
 def test_the_suggested_patch_applies_to_whatever_the_document_ends_with(
-        git_repo, document) -> None:
+        git_repo: GitRepo, document) -> None:
     """Catches a patch cut into lines by a rule git does not use.
 
     `difflib` was handed `splitlines()`, which breaks on a form feed and the
@@ -1692,7 +1713,7 @@ def test_the_suggested_patch_applies_to_whatever_the_document_ends_with(
         "](old.md)", "](new.md)").encode("utf-8")
 
 
-def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
+def test_the_same_file_under_two_spellings_is_rejected(tmp_path: Path) -> None:
     """`a.md` and `./a.md` are one file, and a file always agrees with itself.
 
     TOML keeps them as distinct keys, so the two-file minimum passes and the
@@ -1713,7 +1734,7 @@ def test_the_same_file_under_two_spellings_is_rejected(tmp_path) -> None:
         raise AssertionError("one file listed twice was accepted as a check")
 
 
-def test_two_genuinely_different_files_still_load(tmp_path) -> None:
+def test_two_genuinely_different_files_still_load(tmp_path: Path) -> None:
     """The guard must not reject a legitimate pair whose paths merely look
     similar."""
     from extant.config import load_config
@@ -1727,7 +1748,7 @@ def test_two_genuinely_different_files_still_load(tmp_path) -> None:
     assert len(checks["version"]) == 2
 
 
-def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
+def test_suggest_renames_writes_no_file_at_all(git_repo: GitRepo) -> None:
     """Not merely "does not change the document" - writes NOTHING.
 
     The earlier test asserted the document was untouched, so a version that
@@ -1755,7 +1776,7 @@ def test_suggest_renames_writes_no_file_at_all(git_repo) -> None:
     assert after == before, f"files appeared or vanished: {after ^ before}"
 
 
-def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
+def test_a_link_the_rule_cannot_see_is_not_patched(git_repo: GitRepo) -> None:
     """A link the RULE cannot see must not be patched either.
 
     This is the shared scanner doing the work rather than the invariant below
@@ -1801,7 +1822,8 @@ def test_a_link_the_rule_cannot_see_is_not_patched(git_repo) -> None:
                                 hc.validate(repo, split)) == ""
 
 
-def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> None:
+def test_a_patch_is_only_offered_for_a_finding_that_was_reported(
+        git_repo: GitRepo) -> None:
     """THE INVARIANT, on a case that actually reaches it.
 
     The shared scanner returns every link that is unconditionally decidable.
@@ -1848,7 +1870,7 @@ def test_a_patch_is_only_offered_for_a_finding_that_was_reported(git_repo) -> No
 
 
 def test_a_pointer_patch_is_only_offered_for_a_finding_that_was_reported(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """THE INVARIANT's other half, which no test reached until 2026-10-01.
 
     The rule resolves a pointer from the root AND from beside its document;
@@ -1881,7 +1903,7 @@ def test_a_pointer_patch_is_only_offered_for_a_finding_that_was_reported(
                                    findings) == ""
 
 
-def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
+def test_a_query_string_and_a_fragment_survive_the_rename(git_repo: GitRepo) -> None:
     """The other half of the divergence: a finding that got NO patch.
 
     The rule strips `?raw=1` and `#install` before resolving, because they are
@@ -1914,7 +1936,7 @@ def test_a_query_string_and_a_fragment_survive_the_rename(git_repo) -> None:
 
 
 def test_a_percent_encoded_link_is_reported_and_deliberately_not_patched(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The one case refused ON PURPOSE, so the refusal is pinned rather than
     left to look like the bug it replaced.
 
@@ -1965,7 +1987,7 @@ def test_the_shared_scanner_carries_the_raw_spelling_beside_the_target() -> None
 
 # --- configuration discovery -------------------------------------------------
 
-def test_config_is_found_by_searching_upward(tmp_path) -> None:
+def test_config_is_found_by_searching_upward(tmp_path: Path) -> None:
     """Installed as tools/, the config sits beside the script. Run from
     anywhere else it does not, and looking only beside the script found nothing
     while reporting a healthy run against defaults - which is how this project
@@ -1979,7 +2001,7 @@ def test_config_is_found_by_searching_upward(tmp_path) -> None:
     assert load_config(nested).primary_doc == "FOUND.md"
 
 
-def test_config_search_stops_at_the_repository_root(tmp_path) -> None:
+def test_config_search_stops_at_the_repository_root(tmp_path: Path) -> None:
     """A project nested inside another checkout must not inherit the outer
     project's settings. Wrong settings that look deliberate are a worse failure
     than the missing-config one this search was added to fix."""
@@ -2047,7 +2069,7 @@ OWN_SNIPPET = (
 )
 
 
-def test_a_pin_naming_this_repo_must_resolve(tmp_path) -> None:
+def test_a_pin_naming_this_repo_must_resolve(tmp_path: Path) -> None:
     """The bug this rule exists for, twice over in this project's own history.
 
     A README pinned a tag for a fortnight while the repository had no tags at
@@ -2071,7 +2093,7 @@ def test_a_pin_naming_this_repo_must_resolve(tmp_path) -> None:
     )
 
 
-def test_a_pin_naming_someone_elses_repo_is_left_alone(tmp_path) -> None:
+def test_a_pin_naming_someone_elses_repo_is_left_alone(tmp_path: Path) -> None:
     """The false-positive guard, and the reason the rule tracks `repo:` at all.
 
     A project documenting a third-party hook pins a tag living in somebody
@@ -2098,7 +2120,7 @@ def test_a_pin_naming_someone_elses_repo_is_left_alone(tmp_path) -> None:
     )
 
 
-def test_an_ssh_remote_matches_the_https_url_a_readme_shows(tmp_path) -> None:
+def test_an_ssh_remote_matches_the_https_url_a_readme_shows(tmp_path: Path) -> None:
     """Catches a comparison done on the raw URL string.
 
     Clones over SSH have `git@github.com:acme/widget.git` as their origin while
@@ -2116,7 +2138,7 @@ def test_an_ssh_remote_matches_the_https_url_a_readme_shows(tmp_path) -> None:
     assert "dead-pinned-ref" in result.stdout
 
 
-def test_a_pin_that_resolves_is_not_reported(tmp_path) -> None:
+def test_a_pin_that_resolves_is_not_reported(tmp_path: Path) -> None:
     """The other direction. A rule that fires on everything is not a rule."""
     repo = tmp_path / "r"
     repo.mkdir()
@@ -2131,7 +2153,7 @@ def test_a_pin_that_resolves_is_not_reported(tmp_path) -> None:
     )
 
 
-def test_indented_snippets_are_checked_too(tmp_path) -> None:
+def test_indented_snippets_are_checked_too(tmp_path: Path) -> None:
     """A CHANGELOG written with four-space blocks rather than fences.
 
     Both styles carry install instructions, and this project's own CHANGELOG
@@ -2153,7 +2175,7 @@ def test_indented_snippets_are_checked_too(tmp_path) -> None:
     assert "dead-pinned-ref" in result.stdout
 
 
-def test_a_repo_with_no_origin_reports_nothing_examined(tmp_path) -> None:
+def test_a_repo_with_no_origin_reports_nothing_examined(tmp_path: Path) -> None:
     """Without an origin there is no way to know which pins are ours.
 
     The honest answer is 0 examined, which the denominator line then shows,

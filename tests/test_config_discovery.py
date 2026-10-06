@@ -16,6 +16,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -28,7 +32,7 @@ def _configured(repo: Path, commit) -> None:
 
 
 def test_main_reads_the_configuration_of_the_repository_it_is_pointed_at(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The shim's entry point, run against a repository with its own settings,
     checks the document those settings name and prints no note about them."""
     from extant import cli
@@ -45,7 +49,8 @@ def test_main_reads_the_configuration_of_the_repository_it_is_pointed_at(
 
 
 def test_the_console_script_and_the_shim_read_the_same_settings(
-        git_repo, capsys, monkeypatch) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """One reload, in the one place both entry points pass through."""
     from extant import cli
     from extant import session as hc
@@ -67,7 +72,7 @@ def test_the_console_script_and_the_shim_read_the_same_settings(
 
 
 def test_a_repository_without_settings_gets_the_defaults_not_the_tools_own(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The other half: pointed at a repository with no configuration, the run
     uses the defaults - not whatever the tool's own checkout configures."""
     from extant import cli

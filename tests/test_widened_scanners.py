@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from conftest import _abbrev
+from conftest import GitRepo, _abbrev
 
 
 def _reset():
@@ -36,7 +36,7 @@ def _md_link(repo: Path, text: str, base: Path | None = None):
 
 # --- dead-md-link: reference-style definitions -------------------------------
 
-def test_a_reference_definition_to_a_missing_file_is_reported(git_repo) -> None:
+def test_a_reference_definition_to_a_missing_file_is_reported(git_repo: GitRepo) -> None:
     """`[guide]: docs/setup.md` is a link, and was invisible.
 
     Catches a scanner that reads only the inline `[text](target)` shape.
@@ -54,7 +54,7 @@ def test_a_reference_definition_to_a_missing_file_is_reported(git_repo) -> None:
     assert examined == 1
 
 
-def test_a_footnote_definition_is_not_a_link(git_repo) -> None:
+def test_a_footnote_definition_is_not_a_link(git_repo: GitRepo) -> None:
     """`[^1]: some text` shares the colon and is a footnote.
 
     Catches a definition pattern that reads every `[x]:` line. facebook/
@@ -67,7 +67,7 @@ def test_a_footnote_definition_is_not_a_link(git_repo) -> None:
     assert examined == 0
 
 
-def test_a_parenthesised_destination_is_read_literally(git_repo) -> None:
+def test_a_parenthesised_destination_is_read_literally(git_repo: GitRepo) -> None:
     """`[label]:(file.go)` is a reference definition whose destination is the
     whole parenthesised run - CommonMark keeps balanced parentheses - so
     GitHub links it to a file literally named `(file.go)`, and the link is
@@ -85,7 +85,8 @@ def test_a_parenthesised_destination_is_read_literally(git_repo) -> None:
     assert examined == 1
 
 
-def test_an_angle_bracketed_destination_is_read_without_its_brackets(git_repo) -> None:
+def test_an_angle_bracketed_destination_is_read_without_its_brackets(
+        git_repo: GitRepo) -> None:
     """`[doc]: <docs/a b.md>` is CommonMark's spelling for a spaced target.
 
     Catches a scanner that looks for a file literally named `<docs/...>`.
@@ -99,7 +100,7 @@ def test_an_angle_bracketed_destination_is_read_without_its_brackets(git_repo) -
     assert [f.subject for f in findings] == ["docs/gone.md"]
 
 
-def test_a_title_after_the_destination_is_not_part_of_it(git_repo) -> None:
+def test_a_title_after_the_destination_is_not_part_of_it(git_repo: GitRepo) -> None:
     """`[api]: docs/api.md "The API"` carries a title the file does not.
 
     Catches a scanner that takes the rest of the line as the target.
@@ -111,7 +112,7 @@ def test_a_title_after_the_destination_is_not_part_of_it(git_repo) -> None:
     assert examined == 1
 
 
-def test_an_external_definition_is_never_checked(git_repo) -> None:
+def test_an_external_definition_is_never_checked(git_repo: GitRepo) -> None:
     """Catches a definition scanner that skips the refusals inline links get."""
     repo, commit = git_repo
     commit("README.md", "# x\n", "docs: readme")
@@ -122,7 +123,7 @@ def test_an_external_definition_is_never_checked(git_repo) -> None:
     assert examined == 0
 
 
-def test_a_definition_inside_a_fence_is_an_example(git_repo) -> None:
+def test_a_definition_inside_a_fence_is_an_example(git_repo: GitRepo) -> None:
     """Catches a scanner reading the raw document rather than the stripped one."""
     repo, commit = git_repo
     commit("README.md", "# x\n", "docs: readme")
@@ -131,7 +132,7 @@ def test_a_definition_inside_a_fence_is_an_example(git_repo) -> None:
     assert examined == 0
 
 
-def test_the_patch_generator_sees_a_reference_definition(git_repo) -> None:
+def test_the_patch_generator_sees_a_reference_definition(git_repo: GitRepo) -> None:
     """The second reader of `link_sites`.
 
     `patches.suggest_renames` patches links to renamed files, and it was moved
@@ -147,7 +148,7 @@ def test_the_patch_generator_sees_a_reference_definition(git_repo) -> None:
 
 # --- dead-md-link: raw HTML -------------------------------------------------
 
-def test_an_html_image_source_to_a_missing_file_is_reported(git_repo) -> None:
+def test_an_html_image_source_to_a_missing_file_is_reported(git_repo: GitRepo) -> None:
     """`<img src="assets/arch.png">` in a README is a link GitHub resolves
     against the file, and it was invisible.
 
@@ -163,7 +164,7 @@ def test_an_html_image_source_to_a_missing_file_is_reported(git_repo) -> None:
     assert examined == 1
 
 
-def test_an_html_anchor_href_to_an_existing_file_is_silent(git_repo) -> None:
+def test_an_html_anchor_href_to_an_existing_file_is_silent(git_repo: GitRepo) -> None:
     """Catches a scanner that fires on every tag it can parse."""
     repo, commit = git_repo
     commit("docs/faq.md", "# faq\n", "docs: faq")
@@ -172,7 +173,8 @@ def test_an_html_anchor_href_to_an_existing_file_is_silent(git_repo) -> None:
     assert examined == 1
 
 
-def test_html_inside_a_generated_site_tree_is_neither_judged_nor_counted(git_repo) -> None:
+def test_html_inside_a_generated_site_tree_is_neither_judged_nor_counted(
+        git_repo: GitRepo) -> None:
     """The browser resolves a raw `src` against the page URL, not the file.
 
     mkdocs/mkdocs writes `<img src="../../img/x.png">` in `docs/user-guide/`
@@ -195,7 +197,7 @@ def test_html_inside_a_generated_site_tree_is_neither_judged_nor_counted(git_rep
     assert [f.line for f in rule.check(ctx, text)] == [2]
 
 
-def test_html_outside_the_site_tree_is_still_judged(git_repo) -> None:
+def test_html_outside_the_site_tree_is_still_judged(git_repo: GitRepo) -> None:
     """A repository with a site under `docs/` still has a README GitHub
     renders. Catches a refusal keyed on the repository rather than the
     document."""
@@ -212,7 +214,7 @@ def test_html_outside_the_site_tree_is_still_judged(git_repo) -> None:
     assert [f.subject for f in rule.check(ctx, text)] == ["assets/logo.png"]
 
 
-def test_a_templated_attribute_names_no_file(git_repo) -> None:
+def test_a_templated_attribute_names_no_file(git_repo: GitRepo) -> None:
     """`<img src="{{ site.baseurl }}/x.png">` is a Jekyll expression.
 
     Catches a scanner that resolves the braces as a directory name.
@@ -225,7 +227,7 @@ def test_a_templated_attribute_names_no_file(git_repo) -> None:
     assert examined == 0
 
 
-def test_html_targets_get_the_refusals_markdown_links_get(git_repo) -> None:
+def test_html_targets_get_the_refusals_markdown_links_get(git_repo: GitRepo) -> None:
     """External, fragment, data URI, `.html` page. Catches an HTML arm
     wired around `_link_target` instead of through it."""
     repo, commit = git_repo
@@ -239,7 +241,7 @@ def test_html_targets_get_the_refusals_markdown_links_get(git_repo) -> None:
     assert examined == 0
 
 
-def test_a_data_href_attribute_is_not_an_href(git_repo) -> None:
+def test_a_data_href_attribute_is_not_an_href(git_repo: GitRepo) -> None:
     """Catches a word boundary that admits `data-href="..."`."""
     repo, commit = git_repo
     commit("README.md", "# x\n", "docs: readme")
@@ -248,7 +250,7 @@ def test_a_data_href_attribute_is_not_an_href(git_repo) -> None:
     assert examined == 0
 
 
-def test_single_quoted_attributes_are_read(git_repo) -> None:
+def test_single_quoted_attributes_are_read(git_repo: GitRepo) -> None:
     """Catches a pattern that knows one quote character."""
     repo, commit = git_repo
     commit("README.md", "# x\n", "docs: readme")
@@ -257,7 +259,7 @@ def test_single_quoted_attributes_are_read(git_repo) -> None:
     assert examined == 1
 
 
-def test_html_inside_a_fence_is_an_example(git_repo) -> None:
+def test_html_inside_a_fence_is_an_example(git_repo: GitRepo) -> None:
     """Catches a scanner reading the raw document rather than the stripped one."""
     repo, commit = git_repo
     commit("README.md", "# x\n", "docs: readme")
@@ -276,7 +278,7 @@ def _line_pointer(repo: Path, text: str):
     return rule.check(ctx, text), rule.examined(ctx, text)
 
 
-def test_a_range_whose_end_is_past_the_file_is_reported(git_repo) -> None:
+def test_a_range_whose_end_is_past_the_file_is_reported(git_repo: GitRepo) -> None:
     """`src/a.ts:32-116` against a 94-line file cites 22 lines that are not
     there, and was read by its start alone.
 
@@ -294,7 +296,7 @@ def test_a_range_whose_end_is_past_the_file_is_reported(git_repo) -> None:
     assert "94 lines" in findings[0].detail
 
 
-def test_a_range_inside_the_file_is_silent(git_repo) -> None:
+def test_a_range_inside_the_file_is_silent(git_repo: GitRepo) -> None:
     """Catches an end check written `>=` where `>` is meant."""
     repo, commit = git_repo
     commit("src/a.ts", "a\nb\nc\n", "feat: a")
@@ -303,7 +305,7 @@ def test_a_range_inside_the_file_is_silent(git_repo) -> None:
     assert examined == 1
 
 
-def test_a_line_and_column_is_not_a_range(git_repo) -> None:
+def test_a_line_and_column_is_not_a_range(git_repo: GitRepo) -> None:
     """`src/a.ts:10:80` is line 10, column 80 - the form every compiler and
     editor prints - and 69 of the 73 such citations on the corpora carry a
     second number below the first.
@@ -318,7 +320,7 @@ def test_a_line_and_column_is_not_a_range(git_repo) -> None:
     assert examined == 1
 
 
-def test_a_range_ending_below_its_start_is_read_by_its_start(git_repo) -> None:
+def test_a_range_ending_below_its_start_is_read_by_its_start(git_repo: GitRepo) -> None:
     """`src/a.ts:40-2` names no range. Catches a rule that reports 2 > total
     as impossible, or one that refuses the site outright."""
     repo, commit = git_repo
@@ -338,7 +340,7 @@ def _dead_sha(repo: Path, text: str):
     return rule.check(ctx, text), rule.examined(ctx, text)
 
 
-def test_both_ends_of_a_backticked_range_are_resolved(git_repo) -> None:
+def test_both_ends_of_a_backticked_range_are_resolved(git_repo: GitRepo) -> None:
     """`` `7d6ec08..7499537` `` names two commits and was read as none.
 
     The corpus case is a session log recording a fast-forward push whose
@@ -354,7 +356,7 @@ def test_both_ends_of_a_backticked_range_are_resolved(git_repo) -> None:
     assert findings[0].kind == "dead-sha"
 
 
-def test_the_three_dot_spelling_is_a_range_too(git_repo) -> None:
+def test_the_three_dot_spelling_is_a_range_too(git_repo: GitRepo) -> None:
     """`a...b` is git's symmetric-difference range. Catches a splitter that
     knows two dots and reads the third as part of a token."""
     repo, commit = git_repo
@@ -365,7 +367,7 @@ def test_the_three_dot_spelling_is_a_range_too(git_repo) -> None:
     assert [f.subject for f in findings] == [dead]
 
 
-def test_a_range_that_is_link_text_belongs_to_the_link(git_repo) -> None:
+def test_a_range_that_is_link_text_belongs_to_the_link(git_repo: GitRepo) -> None:
     """`` [`a..b`](.../compare/a..b) `` says whose commits these are.
 
     helix's changelog writes it, and the first commit of the pair is one a
@@ -383,7 +385,7 @@ def test_a_range_that_is_link_text_belongs_to_the_link(git_repo) -> None:
     assert examined == 0
 
 
-def test_a_command_holding_a_range_is_not_a_range(git_repo) -> None:
+def test_a_command_holding_a_range_is_not_a_range(git_repo: GitRepo) -> None:
     """`` `git log abc1234..def5678` `` is a command; the token is not two
     commits joined by dots. Catches a splitter that searches inside the
     backticks instead of matching the whole token."""
@@ -408,7 +410,8 @@ def test_the_rewriter_translates_both_ends_of_a_range() -> None:
     assert out == f"Pushed (`{new_a[:7]}..{new_b[:7]}`) and `{new_a[:7]}` alone.\n"
 
 
-def test_a_range_starting_past_the_end_keeps_its_old_fingerprint(git_repo) -> None:
+def test_a_range_starting_past_the_end_keeps_its_old_fingerprint(
+        git_repo: GitRepo) -> None:
     """`app.py:8-9` on a three-line file was reported as `app.py:8` before
     ranges were read, and `detail` is the baseline fingerprint.
 
@@ -422,7 +425,7 @@ def test_a_range_starting_past_the_end_keeps_its_old_fingerprint(git_repo) -> No
     assert "`app.py:8`" in findings[0].detail
 
 
-def test_html_tag_and_attribute_names_are_case_insensitive(git_repo) -> None:
+def test_html_tag_and_attribute_names_are_case_insensitive(git_repo: GitRepo) -> None:
     """`<IMG SRC="...">` is the same element. Catches a pattern compiled
     without `re.I`, which would read only lower-case HTML and say nothing
     about the rest."""
@@ -498,7 +501,7 @@ def _md_anchor(repo: Path, text: str):
     return rule.check(ctx, text), rule.examined(ctx, text)
 
 
-def test_a_titled_link_to_a_missing_file_is_reported(git_repo) -> None:
+def test_a_titled_link_to_a_missing_file_is_reported(git_repo: GitRepo) -> None:
     """`[guide](docs/gone.md "The guide")` is a link with a title.
 
     Catches a destination class that forbids whitespace before the closing
@@ -512,7 +515,7 @@ def test_a_titled_link_to_a_missing_file_is_reported(git_repo) -> None:
     assert examined == 1
 
 
-def test_every_title_spelling_is_a_title(git_repo) -> None:
+def test_every_title_spelling_is_a_title(git_repo: GitRepo) -> None:
     """Double quotes, single quotes and parentheses all delimit a title.
 
     Catches a title arm that knows one delimiter.
@@ -526,7 +529,7 @@ def test_every_title_spelling_is_a_title(git_repo) -> None:
     assert examined == 3
 
 
-def test_two_bare_words_are_not_a_link(git_repo) -> None:
+def test_two_bare_words_are_not_a_link(git_repo: GitRepo) -> None:
     """`[x](docs/a.md docs/b.md)` has no title and is not a link.
 
     Catches a title arm that accepts an unquoted second word, which would read
@@ -540,7 +543,7 @@ def test_two_bare_words_are_not_a_link(git_repo) -> None:
 
 
 def test_an_angle_bracketed_destination_is_read_without_its_brackets_inline(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`[x](<docs/a b.md>)` is CommonMark's spelling for a spaced target.
 
     Catches a scanner that resolves a file literally named `<docs/a b.md>`,
@@ -557,7 +560,7 @@ def test_an_angle_bracketed_destination_is_read_without_its_brackets_inline(
 
 
 def test_a_bracketed_external_url_holding_a_parenthesis_is_not_a_path(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`[x](<https://en.wikipedia.org/wiki/Shebang_(Unix)>)`.
 
     The corpus case, fourteen times over: read with its brackets the target
@@ -574,7 +577,7 @@ def test_a_bracketed_external_url_holding_a_parenthesis_is_not_a_path(
     assert examined == 0
 
 
-def test_an_unclosed_angle_bracket_opens_no_destination(git_repo) -> None:
+def test_an_unclosed_angle_bracket_opens_no_destination(git_repo: GitRepo) -> None:
     """`[x](<docs/a.md)` is not a link: a destination that opens with `<`
     must close with `>`.
 
@@ -588,7 +591,7 @@ def test_an_unclosed_angle_bracket_opens_no_destination(git_repo) -> None:
     assert examined == 0
 
 
-def test_a_bracketed_destination_may_carry_a_title(git_repo) -> None:
+def test_a_bracketed_destination_may_carry_a_title(git_repo: GitRepo) -> None:
     """The two spellings compose: `[x](<docs/a b.md> "Title")`."""
     repo, commit = git_repo
     commit("README.md", "# x\n", "docs: readme")
@@ -597,7 +600,7 @@ def test_a_bracketed_destination_may_carry_a_title(git_repo) -> None:
     assert examined == 1
 
 
-def test_the_patch_generator_sees_the_spelling_on_the_page(git_repo) -> None:
+def test_the_patch_generator_sees_the_spelling_on_the_page(git_repo: GitRepo) -> None:
     """`raw` is what the document says; `target` is what resolves.
 
     For a titled link the title is not part of either. For a bracketed one
@@ -617,7 +620,7 @@ def test_the_patch_generator_sees_the_spelling_on_the_page(git_repo) -> None:
                      (4, "<docs/a b.md>", "docs/a b.md", False)]
 
 
-def test_a_titled_or_bracketed_link_gets_no_repair_patch(git_repo) -> None:
+def test_a_titled_or_bracketed_link_gets_no_repair_patch(git_repo: GitRepo) -> None:
     """The limit design.md states: the patch generator replaces `](old)` on
     the page, and a title or a bracket puts the target elsewhere on it.
 
@@ -651,7 +654,7 @@ def test_a_titled_or_bracketed_link_gets_no_repair_patch(git_repo) -> None:
             'and [c](docs/design.md).') in patch
 
 
-def test_a_bracketed_or_titled_fragment_is_an_anchor(git_repo) -> None:
+def test_a_bracketed_or_titled_fragment_is_an_anchor(git_repo: GitRepo) -> None:
     """`[x](<#gone>)` and `[x](#gone "Title")` name a heading in this file.
 
     Catches an anchor rule that partitions the raw spelling on `#` with the
@@ -668,7 +671,7 @@ def test_a_bracketed_or_titled_fragment_is_an_anchor(git_repo) -> None:
 
 
 def test_a_bracketed_cross_file_fragment_is_judged_against_that_file(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`[x](<docs/a b.md#gone>)`: the file resolves, the heading does not.
 
     Catches an anchor rule that resolves the bracketed spelling as a path.
@@ -681,7 +684,7 @@ def test_a_bracketed_cross_file_fragment_is_judged_against_that_file(
     assert [f.subject for f in findings] == ["docs/a b.md#gone"]
 
 
-def test_a_definition_followed_by_prose_is_not_a_definition(git_repo) -> None:
+def test_a_definition_followed_by_prose_is_not_a_definition(git_repo: GitRepo) -> None:
     """`` [`unused_peekable`]: Now respects `#[allow]` attributes `` is a
     changelog line, not a link reference definition: CommonMark lets a
     destination be followed only by an optional title and the end of the
@@ -731,7 +734,8 @@ def _rust_readme(repo: Path, text: str, doc: str = "crates/gpui/README.md"):
     return rule.check(ctx, text), rule.examined(ctx, text)
 
 
-def test_an_intra_doc_link_in_a_rustdoc_included_readme_is_not_a_file(git_repo) -> None:
+def test_an_intra_doc_link_in_a_rustdoc_included_readme_is_not_a_file(
+        git_repo: GitRepo) -> None:
     """`[ownership]: _ownership_and_data_flow` in a README that
     `#![doc = include_str!("../README.md")]` pulls into rustdoc names a
     module, and was reported as a dead file.
@@ -748,7 +752,7 @@ def test_an_intra_doc_link_in_a_rustdoc_included_readme_is_not_a_file(git_repo) 
     assert examined == 0
 
 
-def test_a_sibling_source_file_naming_the_document_counts_too(git_repo) -> None:
+def test_a_sibling_source_file_naming_the_document_counts_too(git_repo: GitRepo) -> None:
     """rust's `primitives.rs` writes `#[doc = include_str!($Docfile)]` and
     passes `"c_double.md"` to the macro, so the literal is not an argument of
     `include_str!` itself and sits beside the document rather than under
@@ -768,7 +772,7 @@ def test_a_sibling_source_file_naming_the_document_counts_too(git_repo) -> None:
     assert examined == 0
 
 
-def test_the_same_link_outside_rustdoc_is_still_judged(git_repo) -> None:
+def test_the_same_link_outside_rustdoc_is_still_judged(git_repo: GitRepo) -> None:
     """The refusal is keyed on the document being rustdoc input, not on the
     shape alone: `[x]: c_float` in a README nothing includes is a dead link.
 
@@ -795,7 +799,8 @@ def test_the_same_link_outside_rustdoc_is_still_judged(git_repo) -> None:
     assert examined == 1
 
 
-def test_a_path_shaped_link_in_an_included_readme_is_still_judged(git_repo) -> None:
+def test_a_path_shaped_link_in_an_included_readme_is_still_judged(
+        git_repo: GitRepo) -> None:
     """rustdoc renders `[guide](docs/guide.md)` as a relative link, and the
     file is what it names. Catches a refusal that declines every link in a
     rustdoc document rather than the ones shaped like a Rust path."""
@@ -808,7 +813,7 @@ def test_a_path_shaped_link_in_an_included_readme_is_still_judged(git_repo) -> N
     assert examined == 3
 
 
-def test_module_paths_and_disambiguators_are_intra_doc_links(git_repo) -> None:
+def test_module_paths_and_disambiguators_are_intra_doc_links(git_repo: GitRepo) -> None:
     """`turbo_frozenmap::FrozenMap` and `macro@crate::value`, both from
     turbopack's `vc/README.md`. Catches a shape test that admits only a bare
     identifier."""
@@ -821,7 +826,8 @@ def test_module_paths_and_disambiguators_are_intra_doc_links(git_repo) -> None:
     assert examined == 0
 
 
-def test_the_including_file_is_looked_for_beside_the_document_or_under_src(git_repo) -> None:
+def test_the_including_file_is_looked_for_beside_the_document_or_under_src(
+        git_repo: GitRepo) -> None:
     """The search is bounded to the document's directory and its `src/`
     child, and the bound is a measured cost decision: every `.rs` file in the
     repository is 668 seconds across the corpora. A document included from

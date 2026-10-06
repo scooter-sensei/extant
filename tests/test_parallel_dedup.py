@@ -30,7 +30,7 @@ def paths_of(groups):
     return sorted(tuple(sorted(i.path for i in g)) for g in groups)
 
 
-def test_a_translated_page_is_one_defect():
+def test_a_translated_page_is_one_defect() -> None:
     located = [at("docs/en/intro.md", 12), at("docs/ko/intro.md", 14),
                at("docs/uk/intro.md", 9)]
     groups = group_parallel(located)
@@ -38,31 +38,31 @@ def test_a_translated_page_is_one_defect():
     assert len(groups[0]) == 3
 
 
-def test_the_filename_may_not_vary():
+def test_the_filename_may_not_vary() -> None:
     """The single most valuable constraint in the key. See the module docstring."""
     located = [at("docs/CLI.md"), at("docs/MockFunctionAPI.md")]
     assert len(group_parallel(located)) == 2
 
 
-def test_two_strata_never_merge():
+def test_two_strata_never_merge() -> None:
     located = [at("build/README.md", stratum="generated"),
                at("hack/README.md", stratum="ordinary")]
     assert len(group_parallel(located)) == 2
 
 
-def test_primary_and_non_primary_never_merge():
+def test_primary_and_non_primary_never_merge() -> None:
     located = [at("docs/en/x.md", primary=True),
                at("docs/ko/x.md", primary=False)]
     assert len(group_parallel(located)) == 2
 
 
-def test_two_rules_never_merge():
+def test_two_rules_never_merge() -> None:
     located = [at("docs/en/x.md", kind="dead-md-link"),
                at("docs/ko/x.md", kind="dead-md-anchor")]
     assert len(group_parallel(located)) == 2
 
 
-def test_the_message_is_masked_only_inside_backticks():
+def test_the_message_is_masked_only_inside_backticks() -> None:
     """`en` must not rewrite the word "when" in prose."""
     a = at("docs/en/x.md",
            detail="links to `docs/en/g.md`, which does not exist when read")
@@ -74,19 +74,19 @@ def test_the_message_is_masked_only_inside_backticks():
     assert len(group_parallel([c, d])) == 2
 
 
-def test_different_targets_do_not_merge():
+def test_different_targets_do_not_merge() -> None:
     a = at("docs/en/x.md", detail="links to `a.md`, which does not exist")
     b = at("docs/ko/x.md", detail="links to `b.md`, which does not exist")
     assert len(group_parallel([a, b])) == 2
 
 
-def test_repeats_in_one_document_group():
+def test_repeats_in_one_document_group() -> None:
     located = [at("README.md", 4), at("README.md", 40), at("README.md", 90)]
     groups = group_parallel(located)
     assert len(groups) == 1 and len(groups[0]) == 3
 
 
-def test_no_transitive_merge():
+def test_no_transitive_merge() -> None:
     """A-B differ in segment 1, B-C in segment 2. Three-way merge is refused."""
     located = [at("docs/en/a/x.md"), at("docs/ko/a/x.md"), at("docs/ko/b/x.md")]
     groups = group_parallel(located)
@@ -94,26 +94,26 @@ def test_no_transitive_merge():
     assert max(len(g) for g in groups) == 2
 
 
-def test_a_lone_finding_is_a_group_of_one():
+def test_a_lone_finding_is_a_group_of_one() -> None:
     located = [at("docs/en/x.md"),
                at("other/y.md", kind="dead-sha", detail="`abc` does not resolve")]
     assert sorted(len(g) for g in group_parallel(located)) == [1, 1]
 
 
-def test_order_is_stable():
+def test_order_is_stable() -> None:
     located = [at("z/en/x.md"), at("a/en/x.md"), at("z/ko/x.md"), at("a/ko/x.md")]
     assert paths_of(group_parallel(located)) == paths_of(group_parallel(located))
     assert group_parallel(located)[0][0].path.startswith("a/")
 
 
-def test_a_group_of_one_renders_exactly_as_before():
+def test_a_group_of_one_renders_exactly_as_before() -> None:
     """The test that protects every other test in the suite."""
     located = [at("docs/only.md", 7)]
     groups = group_parallel(located)
     assert format_text_grouped(groups) == format_text(located)
 
 
-def test_a_group_names_every_path_literally():
+def test_a_group_names_every_path_literally() -> None:
     """No brace form. `grep docs/ko/intro.md` must find the line."""
     located = [at("docs/en/intro.md", 12), at("docs/ko/intro.md", 14)]
     lines = format_text_grouped(group_parallel(located))
@@ -123,7 +123,7 @@ def test_a_group_names_every_path_literally():
     assert "{" not in body
 
 
-def test_the_group_header_carries_no_line_number():
+def test_the_group_header_carries_no_line_number() -> None:
     """Four translations carry one defect at four different lines."""
     located = [at("docs/en/x.md", 12), at("docs/ko/x.md", 99)]
     header = format_text_grouped(group_parallel(located))[0]
@@ -131,14 +131,14 @@ def test_the_group_header_carries_no_line_number():
     assert "dead-md-link" in header
 
 
-def test_the_header_counts_occurrences_and_documents():
+def test_the_header_counts_occurrences_and_documents() -> None:
     located = [at("docs/en/x.md", 1), at("docs/en/x.md", 5),
                at("docs/ko/x.md", 3)]
     header = format_text_grouped(group_parallel(located))[0]
     assert "3 occurrences in 2 documents" in header
 
 
-def test_repeats_within_one_document_share_its_line():
+def test_repeats_within_one_document_share_its_line() -> None:
     """Grouping must not make the output LONGER.
 
     The largest real group in the corpus is 28 citations of one dead anchor in
@@ -153,7 +153,7 @@ def test_repeats_within_one_document_share_its_line():
     assert lines[1] == "    docs/en/x.md:12, 40, 92"
 
 
-def test_a_multi_document_group_still_lists_each_document_once():
+def test_a_multi_document_group_still_lists_each_document_once() -> None:
     located = [at("docs/en/x.md", 1), at("docs/en/x.md", 9),
                at("docs/ko/x.md", 3)]
     lines = format_text_grouped(group_parallel(located))
@@ -162,7 +162,7 @@ def test_a_multi_document_group_still_lists_each_document_once():
     assert lines[2] == "    docs/ko/x.md:3"
 
 
-def test_the_machine_formats_never_group():
+def test_the_machine_formats_never_group() -> None:
     """SARIF and annotations are location-per-result consumers.
 
     Collapse four language copies into one annotation and the three that lost
@@ -176,7 +176,7 @@ def test_the_machine_formats_never_group():
     assert len(results) == 4
 
 
-def test_a_section_reports_fewer_entries_than_findings():
+def test_a_section_reports_fewer_entries_than_findings() -> None:
     """A count that shrinks without saying why is a denominator failure."""
     results = {"vetted": [at("docs/en/x.md", 1), at("docs/ko/x.md", 2)],
                "unvetted": [], "repository": []}
@@ -189,7 +189,7 @@ def test_a_section_reports_fewer_entries_than_findings():
     assert "docs/ko/x.md:2" in body
 
 
-def test_the_entry_note_is_silent_when_nothing_grouped():
+def test_the_entry_note_is_silent_when_nothing_grouped() -> None:
     """"reported as 12 entries" under "12 finding(s)" trains readers to skip."""
     assert sweep_entry_note(12, 12) == []
     assert sweep_entry_note(13, 12) == []
@@ -197,7 +197,7 @@ def test_the_entry_note_is_silent_when_nothing_grouped():
     assert len(note) == 1 and "1393" in note[0]
 
 
-def test_the_entry_note_is_silent_for_the_machine_formats():
+def test_the_entry_note_is_silent_for_the_machine_formats() -> None:
     """Only the text branch groups, so they arrive here with entries still 0.
 
     Without this, a `--format=github` sweep printed `reported as 0 entr(y/ies)`
@@ -208,7 +208,7 @@ def test_the_entry_note_is_silent_for_the_machine_formats():
     assert sweep_entry_note(0, 0) == []
 
 
-def test_grouping_never_loses_or_duplicates_a_finding():
+def test_grouping_never_loses_or_duplicates_a_finding() -> None:
     """Conservation. The property that would make a bug catastrophic and quiet.
 
     Verified across all 83 corpus repositories before shipping; pinned here on
@@ -225,7 +225,7 @@ def test_grouping_never_loses_or_duplicates_a_finding():
     assert sorted(map(id, flat)) == sorted(map(id, located))
 
 
-def test_a_directory_named_star_holds_one_finding_not_two():
+def test_a_directory_named_star_holds_one_finding_not_two() -> None:
     """A path segment that IS `*` is a directory name, and its finding is one.
 
     The key that wildcards that segment came out equal to the key that keeps
@@ -245,7 +245,7 @@ def test_a_directory_named_star_holds_one_finding_not_two():
     assert lines == format_text([at("*/a.md", 3)]), lines
 
 
-def test_an_empty_sweep_renders_nothing():
+def test_an_empty_sweep_renders_nothing() -> None:
     lines, entries = format_sweep_sections(
         {"vetted": [], "unvetted": [], "repository": []})
     assert lines == [] and entries == 0

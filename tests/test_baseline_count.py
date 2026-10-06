@@ -55,7 +55,7 @@ def verify(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_the_recorded_entry_states_its_count(tmp_path) -> None:
+def test_the_recorded_entry_states_its_count(tmp_path: Path) -> None:
     repo = _repo(tmp_path, ONE)
     verify(repo, "--write-baseline")
     recorded = json.loads((repo / ".extant-baseline.json").read_text(encoding="utf-8"))
@@ -64,7 +64,7 @@ def test_the_recorded_entry_states_its_count(tmp_path) -> None:
     assert entries[0]["count"] == 1, entries[0]
 
 
-def test_two_occurrences_record_one_entry_counting_two(tmp_path) -> None:
+def test_two_occurrences_record_one_entry_counting_two(tmp_path: Path) -> None:
     """One fingerprint, not two entries. A baseline is reviewed by humans and
     duplicating an entry per occurrence would make it unreadable."""
     repo = _repo(tmp_path, TWO)
@@ -75,7 +75,7 @@ def test_two_occurrences_record_one_entry_counting_two(tmp_path) -> None:
     assert entries[0]["count"] == 2, entries[0]
 
 
-def test_a_second_copy_beyond_what_was_recorded_still_fails(tmp_path) -> None:
+def test_a_second_copy_beyond_what_was_recorded_still_fails(tmp_path: Path) -> None:
     """The loophole this closes. Record once, paste again, and the paste used
     to be forgiven forever because the fingerprint ignores the line number."""
     repo = _repo(tmp_path, ONE)
@@ -94,7 +94,7 @@ def test_a_second_copy_beyond_what_was_recorded_still_fails(tmp_path) -> None:
     )
 
 
-def test_the_recorded_occurrences_are_still_forgiven(tmp_path) -> None:
+def test_the_recorded_occurrences_are_still_forgiven(tmp_path: Path) -> None:
     """The control. A bound that forgave nothing would fail every ratcheted
     run, which is the opposite failure and just as useless."""
     repo = _repo(tmp_path, TWO)
@@ -105,7 +105,7 @@ def test_the_recorded_occurrences_are_still_forgiven(tmp_path) -> None:
     )
 
 
-def test_an_old_baseline_without_counts_still_loads(tmp_path) -> None:
+def test_an_old_baseline_without_counts_still_loads(tmp_path: Path) -> None:
     """Baselines already exist in projects that adopted this. An entry written
     before counts existed must keep working, forgiving one occurrence."""
     repo = _repo(tmp_path, ONE)

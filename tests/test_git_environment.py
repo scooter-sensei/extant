@@ -32,7 +32,7 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 sys.path.insert(0, str(PAYLOAD))
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from conftest import committer, init_repo  # noqa: E402
+from conftest import GitRepo, committer, init_repo
 
 DOC = "## Phase 1 - x (in progress, 2026-01-01)\n\nSee `{a}` and `{b}`.\n"
 
@@ -62,7 +62,8 @@ def _two_repositories(git_repo, tmp_path: Path) -> tuple[Path, str, str]:
 
 @pytest.mark.parametrize("variable, inside", LEAKS)
 def test_a_leaked_location_variable_does_not_change_which_repository_answers(
-        monkeypatch, git_repo, tmp_path, variable, inside) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo, tmp_path: Path,
+        variable, inside) -> None:
     """`--repo` names the repository. Nothing in the environment overrides it.
 
     The document cites one commit from each repository. Only the OTHER
@@ -115,7 +116,7 @@ DIRECT_SITES = {"cat-file --batch-check": 1, "ls-tree -r -z HEAD": 1,
 
 
 def test_every_git_process_starts_with_the_scrubbed_environment(
-        monkeypatch, git_repo, tmp_path) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo, tmp_path: Path) -> None:
     """Including the seven that call `subprocess` directly.
 
     A scrub applied in `_git` alone would leave the `cat-file` batches, the
@@ -180,7 +181,8 @@ def test_every_git_process_starts_with_the_scrubbed_environment(
     assert not short, f"direct sites reached fewer times than sites exist: {short}"
 
 
-def test_a_repo_that_is_not_a_repository_root_is_said_so(git_repo, capsys) -> None:
+def test_a_repo_that_is_not_a_repository_root_is_said_so(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """`--repo` at a subdirectory: git walks UP and answers about the
     enclosing repository, while every document and path resolves against the
     subdirectory. Verified: `rev-parse --show-toplevel` from `r2/sub/deeper`
@@ -209,7 +211,8 @@ def test_a_repo_that_is_not_a_repository_root_is_said_so(git_repo, capsys) -> No
     assert "not the root" not in capsys.readouterr().err
 
 
-def test_a_repo_with_no_repository_above_it_is_said_so(tmp_path, capsys) -> None:
+def test_a_repo_with_no_repository_above_it_is_said_so(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A `git archive` extract, or any plain directory: nothing git can find.
 
     Every git-backed rule then errors, which the run already reports beside
@@ -229,7 +232,7 @@ def test_a_repo_with_no_repository_above_it_is_said_so(tmp_path, capsys) -> None
 
 
 def test_a_renamed_path_holding_a_non_ascii_character_still_gets_a_hint(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`core.quotePath` defaults to true, and it is off for every process here.
 
     Under the default, `log --name-status` prints a path holding any byte
@@ -257,7 +260,7 @@ def test_a_renamed_path_holding_a_non_ascii_character_still_gets_a_hint(
 
 
 def test_the_operators_own_config_injection_survives_the_child_environment(
-        monkeypatch, git_repo) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo) -> None:
     """`core.quotePath=false` is APPENDED to `GIT_CONFIG_COUNT`, not put in
     its place. CI sets that triplet for `safe.directory`, and a child that lost
     it would fail where the parent works; git itself is asked, so the test
@@ -286,7 +289,7 @@ def test_the_operators_own_config_injection_survives_the_child_environment(
 
 
 def test_deleted_since_sees_a_document_whose_name_holds_a_non_ascii_character(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The other reader of a quoted path. `--deleted-since` keeps only the
     configured documents that `diff --name-only` says changed, and under the
     default quoting that listing spelled this document `"\303\234bersicht.md"`
@@ -316,7 +319,8 @@ def test_deleted_since_sees_a_document_whose_name_holds_a_non_ascii_character(
     assert [g.finding.subject for g in gone] == [dead]
 
 
-def test_a_bare_repository_is_its_own_root(tmp_path, capsys) -> None:
+def test_a_bare_repository_is_its_own_root(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """`HEAD` beside `objects` and `refs`, and no `.git`: git reads that as a
     repository, and so must the root note, or every run against a bare
     repository opens with a note saying there is none."""
@@ -332,7 +336,8 @@ def test_a_bare_repository_is_its_own_root(tmp_path, capsys) -> None:
 
 
 def test_a_sweep_under_a_leaked_git_dir_surveys_the_repository_it_was_given(
-        monkeypatch, git_repo, tmp_path, capsys) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo, tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """The survey's document list comes from `ls-tree HEAD`, so a leaked
     location would have it survey another repository's files - or, pointed at
     one whose tree lists no markdown, report an honest-looking empty run."""
@@ -396,7 +401,7 @@ def test_every_direct_git_spawn_in_the_source_passes_the_environment() -> None:
 
 
 def test_the_installer_asks_the_repository_it_was_given(
-        monkeypatch, git_repo, tmp_path) -> None:
+        monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo, tmp_path: Path) -> None:
     """Catches the installer's git calls inheriting a leaked `GIT_DIR`.
 
     `detect._git` is the installer's only way to ask git anything - the

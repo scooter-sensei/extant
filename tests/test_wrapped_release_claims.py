@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import GitRepo, Reconfigure
+
 
 def _claims(text: str):
     from extant import session as hc
@@ -101,7 +103,7 @@ def test_a_wrapped_claim_is_found_with_either_terminator(newline) -> None:
 
 
 def test_the_denominator_never_counts_a_claim_the_check_cannot_read(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The defect itself, stated as the equality that was broken.
 
     A wrapped claim naming a tag that does not exist used to report
@@ -127,7 +129,7 @@ def test_the_denominator_never_counts_a_claim_the_check_cannot_read(
 
 
 def test_a_wrapped_claim_naming_a_live_tag_stays_silent(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The other direction, so the fix is not just "report more".
 
     A rule that fired on every wrapped claim would pass the test above and be

@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -55,7 +57,8 @@ def _commit_link(repo: Path, name: str) -> None:
 # 1. By configuration alone - reachable on every platform
 # --------------------------------------------------------------------------
 
-def test_a_consistency_source_in_the_git_directory_is_not_read(git_repo, capsys) -> None:
+def test_a_consistency_source_in_the_git_directory_is_not_read(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """`.git/config` is where actions/checkout persists the job's credential,
     and it sits INSIDE the checkout's directory, so a check that the path
     stays under the root is not enough on its own."""
@@ -77,8 +80,9 @@ def test_a_consistency_source_in_the_git_directory_is_not_read(git_repo, capsys)
     assert code == 1, out
 
 
-def test_a_consistency_source_outside_the_checkout_is_not_read(git_repo, capsys,
-                                                               tmp_path) -> None:
+def test_a_consistency_source_outside_the_checkout_is_not_read(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
+        tmp_path: Path) -> None:
     """An absolute source replaced the root it was joined onto."""
     repo, commit = git_repo
     outside = tmp_path / "elsewhere"
@@ -99,7 +103,7 @@ def test_a_consistency_source_outside_the_checkout_is_not_read(git_repo, capsys,
     assert code == 1, out
 
 
-def test_inside_answers_for_the_names_that_are_not_links(tmp_path) -> None:
+def test_inside_answers_for_the_names_that_are_not_links(tmp_path: Path) -> None:
     from extant.files import OutsideRepository, inside
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
@@ -121,7 +125,7 @@ def test_inside_answers_for_the_names_that_are_not_links(tmp_path) -> None:
 # 2. Through a symbolic link - Linux, where the links are real
 # --------------------------------------------------------------------------
 
-def test_a_link_that_stays_inside_is_followed(tmp_path) -> None:
+def test_a_link_that_stays_inside_is_followed(tmp_path: Path) -> None:
     """`CLAUDE.md -> AGENTS.md` is the common case, and moby's own."""
     from extant.files import inside
     repo = tmp_path / "repo"
@@ -132,7 +136,7 @@ def test_a_link_that_stays_inside_is_followed(tmp_path) -> None:
 
 
 def test_a_swept_document_linked_out_of_the_checkout_is_unreadable(
-        git_repo, capsys, tmp_path) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     """Counted and named as unreadable, and none of its bytes judged."""
     from extant import session
     from extant.sweep import run_sweep
@@ -153,7 +157,8 @@ def test_a_swept_document_linked_out_of_the_checkout_is_unreadable(
 
 
 @pytest.mark.skipif(not os.path.exists("/dev/zero"), reason="needs /dev/zero")
-def test_a_link_target_that_never_ends_is_not_read(git_repo, capsys) -> None:
+def test_a_link_target_that_never_ends_is_not_read(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """`x.md -> /dev/zero` read forever: `md_anchor` read a fragment link's
     target whole, and `resolve_reference` settles the spelling, not where the
     bytes are. The document naming it must still be checked, and finish."""
@@ -170,7 +175,7 @@ def test_a_link_target_that_never_ends_is_not_read(git_repo, capsys) -> None:
 
 
 def test_an_extra_document_linked_out_of_the_checkout_is_a_finding(
-        git_repo, capsys, tmp_path) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     """A configured document this will not read gates, as a missing one
     does, and says why."""
     repo, commit = git_repo

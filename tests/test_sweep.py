@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _install_into
+from conftest import GitRepo, _install_into
 from extant.session import ZERO_DEFAULT
 
 COLLECTOR = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
@@ -60,7 +60,7 @@ def install_collector(repo: Path) -> Path:
 
 
 @pytest.fixture
-def rotted_repo(git_repo) -> Path:
+def rotted_repo(git_repo: GitRepo) -> Path:
     """Three markdown files, each carrying one dead claim, none configured."""
     repo, commit = git_repo
     commit("README.md", ROTTED.format(title="Project", sha="dead1ee", missing="a"),
@@ -72,7 +72,7 @@ def rotted_repo(git_repo) -> Path:
     return repo
 
 
-def test_a_sweep_needs_no_configuration_at_all(rotted_repo) -> None:
+def test_a_sweep_needs_no_configuration_at_all(rotted_repo: Path) -> None:
     """The first-run command. No `.extant.toml`, nothing written, findings shown.
 
     A wrong implementation that requires `primary_doc` to exist reports
@@ -92,7 +92,7 @@ def test_a_sweep_needs_no_configuration_at_all(rotted_repo) -> None:
 
 
 def test_a_rule_that_read_no_document_is_not_said_to_have_examined_nothing(
-        rotted_repo) -> None:
+        rotted_repo: Path) -> None:
     """Catches the sweep's NOTE offering two explanations that are both wrong.
 
     It named every rule with a zero as one that "examined nothing anywhere
@@ -162,7 +162,7 @@ def test_the_did_not_run_note_names_each_rule_by_its_own_scope() -> None:
     assert "has none" in present, present
 
 
-def test_the_sweep_reports_its_denominator(rotted_repo) -> None:
+def test_the_sweep_reports_its_denominator(rotted_repo: Path) -> None:
     """How many files were looked at, split by whether they gate.
 
     "0 findings" and "0 files examined" print identically without this, and a
@@ -179,7 +179,7 @@ def test_the_sweep_reports_its_denominator(rotted_repo) -> None:
     assert "3 unreviewed" in combined, combined
 
 
-def test_unreviewed_findings_never_decide_the_exit_code(rotted_repo) -> None:
+def test_unreviewed_findings_never_decide_the_exit_code(rotted_repo: Path) -> None:
     """The whole design. Measured, not a preference.
 
     On extant's own repository every finding outside the configured set is an
@@ -201,7 +201,7 @@ def test_unreviewed_findings_never_decide_the_exit_code(rotted_repo) -> None:
     )
 
 
-def test_a_configured_document_does_decide_the_exit_code(rotted_repo) -> None:
+def test_a_configured_document_does_decide_the_exit_code(rotted_repo: Path) -> None:
     """Promoting a file into `extra_docs` is what turns a survey into a gate.
 
     This is the adoption path the summary line advertises, so it has to work:
@@ -233,7 +233,7 @@ def test_a_configured_document_does_decide_the_exit_code(rotted_repo) -> None:
     assert "unreviewed" in combined
 
 
-def test_untracked_and_ignored_files_are_not_swept(rotted_repo) -> None:
+def test_untracked_and_ignored_files_are_not_swept(rotted_repo: Path) -> None:
     """`git ls-files`, not a filesystem walk.
 
     A build directory full of generated markdown, a vendored dependency, or a
@@ -256,7 +256,7 @@ def test_untracked_and_ignored_files_are_not_swept(rotted_repo) -> None:
     assert "feedfac" not in combined and "cafebab" not in combined, combined
 
 
-def test_sweep_refuses_a_baseline_rather_than_ignoring_it(rotted_repo) -> None:
+def test_sweep_refuses_a_baseline_rather_than_ignoring_it(rotted_repo: Path) -> None:
     """A baseline suppresses findings; a survey exists to show them.
 
     Accepting the flag and quietly doing nothing with it would let someone read
@@ -272,7 +272,8 @@ def test_sweep_refuses_a_baseline_rather_than_ignoring_it(rotted_repo) -> None:
     assert "--baseline" in result.stderr, result.stderr
 
 
-def test_an_empty_repository_says_so_instead_of_passing_quietly(git_repo) -> None:
+def test_an_empty_repository_says_so_instead_of_passing_quietly(
+        git_repo: GitRepo) -> None:
     """Zero files swept is a fact worth printing, not a clean bill of health."""
     repo, commit = git_repo
     commit("main.py", "print('hi')\n", "chore: init")
@@ -285,7 +286,7 @@ def test_an_empty_repository_says_so_instead_of_passing_quietly(git_repo) -> Non
     )
 
 
-def test_a_file_that_cannot_be_decoded_is_named_not_skipped(git_repo) -> None:
+def test_a_file_that_cannot_be_decoded_is_named_not_skipped(git_repo: GitRepo) -> None:
     """A file that could not be read is not a file with no findings.
 
     The two are indistinguishable in an exit code, so a sweep that skips a

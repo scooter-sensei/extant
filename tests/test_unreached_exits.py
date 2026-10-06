@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import committer, init_repo
+from conftest import GitRepo, committer, init_repo
 
 
 def git(repo: Path, *args: str) -> str:
@@ -38,7 +38,7 @@ def _clean_status(repo: Path, commit, name: str = "NEXT_SESSION.md") -> None:
 # --- cli(): the console-script entry, executed by nothing until now ---------
 
 @pytest.fixture
-def configured_repo(git_repo):
+def configured_repo(git_repo: GitRepo) -> Path:
     """A repository whose `.extant.toml` names a primary document the defaults
     do not, so a run that read the repository's config is told apart from one
     that ran on defaults by which file it says it checked."""
@@ -49,7 +49,8 @@ def configured_repo(git_repo):
 
 
 def test_cli_with_no_arguments_verifies_the_current_directory(
-        configured_repo, monkeypatch, capsys) -> None:
+        configured_repo: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """cli.py: the `--verify` default and `--repo` defaulting to the cwd, then
     `reload_config(repo)` - the only route that reads the checked-out
     repository's own settings."""
@@ -63,7 +64,8 @@ def test_cli_with_no_arguments_verifies_the_current_directory(
 
 
 def test_cli_accepts_repo_in_the_equals_spelling(
-        configured_repo, tmp_path, monkeypatch, capsys) -> None:
+        configured_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """cli.py: the `--repo=PATH` branch, from a cwd that is not the repository."""
     from extant import cli
     elsewhere = tmp_path / "elsewhere"
@@ -76,7 +78,9 @@ def test_cli_accepts_repo_in_the_equals_spelling(
     assert "checked STATUS.md" in out.out + out.err, out.out + out.err
 
 
-def test_cli_leaves_an_explicit_mode_alone(configured_repo, monkeypatch, capsys) -> None:
+def test_cli_leaves_an_explicit_mode_alone(
+        configured_repo: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """cli.py: a mode on the command line is not doubled with `--verify`."""
     from extant import cli
     monkeypatch.setattr(sys, "argv", ["extant", "--sweep", "--repo", str(configured_repo)])
@@ -86,7 +90,9 @@ def test_cli_leaves_an_explicit_mode_alone(configured_repo, monkeypatch, capsys)
     assert "swept" in out.out + out.err
 
 
-def test_cli_refuses_a_bare_repo_flag(configured_repo, monkeypatch, capsys) -> None:
+def test_cli_refuses_a_bare_repo_flag(
+        configured_repo: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """cli.py: `extant --repo` with nothing after it is a parser error with
     exit 2, not an IndexError out of argv[i+1]."""
     from extant import cli
@@ -108,7 +114,8 @@ def _worker_outcome(tasks, errors):
 
 
 def test_a_rule_error_reported_by_a_sweep_worker_fails_the_run(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """sweep.py: `if workers and errors: RULE_ERRORS.extend(errors)`.
 
     Workers are spawned and re-import the real rules, so a raise cannot be
@@ -134,7 +141,8 @@ def test_a_rule_error_reported_by_a_sweep_worker_fails_the_run(
 
 
 def test_a_rule_error_reported_by_an_introduced_since_worker_fails_the_run(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """introduced_since.py: the same line in the other survey."""
     from extant import introduced_since
     from extant.registry import RULE_ERRORS
@@ -155,7 +163,8 @@ def test_a_rule_error_reported_by_an_introduced_since_worker_fails_the_run(
 
 
 def test_a_document_a_worker_never_returned_is_named_and_gates(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """sweep.py: a document dispatched to the pool and absent from what came
     back is not a document with no findings."""
     from extant import sweep
@@ -171,7 +180,7 @@ def test_a_document_a_worker_never_returned_is_named_and_gates(
 # --- the two refusals of --introduced-since ----------------------------------
 
 def test_introduced_since_refuses_when_the_diff_needs_an_object_it_cannot_get(
-        tmp_path, capsys) -> None:
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """introduced_since.py: `git diff` fails -> exit 2, named.
 
     The real shape: a `blob:none` clone whose base version of the changed
@@ -196,7 +205,8 @@ def test_introduced_since_refuses_when_the_diff_needs_an_object_it_cannot_get(
 
 
 def test_introduced_since_refuses_when_heads_tree_cannot_be_listed(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """introduced_since.py: `tracked_markdown` raises -> exit 2, named. No
     real state fails `ls-tree` after a diff has succeeded, so the raise is
     injected at the function that documents why it raises."""
@@ -218,7 +228,8 @@ def test_introduced_since_refuses_when_heads_tree_cannot_be_listed(
 # --- --check-text: no stdin, an unreadable baseline --------------------------
 
 def test_check_text_with_no_usable_stdin_is_reported_and_exits_one(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """gate.py: `_read_stdin` catching AttributeError -> None -> exit 1."""
     from extant import cli
     repo, commit = git_repo
@@ -231,7 +242,8 @@ def test_check_text_with_no_usable_stdin_is_reported_and_exits_one(
 
 
 def test_check_text_with_an_unreadable_baseline_exits_two(
-        git_repo, tmp_path, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """gate.py: `_open_baseline` declining -> exit 2. A MISSING baseline is
     deliberately an empty one; an unreadable one is refused."""
     from extant import cli
@@ -248,7 +260,7 @@ def test_check_text_with_an_unreadable_baseline_exits_two(
 # --- --selftest on a document that is not text --------------------------------
 
 def test_selftest_refuses_a_primary_document_that_is_not_utf8(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """cli.py: `run_selftest` reporting the decode failure -> exit 1, rather
     than running every probe against replaced bytes."""
     from extant import cli
@@ -265,7 +277,7 @@ def test_selftest_refuses_a_primary_document_that_is_not_utf8(
 # --- the answer of last resort ------------------------------------------------
 
 def test_reachable_from_a_ref_that_does_not_resolve_falls_back_to_merge_base(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """refs.py: no index for the ref -> one `merge-base --is-ancestor` -> False.
 
     Unreachable from every rule by construction - `_merge_sites` drops a claim

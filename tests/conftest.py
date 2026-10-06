@@ -15,9 +15,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import TYPE_CHECKING, Callable, Iterator
 
 import pytest
+
+if TYPE_CHECKING:
+    from extant.config import Config
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -105,7 +108,7 @@ def _staged_payload() -> Path:
 
 
 @pytest.fixture(autouse=True)
-def neutral_config(tmp_path: Path):
+def neutral_config(tmp_path: Path) -> Iterator[None]:
     """Run every in-process test against DEFAULT settings.
 
     Configuration is read once at import, relative to extant/session.py, and
@@ -170,7 +173,7 @@ def neutral_config(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def no_rule_error_left_behind():
+def no_rule_error_left_behind() -> Iterator[None]:
     """Fail the test that leaves an entry in `RULE_ERRORS`, and name it.
 
     The run's error list is process state the other fixtures here do not
@@ -290,7 +293,7 @@ else:
 
 
 @pytest.fixture
-def reconfigure(monkeypatch):
+def reconfigure(monkeypatch: pytest.MonkeyPatch) -> Reconfigure:
     """Change a configured value so that every reader sees it.
 
     Setting `session._BRANCH_TOKEN` (or any of twenty-one such module
@@ -315,7 +318,7 @@ def reconfigure(monkeypatch):
 
     from extant import session as hc
 
-    def apply(**changes: object):
+    def apply(**changes: object) -> Config:
         monkeypatch.setattr(hc, "_ACTIVE",
                             dataclasses.replace(hc._ACTIVE, **changes))
         return hc._ACTIVE
@@ -397,6 +400,15 @@ def init_repo(repo: Path) -> None:
     _run(repo, "config", "user.name", "Test")
 
 
+# What `git_repo` hands a test: the repository, and `commit(filename,
+# content, message) -> sha` against it.
+GitRepo = tuple[Path, Callable[[str, str, str], str]]
+
+# What `reconfigure` hands a test: set any `Config` field by name. Quoted,
+# because `Config` is imported for the checker alone.
+Reconfigure = Callable[..., "Config"]
+
+
 def committer(repo: Path) -> Callable[[str, str, str], str]:
     """`commit(filename, content, message) -> sha`, against `repo`.
 
@@ -476,7 +488,7 @@ def described(repo: Path) -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
-def empty_repo_template(tmp_path_factory) -> Path:
+def empty_repo_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The three git spawns every `git_repo` used to pay, paid once.
 
     THREE, matching `init_repo` and the measurement above it. This read "five"
@@ -491,9 +503,7 @@ def empty_repo_template(tmp_path_factory) -> Path:
 
 
 @pytest.fixture
-def git_repo(tmp_path: Path,
-             empty_repo_template: Path
-             ) -> tuple[Path, Callable[[str, str, str], str]]:
+def git_repo(tmp_path: Path, empty_repo_template: Path) -> GitRepo:
     repo = tmp_path / "repo"
     shutil.copytree(empty_repo_template, repo)
     return repo, committer(repo)

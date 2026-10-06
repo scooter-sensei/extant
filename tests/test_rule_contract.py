@@ -9,6 +9,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
+from conftest import GitRepo
+
 PAYLOAD = Path(__file__).resolve().parent.parent / "plugin" / "skills" / "extant" / "payload"
 sys.path.insert(0, str(PAYLOAD))
 
@@ -38,7 +42,8 @@ def test_every_rule_module_is_complete() -> None:
     assert {r.kind for r in registry.RULES} == set(kinds.values())
 
 
-def test_a_rule_that_raises_is_reported_and_fails_the_run(git_repo, capsys) -> None:
+def test_a_rule_that_raises_is_reported_and_fails_the_run(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The dangerous half of per-rule isolation.
 
     A rule that crashes and is skipped quietly reports no findings, which reads

@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo, Reconfigure
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -170,7 +172,7 @@ class _Recording:
 
 
 def test_the_release_scan_is_skipped_for_a_document_without_its_words(
-        reconfigure) -> None:
+        reconfigure: Reconfigure) -> None:
     """The pre-filter is in the scanner both `check` and `examined` read,
     so neither pays for a document that cannot hold a claim - and a document
     that can is scanned exactly as before."""
@@ -186,7 +188,7 @@ def test_the_release_scan_is_skipped_for_a_document_without_its_words(
 
 
 def test_the_merge_scan_is_skipped_for_a_document_without_its_words(
-        reconfigure) -> None:
+        reconfigure: Reconfigure) -> None:
     from extant import session as hc
     from extant.commits import _merge_claims
 
@@ -199,7 +201,8 @@ def test_the_merge_scan_is_skipped_for_a_document_without_its_words(
     assert recording.scans == 1
 
 
-def test_a_document_without_a_rev_line_never_asks_for_the_remote(git_repo) -> None:
+def test_a_document_without_a_rev_line_never_asks_for_the_remote(
+        git_repo: GitRepo) -> None:
     """`_PIN_REV` requires the literal `rev:`, so a document without it holds
     no pin and the rule has nothing to govern - it used to ask for the
     repository's remote anyway, and walk every line with two patterns, on
@@ -307,7 +310,7 @@ def test_the_gate_never_refuses_a_line_the_pattern_matches(line) -> None:
 
 
 def test_the_path_pointer_scan_skips_a_line_without_its_literal(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The gate is in the scanner both `check` and `examined` read, so a
     line that cannot hold a pointer is never handed to the pattern - and a
     line that can is scanned exactly as before."""
@@ -326,7 +329,7 @@ def test_the_path_pointer_scan_skips_a_line_without_its_literal(
 
 
 def test_a_configured_pointer_pattern_without_a_literal_scans_every_line(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The safety half. A pattern offering no mandatory character gets no
     gate, so every line reaches it and no pointer it would find is lost."""
     from extant import session as hc
@@ -343,7 +346,7 @@ def test_a_configured_pointer_pattern_without_a_literal_scans_every_line(
 
 
 def test_a_letter_in_the_pattern_is_never_a_gate_under_ignorecase(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """`path_pointer` compiles with IGNORECASE, so `See` matches `see` and a
     gate on the capital would refuse the line the pattern accepts. Letters
     are excluded from the derivation for exactly this reason."""
@@ -357,7 +360,7 @@ def test_a_letter_in_the_pattern_is_never_a_gate_under_ignorecase(
 
 
 def test_a_top_level_alternative_without_the_literal_keeps_the_full_scan(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """A pattern reading `` `x` `` OR `read x`: the backtick is mandatory
     for one alternative and absent from the other, so it gates nothing."""
     from extant import session as hc
@@ -370,7 +373,8 @@ def test_a_top_level_alternative_without_the_literal_keeps_the_full_scan(
     assert [raws for _number, _line, raws in sites] == [[("", "docs/plan.md")]]
 
 
-def test_the_backticked_sha_scan_skips_a_line_without_a_backtick(monkeypatch) -> None:
+def test_the_backticked_sha_scan_skips_a_line_without_a_backtick(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """Both patterns the scan runs carry a literal backtick - `BACKTICKED`
     opens with one and `_LINKED_SHA` needs `` [` `` - so a line without one
     cannot match either, and neither is run on it. Checkable by reading the

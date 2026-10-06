@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
+
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 
@@ -186,7 +188,7 @@ def test_a_finding_that_cannot_fail_the_build_is_not_an_error() -> None:
     assert gate["runs"][0]["results"][0]["properties"]["gates"] is True
 
 
-def test_sarif_carries_the_denominator(tmp_path) -> None:
+def test_sarif_carries_the_denominator(tmp_path: Path) -> None:
     """Every other output states what was examined; this one did not.
 
     A consumer seeing zero results could not distinguish a clean repository
@@ -213,7 +215,7 @@ def test_sarif_carries_the_denominator(tmp_path) -> None:
     assert printed.strip().removeprefix("NOTE: ") in notes, notes
 
 
-def test_sarif_points_at_the_claim_not_just_the_line(tmp_path) -> None:
+def test_sarif_points_at_the_claim_not_just_the_line(tmp_path: Path) -> None:
     """A bare line number makes an alert that shows no context.
 
     The snippet is what a code-scanning UI renders, and the columns underline
@@ -235,7 +237,7 @@ def test_sarif_points_at_the_claim_not_just_the_line(tmp_path) -> None:
     assert region["endColumn"] == 20, region
 
 
-def test_a_missing_file_costs_the_snippet_and_nothing_else(tmp_path) -> None:
+def test_a_missing_file_costs_the_snippet_and_nothing_else(tmp_path: Path) -> None:
     """Presentation degrades; correctness does not. A wrong snippet would
     misreport where a finding is, so anything unreadable is omitted."""
     from extant import report
@@ -248,7 +250,7 @@ def test_a_missing_file_costs_the_snippet_and_nothing_else(tmp_path) -> None:
     assert "snippet" not in region
 
 
-def test_a_very_long_line_cannot_bloat_the_upload(tmp_path) -> None:
+def test_a_very_long_line_cannot_bloat_the_upload(tmp_path: Path) -> None:
     """GitHub rejects a SARIF upload over 10 MB, and the longest single
     markdown line in the 39-repository corpus is 123,427 characters.
 
@@ -314,7 +316,7 @@ def test_columns_are_utf16_code_units_as_the_document_declares() -> None:
     assert report._utf16_len("\u4e2d\u6587") == 2
 
 
-def test_a_snippet_with_an_emoji_points_at_the_right_column(tmp_path) -> None:
+def test_a_snippet_with_an_emoji_points_at_the_right_column(tmp_path: Path) -> None:
     """End to end, because `_utf16_len` being right does not prove it is used."""
     from extant import report
 
@@ -361,7 +363,7 @@ def build_repo(repo: Path, commit) -> None:
     shutil.copytree(SKILL_ROOT / "payload", repo / "tools")
 
 
-def test_sarif_mode_puts_nothing_but_json_on_stdout(git_repo) -> None:
+def test_sarif_mode_puts_nothing_but_json_on_stdout(git_repo: GitRepo) -> None:
     """THE requirement that makes SARIF usable in a pipeline.
 
     The denominator summary is genuinely useful and genuinely not JSON. It goes
@@ -381,7 +383,7 @@ def test_sarif_mode_puts_nothing_but_json_on_stdout(git_repo) -> None:
     assert result.returncode == 1
 
 
-def test_github_mode_emits_one_annotation_per_finding(git_repo) -> None:
+def test_github_mode_emits_one_annotation_per_finding(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     build_repo(repo, commit)
 
@@ -393,7 +395,7 @@ def test_github_mode_emits_one_annotation_per_finding(git_repo) -> None:
     assert "title=dead-sha" in annotations[0]
 
 
-def test_text_remains_the_default_and_is_unchanged(git_repo) -> None:
+def test_text_remains_the_default_and_is_unchanged(git_repo: GitRepo) -> None:
     """Catches a formatter rewrite that quietly changes the human output.
 
     Everything that reads this tool today reads the text form, including the
@@ -472,8 +474,9 @@ def test_encoding_a_uri_does_not_touch_a_path_that_is_already_one() -> None:
     assert report._sarif_uri("weird:name/x.md") == "weird%3Aname/x.md"
 
 
-def test_sarif_refuses_a_document_outside_the_repository(git_repo, tmp_path,
-                                                         capsys) -> None:
+def test_sarif_refuses_a_document_outside_the_repository(
+        git_repo: GitRepo, tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """The sibling of the `<stdin>` refusal, at the other door.
 
     SARIF locates a result by a URI GitHub resolves against the repository
@@ -530,7 +533,8 @@ def _stratified(stratum: str, n: int, gating: bool = False):
                            primary=False, gating=gating, stratum=stratum)
 
 
-def test_a_run_over_the_limit_keeps_what_a_reader_needs_first(monkeypatch) -> None:
+def test_a_run_over_the_limit_keeps_what_a_reader_needs_first(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """Past the limit the run keeps the findings that gate, then ordinary
     documents, then historical-record, generated, version-snapshot and
     vendored ones - the strata in the reverse of their classification
@@ -560,7 +564,8 @@ def test_a_run_over_the_limit_keeps_what_a_reader_needs_first(monkeypatch) -> No
     assert all(rules[r["ruleIndex"]]["id"] == r["ruleId"] for r in run["results"])
 
 
-def test_a_run_at_or_under_the_limit_is_untouched(monkeypatch) -> None:
+def test_a_run_at_or_under_the_limit_is_untouched(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     """The limit binds one corpus repository in 152; every other run must be
     exactly what it was. No result dropped, reordered, or annotated, and no
     `omitted` property or notification added."""
@@ -581,7 +586,8 @@ def test_a_run_at_or_under_the_limit_is_untouched(monkeypatch) -> None:
 
 
 def test_a_sweep_over_the_limit_says_so_beside_its_summary(
-        git_repo, monkeypatch, capsys) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """The person reading the job log is told as well as the file: on
     stderr, where SARIF mode puts every human line."""
     from extant import report, sweep
@@ -603,7 +609,8 @@ def test_a_sweep_over_the_limit_says_so_beside_its_summary(
     ["--verify"], ["--introduced-since", "HEAD~1"], ["--deleted-since", "HEAD~1"],
 ], ids=["verify", "introduced-since", "deleted-since"])
 def test_every_sarif_mode_says_the_cut_once_in_the_file_and_on_stderr(
-        git_repo, monkeypatch, capsys, mode) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str], mode) -> None:
     """The three modes beside `--sweep` that write SARIF each hand the NOTE to
     the human stream themselves and pass it into the file with their other
     NOTE lines, where `format_sarif` would otherwise add its own. A gap audit

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import GitRepo
 from detect import detect_trunk, find_documents, inspect_document
 
 DOC = (
@@ -91,7 +92,7 @@ def test_find_documents_returns_every_candidate(tmp_path: Path) -> None:
     assert sorted(found) == ["HANDOFF.md", "STATUS.md"]
 
 
-def test_detect_trunk_prefers_origin_head(git_repo) -> None:
+def test_detect_trunk_prefers_origin_head(git_repo: GitRepo) -> None:
     """The authoritative source, and the branch of this function nothing tested.
 
     `origin/HEAD` is what the remote itself says its default branch is, which
@@ -119,7 +120,7 @@ def test_detect_trunk_prefers_origin_head(git_repo) -> None:
     assert "origin/HEAD" in observation.evidence
 
 
-def test_detect_trunk_reads_git_rather_than_prose(git_repo) -> None:
+def test_detect_trunk_reads_git_rather_than_prose(git_repo: GitRepo) -> None:
     """Catches a trunk guessed from the document instead of asked of git.
 
     An earlier version inferred it from phrases, which quietly produced "main"
@@ -168,7 +169,7 @@ def _captures(observation, prose: str) -> str | None:
     return match.group(1) if match else None
 
 
-def test_release_prefixed_tags_are_matched(tmp_path) -> None:
+def test_release_prefixed_tags_are_matched(tmp_path: Path) -> None:
     """`release-1.2.3`, common in the JVM and .NET worlds.
 
     A wrong implementation that keeps the default pattern captures nothing here
@@ -180,14 +181,14 @@ def test_release_prefixed_tags_are_matched(tmp_path) -> None:
     assert obs.confidence == "derived"
 
 
-def test_monorepo_package_tags_are_matched(tmp_path) -> None:
+def test_monorepo_package_tags_are_matched(tmp_path: Path) -> None:
     """`api@2.0.0`, how a monorepo tags one package's release."""
     obs = detect_release_tag(_tagged(tmp_path, "api@2.0.0", "web@1.0.0"))
 
     assert _captures(obs, "shipped as `api@2.0.0`") == "api@2.0.0"
 
 
-def test_a_conventional_repo_keeps_the_default_pattern(tmp_path) -> None:
+def test_a_conventional_repo_keeps_the_default_pattern(tmp_path: Path) -> None:
     """The false-widening guard, and the reason prefixes are read off the repo.
 
     A repository tagging `v1.2.3` must get exactly the default back. Widening
@@ -206,7 +207,7 @@ def test_a_conventional_repo_keeps_the_default_pattern(tmp_path) -> None:
     )
 
 
-def test_no_tags_falls_back_and_says_so(tmp_path) -> None:
+def test_no_tags_falls_back_and_says_so(tmp_path: Path) -> None:
     """No tags is not the same as no convention, and must not be guessed at."""
     obs = detect_release_tag(_tagged(tmp_path))
 
@@ -214,7 +215,7 @@ def test_no_tags_falls_back_and_says_so(tmp_path) -> None:
     assert _captures(obs, "released in `v1.2.3`") == "v1.2.3"
 
 
-def test_non_version_tags_are_ignored(tmp_path) -> None:
+def test_non_version_tags_are_ignored(tmp_path: Path) -> None:
     """A tag like `latest` carries no version, so it shapes nothing."""
     obs = detect_release_tag(_tagged(tmp_path, "latest", "stable"))
 

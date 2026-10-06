@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo, Reconfigure
+
 
 def _with_deadline(call, *, seconds: float):
     """Run `call`, failing the test rather than hanging the suite.
@@ -58,7 +60,8 @@ VALUE = re.compile(r'"v": "([^"]+)"')
 
 
 def test_a_timeout_turns_a_hang_into_a_finding(
-        git_repo, monkeypatch, reconfigure) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        reconfigure: Reconfigure) -> None:
     from extant import session as hc
     from extant.rules import consistency as rule_consistency
     from extant.rules import consistency as rule
@@ -90,7 +93,9 @@ def test_a_timeout_turns_a_hang_into_a_finding(
     assert any("gave up" in f.detail for f in findings), [f.detail for f in findings]
 
 
-def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
+def test_the_default_spawns_nothing(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        reconfigure: Reconfigure) -> None:
     """The control, and the reason this is opt-in.
 
     If the default reached for a subprocess, every user would pay a spawn per
@@ -128,7 +133,8 @@ def test_the_default_spawns_nothing(git_repo, monkeypatch, reconfigure) -> None:
 
 
 def test_a_bounded_search_still_returns_the_captured_value(
-        git_repo, monkeypatch, reconfigure) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
+        reconfigure: Reconfigure) -> None:
     """The other control. A timeout that broke normal matching would make every
     consistency check report a disagreement between a value and nothing."""
     from extant import session as hc

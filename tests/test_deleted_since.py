@@ -16,6 +16,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from conftest import GitRepo
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -30,7 +34,7 @@ def _run(repo, *args):
                           capture_output=True, text=True).stdout
 
 
-def test_a_deleted_false_claim_is_reported(git_repo) -> None:
+def test_a_deleted_false_claim_is_reported(git_repo: GitRepo) -> None:
     from extant import session as hc
     from extant import deleted_since
     repo, commit = git_repo
@@ -42,7 +46,7 @@ def test_a_deleted_false_claim_is_reported(git_repo) -> None:
     assert [f for f in gone if f.finding.subject == DEAD], [f.finding for f in gone]
 
 
-def test_a_claim_that_became_true_is_not_reported(git_repo) -> None:
+def test_a_claim_that_became_true_is_not_reported(git_repo: GitRepo) -> None:
     """The mechanism's whole point, and the reason there is no separate
     still-false check. Validating the OLD text against TODAY's git means a
     claim whose underlying fact was fixed produces no finding to begin with."""
@@ -61,7 +65,7 @@ def test_a_claim_that_became_true_is_not_reported(git_repo) -> None:
     )
 
 
-def test_relocating_to_the_archive_is_not_a_deletion(git_repo) -> None:
+def test_relocating_to_the_archive_is_not_a_deletion(git_repo: GitRepo) -> None:
     """`--archive` moves entries out of the live document by design. The token
     stays findable, so archiving must not look like hiding."""
     from extant import session as hc
@@ -79,7 +83,7 @@ def test_relocating_to_the_archive_is_not_a_deletion(git_repo) -> None:
     )
 
 
-def test_moving_a_claim_into_a_fence_is_a_deletion(git_repo) -> None:
+def test_moving_a_claim_into_a_fence_is_a_deletion(git_repo: GitRepo) -> None:
     """Fenced code is exempt from every claim rule, so a fence silences them
     all. Without prose-scoping on the haystack it would silence this too."""
     from extant import session as hc
@@ -95,7 +99,7 @@ def test_moving_a_claim_into_a_fence_is_a_deletion(git_repo) -> None:
     )
 
 
-def test_an_unchanged_document_is_not_re_read(git_repo) -> None:
+def test_an_unchanged_document_is_not_re_read(git_repo: GitRepo) -> None:
     """Cost, and correctness. A document that did not change cannot have lost
     a claim, so skipping it is not merely an optimisation."""
     from extant import session as hc
@@ -108,7 +112,8 @@ def test_an_unchanged_document_is_not_re_read(git_repo) -> None:
     assert examined == 0, "the document did not change; it must not be re-read"
 
 
-def test_the_mode_never_gates(git_repo, capsys) -> None:
+def test_the_mode_never_gates(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     from extant import session as hc
     from extant import deleted_since
     repo, commit = git_repo
@@ -121,7 +126,7 @@ def test_the_mode_never_gates(git_repo, capsys) -> None:
 
 
 def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """The gap `run_sweep` and `--validate` already closed, missing here.
 
     `deleted_claims` calls `session.validate()` once per changed document, the
@@ -160,7 +165,8 @@ def test_a_rule_that_raises_is_named_even_though_the_mode_never_gates(
         f"the exception was recorded without saying what it was:\n{combined}")
 
 
-def test_a_missing_ref_is_reported_not_crashed(git_repo, capsys) -> None:
+def test_a_missing_ref_is_reported_not_crashed(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     from extant import session as hc
     from extant import deleted_since
     repo, commit = git_repo
@@ -172,7 +178,7 @@ def test_a_missing_ref_is_reported_not_crashed(git_repo, capsys) -> None:
 
 
 def test_sarif_stdout_is_a_document_even_with_nothing_to_report(
-        git_repo, capsys) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """SARIF's contract is that stdout is one valid document, always.
 
     A machine consumer handed zero bytes fails its upload rather than reading
@@ -196,7 +202,7 @@ def test_sarif_stdout_is_a_document_even_with_nothing_to_report(
     )
 
 
-def test_a_correction_that_swaps_the_token_is_reported(git_repo) -> None:
+def test_a_correction_that_swaps_the_token_is_reported(git_repo: GitRepo) -> None:
     """Recorded deliberately, so nobody later 'fixes' it into a heuristic.
 
     Replacing a dead SHA with a different dead SHA removes the first one, and
@@ -242,7 +248,8 @@ def _counted(monkeypatch) -> list[str]:
     return spawns
 
 
-def test_every_changed_document_is_read_in_one_batch(git_repo, monkeypatch) -> None:
+def test_every_changed_document_is_read_in_one_batch(
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Three changed documents, ONE `cat-file --batch`, and no `git show`.
 
     Fails the moment a read goes back to one process per document, which is
@@ -279,7 +286,7 @@ def test_every_changed_document_is_read_in_one_batch(git_repo, monkeypatch) -> N
 
 
 def test_the_ref_table_is_built_once_across_the_documents_it_reads(
-        git_repo, monkeypatch) -> None:
+        git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch) -> None:
     """Two old documents both make a merge claim; the ref table and the
     trunk index are asked ONCE, not once per document.
 
@@ -321,7 +328,7 @@ def test_the_ref_table_is_built_once_across_the_documents_it_reads(
 
 
 def test_a_missing_object_beside_a_present_one_counts_one_and_examines_the_other(
-        tmp_path) -> None:
+        tmp_path: Path) -> None:
     """In a `blob:none` copy the batch answers `missing` for one document's
     old version and hands back the other's, and the two are counted apart.
 
@@ -366,7 +373,7 @@ def test_a_missing_object_beside_a_present_one_counts_one_and_examines_the_other
 
 
 def test_an_undecodable_previous_version_beside_a_valid_one_is_counted_apart(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """One old version is latin-1, the other is valid: examined 1, unreadable
     1, and the valid one's deleted claim is reported. Decoding happens per
     document AFTER the batch, so one bad document cannot take the others
@@ -390,7 +397,8 @@ def test_an_undecodable_previous_version_beside_a_valid_one_is_counted_apart(
     assert [f for f in gone if f.finding.subject == DEAD], [f.finding for f in gone]
 
 
-def test_a_directory_at_the_configured_name_is_not_a_document_there(git_repo) -> None:
+def test_a_directory_at_the_configured_name_is_not_a_document_there(
+        git_repo: GitRepo) -> None:
     """At the ref the configured name was a DIRECTORY. `git show` printed its
     listing and the mode validated that as a document; the batch says
     `tree`, which is not a document, and the name counts as absent then."""
@@ -409,7 +417,8 @@ def test_a_directory_at_the_configured_name_is_not_a_document_there(git_repo) ->
         f"examined {examined}, unreadable {unreadable}")
 
 
-def test_a_name_with_a_space_that_was_absent_at_the_ref_is_absent(git_repo) -> None:
+def test_a_name_with_a_space_that_was_absent_at_the_ref_is_absent(
+        git_repo: GitRepo) -> None:
     """The batch echoes a name it could not find - `<spec> missing` - and a
     name holding a space then has a space in the header line too. A parser
     that split the header on spaces and counted three fields read
@@ -433,7 +442,8 @@ def test_a_name_with_a_space_that_was_absent_at_the_ref_is_absent(git_repo) -> N
     assert [f for f in gone if f.finding.subject == DEAD], [f.finding for f in gone]
 
 
-def test_a_name_with_a_space_that_was_present_at_the_ref_is_read(git_repo) -> None:
+def test_a_name_with_a_space_that_was_present_at_the_ref_is_read(
+        git_repo: GitRepo) -> None:
     """The other half: present, the record for a spaced name is an ordinary
     blob record, and its old claim is read and reported."""
     from extant import session as hc
@@ -451,7 +461,7 @@ def test_a_name_with_a_space_that_was_present_at_the_ref_is_read(git_repo) -> No
         [f.finding for f in gone])
 
 
-def test_an_old_version_is_read_as_the_document_it_was(git_repo) -> None:
+def test_an_old_version_is_read_as_the_document_it_was(git_repo: GitRepo) -> None:
     """Every previous version was validated with no document PATH installed,
     only its markup language - so every rule that keys on which file it is
     reading read None.

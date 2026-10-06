@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import committer, init_repo
+from conftest import GitRepo, Reconfigure, committer, init_repo
 
 
 def git(repo: Path, *args: str) -> str:
@@ -28,8 +28,13 @@ def short(repo: Path, ref: str) -> str:
     return git(repo, "rev-parse", "--short", ref)
 
 
+# The repository, and the short SHAs of `on_main`, `on_develop` and
+# `unmerged` below.
+Gitflow = tuple[Path, str, str, str]
+
+
 @pytest.fixture(scope="session")
-def gitflow_template(tmp_path_factory):
+def gitflow_template(tmp_path_factory: pytest.TempPathFactory) -> Gitflow:
     """main and develop, a feature merged to develop AFTER the last release.
 
     That window is the whole problem: before a release, develop's history is
@@ -78,7 +83,7 @@ def gitflow_template(tmp_path_factory):
 
 
 @pytest.fixture()
-def gitflow(tmp_path, gitflow_template):
+def gitflow(tmp_path: Path, gitflow_template: Gitflow) -> Gitflow:
     """One test's own copy of the shape above."""
     template, on_main, on_develop, unmerged = gitflow_template
     repo = tmp_path / "repo"
@@ -86,7 +91,7 @@ def gitflow(tmp_path, gitflow_template):
     return repo, on_main, on_develop, unmerged
 
 
-def test_a_false_claim_about_a_non_trunk_branch_is_caught(gitflow) -> None:
+def test_a_false_claim_about_a_non_trunk_branch_is_caught(gitflow: Gitflow) -> None:
     """The defect this whole change exists for.
 
     `on_main` is not an ancestor of develop, so "merged to `develop` at
@@ -105,7 +110,7 @@ def test_a_false_claim_about_a_non_trunk_branch_is_caught(gitflow) -> None:
     assert "develop" in findings[0].detail
 
 
-def test_a_true_claim_about_a_non_trunk_branch_is_silent(gitflow) -> None:
+def test_a_true_claim_about_a_non_trunk_branch_is_silent(gitflow: Gitflow) -> None:
     """The other direction, which is what stops the fix above from being a
     rule that simply flags everything it did not used to see."""
     from extant import session as ec
@@ -115,7 +120,7 @@ def test_a_true_claim_about_a_non_trunk_branch_is_silent(gitflow) -> None:
     assert rule_merge.check(ec.context(repo), f"Merged to `develop` at `{on_develop}`.\n") == []
 
 
-def test_both_directions_are_checked_in_one_pass(gitflow) -> None:
+def test_both_directions_are_checked_in_one_pass(gitflow: Gitflow) -> None:
     """A document naming both branches. Measured on the fixture, either trunk
     setting caught exactly one of these two and was blind to the other."""
     from extant import session as ec
@@ -132,7 +137,7 @@ def test_both_directions_are_checked_in_one_pass(gitflow) -> None:
     assert {f.line for f in findings} == {1, 2}
 
 
-def test_prose_after_merged_to_is_not_read_as_a_branch(gitflow) -> None:
+def test_prose_after_merged_to_is_not_read_as_a_branch(gitflow: Gitflow) -> None:
     """The cost of letting the claim name its own ref is that the pattern no
     longer anchors on a known branch name, so an unbacticked word sitting where
     a branch would go must not be reported as a missing branch.
@@ -155,7 +160,7 @@ def test_prose_after_merged_to_is_not_read_as_a_branch(gitflow) -> None:
         ec.context(repo), f"Merged to the release branch at `{on_develop}`.\n") == []
 
 
-def test_a_bare_word_that_IS_a_branch_is_still_checked(gitflow) -> None:
+def test_a_bare_word_that_IS_a_branch_is_still_checked(gitflow: Gitflow) -> None:
     """Ignoring unbackticked words must not become ignoring unbackticked
     CLAIMS. Plenty of documents write the branch name plain, and dropping those
     would trade a false positive for exactly the blindness this change removes.
@@ -169,7 +174,7 @@ def test_a_bare_word_that_IS_a_branch_is_still_checked(gitflow) -> None:
     assert [f.kind for f in findings] == ["false-merge-claim"], findings
 
 
-def test_a_backticked_branch_that_never_existed_is_reported(gitflow) -> None:
+def test_a_backticked_branch_that_never_existed_is_reported(gitflow: Gitflow) -> None:
     """A typo must not become a way to make a claim unverifiable AND silent.
 
     The commit here is on no integration branch, so the claim is false in
@@ -185,7 +190,7 @@ def test_a_backticked_branch_that_never_existed_is_reported(gitflow) -> None:
     assert "no such branch" in findings[0].detail
 
 
-def test_a_deleted_branch_whose_work_landed_is_not_accused(gitflow) -> None:
+def test_a_deleted_branch_whose_work_landed_is_not_accused(gitflow: Gitflow) -> None:
     """Gitflow deletes every release branch on merge, and a squash merge or a
     custom `-m` erases the name from history entirely. Reporting those as
     invented produced a false positive on the fixture. The rule asks the
@@ -199,7 +204,7 @@ def test_a_deleted_branch_whose_work_landed_is_not_accused(gitflow) -> None:
     assert rule_merge.check(ec.context(repo), f"Merged to `release/1.0.0` at `{on_main}`.\n") == []
 
 
-def test_a_deleted_branch_whose_work_never_landed_still_fires(gitflow) -> None:
+def test_a_deleted_branch_whose_work_never_landed_still_fires(gitflow: Gitflow) -> None:
     """The other half of the case above. Silence there must come from the
     commit being integrated, not from the branch being missing - otherwise
     deleting a branch would launder every claim that named it."""
@@ -213,7 +218,8 @@ def test_a_deleted_branch_whose_work_never_landed_still_fires(gitflow) -> None:
     assert [f.kind for f in findings] == ["false-merge-claim"], findings
 
 
-def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(gitflow) -> None:
+def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(
+        gitflow: Gitflow) -> None:
     """The measured false positive.
 
     `v1.0.0` sits on main's release merge. develop received the release BRANCH
@@ -247,7 +253,7 @@ def test_a_shipped_tag_is_not_reported_dead_from_the_other_trunk(gitflow) -> Non
         ec.CONFIG, ec._ACTIVE = saved_config, saved_active
 
 
-def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow) -> None:
+def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow: Gitflow) -> None:
     """With trunk=main, `feature/search` is not an ancestor of main, so the old
     rule accepted "not yet merged" about work that shipped to develop weeks
     ago. Merged means landed on an integration branch, not on one of them.
@@ -283,7 +289,7 @@ def test_a_live_claim_about_work_merged_to_develop_is_flagged(gitflow) -> None:
         ec.CONFIG, ec._ACTIVE = saved_config, saved_active
 
 
-def test_an_unmerged_feature_is_still_reported_as_open(gitflow) -> None:
+def test_an_unmerged_feature_is_still_reported_as_open(gitflow: Gitflow) -> None:
     """The false positive the test above could easily buy. `feature/payments`
     is on nothing, and widening what counts as merged must not make every live
     claim stale."""
@@ -296,7 +302,8 @@ def test_an_unmerged_feature_is_still_reported_as_open(gitflow) -> None:
     assert rule_live_claim.check(ec.context(repo), text) == []
 
 
-def test_an_integration_branch_is_not_merged_into_itself(gitflow, reconfigure) -> None:
+def test_an_integration_branch_is_not_merged_into_itself(
+        gitflow: Gitflow, reconfigure: Reconfigure) -> None:
     """`develop` is trivially an ancestor of `develop`, so without excluding the
     branch under test every live claim about an integration branch reports as
     already merged. Reachable only with a `branch_token` that matches slashless
@@ -325,7 +332,7 @@ def test_an_integration_branch_is_not_merged_into_itself(gitflow, reconfigure) -
     assert rule_live_claim.check(ec.context(repo), text) == []
 
 
-def test_integration_refs_ignore_unconventional_branches(gitflow) -> None:
+def test_integration_refs_ignore_unconventional_branches(gitflow: Gitflow) -> None:
     """An earlier version treated any slashless branch as an integration
     branch, which silently reclassified `gh-pages`, `experiment` and every
     abandoned spike. A tag cut on one of those would then count as shipped."""
@@ -341,7 +348,7 @@ def test_integration_refs_ignore_unconventional_branches(gitflow) -> None:
     assert "gh-pages" not in refs and "experiment" not in refs
 
 
-def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow) -> None:
+def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow: Gitflow) -> None:
     """Back-compat. A project that customised `merge_claim` before claims
     became self-describing wrote one group, the sha, and meant trunk. Breaking
     those configs would turn a working rule into one that matches nothing.
@@ -385,7 +392,8 @@ def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow) -> None:
         ec.CONFIG, ec._ACTIVE = saved_config, saved_active
 
 
-def test_the_ancestry_cache_does_not_leak_between_repositories(git_repo, tmp_path) -> None:
+def test_the_ancestry_cache_does_not_leak_between_repositories(
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """Two repositories, both with a branch called `main`.
 
     The first version keyed the index by ref name alone. Rules are also called
@@ -414,7 +422,7 @@ def test_the_ancestry_cache_does_not_leak_between_repositories(git_repo, tmp_pat
     )
 
 
-def test_the_template_hands_out_shas_its_copies_resolve(gitflow) -> None:
+def test_the_template_hands_out_shas_its_copies_resolve(gitflow: Gitflow) -> None:
     """The equivalence guard for this file's own template.
 
     The three SHAs come from the template and the fourteen tests above run

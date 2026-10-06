@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import GitRepo
+
 DOC = (
     "# Title\r\n"
     "\r\n"
@@ -201,7 +203,7 @@ def test_a_fence_with_an_info_string_does_not_close_one() -> None:
     assert "a1b2c3d" not in blanked
 
 
-def test_an_ordinary_fence_still_closes(git_repo) -> None:
+def test_an_ordinary_fence_still_closes(git_repo: GitRepo) -> None:
     """The other half: the common case must be untouched, and a claim after a
     plain fence is still read."""
     text = ("Before, merged at a1b2c3d.\n"

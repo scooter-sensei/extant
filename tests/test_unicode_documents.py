@@ -66,7 +66,7 @@ def verify(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_a_non_english_document_is_validated_not_refused(tmp_path) -> None:
+def test_a_non_english_document_is_validated_not_refused(tmp_path: Path) -> None:
     """The base case, and it was never covered.
 
     A wrong implementation that opens documents as ASCII, or as the platform's
@@ -83,7 +83,7 @@ def test_a_non_english_document_is_validated_not_refused(tmp_path) -> None:
     assert "deadbeef1234567" in result.stdout
 
 
-def test_line_numbers_survive_multi_byte_text_above_them(tmp_path) -> None:
+def test_line_numbers_survive_multi_byte_text_above_them(tmp_path: Path) -> None:
     """Catches counting in bytes rather than characters.
 
     Each CJK character is three bytes in UTF-8 and the emoji is four, so a
@@ -105,7 +105,7 @@ def test_line_numbers_survive_multi_byte_text_above_them(tmp_path) -> None:
     assert "line 6:" in result.stdout, result.stdout
 
 
-def test_a_finding_quoting_non_ascii_does_not_crash_the_printer(tmp_path) -> None:
+def test_a_finding_quoting_non_ascii_does_not_crash_the_printer(tmp_path: Path) -> None:
     """The failure the project's own ASCII rule exists to prevent, arriving
     through user data rather than through our own strings.
 
@@ -129,7 +129,7 @@ def test_a_finding_quoting_non_ascii_does_not_crash_the_printer(tmp_path) -> Non
     assert result.returncode == 1, result.stdout + result.stderr
 
 
-def test_sarif_stays_valid_json_with_non_ascii_findings(tmp_path) -> None:
+def test_sarif_stays_valid_json_with_non_ascii_findings(tmp_path: Path) -> None:
     """A machine format must not be corrupted by the language of the document.
 
     SARIF is consumed by GitHub's code scanning, which rejects the whole upload
@@ -153,7 +153,7 @@ def test_sarif_stays_valid_json_with_non_ascii_findings(tmp_path) -> None:
     assert JAPANESE in blob, "no non-ASCII reached SARIF, so nothing was exercised"
 
 
-def test_a_non_ascii_heading_resolves_its_own_anchor(tmp_path) -> None:
+def test_a_non_ascii_heading_resolves_its_own_anchor(tmp_path: Path) -> None:
     """Anchors are slugged from headings, so the slug function meets every
     script a reader writes in. A wrong implementation that strips non-ASCII
     while slugging reports a working link as dead."""
@@ -170,7 +170,8 @@ def test_a_non_ascii_heading_resolves_its_own_anchor(tmp_path) -> None:
     )
 
 
-def test_a_document_of_only_non_ascii_still_reports_a_denominator(tmp_path) -> None:
+def test_a_document_of_only_non_ascii_still_reports_a_denominator(
+        tmp_path: Path) -> None:
     """The denominator is the one line that must always appear.
 
     A run that examined nothing and a run that found nothing print the same

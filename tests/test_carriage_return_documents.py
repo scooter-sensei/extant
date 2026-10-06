@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import GitRepo
+
 TERMINATORS = [
     pytest.param("\n", id="LF"),
     pytest.param("\r\n", id="CRLF"),
@@ -112,7 +114,7 @@ CR_DOC = (
 )
 
 
-def test_archive_splits_a_cr_only_document_into_its_entries(git_repo) -> None:
+def test_archive_splits_a_cr_only_document_into_its_entries(git_repo: GitRepo) -> None:
     """`^` in a MULTILINE pattern follows a newline, and `\\r` is not one.
 
     Left unnormalised, a CR-only document presents as a single line: no entry
@@ -130,7 +132,7 @@ def test_archive_splits_a_cr_only_document_into_its_entries(git_repo) -> None:
     assert counts == {"retained": 3, "archived": 2}, counts
 
 
-def test_archive_writes_a_cr_only_document_back_as_cr_only(git_repo) -> None:
+def test_archive_writes_a_cr_only_document_back_as_cr_only(git_repo: GitRepo) -> None:
     """The terminator a file arrived in is the one it leaves in.
 
     `archive` is the only irreversible write in this system. Detecting only
@@ -173,7 +175,7 @@ def _with_archive(repo, commit, existing: str):
 
 
 def test_an_existing_cr_only_archive_is_not_left_with_mixed_terminators(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """The archive is a file too, and it arrived in a terminator of its own.
 
     `archive` detects ONE terminator, from the PRIMARY document, and writes
@@ -203,7 +205,7 @@ def test_an_existing_cr_only_archive_is_not_left_with_mixed_terminators(
         % archived[:120])
 
 
-def test_an_existing_crlf_archive_keeps_its_own_terminator(git_repo) -> None:
+def test_an_existing_crlf_archive_keeps_its_own_terminator(git_repo: GitRepo) -> None:
     """A CRLF archive beside an LF primary must stay CRLF.
 
     Taking the primary's terminator rewrites every line of the archive as a

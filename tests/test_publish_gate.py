@@ -81,7 +81,9 @@ def test_a_fresh_failure_after_a_pass_still_blocks() -> None:
     assert verdict == gate.FAIL
 
 
-def test_missing_configuration_fails_rather_than_skips(monkeypatch, capsys) -> None:
+def test_missing_configuration_fails_rather_than_skips(
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """An unconfigured gate that passes is indistinguishable from a working
     one. Catches the `if not token: return 0` shape, which is how a check ends
     up green on every run while reading nothing."""
@@ -93,7 +95,9 @@ def test_missing_configuration_fails_rather_than_skips(monkeypatch, capsys) -> N
     assert "missing" in capsys.readouterr().out
 
 
-def test_the_denominator_is_printed(monkeypatch, capsys) -> None:
+def test_the_denominator_is_printed(
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """How many runs were examined, not just the verdict. Without it a gate
     that queried the wrong workflow name reports the same silence as one that
     looked and found nothing wrong."""
@@ -107,7 +111,9 @@ def test_the_denominator_is_printed(monkeypatch, capsys) -> None:
     assert "abc123def456"[:12] in out, out
 
 
-def test_a_network_failure_blocks_rather_than_allows(monkeypatch, capsys) -> None:
+def test_a_network_failure_blocks_rather_than_allows(
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """Asking and not getting an answer is not the same as getting a good one."""
     monkeypatch.setenv("GITHUB_TOKEN", "x")
 
@@ -119,7 +125,9 @@ def test_a_network_failure_blocks_rather_than_allows(monkeypatch, capsys) -> Non
     assert "could not read workflow runs" in capsys.readouterr().out
 
 
-def test_it_gives_up_rather_than_waiting_forever(monkeypatch, capsys) -> None:
+def test_it_gives_up_rather_than_waiting_forever(
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
     """A pending run must not hang the job indefinitely, and must fail when it
     runs out of patience rather than falling through to success."""
     monkeypatch.setenv("GITHUB_TOKEN", "x")

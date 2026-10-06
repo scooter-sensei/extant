@@ -10,6 +10,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from conftest import GitRepo, Reconfigure
+
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
@@ -23,7 +25,7 @@ def _run(repo, *args):
                           capture_output=True, text=True).stdout
 
 
-def test_a_backticked_dead_sha_names_its_token(git_repo) -> None:
+def test_a_backticked_dead_sha_names_its_token(git_repo: GitRepo) -> None:
     from extant import session as hc
     from extant.rules import sha as rule_sha
     repo, commit = git_repo
@@ -35,7 +37,7 @@ def test_a_backticked_dead_sha_names_its_token(git_repo) -> None:
     assert findings[0].subject == DEAD, findings[0]
 
 
-def test_a_bare_dead_sha_names_its_token(git_repo) -> None:
+def test_a_bare_dead_sha_names_its_token(git_repo: GitRepo) -> None:
     from extant import session as hc
     from extant.rules import sha as rule_sha
     repo, commit = git_repo
@@ -48,7 +50,7 @@ def test_a_bare_dead_sha_names_its_token(git_repo) -> None:
 
 
 def test_every_document_scoped_claim_carries_a_subject(
-        git_repo, reconfigure) -> None:
+        git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """The coverage gate, and the reason it is a single test rather than one
     per rule.
 
@@ -123,7 +125,7 @@ def test_every_document_scoped_claim_carries_a_subject(
         )
 
 
-def test_subject_defaults_to_none(git_repo) -> None:
+def test_subject_defaults_to_none(git_repo: GitRepo) -> None:
     """Optional on purpose. It is populated rule by rule, and the mode that
     consumes it reports how many findings it had to skip - so partial coverage
     stays visible rather than silently narrowing what that mode can see."""
@@ -131,7 +133,7 @@ def test_subject_defaults_to_none(git_repo) -> None:
     assert hc.Finding(1, "dead-sha", "detail").subject is None
 
 
-def test_subject_does_not_disturb_the_fingerprint(git_repo) -> None:
+def test_subject_does_not_disturb_the_fingerprint(git_repo: GitRepo) -> None:
     """The baseline keys on (path, kind, detail). Folding a new field in would
     invalidate every recorded baseline in every project that has one."""
     from extant import session as hc

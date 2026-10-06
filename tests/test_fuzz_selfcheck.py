@@ -57,7 +57,7 @@ def test_the_red_budget_scales_from_the_clean_half(clean, expected) -> None:
 
 
 def test_a_bound_reaches_every_run_and_is_lifted_however_the_block_ends(
-        monkeypatch, tmp_path) -> None:
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Catches `bounded` not reaching `run_mode`, or leaking past its block.
 
     The first leaves the HANG breakage paying the full TIMEOUT twice, which

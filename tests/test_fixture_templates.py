@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import committer, described, init_repo
+from conftest import GitRepo, committer, described, init_repo
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PACKAGE_ROOT / "plugin" / "skills" / "extant" / "payload"))
@@ -34,7 +34,7 @@ def git(repo: Path, *args: str) -> str:
 
 
 def test_a_copied_repository_answers_what_a_built_one_answers(
-        git_repo, tmp_path) -> None:
+        git_repo: GitRepo, tmp_path: Path) -> None:
     """The base shape, compared against one built the long way.
 
     Built with the SAME helpers the template uses, so what is being compared is
@@ -67,7 +67,7 @@ def test_a_copied_repository_answers_what_a_built_one_answers(
             == len(other["refs"].splitlines()) == 2)
 
 
-def test_a_copied_repository_passes_fsck(git_repo) -> None:
+def test_a_copied_repository_passes_fsck(git_repo: GitRepo) -> None:
     """A copy that is not a valid repository would fail LOUDLY here and quietly
     everywhere else - a rule asking git a question of a broken object store
     gets an error, which several rules turn into "cannot tell, stay silent"."""
@@ -80,7 +80,7 @@ def test_a_copied_repository_passes_fsck(git_repo) -> None:
 
 
 def test_a_copy_advances_without_touching_the_template(
-        empty_repo_template, git_repo) -> None:
+        empty_repo_template: Path, git_repo: GitRepo) -> None:
     """Independence, in both directions, which is what makes a template safe.
 
     A template that acquires the first test's commits hands the second test a
@@ -103,7 +103,7 @@ def test_a_copy_advances_without_touching_the_template(
 
 
 def test_a_copy_bakes_no_path_of_the_template_into_its_config(
-        empty_repo_template, git_repo) -> None:
+        empty_repo_template: Path, git_repo: GitRepo) -> None:
     """An absolute path in the copy's config points the copy at the template.
 
     It would not fail visibly: git would go on answering, about the wrong
@@ -117,7 +117,7 @@ def test_a_copy_bakes_no_path_of_the_template_into_its_config(
 
 
 def test_the_staged_payload_is_what_the_installer_would_have_copied(
-        git_repo) -> None:
+        git_repo: GitRepo) -> None:
     """`_install_into` stages once and copies; the result must not have changed.
 
     Compared against the payload directory itself rather than against a second
@@ -143,8 +143,8 @@ def test_the_staged_payload_is_what_the_installer_would_have_copied(
         (PAYLOAD / "extant_collect.py").read_bytes())
 
 
-def test_installing_twice_gives_two_independent_copies(git_repo,
-                                                       tmp_path) -> None:
+def test_installing_twice_gives_two_independent_copies(git_repo: GitRepo,
+                                                       tmp_path: Path) -> None:
     """The staged template must not become shared state between two repos."""
     from conftest import _install_into
 
@@ -186,7 +186,8 @@ def _shaped(repo: Path, shape: str) -> Path:
 
 @pytest.mark.parametrize("shape", ["a branch", "another branch", "detached",
                                    "packed refs", "linked worktree"])
-def test_the_head_read_from_disk_is_the_head_git_names(git_repo, shape: str) -> None:
+def test_the_head_read_from_disk_is_the_head_git_names(
+        git_repo: GitRepo, shape: str) -> None:
     """`committer` read HEAD back with `git rev-parse`, one spawn in three of
     every commit the suite makes - 1,394 of them in a run, 29.5 ms each against
     0.23 ms for reading the ref git has just written (measured 2026-09-28). The
