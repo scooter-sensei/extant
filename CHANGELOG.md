@@ -41,17 +41,21 @@ Phase 65 repairs the two defects the cross-check found. Its record is
 Phase 65 in NEXT_SESSION.md, and the last section of the design
 rationale's part on code blocks.
 
-**A `<pre>` block is not closed by `</pre >`.** CommonMark ends a `<pre>`,
-`<script>`, `<style>` or `<textarea>` block only at a line holding the
-literal closing tag, in any case. A space or a tab before the `>` used to
-close it here, so the lines after it could be read as code and their
-claims skipped, where the renderer shows raw HTML.
+**A `<pre>` block is not closed by `</pre >`, and is closed by
+`</script>`.** CommonMark ends a `<pre>`, `<script>`, `<style>` or
+`<textarea>` block at a line holding a literal closing tag of any of the
+four, in any case, whichever of them opened it. A space or a tab before
+the `>` used to close it here, so the lines after it could be read as code
+and their claims skipped, where the renderer shows raw HTML. And only the
+opener's own tag closed it, so the code after a `<pre>` holding
+`</script>` was read as raw HTML, and its claims checked.
 
 **A setext heading may be indented up to three spaces, as in CommonMark.**
 Its anchor is offered, so a link to it is no longer reported dead. And an
 underline indented four or more is no longer taken for one, since to
-CommonMark it continues the paragraph. Neither moved any output over the
-152 corpus clones.
+CommonMark it continues the paragraph. The spaces are counted from the
+margin, not from inside a list item. None of these moved any output over
+the 152 corpus clones.
 
 **`exclude_paths` reads a run of stars the way git does.** A `**` spans
 directories only as a whole segment - `**/`, `/**/`, a trailing `/**` - and
