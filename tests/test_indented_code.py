@@ -286,8 +286,8 @@ def test_a_real_dedent_after_a_blank_line_still_closes_the_item() -> None:
 
 def test_a_pre_or_script_block_runs_to_its_closing_tag() -> None:
     """`<pre>`, `<script>`, `<style>` and `<textarea>` are the HTML blocks
-    CommonMark ends at their own closing tag rather than at a blank line, and
-    they are the ones whose bodies are indented and full of blank lines.
+    CommonMark ends at a closing tag rather than at a blank line, and they
+    are the ones whose bodies are indented and full of blank lines.
 
     The whole of the corpus disagreement that survived the other four rules
     was this: bazel's output-directory tree inside a `<pre>`, and dosbox's
@@ -470,20 +470,43 @@ def test_a_closing_tag_with_text_after_it_still_closes_a_pre_block() -> None:
 ])
 def test_a_pre_block_ends_only_at_the_literal_closing_tag(
         closer: str, expected: set[int]) -> None:
-    """CommonMark ends a `<pre>` block at a line CONTAINING `</pre>`, in any
-    case, and at nothing else: `</pre >` is an end tag to a browser, but
-    the markdown block runs on, so the lines after it are raw HTML, not
-    code, and the claims in them are read - markdown-it-py and micromark
-    agree. Read as a close, the indented line below was code and blanked:
-    a claim silenced. Found by the mutmut cross-check (Phase 63), whose
-    mutant agreed with the renderer and the tree did not; repaired in
-    Phase 65."""
+    """CommonMark ends a `<pre>` block at a line CONTAINING a literal closing
+    tag, in any case: `</pre >` is an end tag to a browser, but the markdown
+    block runs on, so the lines after it are raw HTML, not code, and the
+    claims in them are read - markdown-it-py and micromark agree. Read as a
+    close, the indented line below was code and blanked: a claim silenced.
+    Found by the mutmut cross-check (Phase 63), whose mutant agreed with
+    the renderer and the tree did not; repaired in Phase 65."""
     text = ("<pre>\n"
             "x\n"
             f"{closer}\n"
             "\n"
             "    code\n")
     assert _lines(text) == expected
+
+
+@pytest.mark.parametrize("opener, closer", [
+    ("<pre>", "</script>"),
+    ("<script>", "</PRE>"),
+    ("<style>", "</textarea>"),
+    ("<textarea>", "x </style> y"),
+])
+def test_any_of_the_four_closing_tags_ends_a_verbatim_block(
+        opener: str, closer: str) -> None:
+    """The end condition is shared: a `<pre>`, `<script>`, `<style>` or
+    `<textarea>` block ends at a line holding ANY of the four closing tags,
+    whichever opened it - the spec says it "need not match the start tag".
+    markdown-it-py and micromark agree on all sixteen pairs. Read as needing
+    the opener's own tag, the block ran on past `</script>` and the indented
+    line below was taken for raw HTML, its claims read where the renderer
+    shows code. Found by the gap audit of Phase 65; it changes no document
+    in the corpus."""
+    text = (f"{opener}\n"
+            "x\n"
+            f"{closer}\n"
+            "\n"
+            "    code\n")
+    assert _lines(text) == {5}
 
 
 @pytest.mark.parametrize("text, expected", [

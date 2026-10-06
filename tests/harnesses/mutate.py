@@ -809,7 +809,7 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          "            if False:"),
         # The same with `</pre>` and the three other verbatim tags.
         ("the end of a verbatim tag leaves its fence open again", blocks,
-         "            elif verbatim is not None and _closing(verbatim, line):",
+         "            elif verbatim and _closing(line):",
          "            elif False:"),
         # ``- ```` unseen again, so the item's content is read and its
         # indented closer opens a fence over the prose after it.
@@ -2850,8 +2850,8 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         # CommonMark states: the shape is still "a closing tag with text
         # beside it ends the block", and so is the test that kills it.
         ("a closing tag with text beside it does not close the block", blocks,
-         '    return ("</" + tag + ">") in line.lower()',
-         '    return line.lower().strip() == "</" + tag + ">"'),
+         '    return any(("</" + tag + ">") in lowered for tag in _VERBATIM_TAGS)',
+         '    return any(lowered.strip() == "</" + tag + ">" for tag in _VERBATIM_TAGS)'),
         ("a tab after other indentation is not taken to the next stop", blocks,
          "            columns += TAB_STOP - (columns % TAB_STOP)",
          "            columns = TAB_STOP - (columns % TAB_STOP)"),
@@ -2881,13 +2881,13 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
          '            comment = "-->" not in line[line.index("<!--"):]',
          "            comment = True"),
         ("a one-line pre block leaves a paragraph open", blocks,
-         "            verbatim = None if _closing(tag, rest) else tag\n"
+         "            verbatim = not _closing(rest)\n"
          "            paragraph = False",
-         "            verbatim = None if _closing(tag, rest) else tag\n"
+         "            verbatim = not _closing(rest)\n"
          "            paragraph = True"),
         ("a one-line pre block is held open", blocks,
-         "            verbatim = None if _closing(tag, rest) else tag",
-         "            verbatim = tag"),
+         "            verbatim = not _closing(rest)",
+         "            verbatim = True"),
         ("a nested element raises the governed boundary", blocks,
          "            governed = indent if governed is None else min(governed, indent)",
          "            governed = indent"),
@@ -3015,10 +3015,14 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
 
         # --- Phase 65: the two defects the cross-check found, repaired -------
         # Each reverts one repair, and each was watched red against the
-        # repair's own test first.
+        # repair's own test first. The fourth holds the converse its gap
+        # audit found: any of the four closing tags ends any verbatim block.
         ("a spaced closing tag ends a verbatim block again", blocks,
-         '    return ("</" + tag + ">") in line.lower()',
-         '    return ("</" + tag) in line.lower()'),
+         '    return any(("</" + tag + ">") in lowered for tag in _VERBATIM_TAGS)',
+         '    return any(("</" + tag) in lowered for tag in _VERBATIM_TAGS)'),
+        ("only `</pre>` of the four closing tags ends a verbatim block", blocks,
+         '    return any(("</" + tag + ">") in lowered for tag in _VERBATIM_TAGS)',
+         '    return any(("</" + tag + ">") in lowered for tag in _VERBATIM_TAGS[:1])'),
         ("an indented setext title is refused again", anchors,
          "        if _leading_columns(lines[index]) >= 4 or _leading_columns(lines[index + 1]) >= 4:",
          '        if lines[index].startswith((" ", "\\t")) or _leading_columns(lines[index + 1]) >= 4:'),

@@ -262,7 +262,11 @@ def _setext_headings(lines: list[str]) -> list[str]:
         # paragraph's continuation rather than a rule. Until Phase 65 any
         # indented title was refused - a working link to one reported dead -
         # and an underline was accepted at any indentation, offering an
-        # anchor no renderer makes and forgiving a dead link to it.
+        # anchor no renderer makes and forgiving a dead link to it. Columns
+        # count from the margin: this sees no list item, so a heading nested
+        # past column four is still refused, and an item's continuation line
+        # over a `---` rule at the margin - a thematic break to CommonMark -
+        # offers a phantom anchor. Two lines in the corpus, linked by nothing.
         if _leading_columns(lines[index]) >= 4 or _leading_columns(lines[index + 1]) >= 4:
             continue
         found.append(title)

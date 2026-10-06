@@ -85,11 +85,12 @@ _HTML_OPEN = re.compile(r"^<[A-Za-z][\w.:-]*(?:[\s/>]|$)")
 # as not - a pull-request template is the common case, and superpowers'
 # own is where the corpus found this.
 _COMMENT_OPEN = re.compile(r"^<!--")
-# The four elements CommonMark ends at their OWN closing tag rather than
-# at a blank line - and the ones whose bodies are indented, hold blank
-# lines, and start at the margin: a directory diagram in a `<pre>`, a
-# page script, a stylesheet.
-_VERBATIM_OPEN = re.compile(r"^<(?P<tag>pre|script|style|textarea)(?:[\s/>]|$)", re.I)
+# The four elements CommonMark ends at a closing tag rather than at a blank
+# line - and the ones whose bodies are indented, hold blank lines, and start
+# at the margin: a directory diagram in a `<pre>`, a page script, a
+# stylesheet. Any of the four closing tags ends any of the four blocks.
+_VERBATIM_TAGS = ("pre", "script", "style", "textarea")
+_VERBATIM_OPEN = re.compile(r"^<(?:" + "|".join(_VERBATIM_TAGS) + r")(?:[\s/>]|$)", re.I)
 # What is never a lazy continuation: a heading, a fence, a thematic
 # break, or a new list marker. Everything else on a line under an open
 # paragraph continues it, however far left it starts.
@@ -128,19 +129,25 @@ class CodeLines(NamedTuple):
     indented: frozenset[int]
 
 
-def _closing(tag: str, line: str) -> bool:
-    """Does this line hold `</tag>`, in any case - CommonMark's end condition
-    for the four verbatim blocks, and the only one.
+def _closing(line: str) -> bool:
+    """Does this line hold `</pre>`, `</script>`, `</style>` or `</textarea>`,
+    in any case? That is CommonMark's end condition for all four verbatim
+    blocks, whichever of them opened - the closing tag "need not match the
+    start tag".
 
-    Not "whatever its spacing" any more: `</pre >` is an end tag to a
-    browser, but CommonMark ends the markdown block only at the literal
-    `</pre>`, and markdown-it-py and micromark both run it on. Read as a
-    close, the lines after it were scanned as markdown and an indented one
-    blanked as code, where the renderer shows raw HTML - a claim silenced.
-    Found by the mutmut cross-check (Phase 63), whose mutant agreed with
-    the renderer where this did not; repaired in Phase 65.
+    Literal tags only: `</pre >` is an end tag to a browser, but CommonMark
+    ends the markdown block only at `</pre>`, and markdown-it-py and
+    micromark both run it on. Read as a close, the lines after it were
+    scanned as markdown and an indented one blanked as code, where the
+    renderer shows raw HTML - a claim silenced. Found by the mutmut
+    cross-check (Phase 63), whose mutant agreed with the renderer where this
+    did not; repaired in Phase 65. And any of the four: reading only the
+    opener's own tag ran a `<pre>` on past `</script>`, so the code after it
+    was read as raw HTML - the converse, found by Phase 65's gap audit and
+    repaired with it.
     """
-    return ("</" + tag + ">") in line.lower()
+    lowered = line.lower()
+    return any(("</" + tag + ">") in lowered for tag in _VERBATIM_TAGS)
 
 
 def _visible_indent(line: str) -> tuple[int, str]:
@@ -205,7 +212,7 @@ def code_lines(text: str, *, mdx: bool = False) -> CodeLines:
     # documentation index alone is thirty of them.
     html = False
     comment = False            # inside an HTML comment, which ends at `-->`
-    verbatim: str | None = None   # inside <pre>, <script>, <style>, <textarea>
+    verbatim = False           # inside <pre>, <script>, <style>, <textarea>
     paragraph = False          # is a paragraph open on the line above?
     block: list[int] | None = None   # the run being collected, if any
     start = 0                  # the column a run has to beat to continue
@@ -244,19 +251,19 @@ def code_lines(text: str, *, mdx: bool = False) -> CodeLines:
                 # with it: the toggle ran on past the terminator and silenced
                 # the document after it - bun, qmk and deno.
                 comment, opened = False, None
-            elif verbatim is not None and _closing(verbatim, line):
-                verbatim, opened = None, None
+            elif verbatim and _closing(line):
+                verbatim, opened = False, None
             elif fence is not None and _closes(fence, opened):
                 opened = None
             continue
-        if verbatim is not None:
-            # Runs to its OWN closing tag, through blank lines and through
-            # lines back at the margin. bazel's output-directory tree sits in
-            # a `<pre>` whose first line starts at column zero and which holds
+        if verbatim:
+            # Runs to a closing tag, through blank lines and through lines
+            # back at the margin. bazel's output-directory tree sits in a
+            # `<pre>` whose first line starts at column zero and which holds
             # blank lines; every other state here would have been released by
             # one or the other, and the 27 lines of diagram below read as code.
-            if _closing(verbatim, line):
-                verbatim = None
+            if _closing(line):
+                verbatim = False
             elif fence is not None and _opens(fence):
                 opened, items = _opener(fence), 0
                 fenced.add(number)
@@ -286,8 +293,7 @@ def code_lines(text: str, *, mdx: bool = False) -> CodeLines:
             continue
         opener = _VERBATIM_OPEN.match(rest) if may_open_html and not mdx else None
         if opener is not None:
-            tag = opener.group("tag").lower()
-            verbatim = None if _closing(tag, rest) else tag
+            verbatim = not _closing(rest)
             paragraph = False
             continue
         if block is not None:
