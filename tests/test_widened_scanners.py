@@ -14,17 +14,22 @@ rule does not have.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from conftest import GitRepo, _abbrev
 
+if TYPE_CHECKING:
+    from extant.finding import Finding
 
-def _reset():
+
+def _reset() -> None:
     from extant import session as hc
     hc._SCOPE = hc.RunScope()
     hc._DOC = hc.DocScope()
 
 
-def _md_link(repo: Path, text: str, base: Path | None = None):
+def _md_link(repo: Path, text: str, base: Path | None = None
+             ) -> tuple[list[Finding], int]:
     from extant import session as hc
     from extant.rules import md_link as rule
     _reset()
@@ -270,7 +275,7 @@ def test_html_inside_a_fence_is_an_example(git_repo: GitRepo) -> None:
 
 # --- dead-line-pointer: the end of a range -------------------------------------
 
-def _line_pointer(repo: Path, text: str):
+def _line_pointer(repo: Path, text: str) -> tuple[list[Finding], int]:
     from extant import session as hc
     from extant.rules import line_pointer as rule
     _reset()
@@ -332,7 +337,7 @@ def test_a_range_ending_below_its_start_is_read_by_its_start(git_repo: GitRepo) 
 
 # --- dead-sha: a range inside one backtick pair ------------------------------
 
-def _dead_sha(repo: Path, text: str):
+def _dead_sha(repo: Path, text: str) -> tuple[list[Finding], int]:
     from extant import session as hc
     from extant.rules import sha as rule
     _reset()
@@ -493,7 +498,7 @@ def test_the_rewriter_repairs_the_end_it_can_read_beside_one_it_cannot() -> None
 # the parenthesis, missed the external test, and was reported as a dead file:
 # 14 findings on the visible corpora, every one false.
 
-def _md_anchor(repo: Path, text: str):
+def _md_anchor(repo: Path, text: str) -> tuple[list[Finding], int]:
     from extant import session as hc
     from extant.rules import md_anchor as rule
     _reset()
@@ -647,7 +652,7 @@ def test_a_titled_or_bracketed_link_gets_no_repair_patch(git_repo: GitRepo) -> N
             'and [c](docs/plan.md).\n')
     hc._SCOPE = hc.RunScope()
     findings = hc.validate(repo, text)
-    assert sorted(f.subject for f in findings if f.kind == "dead-md-link") == [
+    assert sorted(str(f.subject) for f in findings if f.kind == "dead-md-link") == [
         "docs/a b.md", "docs/plan.md", "docs/plan.md"]
     patch = patches.suggest_renames(repo, repo, text, "NEXT_SESSION.md", findings)
     assert ('+[a](<docs/a b.md>) and [b](docs/plan.md "Plan") '
@@ -725,7 +730,8 @@ def test_a_definition_followed_by_prose_is_not_a_definition(git_repo: GitRepo) -
 # one 1.4; the 98 documents it misses hold no link of this shape.
 
 
-def _rust_readme(repo: Path, text: str, doc: str = "crates/gpui/README.md"):
+def _rust_readme(repo: Path, text: str, doc: str = "crates/gpui/README.md"
+                 ) -> tuple[list[Finding], int]:
     from extant import session as hc
     from extant.rules import md_link as rule
     _reset()
@@ -809,7 +815,8 @@ def test_a_path_shaped_link_in_an_included_readme_is_still_judged(
            "feat: gpui")
     findings, examined = _rust_readme(
         repo, "[guide](docs/guide.md) and ![logo](img/logo.png)\n\n[api]: api.md\n")
-    assert sorted(f.subject for f in findings) == ["api.md", "docs/guide.md", "img/logo.png"]
+    assert sorted(str(f.subject) for f in findings) == [
+        "api.md", "docs/guide.md", "img/logo.png"]
     assert examined == 3
 
 

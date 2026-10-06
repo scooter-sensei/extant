@@ -19,10 +19,14 @@ import subprocess
 import sys
 import types
 from pathlib import Path
+from typing import TYPE_CHECKING, Iterable
 
 import pytest
 
-from conftest import GitRepo, committer, init_repo
+from conftest import Commit, GitRepo, committer, init_repo
+
+if TYPE_CHECKING:
+    from extant.scope import Context
 
 
 def git(repo: Path, *args: str) -> str:
@@ -30,7 +34,7 @@ def git(repo: Path, *args: str) -> str:
                           text=True, encoding="utf-8", check=True).stdout
 
 
-def _clean_status(repo: Path, commit, name: str = "NEXT_SESSION.md") -> None:
+def _clean_status(repo: Path, commit: Commit, name: str = "NEXT_SESSION.md") -> None:
     commit(name, "# Status\n\n## Phase 1 - work (done, 2026-01-01)\n\n"
                  "Nothing is claimed here.\n\n## 1. Layout\n", "docs: status")
 
@@ -105,7 +109,8 @@ def test_cli_refuses_a_bare_repo_flag(
 
 # --- a rule error inside a survey worker ------------------------------------
 
-def _worker_outcome(tasks, errors):
+def _worker_outcome(tasks: list[tuple[str, bool]],
+                    errors: Iterable[tuple[str, str]]) -> object:
     """What `survey` returns when workers ran: every task answered, each
     carrying `errors` the way `_validate_chunk` attaches them."""
     return ({relative: ([], None, {}, list(errors), False)
@@ -215,7 +220,7 @@ def test_introduced_since_refuses_when_heads_tree_cannot_be_listed(
     commit("docs/a.md", "# A\n", "docs: a")
     commit("docs/a.md", "# A\n\nMore.\n", "docs: more")
 
-    def cannot_list(ctx):
+    def cannot_list(ctx: Context) -> list[str]:
         raise subprocess.CalledProcessError(128, ["git", "ls-tree"])
 
     monkeypatch.setattr(refs, "tracked_markdown", cannot_list)

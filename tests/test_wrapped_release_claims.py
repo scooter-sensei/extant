@@ -23,18 +23,20 @@ ONE line break and no more.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from conftest import GitRepo, Reconfigure
 
 
-def _claims(text: str):
+def _claims(text: str) -> list[tuple[int, str]]:
     from extant import session as hc
     from extant.rules.release_tag import _release_claims
     return _release_claims(hc._ACTIVE, text)
 
 
-def _repo(git_repo):
+def _repo(git_repo: GitRepo) -> Path:
     """A repository with one tag that exists and is on the trunk."""
     repo, commit = git_repo
     commit("a.txt", "a\n", "feat: a")
@@ -96,7 +98,7 @@ def test_a_claim_is_not_joined_across_a_blanked_fence() -> None:
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_a_wrapped_claim_is_found_with_either_terminator(newline) -> None:
+def test_a_wrapped_claim_is_found_with_either_terminator(newline: str) -> None:
     text = f"The rewrite shipped in{newline}1.2.3.{newline}"
 
     assert _claims(text) == [(1, "1.2.3")]

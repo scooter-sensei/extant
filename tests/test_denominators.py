@@ -23,6 +23,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from conftest import GitRepo, _install_into
@@ -32,7 +33,7 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _sweep(repo: Path, *extra: str):
+def _sweep(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     """Drive the real entry point, from the repository under test.
 
     INSTALLED as `tools/` rather than run out of this source tree, because
@@ -47,16 +48,19 @@ def _sweep(repo: Path, *extra: str):
         capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
-def _examined(repo: Path) -> dict:
+def _examined(repo: Path) -> dict[str, int]:
     """The per-rule denominators out of a SARIF run, wherever they are."""
     doc = json.loads(_sweep(repo, "--format=sarif").stdout)
     run = doc["runs"][0]
-    return (run.get("properties", {}).get("examined")
-            or (run.get("invocations") or [{}])[0]
-            .get("properties", {}).get("examined"))
+    examined = (run.get("properties", {}).get("examined")
+                or (run.get("invocations") or [{}])[0]
+                .get("properties", {}).get("examined"))
+    assert isinstance(examined, dict), run
+    return examined
 
 
-def _found(repo: Path, kind: str) -> list:
+# SARIF results as `json.loads` returns them; the callers read their keys.
+def _found(repo: Path, kind: str) -> list[dict[str, Any]]:
     doc = json.loads(_sweep(repo, "--format=sarif").stdout)
     return [r for r in doc["runs"][0]["results"] if r["ruleId"] == kind]
 

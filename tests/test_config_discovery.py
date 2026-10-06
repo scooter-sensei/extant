@@ -18,14 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from conftest import GitRepo
+from conftest import Commit, GitRepo
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _configured(repo: Path, commit) -> None:
+def _configured(repo: Path, commit: Commit) -> None:
     commit("STATUS.md", "# Status\n\n## Phase 1 - work (2026-09-16)\n\nDone.\n",
            "docs: status")
     commit(".extant.toml", 'primary_doc = "STATUS.md"\n', "chore: config")

@@ -336,7 +336,8 @@ def test_a_doc_scope_cannot_be_edited_in_place() -> None:
     from extant.scope import DocScope
 
     try:
-        DocScope().doc_format = "rst"
+        # Assigning to a frozen field on purpose: the raise is the subject.
+        DocScope().doc_format = "rst"  # type: ignore[misc]
     except dataclasses.FrozenInstanceError:
         pass
     else:

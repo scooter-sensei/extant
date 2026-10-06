@@ -14,11 +14,12 @@ import sys
 import threading
 import time
 from pathlib import Path
+from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "harnesses"))
 
 
-def _fuzz():
+def _fuzz() -> ModuleType:
     """Imported late: `fuzz.py` pulls in the other harness modules."""
     import fuzz
     return fuzz
@@ -34,7 +35,7 @@ def test_results_come_back_in_plan_order_whatever_finishes_first() -> None:
     fuzz = _fuzz()
     delays = [0.3, 0.0, 0.2, 0.0, 0.1]
 
-    def examine(i):
+    def examine(i: int) -> int:
         time.sleep(delays[i])
         return i
 
@@ -51,7 +52,7 @@ def test_several_jobs_really_run_at_once() -> None:
     fuzz = _fuzz()
     met = threading.Barrier(2, timeout=10)
 
-    def examine(i):
+    def examine(i: int) -> int:
         met.wait()
         return i
 
@@ -68,7 +69,7 @@ def test_one_job_is_the_old_loop_in_this_thread() -> None:
     here = threading.get_ident()
     seen: list[int] = []
 
-    def examine(i):
+    def examine(i: int) -> int:
         seen.append(threading.get_ident())
         return i
 
@@ -87,7 +88,7 @@ def test_stopping_early_cancels_what_was_queued() -> None:
     fuzz = _fuzz()
     started: list[int] = []
 
-    def examine(i):
+    def examine(i: int) -> int:
         started.append(i)
         time.sleep(0.2)
         return i

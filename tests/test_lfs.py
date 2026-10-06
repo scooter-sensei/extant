@@ -250,7 +250,8 @@ def test_the_engine_presets_check_the_version_files_that_really_hold_it() -> Non
          'config_version=5\nconfig/features=PackedStringArray("4.7", "C#")\n', "4.7"),
     ],
 )
-def test_each_preset_pattern_matches_the_real_string(preset, path, text, expected) -> None:
+def test_each_preset_pattern_matches_the_real_string(
+        preset: str, path: str, text: str, expected: str) -> None:
     """Verbatim strings from the two projects. A consistency block whose
     patterns match nothing reports agreement vacuously, which is worse than
     having no block at all - so each side is pinned to a real capture."""

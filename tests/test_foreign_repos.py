@@ -17,10 +17,14 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from conftest import GitRepo, _install_into
+
+if TYPE_CHECKING:
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -855,12 +859,15 @@ def test_the_project_union_is_built_only_when_a_fragment_needs_it(
     # measure zero builds. The first assertion would still pass. That is the
     # shape this whole file is about: a probe that stops probing looks exactly
     # like the property holding.
+    from extant import sites
     from extant.rules import md_anchor
 
     built: list[Path] = []
-    real = md_anchor.project_anchors
+    # The original, read where it is defined; the patch below still
+    # replaces the rule's own binding, which is the one called.
+    real = sites.project_anchors
 
-    def counted(ctx):
+    def counted(ctx: Context) -> set[str]:
         built.append(ctx.repo)
         return real(ctx)
 

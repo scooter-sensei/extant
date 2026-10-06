@@ -20,14 +20,14 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _kinds(repo, text):
+def _kinds(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import md_link as rule_md_link
     hc._SCOPE = hc.RunScope()
     return [f.kind for f in rule_md_link.check(hc.context(repo), text)]
 
 
-def _anchor_kinds(repo, text):
+def _anchor_kinds(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import md_anchor as rule_md_anchor
     hc._SCOPE = hc.RunScope()

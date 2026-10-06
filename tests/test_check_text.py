@@ -33,7 +33,7 @@ sys.path.insert(0, str(PAYLOAD))
 
 
 def check_text(repo: Path, document: str, *args: str,
-               raw: bytes | None = None) -> subprocess.CompletedProcess:
+               raw: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
     """Run `--check-text` against `repo`, feeding `document` on stdin."""
     tools = _install_into(repo)
     payload = raw if raw is not None else document.encode("utf-8")
@@ -44,7 +44,7 @@ def check_text(repo: Path, document: str, *args: str,
     )
 
 
-def output(done: subprocess.CompletedProcess) -> str:
+def output(done: subprocess.CompletedProcess[bytes]) -> str:
     return (done.stdout + done.stderr).decode("utf-8", errors="replace")
 
 

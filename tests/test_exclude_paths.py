@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Iterable
 
 from conftest import GitRepo, _install_into
 
@@ -34,7 +35,7 @@ PATHS = [
 ]
 
 
-def _split(patterns):
+def _split(patterns: Iterable[str]) -> tuple[list[str], dict[str, int]]:
     from extant import session as hc
     from extant import exclusions
     return exclusions.excluded_documents(list(PATHS), tuple(patterns))
@@ -320,7 +321,7 @@ def test_an_unusable_pattern_excludes_nothing_rather_than_everything() -> None:
 # End to end, through the sweep
 # --------------------------------------------------------------------------
 
-def _sweep(repo):
+def _sweep(repo: Path) -> tuple[int, str]:
     """Run the INSTALLED shape, which is the only one that reads the target's
     own configuration.
 

@@ -11,10 +11,15 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from conftest import GitRepo, Reconfigure
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
+    from extant.scope import Context
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -667,7 +672,7 @@ def test_selftest_reports_a_rule_that_raises_instead_of_crashing(
     repo, commit = git_repo
     commit("NEXT_SESSION.md", "Shipped at `abc1234567890`.\n", "docs: status")
 
-    def explode(ctx, text):
+    def explode(ctx: Context, text: str) -> list[Finding]:
         raise RuntimeError("deliberate")
 
     import dataclasses
@@ -808,7 +813,7 @@ def test_verify_reads_an_rst_extra_document_as_rst(git_repo: GitRepo) -> None:
 
 @pytest.mark.parametrize("role", ["primary_doc", "archive_doc"])
 def test_verify_reads_an_rst_status_or_archive_document_as_rst(
-        git_repo: GitRepo, role) -> None:
+        git_repo: GitRepo, role: str) -> None:
     """The other two places --verify installs a document, closed with the
     extra documents' and pinned apart from them: each named its path and not
     its format, so an `.rst` primary or archive was read as markdown too."""
@@ -1029,7 +1034,7 @@ def test_a_document_that_is_not_utf8_is_reported_not_crashed(git_repo: GitRepo) 
 @pytest.mark.parametrize("fmt", ["text", "sarif"])
 @pytest.mark.parametrize("where", ["archive", "extra"])
 def test_an_undecodable_archive_or_extra_document_is_a_finding_not_a_crash(
-        git_repo: GitRepo, where, fmt) -> None:
+        git_repo: GitRepo, where: str, fmt: str) -> None:
     """The primary document's read reported this; the archive's and every
     extra document's, twelve and a hundred and fifty lines further down the
     same function, let `UnicodeDecodeError` out as a traceback - so `--verify`
@@ -1171,15 +1176,15 @@ def test_batched_ancestry_agrees_with_git_in_BOTH_directions(git_repo: GitRepo) 
 
         answers = {sha: batched(sha) for sha in on_trunk + off_trunk}
 
-    def batched(sha: str) -> bool:
+    def answered(sha: str) -> bool:
         return answers[sha]
 
     for sha in on_trunk:
-        assert batched(sha) is True, f"{sha} is on trunk but the batch said no"
+        assert answered(sha) is True, f"{sha} is on trunk but the batch said no"
         # Independent oracle: git itself, not another product function.
         assert _ancestor_of(repo, sha, "main") is True
     for sha in off_trunk:
-        assert batched(sha) is False, (
+        assert answered(sha) is False, (
             f"{sha} is NOT on trunk but the batch said yes; false-merge-claim "
             f"would go silently blind"
         )
@@ -1673,7 +1678,7 @@ def test_the_suggested_patch_actually_applies(git_repo: GitRepo) -> None:
 ], ids=["no-final-newline", "crlf-no-final-newline", "form-feed-in-a-line",
         "line-separator-in-a-line"])
 def test_the_suggested_patch_applies_to_whatever_the_document_ends_with(
-        git_repo: GitRepo, document) -> None:
+        git_repo: GitRepo, document: str) -> None:
     """Catches a patch cut into lines by a rule git does not use.
 
     `difflib` was handed `splitlines()`, which breaks on a form feed and the

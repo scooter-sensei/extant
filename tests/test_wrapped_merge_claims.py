@@ -22,17 +22,22 @@ be read as a promise. A claim may wrap ONE line break and no more.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from conftest import GitRepo
 
+if TYPE_CHECKING:
+    from extant.config import Config
 
-def _config():
+
+def _config() -> Config:
     from extant import session as hc
     return hc._ACTIVE
 
 
-def _claims(text: str):
+def _claims(text: str) -> list[tuple[int, str, str]]:
     from extant.commits import merge_claims
     return merge_claims(_config(), text)
 
@@ -134,7 +139,7 @@ def test_a_claim_is_not_joined_across_a_blanked_fence() -> None:
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_a_wrapped_claim_is_found_with_either_terminator(newline) -> None:
+def test_a_wrapped_claim_is_found_with_either_terminator(newline: str) -> None:
     """CRLF is what a Windows checkout hands the scanner.
 
     `\\s+` covers `\\r` as well as `\\n`, so this passes for the same reason the

@@ -215,7 +215,8 @@ def test_finding_fields_are_frozen_and_ordered() -> None:
     assert [f.name for f in dataclasses.fields(Located)] == [
         "path", "finding", "primary", "gating", "stratum"]
     try:
-        Finding(1, "k", "d").line = 2
+        # Assigning to a frozen field on purpose: the raise is the subject.
+        Finding(1, "k", "d").line = 2  # type: ignore[misc]
     except dataclasses.FrozenInstanceError:
         pass
     else:

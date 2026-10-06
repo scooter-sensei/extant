@@ -166,10 +166,17 @@ CONFIGS = [
 NAMED_BY_TWELVE = 12
 
 
+def _text(value: object) -> str:
+    """A case's one value, the text under test, which every table here
+    holds as a string; `pytest.param` types its values as anything."""
+    assert isinstance(value, str), value
+    return value
+
+
 @pytest.mark.parametrize("config", CONFIGS)
 @pytest.mark.parametrize("shell", SHELLS)
 def test_the_builtin_config_read_matches_the_pipeline_it_replaced(
-        shell, config, tmp_path: Path) -> None:
+        shell: str, config: str, tmp_path: Path) -> None:
     path = tmp_path / ".extant.toml"
     write_exactly(path, config)
 
@@ -185,7 +192,7 @@ def test_the_builtin_config_read_matches_the_pipeline_it_replaced(
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_the_config_cases_are_not_all_empty(shell, tmp_path: Path) -> None:
+def test_the_config_cases_are_not_all_empty(shell: str, tmp_path: Path) -> None:
     """The denominator. Two implementations that both do nothing agree.
 
     This is the check the first attempt at this comparison did not have: its
@@ -195,7 +202,7 @@ def test_the_config_cases_are_not_all_empty(shell, tmp_path: Path) -> None:
     answered = 0
     for index, case in enumerate(CONFIGS):
         path = tmp_path / f"c{index}.toml"
-        write_exactly(path, case.values[0])
+        write_exactly(path, _text(case.values[0]))
         if run(shell, SHIPPED_SED, path.as_posix()).strip():
             answered += 1
     print(f"{shell}: {answered} of {len(CONFIGS)} cases name a document")
@@ -262,7 +269,7 @@ OUTPUTS = [
 @pytest.mark.parametrize("output", OUTPUTS)
 @pytest.mark.parametrize("shell", SHELLS)
 def test_the_builtin_formatter_matches_the_pipeline_it_replaced(
-        shell, output, tmp_path: Path) -> None:
+        shell: str, output: str, tmp_path: Path) -> None:
     sample = tmp_path / "verify-output.txt"
     write_exactly(sample, output)
 
@@ -297,12 +304,12 @@ def test_the_builtin_formatter_matches_the_pipeline_it_replaced(
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_the_formatter_cases_are_not_all_empty(shell, tmp_path: Path) -> None:
+def test_the_formatter_cases_are_not_all_empty(shell: str, tmp_path: Path) -> None:
     """The same denominator, for the same reason."""
     counted = []
     for index, case in enumerate(OUTPUTS):
         sample = tmp_path / f"o{index}.txt"
-        write_exactly(sample, case.values[0])
+        write_exactly(sample, _text(case.values[0]))
         counted.append(int(run(shell, SHIPPED_COUNT, sample.as_posix(),
                                check=False).strip()))
     print(f"{shell}: counts from the shipped pipeline: {counted}")
@@ -313,7 +320,7 @@ def test_the_formatter_cases_are_not_all_empty(shell, tmp_path: Path) -> None:
     # The size denominator, and the reason this assertion exists at all: every
     # sample was under 600 bytes when a 4 KB threshold was silently breaking
     # the count. A table that cannot reach the boundary cannot see the bug.
-    biggest = max(len(case.values[0]) for case in OUTPUTS)
+    biggest = max(len(_text(case.values[0])) for case in OUTPUTS)
     print(f"{shell}: largest sample is {biggest} bytes")
     assert biggest > 8000, (
         f"largest sample is {biggest} bytes; nothing here crosses the ~4 KB "

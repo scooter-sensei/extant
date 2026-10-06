@@ -20,17 +20,22 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import TYPE_CHECKING, Any, Callable
 
 import pytest
 
 from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from fuzz import RepoPlan
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _sweep(repo: Path, *extra: str):
+def _sweep(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     """Drive the real entry point, so the test sees what a consumer sees."""
     return subprocess.run(
         [sys.executable, str(PAYLOAD / "extant_collect.py"), "--sweep",
@@ -38,7 +43,7 @@ def _sweep(repo: Path, *extra: str):
         capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
-def _repo_without_markdown(git_repo) -> Path:
+def _repo_without_markdown(git_repo: GitRepo) -> Path:
     repo, commit = git_repo
     commit("f.txt", "not a document\n", "chore: a file git tracks")
     return repo
@@ -120,15 +125,18 @@ def test_a_sweep_that_does_find_documents_is_untouched(git_repo: GitRepo) -> Non
 # --- seed 20260824, property DENOMINATOR: found > examined --------------
 
 
-def _examined(doc: dict) -> dict:
+# `doc` is a SARIF document as `json.loads` returns it.
+def _examined(doc: dict[str, Any]) -> dict[str, int]:
     """The per-rule denominators out of a SARIF run, wherever they are."""
     run = doc["runs"][0]
-    return (run.get("properties", {}).get("examined")
-            or (run.get("invocations") or [{}])[0]
-            .get("properties", {}).get("examined"))
+    examined = (run.get("properties", {}).get("examined")
+                or (run.get("invocations") or [{}])[0]
+                .get("properties", {}).get("examined"))
+    assert isinstance(examined, dict), run
+    return examined
 
 
-def _anchor_repo(git_repo, link: str) -> Path:
+def _anchor_repo(git_repo: GitRepo, link: str) -> Path:
     repo, commit = git_repo
     commit("docs/note.md", "# Note\n\n## A real heading\n\ntext\n",
            "docs: a note with one heading")
@@ -207,7 +215,7 @@ def test_an_anchor_on_a_file_that_is_not_there_is_still_not_counted(
     assert _examined(doc)["dead-md-anchor"] == 0, _examined(doc)
 
 
-def _floor_repo(git_repo, stated: str) -> Path:
+def _floor_repo(git_repo: GitRepo, stated: str) -> Path:
     repo, commit = git_repo
     commit("pyproject.toml", '[project]\nname = "w"\nrequires-python = ">=3.9"\n',
            "chore: a manifest that declares a floor")
@@ -261,7 +269,7 @@ def test_a_sweep_counts_a_floor_the_manifest_agrees_with(git_repo: GitRepo) -> N
 # --- seed 20260824, property DENOMINATOR: one fault reported twice ------
 
 
-def _lfs_repo(git_repo) -> Path:
+def _lfs_repo(git_repo: GitRepo) -> Path:
     """A raw blob at a path `.gitattributes` routes through an LFS filter.
 
     Written past the filter with `hash-object --no-filters` and straight into
@@ -349,7 +357,7 @@ def _installed(repo: Path) -> Path:
     return repo / "tools" / "extant_collect.py"
 
 
-def _collect(repo: Path, *extra: str):
+def _collect(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--collect", *extra,
          "--repo", str(repo)],
@@ -411,7 +419,7 @@ def test_collect_writes_a_bundle_when_the_suite_command_needs_no_interpreter(
 
 # --- seed 20260824, property CRASH: the one mode that rewrites --------
 
-def _archive(repo: Path):
+def _archive(repo: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--archive", "--repo", str(repo)],
         cwd=str(repo),
@@ -465,7 +473,7 @@ ENTRY_DOC = (
 )
 
 
-def _validate(repo: Path):
+def _validate(repo: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--validate", "NEXT_SESSION.md",
          "--repo", str(repo)],
@@ -473,8 +481,8 @@ def _validate(repo: Path):
         capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
-def _denominators(out: str) -> dict:
-    counts = {}
+def _denominators(out: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for part in out.split("checked NEXT_SESSION.md:")[-1].split("\n")[0].split(","):
         bits = part.strip().rsplit(" ", 1)
         if len(bits) == 2 and bits[1].isdigit():
@@ -548,7 +556,9 @@ def test_normalising_a_bare_cr_does_not_move_any_offset(git_repo: GitRepo) -> No
     assert lines["cr"] == lines["lf"], lines
 
 
-def _sha_map_run(repo: Path, map_path: str, *extra: str):
+def _sha_map_run(
+        repo: Path, map_path: str,
+        *extra: str) -> subprocess.CompletedProcess[str]:
     """Drive `--sha-map` through the real entry point, as a consumer would."""
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--validate",
@@ -659,7 +669,7 @@ def test_sha_map_still_rewrites_the_document_when_the_map_is_there(
     assert dead[:12] not in rewritten, rewritten
 
 
-def _search(repo: Path, needle: str = "Phase"):
+def _search(repo: Path, needle: str = "Phase") -> subprocess.CompletedProcess[str]:
     """Drive `--search` through the real entry point, as a consumer would."""
     return subprocess.run(
         [sys.executable, str(_installed(repo)), "--search", needle,
@@ -829,7 +839,7 @@ def test_archive_still_archives_when_the_document_is_there(git_repo: GitRepo) ->
 sys.path.insert(0, str(Path(__file__).resolve().parent / "harnesses"))
 
 
-def _rmtree_helpers():
+def _rmtree_helpers() -> ModuleType:
     """Imported late: `fuzz.py` pulls in the other harness modules."""
     import fuzz
     return fuzz
@@ -847,7 +857,7 @@ def test_present_answers_rather_than_raising_when_stat_is_denied(
     """
     fuzz = _rmtree_helpers()
 
-    def denied(self, **kwargs):
+    def denied(self: Path, **kwargs: object) -> None:
         raise PermissionError(13, "Permission denied")
 
     # Monkeypatched rather than subclassed: `Path` cannot be subclassed
@@ -894,9 +904,9 @@ def test_rmtree_asks_for_a_mode_a_directory_can_be_entered_with(
     (root / "objects" / "loose").write_text("x", encoding="utf-8")
 
     asked: dict[str, int] = {}
-    real = Path.chmod
+    real: Callable[..., None] = Path.chmod
 
-    def record(self, mode, **kwargs):
+    def record(self: Path, mode: int, **kwargs: object) -> None:
         asked[self.name] = mode
         return real(self, mode, **kwargs)
 
@@ -963,7 +973,8 @@ def test_shrink_reports_a_feature_set_that_actually_reproduces(
     # Monotone and deliberately not keyed on a NAME: the violation needs any
     # two features at once. The full set reproduces, so the baseline holds and
     # the reduction is the part under test.
-    def reproduces(pkg, arena, candidate, signature):
+    def reproduces(pkg: object, arena: object, candidate: RepoPlan,
+                   signature: object) -> bool:
         return len(candidate.features) >= 2
 
     monkeypatch.setattr(fuzz, "_still_fails", reproduces)

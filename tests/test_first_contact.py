@@ -22,7 +22,8 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 COLLECTOR = PAYLOAD / "extant_collect.py"
 
 
-def run(repo: Path, *args: str, collector: Path | None = None):
+def run(repo: Path, *args: str, collector: Path | None = None
+        ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(collector or COLLECTOR), "--repo", str(repo),
          *args],

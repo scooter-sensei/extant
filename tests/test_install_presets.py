@@ -19,10 +19,13 @@ import subprocess
 import sys
 import tempfile
 try:
-    import tomllib
+    # Arrives in 3.11, past the checker's 3.10 target; extant/config.py
+    # says why the suppression stands.
+    import tomllib  # type: ignore[import-not-found]
 except ModuleNotFoundError:      # Python < 3.11, see requirements-test.txt
     import tomli as tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import described
@@ -114,7 +117,9 @@ def test_make_repo_builds_what_it_built_the_long_way(tmp_path: Path) -> None:
     assert identity(copied) == identity(built) == ["t@t", "T"]
 
 
-def config_of(repo: Path) -> dict:
+# The parsed TOML, as `tomllib.load` returns it: the tests index into it,
+# and a key the installer did not write raises there.
+def config_of(repo: Path) -> dict[str, Any]:
     """The effective settings, merged the way the loader merges them.
 
     Settings may sit at the top level or under `[extant]`, and the loader reads
@@ -348,7 +353,7 @@ CONSISTENCY_CASES = {
 
 @pytest.mark.parametrize("preset", sorted(CONSISTENCY_CASES))
 def test_preset_consistency_check_fires_when_the_files_disagree(
-        preset, tmp_path: Path) -> None:
+        preset: str, tmp_path: Path) -> None:
     """The half that matters: a check that cannot fail is not a check.
 
     Both directions are asserted. Clean files must pass, because a check that
@@ -533,7 +538,8 @@ def _document_presets() -> list[str]:
 
 
 @pytest.mark.parametrize("preset", _document_presets())
-def test_every_document_preset_writes_loadable_toml(preset, tmp_path: Path) -> None:
+def test_every_document_preset_writes_loadable_toml(preset: str, tmp_path: Path
+                                                    ) -> None:
     """Catches an installer that emits a config the tool then refuses to read.
 
     It has happened: a preset switching a feature off wrote `plans_dir = ` with
@@ -978,7 +984,8 @@ def test_a_preset_consistency_check_needs_its_files_to_exist(tmp_path: Path) -> 
     obs, _notes = apply_preset("python", [], repo)
     emitted = [o for o in obs if o.key == "consistency" and o.value]
     for o in emitted:
-        for _check, sources in dict(o.value).items():   # type: ignore[arg-type]
+        assert isinstance(o.value, dict), o
+        for _check, sources in o.value.items():
             for path in sources:
                 assert (repo / path).is_file(), (
                     f"emitted a consistency check naming {path!r}, which this "

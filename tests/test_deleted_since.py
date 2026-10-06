@@ -15,6 +15,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
 
@@ -29,7 +30,7 @@ OTHER = "beef" + "1" * 36
 ENTRY = "# S\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n{}\n\n## 1. Ref\n"
 
 
-def _run(repo, *args):
+def _run(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, check=True,
                           capture_output=True, text=True).stdout
 
@@ -233,13 +234,13 @@ def test_a_correction_that_swaps_the_token_is_reported(git_repo: GitRepo) -> Non
 # fresh one per old document. The tests below pin both halves.
 
 
-def _counted(monkeypatch) -> list[str]:
+def _counted(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Every git command line started, recorded at the subprocess boundary -
     the only vantage that sees the stdin-fed batches as well as the seam."""
     spawns: list[str] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def counted(cmd, *a, **kw):
+    def counted(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)

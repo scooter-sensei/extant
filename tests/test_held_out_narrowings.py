@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -39,28 +43,28 @@ def _clear() -> None:
     hc._SCOPE = hc.RunScope()
 
 
-def _links(repo, text) -> list[str]:
+def _links(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import md_link as rule_md_link
     _clear()
     return [f.subject for f in rule_md_link.check(hc.context(repo), text)]
 
 
-def _shas(repo, text) -> list[str]:
+def _shas(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import sha as rule_sha
     _clear()
     return [f.subject for f in rule_sha.check(hc.context(repo), text)]
 
 
-def _anchors(repo, text) -> list[str]:
+def _anchors(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import md_anchor as rule_md_anchor
     _clear()
     return [f.subject for f in rule_md_anchor.check(hc.context(repo), text)]
 
 
-def _pointers(repo, text) -> list[str]:
+def _pointers(repo: Path, text: str) -> list[str | None]:
     from extant import session as hc
     from extant.rules import path_pointer as rule_path_pointer
     _clear()
@@ -189,7 +193,8 @@ def test_a_lone_language_shaped_directory_is_not_a_tree(
     assert _links(repo, "See [contexts](contexts.md).\n") == []
 
 
-def _resolves(repo, monkeypatch, document: str, target: str, *,
+def _resolves(repo: Path, monkeypatch: pytest.MonkeyPatch, document: str,
+              target: str, *,
               numbered: bool = False) -> bool:
     """Ask the bare-name or the numbered-route resolver directly, as
     `document` - the two questions the link rules gate on, without the
@@ -460,7 +465,7 @@ def test_nothing_resolves_when_the_listing_cannot_be_read(
     repo, commit = git_repo
     commit("docs/07-misc/04-custom-elements.md", "# CE\n", "seed")
 
-    def listing_fails(ctx):
+    def listing_fails(ctx: Context) -> list[str]:
         raise OSError("the listing cannot be read")
 
     monkeypatch.setattr(text, "tracked_markdown", listing_fails)
@@ -473,7 +478,7 @@ def test_nothing_resolves_when_the_listing_cannot_be_read(
 # 3. A SHA that is link text for somebody else's commit.       192 findings
 # --------------------------------------------------------------------------
 
-def _with_origin(repo, url: str) -> None:
+def _with_origin(repo: Path, url: str) -> None:
     """Give the fixture an `origin`, the repository's own statement of what
     it is - the thing a linked SHA's URL is compared with."""
     import subprocess
@@ -481,7 +486,7 @@ def _with_origin(repo, url: str) -> None:
                    check=True, capture_output=True, stdin=subprocess.DEVNULL)
 
 
-def _examined_shas(repo, text) -> int:
+def _examined_shas(repo: Path, text: str) -> int:
     from extant import session as hc
     from extant.rules import sha as rule_sha
     _clear()

@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 import pytest
 from conftest import GitRepo, raising_rule
@@ -31,13 +32,14 @@ DEAD = "dead" + "0" * 36
 DEAD_TOO = "beef" + "1" * 36
 
 
-def _run(repo, *args):
+def _run(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, check=True,
                           capture_output=True, text=True).stdout
 
 
-def _gate(repo, ref, fmt="text"):
-    """Run the mode in process and hand back (exit code, stdout, stderr)."""
+def _gate(repo: Path, ref: str, fmt: str = "text") -> int:
+    """Run the mode in process and hand back its exit code; what it printed
+    is the caller's `capsys`."""
     from extant import session as hc
     from extant.introduced_since import run_introduced_since
 
@@ -193,7 +195,7 @@ def test_a_modified_line_gates_on_what_it_already_held(
 
 @pytest.mark.parametrize("fmt", ["text", "sarif"])
 def test_an_unresolvable_ref_refuses_rather_than_passing(
-        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], fmt) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], fmt: str) -> None:
     """`--deleted-since` examines nothing and exits 0 on a bad ref, and that is
     right for a mode that never gates. This one gates, so a range it cannot
     compute is a run that cannot proceed: exit 2, nothing on stdout - a SARIF
@@ -211,7 +213,7 @@ def test_an_unresolvable_ref_refuses_rather_than_passing(
 
 @pytest.mark.parametrize("fmt", ["text", "sarif"])
 def test_a_range_writing_no_document_is_a_result_not_a_refusal(
-        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], fmt) -> None:
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str], fmt: str) -> None:
     """`--introduced-since HEAD` wrote nothing, and saying so is an answer: the
     denominator is printed and exit is 0. SARIF still emits a document, for
     the reason `_report_empty_survey` gives - a machine consumer handed zero
@@ -676,9 +678,9 @@ def test_the_mode_stays_within_its_spawn_budget(
     commit("docs/notes.md", f"# Notes\n\nMerged at `{DEAD}`.\n", "docs: claim")
 
     spawns: list[list[str]] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def counting(args, *rest, **kwargs):
+    def counting(args: list[str], *rest: object, **kwargs: object) -> object:
         if args and args[0] == "git":
             spawns.append(list(args))
         return real(args, *rest, **kwargs)
@@ -692,7 +694,7 @@ def test_the_mode_stays_within_its_spawn_budget(
 @pytest.mark.parametrize("parallel", [False, True])
 def test_the_gate_lists_the_tree_once(
         git_repo: GitRepo, capsys: pytest.CaptureFixture[str],
-        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, parallel) -> None:
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, parallel: bool) -> None:
     """The gate lists HEAD's tree to count what the range left alone, and
     then neither seeded its scope with the list nor handed it to `survey`,
     so a document reaching `sites.py` had it listed again - in this process,

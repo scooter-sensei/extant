@@ -21,6 +21,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
 
@@ -236,9 +237,9 @@ def test_deleted_since_asks_about_every_missing_object_in_one_listing(
     ref = "HEAD~3"
 
     spawns: list[str] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def counted(cmd, *a, **kw):
+    def counted(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)

@@ -16,28 +16,33 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _reset():
+def _reset() -> None:
     from extant import session as hc
     hc._SCOPE = hc.RunScope()
     hc._DOC = hc.DocScope()
 
 
-def _check(repo, text: str):
+def _check(repo: Path, text: str) -> list[Finding]:
     from extant import session as hc
     from extant.rules import line_pointer as rule_line_pointer
     _reset()
     return rule_line_pointer.check(hc.context(repo), text)
 
 
-def _examined(repo, text: str) -> int:
+def _examined(repo: Path, text: str) -> int:
     from extant import session as hc
     from extant.rules import line_pointer as rule_line_pointer
     _reset()
@@ -323,7 +328,8 @@ def test_the_probe_declines_when_there_is_nothing_to_corrupt(git_repo: GitRepo) 
 
 # --- the gate in front of the scan -------------------------------------
 
-def _sites_without_the_gate(ctx, text: str):
+def _sites_without_the_gate(ctx: Context, text: str
+                            ) -> list[tuple[int, str, int, int, int | None]]:
     """`_line_pointer_sites_uncached` as it stood at 7c51c2f.
 
     A deliberate second copy, with the same maintenance contract the bare-SHA

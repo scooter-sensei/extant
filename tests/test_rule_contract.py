@@ -100,7 +100,8 @@ def test_a_rule_that_states_no_denominator_refuses_rather_than_answering_zero(
                      scope="whole-file", in_archive=True, falsifiable="does it?",
                      probe=lambda _c, _t: None)
     try:
-        forgetful.examined(None, "")
+        # No context on purpose: the default must raise before it reads one.
+        forgetful.examined(None, "")  # type: ignore[arg-type]
     except NotImplementedError:
         pass
     else:
@@ -118,7 +119,8 @@ def test_a_rule_that_states_no_denominator_refuses_rather_than_answering_zero(
     real = registry.RULES
     registry.RULES = (forgetful,)
     try:
-        counts = count_examined(None, "")
+        # No context on purpose: a rule that never reads one is the subject.
+        counts = count_examined(None, "")  # type: ignore[arg-type]
     finally:
         registry.RULES = real
     assert counts == {"made-up": 0}, counts

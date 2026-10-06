@@ -19,10 +19,15 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable, Iterator
 
 import pytest
 
 from conftest import GitRepo, Reconfigure
+
+if TYPE_CHECKING:
+    from extant.config import Config
+    from extant.scope import Context
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -297,7 +302,7 @@ def test_the_scope_is_released_even_when_a_document_explodes(
     repo, commit = git_repo
     commit("docs/a.md", "# A\n", "chore: a")
 
-    def exploding(*args, **kwargs):
+    def exploding(*args: object, **kwargs: object) -> None:
         raise RuntimeError("rule blew up")
 
     monkeypatch.setattr(hc, "validate", exploding)
@@ -376,7 +381,7 @@ def test_ancestry_is_re_read_between_validate_calls(git_repo: GitRepo) -> None:
     from extant import session as hc
     repo, commit = git_repo
 
-    def git(*args):
+    def git(*args: str) -> str:
         return subprocess.run(["git", *args], cwd=repo, check=True,
                               capture_output=True, text=True).stdout.strip()
 
@@ -499,9 +504,9 @@ def test_one_ref_scan_answers_branches_tags_and_lookups(
                capture_output=True)
 
     calls: list[str] = []
-    real = sp.run
+    real: Callable[..., object] = sp.run
 
-    def counted(cmd, *a, **k):
+    def counted(cmd: object, *a: object, **k: object) -> object:
         if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == "git":
             calls.append(" ".join(str(x) for x in cmd[1:3]))
         return real(cmd, *a, **k)
@@ -619,7 +624,7 @@ def test_the_pointer_sites_memo_outlives_the_call_but_not_the_next_one(
     calls: list[str] = []
     real = line_pointer._line_pointer_sites_uncached
 
-    def counted(ctx, text):
+    def counted(ctx: Context, text: str) -> object:
         calls.append(text)
         return real(ctx, text)
 
@@ -672,11 +677,11 @@ def test_the_candidate_scans_run_once_per_document_not_once_per_caller(
     real_sha = commits._find_sha_candidates
     real_claims = commits._merge_claims
 
-    def counted_sha(text, own):
+    def counted_sha(text: str, own: Callable[[], str | None]) -> object:
         sha_scans.append(text)
         return real_sha(text, own)
 
-    def counted_claims(config, prose):
+    def counted_claims(config: Config, prose: str) -> object:
         claim_scans.append(prose)
         return real_claims(config, prose)
 
@@ -751,7 +756,7 @@ def test_the_path_pointer_scan_runs_once_per_document_not_once_per_caller(
     scans: list[str] = []
     real = rule_path_pointer._path_pointer_sites_uncached
 
-    def counted(ctx, text):
+    def counted(ctx: Context, text: str) -> object:
         scans.append(text)
         return real(ctx, text)
 
@@ -908,11 +913,11 @@ class _CountingPattern:
         self.inner = pattern
         self.scans = 0
 
-    def findall(self, text: str):
+    def findall(self, text: str) -> list[object]:
         self.scans += 1
         return self.inner.findall(text)
 
-    def finditer(self, text: str):
+    def finditer(self, text: str) -> Iterator[re.Match[str]]:
         self.scans += 1
         return self.inner.finditer(text)
 

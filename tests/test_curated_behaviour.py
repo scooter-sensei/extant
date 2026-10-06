@@ -12,10 +12,14 @@ import contextlib
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from conftest import GitRepo, _install_into
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -24,7 +28,7 @@ sys.path.insert(0, str(PAYLOAD))
 
 # --- a floor written two ways is one floor -----------------------------
 
-def _floor_findings(git_repo, manifest: str, text: str):
+def _floor_findings(git_repo: GitRepo, manifest: str, text: str) -> list[Finding]:
     from extant import session as hc
     from extant.rules import manifest_floor as rule
     repo, commit = git_repo
@@ -68,7 +72,7 @@ def test_padding_does_not_swallow_a_real_disagreement(git_repo: GitRepo) -> None
 
 # --- a query string is not part of a filename --------------------------
 
-def _link_findings(git_repo, text: str):
+def _link_findings(git_repo: GitRepo, text: str) -> list[Finding]:
     from extant import session as hc
     from extant.rules import md_link as rule
     repo, commit = git_repo
@@ -171,19 +175,19 @@ def test_validate_says_so_when_the_clone_is_shallow(git_repo: GitRepo) -> None:
     A `dead-sha` count from a shallow clone describes the slice that was
     cloned, not the repository. Catches a `is_shallow` nothing calls.
     """
-    import extant_collect as hc
+    from extant.cli import main
     repo, commit = git_repo
     commit("NEXT_SESSION.md", "# status\n\nNothing to see.\n", "docs: status")
     _install_into(repo)
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        hc.main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
+        main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
     assert "shallow repository" not in out.getvalue() + err.getvalue()
 
     (repo / ".git" / "shallow").write_text("abc\n", encoding="utf-8")
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        hc.main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
+        main(["--validate", "NEXT_SESSION.md", "--repo", str(repo)])
     assert "shallow repository" in out.getvalue() + err.getvalue()
 
 
@@ -231,7 +235,7 @@ def test_a_document_that_returns_no_result_is_named_not_skipped(
 
     real = sweep._sequential
 
-    def losing(repo_, tasks):
+    def losing(repo_: Path, tasks: list[tuple[str, bool]]) -> object:
         gathered = real(repo_, tasks)
         gathered.pop("docs/d1.md", None)      # the survey drops one document
         return gathered
@@ -248,7 +252,7 @@ def test_a_document_that_returns_no_result_is_named_not_skipped(
     assert exit_code == 1, "a survey that lost a document exited 0"
 
 
-def _sweep_text(repo, capsys) -> str:
+def _sweep_text(repo: Path, capsys: pytest.CaptureFixture[str]) -> str:
     """A survey of `repo` under `repo`'s own settings, as the CLI runs one.
 
     `reload_config`, not a bare `session.CONFIG = load_config(repo)`. The two
@@ -441,7 +445,7 @@ def test_a_pool_that_cannot_start_is_announced_not_swallowed(
         commit(f"docs/d{i}.md", f"# Doc {i}\n\nSee `src/gone{i}.py`.\n",
                f"docs: {i}")
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> None:
         raise OSError("spawning is not permitted here")
 
     monkeypatch.setattr(sweep, "_PARALLEL_FLOOR", 1)

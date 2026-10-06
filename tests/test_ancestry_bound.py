@@ -21,9 +21,10 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
-from conftest import committer, described, init_repo
+from conftest import Commit, committer, described, init_repo
 
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
@@ -44,7 +45,7 @@ def _entry(body: str) -> str:
             f"{body}\n\n## 1. Layout\n")
 
 
-def _build_history(repo: Path, commit) -> dict[str, str]:
+def _build_history(repo: Path, commit: Commit) -> dict[str, str]:
     """main: c1 c2 c3 [merge topic: t1 t2] c4 c5; side: s1 s2 s3, never merged.
 
     Ancestors of main include the root, a second-parent commit and the tip -
@@ -139,12 +140,12 @@ def test_a_copied_history_answers_what_a_built_one_answers(
                 == git(built, "log", "-1", "--format=%s", built_ids[name])), name
 
 
-def _spawns(monkeypatch) -> list[tuple[list[str], bytes | str | None]]:
+def _spawns(monkeypatch: pytest.MonkeyPatch) -> list[tuple[list[str], object]]:
     """Every git process at the subprocess boundary: (argv, stdin payload)."""
-    real = subprocess.run
-    seen: list[tuple[list[str], bytes | str | None]] = []
+    real: Callable[..., object] = subprocess.run
+    seen: list[tuple[list[str], object]] = []
 
-    def counted(cmd, *a, **kw):
+    def counted(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             seen.append(([str(c) for c in cmd[1:]], kw.get("input")))
         return real(cmd, *a, **kw)
@@ -153,7 +154,8 @@ def _spawns(monkeypatch) -> list[tuple[list[str], bytes | str | None]]:
     return seen
 
 
-def _batches(seen) -> list[tuple[list[str], bytes | str | None]]:
+def _batches(seen: list[tuple[list[str], object]]
+             ) -> list[tuple[list[str], object]]:
     return [(argv, payload) for argv, payload in seen if "--stdin" in argv
             and argv[0] == "rev-list"]
 
@@ -161,7 +163,7 @@ def _batches(seen) -> list[tuple[list[str], bytes | str | None]]:
 BOUNDS = (1, 3, None)   # None means the shipped default
 
 
-def _bound(monkeypatch, value):
+def _bound(monkeypatch: pytest.MonkeyPatch, value: int | None) -> int:
     from extant import refs
     if value is not None:
         monkeypatch.setattr(refs, "INDEX_BOUND", value)
@@ -221,7 +223,7 @@ def test_the_default_bound_indexes_a_small_history_completely(
 @pytest.mark.parametrize("bound", BOUNDS)
 def test_the_merge_rule_answers_the_same_under_every_bound(
         history: tuple[Path, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
-        bound) -> None:
+        bound: int | None) -> None:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     repo, ids = history
@@ -239,7 +241,7 @@ def test_the_merge_rule_answers_the_same_under_every_bound(
 @pytest.mark.parametrize("bound", BOUNDS)
 def test_the_release_rule_answers_the_same_under_every_bound(
         history: tuple[Path, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
-        bound) -> None:
+        bound: int | None) -> None:
     from extant import session as hc
     from extant.rules import release_tag as rule_release
     repo, ids = history
@@ -257,7 +259,7 @@ def test_the_release_rule_answers_the_same_under_every_bound(
 @pytest.mark.parametrize("bound", BOUNDS)
 def test_the_live_claim_rule_answers_the_same_under_every_bound(
         history: tuple[Path, dict[str, str]], monkeypatch: pytest.MonkeyPatch,
-        bound) -> None:
+        bound: int | None) -> None:
     from extant import session as hc
     from extant.rules import live_claim as rule_live
     repo, ids = history
@@ -300,7 +302,9 @@ def test_one_batch_per_rule_and_ref_fed_full_shas(
         assert isinstance(payload, bytes), "fed as bytes; text mode writes CRLF on Windows"
         lines = payload.decode("ascii").split("\n")
         assert lines[-1] == "" and all(HEX40.match(line) for line in lines[:-1]), lines
-    fed = set(batches[0][1].decode("ascii").split())
+    first = batches[0][1]
+    assert isinstance(first, bytes), first
+    fed = set(first.decode("ascii").split())
     assert fed == {ids["c1"], ids["t1"], ids["s2"]}, (
         "the abbreviated claims were widened to the full SHAs cat-file returned")
 
@@ -346,9 +350,9 @@ def test_an_aborted_batch_falls_back_to_one_merge_base_per_miss(
     from extant.git import CountingGit, SubprocessGit
     repo, ids = history
     _bound(monkeypatch, 1)
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def aborting(cmd, *a, **kw):
+    def aborting(cmd: Sequence[str], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git" and "--stdin" in cmd:
             return subprocess.CompletedProcess(cmd, 128, b"", b"fatal: bad revision\n")
         return real(cmd, *a, **kw)

@@ -31,7 +31,7 @@ sys.path.insert(0, str(PAYLOAD))
 SECRET = "s3cr3t-token-value"
 
 
-def _verify(repo: Path, capsys) -> tuple[int, str]:
+def _verify(repo: Path, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
     from extant import cli
     code = cli.main(["--verify", "--repo", str(repo)])
     out = capsys.readouterr()

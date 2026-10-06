@@ -24,6 +24,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
@@ -158,8 +159,8 @@ def test_archive_mode_never_stacks_a_second_pointer(git_repo: GitRepo) -> None:
     # A configured pointer is what is WRITTEN, so it is what is stripped.
     ('pointer_prefix = "## Older entries"\n', "## Phase", "## Older entries"),
 ], ids=["level-3", "level-1", "level-4", "configured-pointer"])
-def test_the_pointer_never_travels_into_the_archive(git_repo: GitRepo, config, entry,
-                                                    pointer) -> None:
+def test_the_pointer_never_travels_into_the_archive(
+        git_repo: GitRepo, config: str, entry: str, pointer: str) -> None:
     """The pointer is written at the entries' own heading level, and is the
     one `pointer_prefix` names.
 
@@ -226,7 +227,7 @@ def test_a_section_a_person_wrote_is_never_taken_for_the_pointer(
     (" ", "Older ones: see `wiki/archive`."),
 ], ids=["own-line", "same-line"])
 def test_a_line_added_under_the_pointer_is_kept(
-        git_repo: GitRepo, joiner, added) -> None:
+        git_repo: GitRepo, joiner: str, added: str) -> None:
     """A pointer somebody wrote into is no longer only the tool's output, so
     it is kept rather than regenerated over: the next run writes a fresh
     pointer beside it, which is visible, where stripping it deleted a line a
@@ -250,7 +251,7 @@ def test_a_line_added_under_the_pointer_is_kept(
 
 @pytest.mark.parametrize("prefix", ["Phase ", "**Phase "])
 def test_a_pointer_under_a_non_heading_prefix_is_never_an_entry(
-        git_repo: GitRepo, prefix) -> None:
+        git_repo: GitRepo, prefix: str) -> None:
     """`entry_prefix` need not be a heading, and the pointer is derived from
     its first word: `Phase Archive pointer`, which starts with the entry
     prefix itself. Classified by that prefix alone, it was an ENTRY - one
@@ -283,7 +284,7 @@ def test_a_pointer_under_a_non_heading_prefix_is_never_an_entry(
     (12, "docs/odd `name`.md"),
 ], ids=["default", "zero", "negative", "backtick"])
 def test_every_pointer_the_writer_can_produce_is_recognised(
-        retain, archive_doc) -> None:
+        retain: int, archive_doc: str) -> None:
     """The writer and the reader of the pointer's line sit side by side in
     extant/entries.py, and must agree on everything the writer can produce:
     a pointer the reader misses is kept as a person's section and a fresh
@@ -334,7 +335,9 @@ def test_split_entries_refuses_the_raw_settings_object() -> None:
     from extant import entries, session
 
     with pytest.raises(TypeError) as caught:
-        entries.split_entries("# doc\n\n## Phase 1 - x\n\nbody\n", session.CONFIG)
+        # The wrong config type on purpose: the message it raises is the subject.
+        entries.split_entries("# doc\n\n## Phase 1 - x\n\nbody\n",
+                              session.CONFIG)  # type: ignore[arg-type]
 
     message = str(caught.value)
     assert "StatusConfig" in message, message
@@ -367,10 +370,11 @@ def test_a_crash_between_the_two_writes_cannot_lose_an_entry(
     repo, commit = git_repo
     commit("NEXT_SESSION.md", FIVE_ENTRIES, "docs: five entries")
 
-    real_open = builtins.open
-    writes = []
+    real_open: Callable[..., object] = builtins.open
+    writes: list[str] = []
 
-    def failing_open(file, mode="r", *args, **kwargs):
+    def failing_open(file: object, mode: str = "r", *args: object,
+                     **kwargs: object) -> object:
         if "w" in mode:
             writes.append(str(file))
             if len(writes) == 2:

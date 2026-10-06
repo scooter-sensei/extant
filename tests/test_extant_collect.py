@@ -4,10 +4,14 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.config import Config
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -101,7 +105,9 @@ def test_scan_todos_finds_markers_in_changed_files(git_repo: GitRepo) -> None:
     assert len(todos) == 1
     assert todos[0]["file"] == "a.py"
     assert todos[0]["line"] == 2
-    assert "fix this" in todos[0]["text"]
+    text = todos[0]["text"]
+    assert isinstance(text, str), todos
+    assert "fix this" in text
 
 
 def test_scan_todos_ignores_markdown(git_repo: GitRepo) -> None:
@@ -158,9 +164,11 @@ def test_a_code_file_the_todo_scan_cannot_read_is_named_not_skipped(
 
     bundle = collect.collect(repo, str(supplied), session._ACTIVE, session.CONFIG)
 
-    assert [t["file"] for t in bundle["todos"]] == ["ok.py"], bundle["todos"]
-    assert [u["file"] for u in bundle["todos_unread"]] == ["latin.py"], bundle
-    assert "UTF-8" in bundle["todos_unread"][0]["why"], bundle["todos_unread"]
+    todos, unread = bundle["todos"], bundle["todos_unread"]
+    assert isinstance(todos, list) and isinstance(unread, list), bundle
+    assert [t["file"] for t in todos] == ["ok.py"], todos
+    assert [u["file"] for u in unread] == ["latin.py"], bundle
+    assert "UTF-8" in unread[0]["why"], unread
 
 
 def test_scan_todos_ignores_unchanged_files(git_repo: GitRepo) -> None:
@@ -246,10 +254,13 @@ def test_read_plan_splits_checked_and_unchecked_steps(git_repo: GitRepo) -> None
     )
     commit("docs/superpowers/plans/2026-07-20-thing.md", plan, "docs: plan - thing")
     result = collect.read_plan(repo, session.CONFIG)
-    assert result["path"].endswith("2026-07-20-thing.md")
-    assert len(result["completed"]) == 2
-    assert len(result["remaining"]) == 1
-    assert "pending thing" in result["remaining"][0]
+    path, completed, remaining = result["path"], result["completed"], result["remaining"]
+    assert isinstance(path, str), result
+    assert isinstance(completed, list) and isinstance(remaining, list), result
+    assert path.endswith("2026-07-20-thing.md")
+    assert len(completed) == 2
+    assert len(remaining) == 1
+    assert "pending thing" in remaining[0]
 
 
 def test_read_plan_picks_the_newest_by_date_prefix(git_repo: GitRepo) -> None:
@@ -258,7 +269,9 @@ def test_read_plan_picks_the_newest_by_date_prefix(git_repo: GitRepo) -> None:
     repo, commit = git_repo
     commit("docs/superpowers/plans/2026-01-01-old.md", "- [x] old\n", "docs: plan - old")
     commit("docs/superpowers/plans/2026-07-20-new.md", "- [ ] new\n", "docs: plan - new")
-    assert collect.read_plan(repo, session.CONFIG)["path"].endswith("2026-07-20-new.md")
+    path = collect.read_plan(repo, session.CONFIG)["path"]
+    assert isinstance(path, str), path
+    assert path.endswith("2026-07-20-new.md")
 
 
 def test_read_plan_tolerates_no_plans_dir(git_repo: GitRepo) -> None:
@@ -311,9 +324,12 @@ def test_collect_assembles_bundle(git_repo: GitRepo, tmp_path: Path) -> None:
     supplied = tmp_path / "suite.json"
     supplied.write_text(json.dumps({"passed": 10, "failed": 0, "duration_s": 1.0}))
     bundle = collect.collect(repo, str(supplied), session._ACTIVE, session.CONFIG)
-    assert bundle["commits"][0]["phase"] == "9.6"
-    assert bundle["suite"]["passed"] == 10
-    assert bundle["git"]["branch"] == "main"
+    commits, suite, git = bundle["commits"], bundle["suite"], bundle["git"]
+    assert isinstance(commits, list), bundle
+    assert isinstance(suite, dict) and isinstance(git, dict), bundle
+    assert commits[0]["phase"] == "9.6"
+    assert suite["passed"] == 10
+    assert git["branch"] == "main"
     assert "boundary_sha" in bundle
     assert "plan" in bundle
 
@@ -434,7 +450,8 @@ def test_archive_detects_loss_of_duplicate_lines(
     # nothing - which is precisely the failure it exists to catch in the code.
     real_split_entries = entries.split_entries
 
-    def buggy_split_entries(text, config):
+    def buggy_split_entries(text: str, config: Config
+                            ) -> tuple[str, list[tuple[str, str]], str]:
         # retain=3 keeps segments[0:3] (9.6, 9.5b, 9.5a) and moves the rest,
         # so segments[-1] (9.3) lands in `moved`. Drop its "---" line only -
         # the other five copies (preamble + 9.6/9.5b/9.5a/9.4) survive
@@ -1395,7 +1412,7 @@ def test_resolve_shas_handles_no_tokens(git_repo: GitRepo) -> None:
     assert refs.resolve_shas(session.context(repo), []) == set()
 
 
-def _repo_with_unmerged_branch(git_repo):
+def _repo_with_unmerged_branch(git_repo: GitRepo) -> tuple[Path, str, str]:
     """(repo, merged_sha, unmerged_sha) - one commit on main, one stranded on a
     branch that was never merged."""
     repo, commit = git_repo

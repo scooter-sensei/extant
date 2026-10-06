@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import dataclasses
 import random
 import re
 import shutil
@@ -21,6 +22,9 @@ import pytest
 
 if TYPE_CHECKING:
     from extant.config import Config
+    from extant.contract import Rule
+    from extant.finding import Finding
+    from extant.scope import Context
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -274,6 +278,7 @@ except ImportError:
     pass
 else:
     from hypothesis.internal.conjecture import providers as _providers
+    from hypothesis.internal.constants_ast import Constants as _Constants
 
     if not callable(getattr(_providers, "_get_local_constants", None)):
         raise RuntimeError(
@@ -281,7 +286,7 @@ else:
             "gone, so tests/conftest.py cannot hold the local-constant pool "
             "empty and derandomized draws depend on import order again: find "
             "what replaced it before moving the pin in requirements-test.txt")
-    _NO_LOCAL_CONSTANTS = _providers.Constants()
+    _NO_LOCAL_CONSTANTS = _Constants()
     _providers._get_local_constants = lambda: _NO_LOCAL_CONSTANTS
     _hypothesis_settings.register_profile(
         "ci", parent=_hypothesis_settings.get_profile("ci"), max_examples=500,
@@ -314,20 +319,29 @@ def reconfigure(monkeypatch: pytest.MonkeyPatch) -> Reconfigure:
     reaches the same place and is what a test should use when the point IS
     the file. This exists for the many tests whose point is a pattern.
     """
-    import dataclasses
-
     from extant import session as hc
 
     def apply(**changes: object) -> Config:
-        monkeypatch.setattr(hc, "_ACTIVE",
-                            dataclasses.replace(hc._ACTIVE, **changes))
+        monkeypatch.setattr(hc, "_ACTIVE", configured(**changes))
         return hc._ACTIVE
 
     return apply
 
 
+def configured(**changes: object) -> Config:
+    """The active `Config` with `changes` applied, by field name.
+
+    What `reconfigure` installs, and what a plain helper that cannot take a
+    fixture installs itself: test_release_conventions.py's `_configure`.
+    """
+    from extant import session as hc
+    # Forwards field names it never reads, so no value can be matched to its
+    # field's type: the reason session.py's own `replace` carries this.
+    return dataclasses.replace(hc._ACTIVE, **changes)  # type: ignore[arg-type]
+
+
 @contextlib.contextmanager
-def raising_rule() -> Iterator[object]:
+def raising_rule() -> Iterator[Rule]:
     """The first rule replaced by one whose check raises, for as long as the
     `with` block lasts; the rule is yielded so a test can name its kind.
 
@@ -342,12 +356,10 @@ def raising_rule() -> Iterator[object]:
     takes back exactly what was recorded while it was installed - by mark,
     the way test_rule_contract.py does - and nothing recorded before it.
     """
-    import dataclasses
-
     from extant import session as hc
     from extant.registry import RULE_ERRORS
 
-    def explode(ctx: object, text: str) -> list[object]:
+    def explode(ctx: Context, text: str) -> list[Finding]:
         raise RuntimeError("deliberate")
 
     broken = dataclasses.replace(hc.RULES[0], check=explode)
@@ -400,16 +412,18 @@ def init_repo(repo: Path) -> None:
     _run(repo, "config", "user.name", "Test")
 
 
-# What `git_repo` hands a test: the repository, and `commit(filename,
-# content, message) -> sha` against it.
-GitRepo = tuple[Path, Callable[[str, str, str], str]]
+# `commit(filename, content, message) -> sha`, as `committer` builds it.
+Commit = Callable[[str, str, str], str]
+
+# What `git_repo` hands a test: the repository, and a `Commit` against it.
+GitRepo = tuple[Path, Commit]
 
 # What `reconfigure` hands a test: set any `Config` field by name. Quoted,
 # because `Config` is imported for the checker alone.
 Reconfigure = Callable[..., "Config"]
 
 
-def committer(repo: Path) -> Callable[[str, str, str], str]:
+def committer(repo: Path) -> Commit:
     """`commit(filename, content, message) -> sha`, against `repo`.
 
     Separate from the fixture so a session-scoped TEMPLATE can be built with

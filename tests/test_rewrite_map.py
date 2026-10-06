@@ -24,10 +24,14 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from conftest import GitRepo
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -52,7 +56,7 @@ def write_map(gitdir: Path, pairs: list[tuple[str, str]]) -> Path:
     return target
 
 
-def findings(repo: Path, text: str) -> list:
+def findings(repo: Path, text: str) -> list[Finding]:
     from extant import session as hc
     with hc.run_scope():
         return hc.validate(repo, text, has_entries=False)
@@ -106,7 +110,7 @@ def test_finding_the_map_costs_no_git_subprocess(
     commit("a.py", "a = 1\n", "feat: a")
     write_map(repo / ".git", [("a" * 40, "b" * 40)])
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> None:
         raise AssertionError(f"spawned a subprocess: {args}")
 
     monkeypatch.setattr(subprocess, "run", refuse)
@@ -236,7 +240,7 @@ def test_the_map_is_read_once_per_run_not_once_per_document(
     reads = []
     real = rewrites.load_sha_map
 
-    def counting(path):
+    def counting(path: str) -> dict[str, str]:
         reads.append(path)
         return real(path)
 
@@ -259,9 +263,13 @@ def test_the_map_is_not_read_when_no_sha_is_dead(
     repo, commit = git_repo
     live = commit("a.py", "a = 1\n", "feat: a").strip()
     write_map(repo / ".git", [("abc1234" + "0" * 33, live)])
-    reads = []
-    monkeypatch.setattr(rewrites, "load_sha_map",
-                        lambda path: reads.append(path) or {})
+    reads: list[str] = []
+
+    def recorded(path: str) -> dict[str, str]:
+        reads.append(path)
+        return {}
+
+    monkeypatch.setattr(rewrites, "load_sha_map", recorded)
     with hc.run_scope():
         hc.validate(repo, f"Merged the fix in `{live[:7]}`.\n", has_entries=False)
     assert reads == [], "read the rewrite map for a document with no dead SHA"
@@ -343,12 +351,13 @@ def test_finding_the_journal_costs_no_git_subprocess(
     commit("a.py", "a = 1\n", "feat: a")
     write_journal(repo / ".git", [f"{'a' * 40} {'b' * 40}"])
 
-    def refuse(*args, **kwargs):
+    def refuse(*args: object, **kwargs: object) -> None:
         raise AssertionError(f"spawned a subprocess: {args}")
 
     monkeypatch.setattr(subprocess, "run", refuse)
-    assert gitmod.rewrite_journal_path(repo) is not None
-    assert gitmod.rewrite_journal_path(repo).name == "rewrites"
+    journal = gitmod.rewrite_journal_path(repo)
+    assert journal is not None
+    assert journal.name == "rewrites"
 
 
 def test_a_dead_sha_the_journal_knows_names_its_replacement(git_repo: GitRepo) -> None:

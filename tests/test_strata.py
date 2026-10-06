@@ -25,7 +25,7 @@ from extant.strata import ORDER, classify
     ("docs/guide/getting-started.md", "ordinary"),
     ("README.md", "ordinary"),
 ])
-def test_classify_by_path(path, expected) -> None:
+def test_classify_by_path(path: str, expected: str) -> None:
     assert classify(path) == expected
 
 
@@ -241,7 +241,7 @@ def test_a_sweep_stamps_the_stratum_it_should(tmp_path: Path) -> None:
     "HISTORY.rst",
     "NEWS.rst",
 ])
-def test_historical_records_are_found_in_every_swept_suffix(path) -> None:
+def test_historical_records_are_found_in_every_swept_suffix(path: str) -> None:
     """The tool sweeps md, markdown, mdx AND rst - see the suffix set in
     `refs.py` - so a pattern anchored on `.md|.mdx` silently drops the other
     two into `ordinary`.

@@ -20,13 +20,13 @@ from extant.report import (
 )
 
 
-def at(path, line=1, kind="dead-md-link",
-       detail="links to `../g.md`, which does not exist",
-       primary=False, stratum="ordinary"):
+def at(path: str, line: int = 1, kind: str = "dead-md-link",
+       detail: str = "links to `../g.md`, which does not exist",
+       primary: bool = False, stratum: str = "ordinary") -> Located:
     return Located(path, Finding(line, kind, detail), primary, stratum=stratum)
 
 
-def paths_of(groups):
+def paths_of(groups: list[list[Located]]) -> list[tuple[str, ...]]:
     return sorted(tuple(sorted(i.path for i in g)) for g in groups)
 
 

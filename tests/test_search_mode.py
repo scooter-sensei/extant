@@ -21,7 +21,7 @@ import contextlib
 import sys
 from pathlib import Path
 
-from conftest import GitRepo
+from conftest import Commit, GitRepo
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -36,18 +36,18 @@ def _search(repo: Path, query: str, *extra: str) -> tuple[int, str]:
     assert on the exit code and the message together - which is the pair a user
     actually gets, and the pair that tells "refused" apart from "crashed".
     """
-    import extant_collect as hc
+    from extant.cli import main
 
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         try:
-            code = hc.main(["--search", query, *extra, "--repo", str(repo)])
+            code = main(["--search", query, *extra, "--repo", str(repo)])
         except SystemExit as stop:
             code = stop.code if isinstance(stop.code, int) else 1
     return code, out.getvalue() + err.getvalue()
 
 
-def _document(repo: Path, commit) -> None:
+def _document(repo: Path, commit: Commit) -> None:
     commit(
         "NEXT_SESSION.md",
         "# status\n\n"
@@ -117,7 +117,7 @@ def test_a_regex_wildcard_query_does_not_crash(git_repo: GitRepo) -> None:
 LONG_LINE = "z" * 200
 
 
-def _wordy_document(repo: Path, commit) -> None:
+def _wordy_document(repo: Path, commit: Commit) -> None:
     """One entry whose body outruns the excerpt in both ways it can.
 
     The long line sits SECOND, inside the four non-blank lines the excerpt

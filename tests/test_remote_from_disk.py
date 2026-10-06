@@ -34,6 +34,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
 
@@ -130,7 +131,7 @@ def with_config(repo: Path, extra: str) -> None:
 
 @pytest.mark.parametrize("extra", VARIANTS)
 def test_the_fast_path_matches_git_or_declines_to_answer(
-        clean_config_scopes: None, git_repo: GitRepo, extra) -> None:
+        clean_config_scopes: None, git_repo: GitRepo, extra: str) -> None:
     """The whole contract, in one assertion, over every spelling measured.
 
     A WRONG answer is the only failure. Declining is a pass, and costs a spawn.
@@ -274,9 +275,9 @@ def test_the_rule_answers_the_same_thing_without_spawning(
     git(repo, "remote", "add", "origin", URL)
 
     spawns: list[str] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def record(cmd, *a, **kw):
+    def record(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)
@@ -306,9 +307,9 @@ def test_the_rule_still_falls_back_when_the_file_cannot_settle_it(
     with_config(repo, f'[remote "origin"]\n\turl = "{URL}"\n')
 
     spawns: list[str] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def record(cmd, *a, **kw):
+    def record(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)
@@ -423,17 +424,17 @@ def clean_config_scopes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
         monkeypatch.delenv(name, raising=False)
 
 
-def _global_file(monkeypatch, tmp_path, repo):
+def _global_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: Path) -> None:
     (tmp_path / "global").write_text(REWRITE, encoding="utf-8")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global"))
 
 
-def _system_file(monkeypatch, tmp_path, repo):
+def _system_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: Path) -> None:
     (tmp_path / "system").write_text(REWRITE, encoding="utf-8")
     monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "system"))
 
 
-def _home_file(monkeypatch, tmp_path, repo):
+def _home_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: Path) -> None:
     """`~/.gitconfig`, with `~` the way git finds it: `HOME` first."""
     monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
     home = tmp_path / "home"
@@ -442,7 +443,7 @@ def _home_file(monkeypatch, tmp_path, repo):
     monkeypatch.setenv("HOME", str(home))
 
 
-def _xdg_file(monkeypatch, tmp_path, repo):
+def _xdg_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: Path) -> None:
     monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
     home = tmp_path / "home"
     home.mkdir()
@@ -453,7 +454,8 @@ def _xdg_file(monkeypatch, tmp_path, repo):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
 
 
-def _global_conditional_include(monkeypatch, tmp_path, repo):
+def _global_conditional_include(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: Path) -> None:
     """The work-and-personal split, which is the common reason a global
     config carries an include at all - and the include carries the rewrite."""
     (tmp_path / "work.inc").write_text(REWRITE, encoding="utf-8")
@@ -463,13 +465,15 @@ def _global_conditional_include(monkeypatch, tmp_path, repo):
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global"))
 
 
-def _environment_triplet(monkeypatch, tmp_path, repo):
+def _environment_triplet(monkeypatch: pytest.MonkeyPatch, tmp_path: object,
+                         repo: object) -> None:
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "url.git@internal:widgets/.insteadOf")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://github.com/acme/")
 
 
-def _dash_c_passthrough(monkeypatch, tmp_path, repo):
+def _dash_c_passthrough(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: Path) -> None:
     """What `git -c url...insteadOf=... <anything>` exports to every process
     it starts, hooks included - verified by reading a hook's environment."""
     monkeypatch.setenv("GIT_CONFIG_PARAMETERS",
@@ -491,7 +495,8 @@ SCOPES = [
 @pytest.mark.parametrize("inject", SCOPES)
 def test_a_path_changing_rewrite_in_any_other_scope_is_declined(
         clean_config_scopes: None, monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path, git_repo: GitRepo, inject) -> None:
+        tmp_path: Path, git_repo: GitRepo,
+        inject: Callable[[pytest.MonkeyPatch, Path, Path], None]) -> None:
     """The repository's file says github; git, reading the scope, says the
     mirror. The fast path may not answer github."""
     from extant.git import remote_url
@@ -557,9 +562,9 @@ def test_the_rule_answers_the_mirror_through_git_when_a_scope_rewrites_it(
     assert git_says(repo) == MIRROR
 
     spawns: list[str] = []
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def record(cmd, *a, **kw):
+    def record(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)
@@ -603,7 +608,7 @@ INSTALL_LAYOUTS = [
 @pytest.mark.parametrize("launcher, prefix, read", INSTALL_LAYOUTS)
 def test_the_system_file_under_the_prefix_of_the_git_on_path_is_read(
         clean_config_scopes: None, monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path, launcher, prefix, read) -> None:
+        tmp_path: Path, launcher: str, prefix: str, read: bool) -> None:
     """A regression in the install-prefix arm of `_other_config_files`,
     which nothing else here can see.
 

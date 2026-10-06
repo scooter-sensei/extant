@@ -454,7 +454,7 @@ def _action_script() -> str:
     return "\n".join(body) + "\n"
 
 
-def _run_action(tmp_path, **inputs) -> tuple[int, str]:
+def _run_action(tmp_path: Path, **inputs: str) -> tuple[int, str]:
     """Run the step's script under bash with a stub `extant` on PATH that
     prints the arguments it was handed. (exit code, combined output)."""
     import os
@@ -859,7 +859,8 @@ def test_no_syntax_newer_than_the_python_floor_we_claim() -> None:
             gated = next((why for cls, why in too_new_nodes
                           if cls and isinstance(node, cls)), None)
             if gated:
-                offenders.append(f"{rel}:{node.lineno}: {gated}")
+                line = node.lineno if isinstance(node, (ast.stmt, ast.expr)) else "?"
+                offenders.append(f"{rel}:{line}: {gated}")
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
                     why = TOO_NEW.get(alias.name)
@@ -945,7 +946,8 @@ def _canonical(value: object) -> object:
     return repr(value)
 
 
-def _module_state(payload_dir, repo, reload_to=None):
+def _module_state(payload_dir: Path, repo: Path, reload_to: Path | None = None
+                  ) -> dict[str, str | list[str]]:
     """Every module global, from a subprocess that imports the payload.
 
     `reload_to` runs `reload_config` against that repository after importing,
@@ -1012,7 +1014,9 @@ def _module_state(payload_dir, repo, reload_to=None):
     assert "<<<JSON>>>" in proc.stdout, (
         f"the probe process produced no state:\n{proc.stdout}\n{proc.stderr}"
     )
-    return json.loads(proc.stdout.split("<<<JSON>>>", 1)[1])
+    state = json.loads(proc.stdout.split("<<<JSON>>>", 1)[1])
+    assert isinstance(state, dict), state
+    return state
 
 
 def test_reloading_matches_a_fresh_import_of_the_same_project(tmp_path: Path) -> None:

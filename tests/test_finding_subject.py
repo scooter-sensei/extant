@@ -19,7 +19,7 @@ sys.path.insert(0, str(PAYLOAD))
 DEAD = "dead" + "0" * 36
 
 
-def _run(repo, *args):
+def _run(repo: Path, *args: str) -> str:
     import subprocess
     return subprocess.run(["git", *args], cwd=repo, check=True,
                           capture_output=True, text=True).stdout
@@ -119,7 +119,7 @@ def test_every_document_scoped_claim_carries_a_subject(
     )
     # And the subject must be the token, not the whole sentence.
     for finding in document_scoped:
-        assert finding.subject in finding.detail, (
+        assert finding.subject is not None and finding.subject in finding.detail, (
             f"{finding.kind}: subject {finding.subject!r} does not appear in "
             f"its own detail, so it is unlikely to be the claim's token"
         )
@@ -129,16 +129,16 @@ def test_subject_defaults_to_none(git_repo: GitRepo) -> None:
     """Optional on purpose. It is populated rule by rule, and the mode that
     consumes it reports how many findings it had to skip - so partial coverage
     stays visible rather than silently narrowing what that mode can see."""
-    from extant import session as hc
-    assert hc.Finding(1, "dead-sha", "detail").subject is None
+    from extant.finding import Finding
+    assert Finding(1, "dead-sha", "detail").subject is None
 
 
 def test_subject_does_not_disturb_the_fingerprint(git_repo: GitRepo) -> None:
     """The baseline keys on (path, kind, detail). Folding a new field in would
     invalidate every recorded baseline in every project that has one."""
-    from extant import session as hc
     from extant import report
-    without = hc.Finding(1, "dead-sha", "detail")
-    with_subject = hc.Finding(1, "dead-sha", "detail", subject="abc1234")
+    from extant.finding import Finding
+    without = Finding(1, "dead-sha", "detail")
+    with_subject = Finding(1, "dead-sha", "detail", subject="abc1234")
     assert (report.fingerprint("d.md", without.kind, without.detail)
             == report.fingerprint("d.md", with_subject.kind, with_subject.detail))

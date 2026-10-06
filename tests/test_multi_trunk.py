@@ -342,10 +342,10 @@ def test_integration_refs_ignore_unconventional_branches(gitflow: Gitflow) -> No
     git(repo, "branch", "gh-pages")
     git(repo, "branch", "experiment")
 
-    refs = refs.integration_refs(ec.context(repo))
+    integration = refs.integration_refs(ec.context(repo))
 
-    assert "develop" in refs and "main" in refs
-    assert "gh-pages" not in refs and "experiment" not in refs
+    assert "develop" in integration and "main" in integration
+    assert "gh-pages" not in integration and "experiment" not in integration
 
 
 def test_a_one_group_custom_pattern_keeps_the_old_meaning(gitflow: Gitflow) -> None:

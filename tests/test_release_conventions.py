@@ -11,19 +11,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-from conftest import GitRepo
+from conftest import GitRepo, configured
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
 sys.path.insert(0, str(PAYLOAD))
 
 
-def git(repo, *args):
+def git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True,
                    capture_output=True)
 
 
-def _configure(**changes):
+def _configure(**changes: object) -> None:
     """Change a configured value so that every reader sees it.
 
     The same job conftest's `reconfigure` fixture does, as a plain function,
@@ -39,14 +39,12 @@ def _configure(**changes):
     `_ACTIVE` is the one object every reader shares, and `neutral_config` in
     conftest restores it at teardown.
     """
-    import dataclasses
-
     from extant import session as hc
 
-    hc._ACTIVE = dataclasses.replace(hc._ACTIVE, **changes)
+    hc._ACTIVE = configured(**changes)
 
 
-def _reset():
+def _reset() -> None:
     from extant import session as hc
     # One fresh scope, not a list of cache names to keep in step with the
     # code. The list form went stale silently: `_TAGS` stayed in it for four
@@ -59,7 +57,7 @@ def _reset():
     _configure(release_claims_are_ours=True)
 
 
-def _tags(repo, text):
+def _tags(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import release_tag as rule_release_tag
     _reset()
@@ -220,7 +218,7 @@ def test_a_tag_on_no_branch_is_still_reported_when_a_trunk_exists(
 
 # --- how a pin is written ----------------------------------------------------
 
-def _pins(repo, text):
+def _pins(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import pinned_ref as rule_pinned_ref
     from extant import session as hc
@@ -276,7 +274,7 @@ def test_a_quoted_rev_that_does_not_exist_is_still_reported(git_repo: GitRepo) -
 
 # --- how a merge claim writes its commit ------------------------------------
 
-def _merge(repo, text):
+def _merge(repo: Path, text: str) -> list[str]:
     from extant import session as hc
     from extant.rules import merge as rule_merge
     from extant import session as hc

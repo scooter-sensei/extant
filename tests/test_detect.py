@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from conftest import GitRepo
-from detect import detect_trunk, find_documents, inspect_document
+from detect import Observation, detect_trunk, find_documents, inspect_document
 
 DOC = (
     "# Status\r\n"
@@ -60,7 +60,7 @@ def test_inspect_document_finds_the_entry_header(tmp_path: Path) -> None:
     """
     info = inspect_document(write(tmp_path / "STATUS.md", DOC))
 
-    scores = dict(info["header_scores"])  # type: ignore[arg-type]
+    scores = dict(info["header_scores"])
     assert scores["## Release"] > scores.get("## Notes", 0)
 
 
@@ -74,7 +74,7 @@ def test_inspect_document_reports_the_merge_phrasing_it_saw(tmp_path: Path) -> N
     info = inspect_document(write(tmp_path / "STATUS.md", DOC))
 
     assert info["merge_count"] == 2
-    assert sorted(info["merge_verbs"]) == ["merged", "shipped"]  # type: ignore[arg-type]
+    assert sorted(info["merge_verbs"]) == ["merged", "shipped"]
 
 
 def test_find_documents_returns_every_candidate(tmp_path: Path) -> None:
@@ -164,7 +164,7 @@ def _tagged(tmp_path: Path, *tags: str) -> Path:
     return repo
 
 
-def _captures(observation, prose: str) -> str | None:
+def _captures(observation: Observation, prose: str) -> str | None:
     match = re.search(str(observation.value), prose, re.I)
     return match.group(1) if match else None
 

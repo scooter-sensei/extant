@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import Iterator
 
 import pytest
 
@@ -61,7 +62,8 @@ UNSOUND = [
 
 
 @pytest.mark.parametrize("source", UNSOUND)
-def test_a_shape_where_the_words_are_not_necessary_gets_no_prefilter(source) -> None:
+def test_a_shape_where_the_words_are_not_necessary_gets_no_prefilter(source: str
+                                                                    ) -> None:
     from extant.text import leading_literals
 
     assert leading_literals(source) == ()
@@ -81,7 +83,8 @@ SOUND = [
 
 
 @pytest.mark.parametrize("source, words", SOUND)
-def test_a_shape_where_the_words_are_necessary_yields_them(source, words) -> None:
+def test_a_shape_where_the_words_are_necessary_yields_them(
+        source: str, words: tuple[str, ...]) -> None:
     from extant.text import leading_literals
 
     assert leading_literals(source) == words
@@ -96,14 +99,16 @@ SPECIALS = ("SH\u0130PPED in 1.0", "sh\u0131pped in 1.0", "\u017fhipped in 1.0")
     "shipped in 1.0", "SHIPPED in 1.0", "Shipped\u00a0in 1.0",
     "It was released in v2.1 last week.", "tagged as 3.0", *SPECIALS,
 ])
-def test_could_match_never_refuses_a_text_the_pattern_matches(text) -> None:
+def test_could_match_never_refuses_a_text_the_pattern_matches(text: str) -> None:
     """The property that makes a pre-filter safe: False only when `search`
     would find nothing. Each text here IS matched by the pattern, which the
     test asserts first so it cannot pass on a fixture the regex ignores."""
     from extant.config import DEFAULTS
     from extant.text import could_match
 
-    pattern = re.compile(DEFAULTS["release_tag"], re.IGNORECASE)
+    source = DEFAULTS["release_tag"]
+    assert isinstance(source, str), source
+    pattern = re.compile(source, re.IGNORECASE)
     assert pattern.search(text), f"fixture not matched by the pattern: {text!r}"
     assert could_match(pattern, text) is True
 
@@ -112,11 +117,13 @@ def test_could_match_never_refuses_a_text_the_pattern_matches(text) -> None:
     "Version 1.0 is out.", "The ship sailed and the tag was cut.",
     "RELEASE 2.0 landed.", "", "released" [:-1] + " in 1.0",
 ])
-def test_could_match_refuses_a_text_without_any_of_the_words(text) -> None:
+def test_could_match_refuses_a_text_without_any_of_the_words(text: str) -> None:
     from extant.config import DEFAULTS
     from extant.text import could_match
 
-    pattern = re.compile(DEFAULTS["release_tag"], re.IGNORECASE)
+    source = DEFAULTS["release_tag"]
+    assert isinstance(source, str), source
+    pattern = re.compile(source, re.IGNORECASE)
     assert pattern.search(text) is None, f"fixture matched: {text!r}"
     assert could_match(pattern, text) is False
 
@@ -162,11 +169,11 @@ class _Recording:
         self.inner = pattern
         self.scans = 0
 
-    def finditer(self, text: str):
+    def finditer(self, text: str) -> Iterator[re.Match[str]]:
         self.scans += 1
         return self.inner.finditer(text)
 
-    def findall(self, text: str):
+    def findall(self, text: str) -> list[object]:
         self.scans += 1
         return self.inner.findall(text)
 
@@ -260,7 +267,8 @@ NO_REQUIRED_LITERAL = [
 
 
 @pytest.mark.parametrize("source, flags", NO_REQUIRED_LITERAL)
-def test_a_pattern_with_no_mandatory_literal_gets_no_gate(source, flags) -> None:
+def test_a_pattern_with_no_mandatory_literal_gets_no_gate(source: str, flags: int
+                                                          ) -> None:
     """Handed the COMPILED flags, as the scanner hands them: an inline `(?x)`
     is visible there and nowhere in the flags the caller passed."""
     from extant.text import required_literals
@@ -285,7 +293,8 @@ REQUIRED_LITERAL = [
 
 
 @pytest.mark.parametrize("source, flags, expected", REQUIRED_LITERAL)
-def test_a_mandatory_top_level_literal_is_derived(source, flags, expected) -> None:
+def test_a_mandatory_top_level_literal_is_derived(
+        source: str, flags: int, expected: tuple[str, ...]) -> None:
     from extant.text import required_literals
 
     assert required_literals(source, re.compile(source, flags).flags) == expected
@@ -295,14 +304,16 @@ def test_a_mandatory_top_level_literal_is_derived(source, flags, expected) -> No
     "**Plan:** `docs/plan.md`", "see `src/app.py:12` for it", "READ `X.MD` FIRST",
     "**Design:** the notes in `docs/design.md` and `docs/other.md`",
 ])
-def test_the_gate_never_refuses_a_line_the_pattern_matches(line) -> None:
+def test_the_gate_never_refuses_a_line_the_pattern_matches(line: str) -> None:
     """The property that makes the gate safe: a line missing a required
     literal cannot be matched. Each line here IS matched, asserted first so
     the test cannot pass on a fixture the regex ignores."""
     from extant.config import DEFAULTS
     from extant.text import required_literals
 
-    pattern = re.compile(DEFAULTS["path_pointer"], re.IGNORECASE)
+    source = DEFAULTS["path_pointer"]
+    assert isinstance(source, str), source
+    pattern = re.compile(source, re.IGNORECASE)
     assert pattern.search(line), f"fixture not matched by the pattern: {line!r}"
     required = required_literals(pattern.pattern, pattern.flags)
     assert required, "the default pattern offers a gate, or this test is vacuous"
@@ -362,15 +373,23 @@ def test_a_letter_in_the_pattern_is_never_a_gate_under_ignorecase(
 def test_a_top_level_alternative_without_the_literal_keeps_the_full_scan(
         git_repo: GitRepo, reconfigure: Reconfigure) -> None:
     """A pattern reading `` `x` `` OR `read x`: the backtick is mandatory
-    for one alternative and absent from the other, so it gates nothing."""
+    for one alternative and absent from the other, so it gates nothing.
+
+    One capture group, the number `path_pointer` must have, so the second
+    alternative captures nothing and `findall` hands back `""` - a site,
+    which is what tells a scanned line from a gated one. The pattern had a
+    group in each alternative until 2026-10-06, which the loader refuses,
+    and the test asserted tuples the rule cannot produce from a pattern it
+    can be configured with.
+    """
     from extant import session as hc
     from extant.rules.path_pointer import _path_pointer_sites_uncached
     repo, _commit = git_repo
 
     reconfigure(path_pointer=re.compile(
-        r"see `([\w./-]+\.md)`|read ([\w./-]+\.md)", re.IGNORECASE))
+        r"see `([\w./-]+\.md)`|read [\w./-]+\.md", re.IGNORECASE))
     sites = _path_pointer_sites_uncached(hc.context(repo), "read docs/plan.md\n")
-    assert [raws for _number, _line, raws in sites] == [[("", "docs/plan.md")]]
+    assert [raws for _number, _line, raws in sites] == [[""]]
 
 
 def test_the_backticked_sha_scan_skips_a_line_without_a_backtick(

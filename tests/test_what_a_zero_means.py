@@ -35,7 +35,7 @@ import pytest
 
 from conftest import GitRepo
 from extant import session
-from extant.config import DEFAULTS, DISABLEABLE, Config, load_config
+from extant.config import DEFAULTS, DISABLEABLE, Config, StatusConfig, load_config
 from extant.report import format_sarif
 from extant.session import UNRUN_NOTE, ZERO_DEFAULT, ZERO_SET, ZERO_SHAPE
 
@@ -91,7 +91,7 @@ def _vocabulary_read(path: Path) -> set[str]:
             if isinstance(node, ast.Attribute) and node.attr in VOCABULARY}
 
 
-def _settings(tmp_path: Path, toml: str | None = None):
+def _settings(tmp_path: Path, toml: str | None = None) -> StatusConfig:
     root = tmp_path / "settings"
     (root / ".git").mkdir(parents=True, exist_ok=True)
     if toml is not None:

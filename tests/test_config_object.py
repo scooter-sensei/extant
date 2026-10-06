@@ -13,6 +13,10 @@ import dataclasses
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from extant.config import StatusConfig
 
 PAYLOAD = Path(__file__).resolve().parent.parent / "plugin" / "skills" / "extant" / "payload"
 sys.path.insert(0, str(PAYLOAD))
@@ -29,7 +33,7 @@ EXPECTED = {
 }
 
 
-def _defaults(tmp_path: Path):
+def _defaults(tmp_path: Path) -> StatusConfig:
     """The default StatusConfig.
 
     `StatusConfig()` cannot be called bare: every field before `source` is

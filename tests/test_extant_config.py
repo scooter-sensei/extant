@@ -1,6 +1,7 @@
 """Tests for tools/extant/config.py - the portability layer."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
@@ -131,6 +132,13 @@ def test_suite_command_defaults_to_pytest() -> None:
     assert "pytest" in " ".join(cfg.suite_command)
 
 
+def _first_group(pattern: re.Pattern[str], text: str) -> str:
+    """What a configured suite pattern captures from a runner's output."""
+    match = pattern.search(text)
+    assert match, (pattern.pattern, text)
+    return match.group(1)
+
+
 def test_a_non_python_runner_can_be_configured(tmp_path: Path) -> None:
     """A JS, Rust or .NET project must be able to use the measured path. The
     counts come from configured patterns, so any runner that prints totals
@@ -147,8 +155,8 @@ def test_a_non_python_runner_can_be_configured(tmp_path: Path) -> None:
     assert cfg.suite_command == ("npm", "test")
     assert "{python}" not in " ".join(cfg.suite_command)
     jest = "Tests:       3 failed, 12 passed, 15 total"
-    assert cfg.suite_passed.search(jest).group(1) == "12"
-    assert cfg.suite_failed.search(jest).group(1) == "3"
+    assert _first_group(cfg.suite_passed, jest) == "12"
+    assert _first_group(cfg.suite_failed, jest) == "3"
 
 
 def test_cargo_and_dotnet_output_can_be_matched(tmp_path: Path) -> None:
@@ -162,8 +170,8 @@ def test_cargo_and_dotnet_output_can_be_matched(tmp_path: Path) -> None:
     )
     cfg = load_config(tmp_path)
     cargo = "test result: ok. 12 passed; 0 failed; 0 ignored"
-    assert cfg.suite_passed.search(cargo).group(1) == "12"
-    assert cfg.suite_failed.search(cargo).group(1) == "0"
+    assert _first_group(cfg.suite_passed, cargo) == "12"
+    assert _first_group(cfg.suite_failed, cargo) == "0"
 
 
 def test_phase_grouping_can_be_switched_off(tmp_path: Path) -> None:

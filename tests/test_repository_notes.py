@@ -36,7 +36,7 @@ def _notes(out: str, word: str) -> list[str]:
 # --- the two notes --sweep never printed --------------------------------------
 
 def test_sweep_says_the_repository_is_partial(  # noqa: F811
-        partial_repo, capsys: pytest.CaptureFixture[str]) -> None:
+        partial_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """The same sentence `--verify` prints, once, beside the denominators."""
     from extant import session as hc
     from extant import sweep
@@ -94,7 +94,7 @@ def test_sarif_carries_the_shallow_note_the_text_prints(
 
 # --- the commit-graph note ----------------------------------------------------
 
-def _release_history(git_repo):
+def _release_history(git_repo: GitRepo) -> Path:
     """Three commits on main, a tag on the first, and a document that claims
     the release - which is what makes the release rule ask ancestry and build
     the index."""
@@ -204,7 +204,8 @@ def test_sweep_carries_the_flag_a_worker_reports(
 
     # Only the FIRST document's worker saw an incomplete index. The flags
     # are OR-ed, so a parent that kept the last one would print nothing.
-    def worker_survey(repo, tasks, tracked=None):
+    def worker_survey(repo: Path, tasks: list[tuple[str, bool]],
+                      tracked: list[str] | None = None) -> object:
         return ({relative: ([], None, {}, [], index == 0)
                  for index, (relative, _p) in enumerate(tasks)},
                 2, None)

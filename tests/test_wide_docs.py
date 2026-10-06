@@ -29,10 +29,13 @@ import shutil
 import subprocess
 import sys
 try:
-    import tomllib
+    # Arrives in 3.11, past the checker's 3.10 target; extant/config.py
+    # says why the suppression stands.
+    import tomllib  # type: ignore[import-not-found]
 except ModuleNotFoundError:      # Python < 3.11, see requirements-test.txt
     import tomli as tomllib
 from pathlib import Path
+from typing import Any
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
@@ -43,7 +46,7 @@ README_RST = "Demo\n====\n\nShipped in ``deadbeef1234567``.\n"
 
 
 def run_installer(repo: Path, *args: str,
-                  installer: Path | None = None) -> subprocess.CompletedProcess:
+                  installer: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(installer or INSTALLER), "--repo", str(repo), *args],
         cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -67,7 +70,8 @@ def make_repo(tmp_path: Path, **files: str) -> Path:
     return repo
 
 
-def config_of(repo: Path) -> dict:
+# The parsed TOML, as `tomllib.load` returns it; see test_install_presets.py.
+def config_of(repo: Path) -> dict[str, Any]:
     """The effective settings, merged the way the loader merges them."""
     with open(repo / ".extant.toml", "rb") as fh:
         data = tomllib.load(fh)
@@ -281,7 +285,7 @@ def test_a_root_readme_rst_is_nominated_too(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("suffix", ["md", "markdown", "mdx", "rst"])
-def test_every_swept_suffix_can_be_nominated(tmp_path: Path, suffix) -> None:
+def test_every_swept_suffix_can_be_nominated(tmp_path: Path, suffix: str) -> None:
     """The whole of `detect.DOC_SUFFIXES`, not just the two that motivated it.
 
     The comment and the refusal message both name four suffixes. Two of them

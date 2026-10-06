@@ -13,19 +13,23 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from conftest import GitRepo
+from conftest import Commit, GitRepo
+
+if TYPE_CHECKING:
+    from extant.finding import Located
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SKILL_ROOT = PACKAGE_ROOT / "plugin" / "skills" / "extant"
 
 
 def located(path: str, line: int, kind: str, detail: str, primary: bool = True,
-            gating: bool = True, subject: str | None = None):
-    from extant.session import Finding
+            gating: bool = True, subject: str | None = None) -> Located:
     from extant import finding
+    from extant.finding import Finding
     return finding.Located(path, Finding(line, kind, detail, subject), primary, gating)
 
 
@@ -73,9 +77,13 @@ def test_github_escapes_newlines_in_the_message() -> None:
 
 # --- SARIF -------------------------------------------------------------------
 
-def sarif_of(items) -> dict:
+# The SARIF document as `json.loads` returns it: the tests below walk it
+# key by key, and a missing key raises there.
+def sarif_of(items: list[Located]) -> dict[str, Any]:
     from extant import report
-    return json.loads(report.format_sarif(items))
+    doc = json.loads(report.format_sarif(items))
+    assert isinstance(doc, dict), doc
+    return doc
 
 
 def test_sarif_has_every_field_github_requires() -> None:
@@ -355,7 +363,7 @@ def run_in(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def build_repo(repo: Path, commit) -> None:
+def build_repo(repo: Path, commit: Commit) -> None:
     import shutil
     commit("NEXT_SESSION.md",
            "# Status\n\n## Phase 1 - x (in progress, 2026-01-01)\n\n"
@@ -431,8 +439,10 @@ def test_a_path_that_is_not_a_uri_is_encoded_rather_than_emitted_raw() -> None:
 
     def uri_for(path: str) -> str:
         doc = json.loads(report.format_sarif([located(path, 1, "dead-sha", "x")]))
-        return (doc["runs"][0]["results"][0]["locations"][0]
-                ["physicalLocation"]["artifactLocation"]["uri"])
+        uri = (doc["runs"][0]["results"][0]["locations"][0]
+               ["physicalLocation"]["artifactLocation"]["uri"])
+        assert isinstance(uri, str), doc
+        return uri
 
     # `#` is a DELIMITER: unencoded, a consumer reads the path as `.../F` and
     # treats the rest as a fragment, so the alert names a file that does not
@@ -525,9 +535,9 @@ def test_sarif_refuses_a_document_outside_the_repository(
 # refused and code scanning received nothing. Splitting into several runs is
 # refused by GitHub too since July 2025, when they share a tool and category.
 
-def _stratified(stratum: str, n: int, gating: bool = False):
+def _stratified(stratum: str, n: int, gating: bool = False) -> Located:
     from extant import finding
-    from extant.session import Finding
+    from extant.finding import Finding
     return finding.Located(f"{stratum}/doc{n}.md", Finding(n, "dead-md-link",
                            f"links to `x{n}.md`, which does not exist"),
                            primary=False, gating=gating, stratum=stratum)
@@ -610,7 +620,7 @@ def test_a_sweep_over_the_limit_says_so_beside_its_summary(
 ], ids=["verify", "introduced-since", "deleted-since"])
 def test_every_sarif_mode_says_the_cut_once_in_the_file_and_on_stderr(
         git_repo: GitRepo, monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture[str], mode) -> None:
+        capsys: pytest.CaptureFixture[str], mode: list[str]) -> None:
     """The three modes beside `--sweep` that write SARIF each hand the NOTE to
     the human stream themselves and pass it into the file with their other
     NOTE lines, where `format_sarif` would otherwise add its own. A gap audit

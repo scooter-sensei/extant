@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Mapping, Sequence
 
 import pytest
 
@@ -50,7 +51,7 @@ LEAKS = [
 ]
 
 
-def _two_repositories(git_repo, tmp_path: Path) -> tuple[Path, str, str]:
+def _two_repositories(git_repo: GitRepo, tmp_path: Path) -> tuple[Path, str, str]:
     """`repo` holding commit `a`, and a second repository holding only `b`."""
     repo, commit = git_repo
     a = commit("a.py", "a = 1\n", "feat: a")
@@ -63,7 +64,7 @@ def _two_repositories(git_repo, tmp_path: Path) -> tuple[Path, str, str]:
 @pytest.mark.parametrize("variable, inside", LEAKS)
 def test_a_leaked_location_variable_does_not_change_which_repository_answers(
         monkeypatch: pytest.MonkeyPatch, git_repo: GitRepo, tmp_path: Path,
-        variable, inside) -> None:
+        variable: str, inside: str) -> None:
     """`--repo` names the repository. Nothing in the environment overrides it.
 
     The document cites one commit from each repository. Only the OTHER
@@ -76,7 +77,7 @@ def test_a_leaked_location_variable_does_not_change_which_repository_answers(
     monkeypatch.setenv(variable, str(tmp_path / "other" / inside))
 
     findings = hc.validate(repo, DOC.format(a=a, b=b))
-    dead = sorted(f.subject for f in findings if f.kind == "dead-sha")
+    dead = sorted(str(f.subject) for f in findings if f.kind == "dead-sha")
     print(f"{variable} leaked: dead={dead}")
     assert dead == [b], (
         f"with {variable} naming another repository, dead-sha reported {dead} "
@@ -153,10 +154,10 @@ def test_every_git_process_starts_with_the_scrubbed_environment(
     other = tmp_path / "other"
     shutil.copytree(repo, other)
     monkeypatch.setenv("GIT_DIR", str(other / ".git"))
-    spawned: list[tuple[str, dict | None]] = []
-    real = subprocess.run
+    spawned: list[tuple[str, object]] = []
+    real: Callable[..., object] = subprocess.run
 
-    def record(cmd, *a, **kw):
+    def record(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawned.append((" ".join(str(c) for c in cmd[1:]), kw.get("env")))
         return real(cmd, *a, **kw)
@@ -167,7 +168,7 @@ def test_every_git_process_starts_with_the_scrubbed_environment(
     introduced_since.introduced_lines(repo, "HEAD~1")
 
     unscrubbed = [cmd for cmd, env in spawned
-                  if env is None or "GIT_DIR" in env
+                  if not isinstance(env, Mapping) or "GIT_DIR" in env
                   or env.get("GIT_NO_LAZY_FETCH") != "1"]
     reached = {site: sum(cmd.startswith(site) for cmd, _env in spawned)
                for site in DIRECT_SITES}

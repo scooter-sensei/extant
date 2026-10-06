@@ -23,7 +23,7 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 sys.path.insert(0, str(PAYLOAD))
 
 
-def git(repo, *args):
+def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True,
                           text=True, encoding="utf-8", check=True).stdout
 

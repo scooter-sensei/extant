@@ -30,6 +30,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import pytest
 
@@ -47,7 +48,7 @@ def git(repo: Path, *args: str, stdin: str = "") -> str:
     ).stdout.strip()
 
 
-def counted(monkeypatch, spawns: list[str]) -> None:
+def counted(monkeypatch: pytest.MonkeyPatch, spawns: list[str]) -> None:
     """Record every git command line, then run it for real.
 
     The whole line rather than the subcommand, for the reason
@@ -55,9 +56,9 @@ def counted(monkeypatch, spawns: list[str]) -> None:
     prefix, and a count that cannot tell them apart reports duplicates that are
     not duplicates.
     """
-    real = subprocess.run
+    real: Callable[..., object] = subprocess.run
 
-    def record(cmd, *a, **kw):
+    def record(cmd: Sequence[object], *a: object, **kw: object) -> object:
         if cmd and str(cmd[0]) == "git":
             spawns.append(" ".join(str(c) for c in cmd[1:]))
         return real(cmd, *a, **kw)

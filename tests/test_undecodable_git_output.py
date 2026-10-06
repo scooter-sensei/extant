@@ -56,7 +56,7 @@ def legacy_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "legacy"
     repo.mkdir()
 
-    def run(*args: str) -> subprocess.CompletedProcess:
+    def run(*args: str) -> subprocess.CompletedProcess[bytes]:
         return subprocess.run(["git", *args], cwd=repo, check=True,
                               capture_output=True)
 
@@ -153,7 +153,7 @@ def repo_with_undecodable_path(tmp_path: Path) -> Path:
     repo = tmp_path / "oddly-named"
     repo.mkdir()
 
-    def run(*args: str) -> subprocess.CompletedProcess:
+    def run(*args: str) -> subprocess.CompletedProcess[bytes]:
         return subprocess.run(["git", *args], cwd=repo, check=True,
                               capture_output=True)
 

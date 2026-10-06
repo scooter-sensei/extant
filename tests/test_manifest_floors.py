@@ -13,8 +13,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from conftest import GitRepo, _install_into
+
+if TYPE_CHECKING:
+    from extant.finding import Finding
 
 PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
            / "extant" / "payload")
@@ -23,7 +27,7 @@ sys.path.insert(0, str(PAYLOAD))
 PYPROJECT = '[project]\nname = "x"\nrequires-python = ">=3.10"\n'
 
 
-def _prepare(git_repo, manifest: str = PYPROJECT):
+def _prepare(git_repo: GitRepo, manifest: str = PYPROJECT) -> Path:
     """A repository carrying a manifest, and a clean rule cache."""
     from extant import session as hc
     repo, commit = git_repo
@@ -35,7 +39,7 @@ def _prepare(git_repo, manifest: str = PYPROJECT):
     return repo
 
 
-def _check(repo, text: str, doc: str = "README.md"):
+def _check(repo: Path, text: str, doc: str = "README.md") -> list[Finding]:
     """Findings from the rule alone, for a document at `doc`."""
     from extant import session as hc
     from extant.rules import manifest_floor as rule_manifest_floor
@@ -47,7 +51,7 @@ def _check(repo, text: str, doc: str = "README.md"):
         hc.set_document(doc_path=None)
 
 
-def _examined(repo, text: str, doc: str = "README.md") -> int:
+def _examined(repo: Path, text: str, doc: str = "README.md") -> int:
     from extant import session as hc
     from extant.rules import manifest_floor as rule_manifest_floor
     hc._SCOPE.manifest_floors = {}

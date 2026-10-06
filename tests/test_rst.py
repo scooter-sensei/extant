@@ -20,7 +20,7 @@ PAYLOAD = (Path(__file__).resolve().parent.parent / "plugin" / "skills"
 sys.path.insert(0, str(PAYLOAD))
 
 
-def _kinds(repo, text, fmt="rst"):
+def _kinds(repo: Path, text: str, fmt: str = "rst") -> list[str]:
     from extant import session as hc
     hc.set_document(doc_format=fmt)
     try:
