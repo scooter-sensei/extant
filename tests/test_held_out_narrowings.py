@@ -1054,10 +1054,31 @@ def test_a_rule_under_a_shape_that_is_already_something_adds_no_heading(
     underlined by it: the `---` is a thematic break, or the table's
     delimiter. So the document offers the same anchors with the rule as
     without it. Indented means four columns or a tab: a title indented one
-    to three spaces IS a heading to CommonMark, which this module refuses -
-    a recorded defect (Phase 64), not what this test holds."""
+    to three spaces IS a heading to CommonMark - refused here until Phase
+    65, and held by the test below."""
     from extant.anchors import anchors
     assert anchors(f"{line}\n---\n") == anchors(f"{line}\n")
+
+
+@pytest.mark.parametrize("text, expected", [
+    (" Title\n=====\n", {"title"}),
+    ("   Title\n---\n", {"title"}),
+    ("Title\n   ---\n", {"title"}),
+    ("Title\n    ---\n", set()),
+    ("Title\n    ===\n", set()),
+])
+def test_either_line_of_a_setext_heading_may_be_indented_up_to_three_spaces(
+        text: str, expected: set[str]) -> None:
+    """CommonMark lets both the title and its underline sit up to three
+    spaces in; at four the title is indented code, and an underline at
+    four is the paragraph's continuation, not a rule. markdown-it-py and
+    micromark agree on every line here. The module refused any indented
+    title - a working link to one was reported dead - and accepted an
+    underline at any indentation, which offered an anchor no renderer
+    makes and forgave a dead link to it. Both found while choosing inputs
+    for the mutmut cross-check (Phase 64); repaired in Phase 65."""
+    from extant.anchors import anchors
+    assert anchors(text) == expected
 
 
 @pytest.mark.parametrize("first", ["- item", "    indented"])

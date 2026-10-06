@@ -2243,7 +2243,8 @@ the tree can read them as code and blank them: the unsafe direction, a
 claim silenced. The mutant that reads the tag wrongly AGREES with the
 renderer there. It is recorded as its own item, to be repaired through the
 identity gate; no test here pins it, and the half of the shape the tree
-gets right - `</pre>` with text after it - has its test.
+gets right - `</pre>` with text after it - has its test. (Repaired in
+Phase 65: the last section of `design/code-blocks.md`.)
 
 **One row was misfiled.** `_line_and_terminator__mutmut_8` drops the bare
 CR spelling of a line break. Through `strip_code` and `prose` it is
@@ -2342,7 +2343,9 @@ refuses every indented title, so a working link to one is reported dead.
 That is the safe direction, a finding somebody can argue with, but it is a
 false positive, and it is recorded as its own item beside `</pre >`, not
 repaired here. The tests feed four spaces and a tab, where the module and
-the renderer agree that the line is code and not a title.
+the renderer agree that the line is code and not a title. (Repaired in
+Phase 65, with its converse - an underline at four columns made a heading
+- in the last section of `design/code-blocks.md`.)
 
 *A gap wider than the ledger said.* A7 was filed as "an explicit anchor
 with capitals". Every fragment is lowered before it is compared, so the

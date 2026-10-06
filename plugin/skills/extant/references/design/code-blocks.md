@@ -442,3 +442,80 @@ line is itself indented code - a marker, five spaces, then a fence - is not
 blanked; the marker-line check correctly declines the fence, and the indented
 half of that line was a gap before this tranche, on the plan's list of
 CommonMark facts not yet needed.
+
+## Two defects the mutmut cross-check found: a spaced closing tag, and how far in a setext heading may sit
+
+Phases 63 and 64 wrote a test for every mutant mutmut found that no test
+held, with the expected value taken from the renderer. Twice the renderer
+disagreed with the tree, and the mutant agreed with it: those were not
+gaps but defects. Each was recorded, and Phase 65 repairs both, test first.
+
+**A verbatim block ends at a literal closing tag - any of the four.**
+CommonMark ends a `<pre>`, `<script>`, `<style>` or `<textarea>` block at a
+line CONTAINING `</pre>`, `</script>`, `</style>` or `</textarea>`, in any
+case, whichever of them opened it: the closing tag "need not match the
+start tag". `_closing` also took `</pre >` - a space or a tab before the
+`>` - which is an end tag to a browser but not to the markdown parser:
+markdown-it-py and micromark both run the block on. The lines after it are
+raw HTML to the renderer, and this module read them as markdown again, so
+an indented one was blanked as code and its claims went unread. Now the
+test is the literal tag, matched without regard to case.
+
+The gap audit of Phase 65 found the converse in the same function: it
+asked only for the opener's own tag, so a `<pre>` ran on past `</script>`
+and the indented block after it was read as raw HTML, its claims checked
+where the renderer shows code. The two references agree on all sixteen
+pairs of opener and closer, and the tree disagreed on the twelve that do
+not match. Now any of the four ends any of the four blocks; measured the
+same way (`m25gap_closers.py`), that changes which lines are code in none
+of the 81,433 documents.
+
+**Either line of a setext heading may sit up to three columns in, and no
+further.** CommonMark lets the title and its underline each be indented one
+to three spaces; at four the title is indented code, and an underline at
+four is the paragraph's continuation. `_setext_headings` refused EVERY
+indented title, so a working link to ` Configuration` over ` -------` was
+reported dead. And it read the underline stripped, so an underline at any
+depth made a heading no renderer makes, offering an anchor that could
+forgive a dead link. Now both lines are measured in columns, a tab reaching
+the next stop of four.
+
+The columns count from the margin, because `anchors()` has no container
+model, so inside a list item the rule is an approximation. A heading nested
+past column four is still refused, as it always was. And one shape is new
+with the repair: an item's continuation line with `---` under it at the
+margin offers an anchor, where CommonMark reads a thematic break - an
+underline cannot be a lazy continuation. The gap audit's grid of 896
+shapes - at the margin, in list items and block quotes, under a paragraph
+line - judged by markdown-it-py (`gap65_grid.py`): the repair turned 122
+right and 22 wrong, all 22 inside a list item, and at the margin it is
+right on all 128. Another 272 were wrong before and stay wrong: nested
+headings, and a paragraph's earlier lines, which CommonMark makes part of
+the heading and this rule never reads. The corpus holds two of the new
+shape, both in moveit2's acceptance tests, and nothing links to either.
+
+**Measured before the gate.** Over the 152 visible clones' 81,433 markdown
+documents, old against new (`m25_predict.py` in the measurement apparatus):
+- The closing tag changed which lines are code in no document.
+- The setext rule changed anchors in 31 clones: 1,121 spellings gained,
+  none lost. The underline half removed nothing anywhere.
+- Of the 808 titles newly admitted, markdown-it-py calls 27 real headings
+  - 17 in Nim's documentation, 8 in OpenSSL's NOTES files vendored into node, one
+  each in rust and z3 - and 779 sit inside code blocks or raw HTML: YAML
+  examples, two spaces in, then `---`. Those are phantoms, the same class
+  `anchors()` already offers for an ATX `#` line inside a fence, because it
+  reads the raw text. Its comment states the bargain: a spelling no
+  renderer uses costs nothing unless a dead link's fragment happens to
+  equal it. The last 2 are the list-item shape above. This record first
+  said 35 and 803, counted by no saved script; the gap audit re-derived
+  the split with markdown-it-py and kept the script.
+- Here that happened once in the corpus. Every link spelling the rule
+  reads was scanned, and exactly one fragment equals a gained spelling: a
+  same-document `#requirement-details` in node's NOTES-VMS.md, whose own
+  document did not gain it.
+
+The prediction, written before the gate ran, was 0 of 152 outputs
+differing, and the gate agreed: 0 of 152. The phantom class stays recorded
+and unchanged. Closing it means running the code-block scanner inside
+`anchors()` for every document a link reaches, and nothing measured here
+would move.
