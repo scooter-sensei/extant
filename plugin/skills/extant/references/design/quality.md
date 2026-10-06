@@ -2378,3 +2378,99 @@ self-check 23 of 23. `--verify` exits 0; `--selftest` fires 7 rules with 0
 silent; `--introduced-since main` reads 394 introduced lines, Phase 63's
 and these, with 0 findings. The payload did not change, so the identity
 gate was not run.
+
+## The harnesses typed: 170 errors, and a harness broken for seven weeks
+
+Phase 66, the first half of the type-checking tranche: the harnesses under
+`tests/harnesses/` join `[tool.mypy]`, so the self-check job's mypy step
+holds them as it holds the package. Harnesses first because they are CI
+jobs or hand-run, and a type error in one is a red job, or a crash on the
+next run, that pytest cannot see. The tests are the second half.
+
+**Measured first**, `mypy --strict` at the 3.10 target with the search path
+conftest.py gives the suite (`m26_typecheck_measure.py` in the measurement
+apparatus): 170 errors in 12 of the 13 files. 141 were a missing
+annotation, a call into an unannotated function, or a bare generic. The
+other 29 were read one by one, because they are where a change beyond an
+annotation hides, and the measurement's question was how many there are.
+
+**One real defect.** `corpus.py`'s `examined()` - the per-rule denominator
+column the harness exists to provide - raised `NameError` on every call
+from 2026-08-17, when the modes moved out of the shim. The refactor imported
+the session module as `hc` in this function and as `ec` in `toolchain()`,
+and the loop still said `ec`; it also bound `text` to each document while
+`text.format_for` still meant the module, so mending the name alone would
+have moved the crash one line down. `main()` calls it with no handler, so
+`python tests/harnesses/corpus.py <dir-of-clones>` stopped at its first
+repository for seven weeks, and nothing noticed: AGENTS.md lists the
+harness as hand-run, no job runs it, and no test called it. A test calls it
+now - a markdown claim and the same sentence in a reStructuredText literal
+block, where the per-document format decides the count - and was watched
+red against each of the three ways the function can be broken: the unbound
+name, the shadowed module, and a dropped `set_document`.
+
+**Two annotations that stated the wrong thing.** `stress.py`'s
+`verdict_for` was declared to take a float and opened with a branch for
+None, which every timed-out run passes it; the declaration was the lie, not
+the branch. `corpus.py` declared its results `dict[str, dict[str, int]]`
+while every entry mixes two counts with three maps; it is a `TypedDict` of
+the baseline line `--update` writes, and the comparison loop reads its two
+maps by name rather than through a key variable the type cannot follow.
+
+**The other 27**, each an annotation or a rename: a loop variable reused
+for a second type (smoke.py, stress.py, corpus.py), a tuple grown from an
+inferred three-tuple, a timeout assigned a float into an int-typed global,
+an empty tuple fixing a branch's type, a lambda with a default argument no
+checker can infer, a signal handler built as a tuple inside a lambda, and
+the axes' facts - eight keys, each set only once the step that earns it has
+succeeded, so an absent key is the evidence; that is `AxisFacts`, a
+`TypedDict` with `total=False`. `Build.facts` holds one flag that is
+written and read by nothing; recorded, not removed.
+
+**Three choices, each with its reason.**
+- No explicit `Any`, as in the package, where there is none. Parsed JSON
+  stays an unannotated local, as `report.py` leaves it; the one parameter
+  that received a parsed document, `RepoPlan.from_dict`, became
+  `from_json(text)` and parses inside, with its body unchanged; the SARIF
+  walk in fuzz_differential.py narrows each level through `_json_object`,
+  which is identical on SARIF this tool writes and reads a malformed value
+  as absent where the chained `.get` raised.
+- Aliases that hold `X | None` - the oracles' `Run`, the driver's `Faults` -
+  sit under `if TYPE_CHECKING:`, as AGENTS.md prescribes, because 3.9
+  evaluates a module-level alias on import and no checker sees the crash.
+  The suite imports these modules on every leg, so the 3.9 leg is where
+  that would have shown.
+- No `assert` to tell the checker an invariant, since the harnesses have
+  none: the driver's guard tests the value `examine` returns, which is None
+  exactly when the build broke, three lines into the same function.
+
+**No mutation anchor** for the `corpus.py` repair. `mutate.py` mutates what
+ships and what installs it, and the class of this defect - a name bound in
+one function and read in another - is what mypy in CI now refuses on every
+pull request, which is a stronger guard than one mutant.
+
+**Cost.** A cold `python -m mypy` took 3.0 seconds over 47 files and takes
+about 5 over 60; warm, 0.4 either way.
+
+**Gated, Phase 66.** 1,697 tests: on Windows 1,689 pass and 8 skip, on
+Linux 1,695 and 2, serially and in CI's shuffled order. mypy clean on 60
+files; 452 anchors match. From an extract of the tree: smoke with no new
+or missing flag, scenarios 213 of 213, fuzz 0 violations, the fuzzer's
+self-check 23 of 23, and its differential against a second extract of
+the same tree 0 differences over 58 findings and 130 denominators, so
+the rewritten SARIF walk compared something. The three hand-run
+harnesses ran once each: `corpus.py` over two clones, its baseline
+written and then compared with 0 changed; `perf.py`'s ten sections;
+`stress.py` 52 of 52 measurements within expectations. `--verify` exits
+0; `--selftest` fires 7 rules with 0 silent; `--introduced-since
+origin/main` reads 168 introduced lines with 0 findings. The payload did
+not change, so the identity gate was not run.
+
+**The second half.** The tests: 1,779 errors over 84 files at the same
+settings, 1,331 of them a missing `-> None` and 269 the calls those make
+untyped; 108 beyond an annotation. Sampled, one test asserts on a state the
+shipped tool cannot reach - test_prefilters.py hands `path_pointer` two
+capture groups, which the configuration loader refuses - and the rest read
+so far are idioms: a cached helper redefined over the one that filled the
+cache, `append(...) or {}` in a monkeypatched lambda, private names reached
+across modules.

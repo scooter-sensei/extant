@@ -24,14 +24,16 @@ The suite must be green, `mypy` must find nothing and `--verify` must exit 0
 before you edit, so a failure afterwards is yours rather than inherited.
 
 `python -m mypy` takes its whole configuration from `[tool.mypy]` in
-`pyproject.toml` - the shipped package, the shim, `install.py` and `detect.py`,
-at the 3.10 target, `strict` - and needs no arguments. Run it from the
+`pyproject.toml` - the shipped package, the shim, `install.py`, `detect.py`
+and the harnesses under `tests/harnesses/`, at the 3.10 target, `strict` -
+and needs no arguments. Run it from the
 repository root: run from inside `plugin/skills/extant/payload/` its cache
 lands beside the shipped source and the test that reads every shipped file
 whole fails on it. It is a type checker, not a linter - there is still no
 ruff, flake8 or black, and what enforces style is the suite - and it gates in
 the self-check CI job rather than in the suite, because it does not run on
-the 3.9 leg. About three seconds. The 3.9 floor itself it cannot see: typeshed
+the 3.9 leg. About five seconds from a cold cache. The 3.9 floor itself it
+cannot see: typeshed
 dropped 3.9 with its EOL and removed the `>= (3, 10)` guards, so no checker
 can any longer tell a 3.10-only call from one the floor allows. The 3.9 test
 leg is the check of the floor; this is the check of everything else.
@@ -412,7 +414,7 @@ only the author knows which two strings name one fact.
 | `plugin/skills/extant/install.py` | the installer, detection and presets |
 | `plugin/skills/extant/references/design.md` | why each rule works as it does: the core, and a map of the parts |
 | `plugin/skills/extant/references/design/` | the rest of the design rationale, one part per subject |
-| `tests/harnesses/` | the audits pytest cannot perform. `scenarios.py`, `smoke.py` and `fuzz.py` are their own CI jobs; the self-check job runs `mutate.py --check-only` and `fuzz.py --self-check`; `corpus.py`, `perf.py` and `stress.py` are hand-run |
+| `tests/harnesses/` | the audits pytest cannot perform. `scenarios.py`, `smoke.py` and `fuzz.py` are their own CI jobs; the self-check job runs `mutate.py --check-only` and `fuzz.py --self-check`; `corpus.py`, `perf.py` and `stress.py` are hand-run. All of them are type-checked with the package, which is the only check a hand-run harness gets between runs |
 | `CONTRIBUTING.md` | the same rules, aimed at people |
 
 Read `plugin/skills/extant/references/design.md` before changing a rule. It
