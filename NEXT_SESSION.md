@@ -6,7 +6,7 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 66 - The harnesses type-checked, and a harness broken for seven weeks (unreleased, 2026-10-06)
+## Phase 66 - The harnesses type-checked, and a harness broken for seven weeks (shipped, 2026-10-06)
 
 **Status.** Built and gated; the first half of the type-checking tranche.
 - 1,697 tests across 83 files, of which 1,689 pass and 8 skip on this
@@ -21,7 +21,7 @@ so the tool is exercised on a real document rather than only on fixtures.
 - 452 mutation anchors match; none added, for the reason below.
 - The payload did not change, so the identity gate was not run.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.29.0.
+- This work shipped in 0.30.0, with Phases 60 to 65, from pull request 31.
 
 **What changed.**
 - **`tests/harnesses/` joins `[tool.mypy]`.** Measured first: 170 errors
@@ -57,7 +57,7 @@ The tests themselves are the second half: 1,779 errors over 84 files,
 The numbers are in "The harnesses typed" in
 `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 65 - The two defects the cross-check found, repaired: a spaced closing tag, and an indented setext heading (unreleased, 2026-10-04)
+## Phase 65 - The two defects the cross-check found, repaired: a spaced closing tag, and an indented setext heading (shipped, 2026-10-04)
 
 **Status.** Built and gated, then amended by its gap audit on 2026-10-05.
 - 1,696 tests across 82 files, of which 1,688 pass and 8 skip on this
@@ -73,7 +73,8 @@ The numbers are in "The harnesses typed" in
 - The identity gate over the 152 visible corpus clones: 0 of 152 outputs
   differ, as predicted in writing before it ran - both times.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.29.0.
+- This work shipped in 0.30.0, with Phases 60 to 64 and 66, from pull
+  request 30.
 
 **What changed.**
 - **A `<pre>`, `<script>`, `<style>` or `<textarea>` block ends at a
@@ -124,7 +125,7 @@ trap after it had reddened CI twice before.
 The numbers are in "Two defects the mutmut cross-check found" in
 `plugin/skills/extant/references/design/code-blocks.md`.
 
-## Phase 64 - mutmut as a cross-check, second half: commits.py and anchors.py, `--sha-map` held whole, and a second defect (unreleased, 2026-10-03)
+## Phase 64 - mutmut as a cross-check, second half: commits.py and anchors.py, `--sha-map` held whole, and a second defect (shipped, 2026-10-03)
 
 **Status.** Built and gated.
 - 1,684 tests across 82 files, of which 1,676 pass and 8 skip on this
@@ -139,7 +140,8 @@ The numbers are in "Two defects the mutmut cross-check found" in
 - No identity gate: the payload did not change.
 - No rule added or removed, thirteen as before; no mode added. The payload
   is unchanged: only tests, the mutation harness and these records moved.
-- The tool remained released as 0.29.0.
+- This work shipped in 0.30.0, with Phases 60 to 63, 65 and 66, from pull
+  request 29.
 
 **What it answers.** The rest of Phase 63's question, for
 `extant/commits.py` and `extant/anchors.py`: 60 real rows mutmut found
@@ -178,7 +180,7 @@ caught only because the expected list was written down first.
 The numbers are in "mutmut as a cross-check: what the hand-chosen anchors
 missed" in `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 63 - mutmut as a cross-check: 65 real mutants no test held in blocks.py and text.py, and one defect (unreleased, 2026-10-03)
+## Phase 63 - mutmut as a cross-check: 65 real mutants no test held in blocks.py and text.py, and one defect (shipped, 2026-10-03)
 
 **Status.** Built and gated.
 - 1,635 tests across 82 files, of which 1,627 pass and 8 skip on this
@@ -193,7 +195,8 @@ missed" in `plugin/skills/extant/references/design/quality.md`.
 - No identity gate: the payload did not change.
 - No rule added or removed, thirteen as before; no mode added. The payload
   is unchanged: only tests, the mutation harness and these records moved.
-- The tool remained released as 0.29.0.
+- This work shipped in 0.30.0, with Phases 60 to 62 and 64 to 66, from
+  pull request 28.
 
 **What it answers.** `tests/harnesses/mutate.py`'s anchors are mutations
 somebody chose. mutmut makes every mutation it knows of in every function,
@@ -249,7 +252,7 @@ and the new tests kill them; they are counted as real above.
 The numbers are in "mutmut as a cross-check: what the hand-chosen anchors
 missed" in `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 62 - Six invariants held as properties: two defects, and the generator that decides what a property finds (unreleased, 2026-10-02)
+## Phase 62 - Six invariants held as properties: two defects, and the generator that decides what a property finds (shipped, 2026-10-02)
 
 **Status.** Built and gated; gap-audited, repaired, and gated again.
 - 1,588 tests across 82 files, of which 1,580 pass and 8 skip on this
@@ -272,7 +275,8 @@ missed" in `plugin/skills/extant/references/design/quality.md`.
   under its ceiling: `plugin/skills/extant/payload/extant/exclusions.py`
   holds the `exclude_paths` matcher that was in `sweep.py`, which fell from
   926 lines to 796.
-- The tool remained released as 0.29.0.
+- This work shipped in 0.30.0, with Phases 60, 61 and 63 to 66, from pull
+  request 27.
 
 **What it answers.** Do the claims the package makes about EVERY input hold
 for inputs nobody wrote down? Six of them are now Hypothesis properties in
@@ -358,7 +362,7 @@ generator that decides what a property can find" and "The gap audit of the
 properties: nine findings, and a derandomized run that was not" in
 `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 61 - An audit of the whole package and of its own gaps: eighteen repairs, two of them measured over the corpus first (unreleased, 2026-10-01)
+## Phase 61 - An audit of the whole package and of its own gaps: eighteen repairs, two of them measured over the corpus first (shipped, 2026-10-01)
 
 **Status.** Built and gated.
 - 1,574 tests across 80 files, of which 1,566 pass and 8 skip on this
@@ -375,7 +379,8 @@ properties: nine findings, and a derandomized run that was not" in
   holds the TOML error hints that were in `config.py`.
   `plugin/skills/extant/payload/extant/rewrites.py` holds the rewrite-map
   reading that was in `commits.py`.
-- The tool remained released as 0.29.0.
+- This work shipped in 0.30.0, with Phases 60 and 62 to 66, from pull
+  request 26.
 
 **What it answers.** Does the package still hold anything a careful reader
 would call a defect? The rationale records most such questions as already
@@ -511,7 +516,7 @@ Nothing is lost either way.
 The numbers are in "The 2026-10-01 audit" and "The gap audit of that audit"
 in `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 60 - The mutation campaign and CI, made cheaper without moving a verdict (unreleased, 2026-10-01)
+## Phase 60 - The mutation campaign and CI, made cheaper without moving a verdict (shipped, 2026-10-01)
 
 **Status.** Built and gated.
 - 1,537 tests across 80 files, of which 1,529 pass and 8 skip on this
@@ -523,7 +528,7 @@ in `plugin/skills/extant/references/design/quality.md`.
   or moved one, since the rest of the change is in the harnesses and CI.
 - No rule added or removed, thirteen as before; no mode added. One shipped
   file changed, `plugin/skills/extant/payload/extant/git.py`, in `11ab893`.
-  The tool remained released as 0.29.0.
+  This work shipped in 0.30.0, with Phases 61 to 66.
 
 **What it answers.** A full campaign of the 357 anchors would take about a
 day serially on this machine: 242 s per kill and 736 s for a survivor, timed
