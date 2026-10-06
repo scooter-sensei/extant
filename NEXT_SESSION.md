@@ -6,6 +6,48 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 67 - The tests type-checked, and a test of a pattern the tool refuses (unreleased, 2026-10-06)
+
+**Status.** Built and gated; the second half of the type-checking tranche.
+- 1,697 tests across 83 files, of which 1,689 pass and 8 skip on this
+  machine, on each of the three code commits' own trees and the tip. On
+  Linux 1,695 pass and 2 skip, serially and in CI's shuffled order.
+- `python -m mypy`: no issues in 146 files - the 60 it checked before,
+  the tests, and `.github/scripts`. About 9 seconds from a cold cache.
+- 452 mutation anchors match; none added, because nothing that ships
+  changed. The rewritten test was watched red against an existing one.
+- The payload did not change and no harness did, so neither the identity
+  gate nor the chain was run.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **`tests` and `.github/scripts` join `[tool.mypy]`**, so every Python
+  file the project maintains is type-checked. Measured first: 1,640
+  errors in 79 of 146 files. A script typed 1,305 fixture parameters by
+  name and 153 returns, which left 579 errors; those were done by hand.
+- **One test asserted on a state the tool cannot reach.** It handed
+  `path_pointer` a group in each alternative, which the loader refuses,
+  and asserted tuples the rule never returns. It now asserts the same
+  property on a pattern the loader accepts, still a top-level
+  alternation, and was watched red against the anchor that breaks it.
+- **Seven names a module does not export**, 14 errors in 9 files, each
+  imported from where it is defined.
+- **Nine suppressions in the tests**, each with one code and its reason:
+  six deliberate violations, and three `tomllib` imports kept under
+  try/except because the suite's floor check requires it. **Seven
+  explicit `Any`**, each a parsed document crossing a function boundary.
+- The publish gate's `fetch` reads anything but a list of runs as no run
+  found, which fails the gate.
+
+**A correction.** The design rationale's harness section gives the
+second half as "1,331 of them a missing `-> None`". Most were fixture
+parameters without a type; mypy suggested `-> None` for 56. The new
+section says so, dated.
+
+The numbers are in "The tests typed" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 66 - The harnesses type-checked, and a harness broken for seven weeks (shipped, 2026-10-06)
 
 **Status.** Built and gated; the first half of the type-checking tranche.

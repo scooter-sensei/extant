@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Above 0.30.0, unreleased: Phase 67, which type-checks the tests and the
+release gate with the package. Nothing a user runs changed. One test
+asserted on a pattern the configuration loader refuses; it now asserts
+the same property on one the loader accepts. The release gate reads
+anything but a list of runs from the API as no run found, which fails
+it. Its record is Phase 67 in NEXT_SESSION.md.
+
 ## 0.30.0 (2026-10-06)
 
 Phases 60 to 66, the work that followed 0.29.0. No rule added or removed,

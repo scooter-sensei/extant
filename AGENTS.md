@@ -24,16 +24,16 @@ The suite must be green, `mypy` must find nothing and `--verify` must exit 0
 before you edit, so a failure afterwards is yours rather than inherited.
 
 `python -m mypy` takes its whole configuration from `[tool.mypy]` in
-`pyproject.toml` - the shipped package, the shim, `install.py`, `detect.py`
-and the harnesses under `tests/harnesses/`, at the 3.10 target, `strict` -
-and needs no arguments. Run it from the
+`pyproject.toml` - the shipped package, the shim, `install.py`, `detect.py`,
+the tests with their harnesses, and `.github/scripts/`, at the 3.10 target,
+`strict` - and needs no arguments. Run it from the
 repository root: run from inside `plugin/skills/extant/payload/` its cache
 lands beside the shipped source and the test that reads every shipped file
 whole fails on it. It is a type checker, not a linter - there is still no
 ruff, flake8 or black, and what enforces style is the suite - and it gates in
 the self-check CI job rather than in the suite, because it does not run on
-the 3.9 leg. About five seconds from a cold cache. The 3.9 floor itself it
-cannot see: typeshed
+the 3.9 leg. About nine seconds from a cold cache, over 146 files. The 3.9
+floor itself it cannot see: typeshed
 dropped 3.9 with its EOL and removed the `>= (3, 10)` guards, so no checker
 can any longer tell a 3.10-only call from one the floor allows. The 3.9 test
 leg is the check of the floor; this is the check of everything else.
@@ -396,7 +396,9 @@ only the author knows which two strings name one fact.
   of the twenty-two that predated the gate had drifted that way, each one a
   suppression waiting to hide a real error of that code. Explicit `Any` is
   the other way to say nothing, and is not taken: a memo on `RunScope` states
-  what it holds, and a `Callable` says what it is called with.
+  what it holds, and a `Callable` says what it is called with. The tests
+  take it in seven places, each a parsed document whose keys are then read,
+  and say why beside each.
 - Narrow exception handlers. Bare `except:` hides the failures this project
   exists to surface. A broad catch is allowed in exactly one shape: when it
   REPORTS what it caught, so the degraded path names itself instead of printing
