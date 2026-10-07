@@ -276,3 +276,15 @@ def test_a_one_line_document_is_measured_in_the_singular(tmp_path: Path) -> None
     doc = write(repo / "STATUS.md", "# Status\n")
     obs, _info = install.observe(repo, doc)
     assert obs[0] == Observation("primary_doc", "STATUS.md", "derived", "1 line")
+
+
+def test_a_detached_head_is_not_counted_as_a_branch(tmp_path: Path) -> None:
+    """`git branch` lists a detached HEAD as `(HEAD detached at 1a2b3c4)`, and
+    the sample counted that line: a repository with one branch was reported
+    as having two. A detached HEAD is what a pull request's CI checkout and a
+    rebase in progress leave behind."""
+    repo = _tagged(tmp_path)
+    subprocess.run(["git", "checkout", "-q", "--detach"], cwd=repo,
+                   capture_output=True, check=True)
+    assert detect_branch_pattern(repo).evidence == (
+        "1 branch, no repeated prefix; matching any slashed name")

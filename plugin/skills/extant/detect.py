@@ -185,8 +185,12 @@ def detect_branch_pattern(repo: Path) -> Observation:
     so the pattern covers whatever clears a frequency floor rather than only the
     single most common.
     """
+    # `for-each-ref`, not `git branch -a`: the porcelain also lists a detached
+    # HEAD, a rebase or a bisect as `(HEAD detached at 1a2b3c4)`, and that line
+    # was counted as a branch - one branch reported as two.
     names = [ln.strip() for ln in _git(
-        repo, "branch", "-a", "--format=%(refname:short)"
+        repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/",
+        "refs/remotes/"
     ).splitlines() if ln.strip()]
     # `--format=%(refname:short)` emits `origin/main`, NOT
     # `remotes/origin/main`, so the old prefix matched nothing and every
