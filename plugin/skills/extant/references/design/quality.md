@@ -2594,3 +2594,156 @@ branch merged; `--selftest` fires 7 rules with 0 silent;
 `--introduced-since origin/main` reads 180 introduced lines with
 0 findings. Neither the payload nor a harness changed, so neither the
 identity gate nor the chain was run.
+
+## The installer under mutmut: 896 survivors, outputs compared whole, and three defects
+
+D7 measured the rest of the package under mutmut; Phase 68 acted on the
+part of it the installer owns, install.py and detect.py, which do not ship.
+The apparatus is `m28_*` (D7) and `m29_*` (Phase 68) in the measurement
+apparatus, rows under `D:/repo/out-mutmut/d7/` and `D:/repo/out-mutmut/p68/`.
+
+**D7, the measurement (2026-10-06/07).** The cross-check above saw 12 per
+cent of the package's mutants. D7 ran the other 41 files, 12,127 mutants,
+by tranche 24's method - stage 1 finds, under mutmut 3.8.0 in WSL; stage 2
+decides, the whole suite on each non-kill applied to a clean clone - with
+three changes, each forced by a measurement:
+1. The launcher strips `plugin.skills.extant.` as well as the payload's
+   prefix, because the suite imports the installer as `install` and
+   `detect`.
+2. A compiled-code cache keyed by the source bytes. Under mutmut each
+   payload module carries every mutant, so the payload a test installs is
+   50 MB, and its first import took 93 seconds against 0.4.
+3. 22 tests that read the payload's SOURCE are deselected in stage 1 only.
+   On the instrumented tree they fail or take up to 400 seconds, and none
+   calls a payload function, so mutmut could never select one; stage 2 runs
+   them on every row.
+
+Stage 1, 61 minutes on 6 workers: 8,783 killed, 2,330 survived, 981
+reached by no test in process, 31 timeouts, 2 segfaults - 3,344 leads.
+Stage 2, 20.2 hours on 10 workers, both controls holding: 2,158 survive
+the whole suite, 1,156 killed, 30 hung. So 17.8 per cent of those
+mutants outlive everything pytest runs, against 15 in tranche 24; `mypy
+--strict` rejects 370 of them. 50 drawn at random and read one by one,
+with mypy and CI's other jobs measured on each, project about 1,770
+caught by nothing in CI, about 734 of them real and not wording (95 per
+cent interval 450-1,017). One pilot row read as real is equivalent:
+`merge_claim` taken out of `render_config`'s `regexy` set falls to a branch
+that quotes by the same rule, so the file is byte-identical. The plan's
+gap audit found it by running a test against it.
+
+The survivors sit where a whole OUTPUT is produced and only pieces of it
+were asserted - a key of the config here, a phrase of the output there.
+install.py kept 503 of its 1,272 mutants and detect.py 393 of its 747.
+
+**The decisions as taken**, weighed on what each buys the project, three
+of them departing from the recommendation:
+- D7a: a row `mypy --strict` rejects counts as CAUGHT, because mypy is a
+  required step of the self-check job; no test is written for one alone.
+- D7b: for the installer, wording is pinned. Its prose states what each
+  setting will DO, and `closing_advice` records a sentence that was false
+  in 39 of 39 installs. Each fixed paragraph is written once in the test
+  file, so a rewording is one edit. argparse's own text is the exception:
+  each help sentence is compared, never the page, because argparse titles
+  and wraps it differently across 3.9-3.14.
+- D7c: whole-output tests, surface by surface, install.py and detect.py
+  first, measured again at the close.
+- D7d: a Windows-only row is a limit of the Linux verdict, decided on
+  Windows wherever a test reaches it.
+- D7e: the singular, below - six strings rather than seven, because the
+  seventh can never count one.
+
+**The tests.** `tests/test_detect_outputs.py` calls every observer in
+process and compares its whole answer: the Observation lists on seven
+histories, each built to reach named branches (ticket keys and slash
+prefixes past the floor, a detached HEAD, a non-ASCII branch prefix and a
+latin-1 subject, five tags under four prefixes, no history at all); every
+grouping floor and the branch floor ON a boundary, where `n // 20` and
+`n / 20` disagree; the 500-subject sample bound; `find_wide_documents`'
+notes on four trees and its three refusals; `find_documents` and
+`inspect_document`. The histories are built by one `git fast-import`, not
+a `git commit` each - the floors need up to 501 commits.
+
+`tests/test_install_outputs.py` runs install.py as a subprocess - twelve
+tests, nine repositories - and compares stdout and the three files it
+writes, whole: a status document with everything derived, a second run
+and `--force`, a dry run, an undetected entry prefix, the readme preset,
+`--wide-docs` nominating a README.rst, a document under `docs/` with
+`--claude-command`, the four ways it stops, and `--help`. The command and
+the skill are compared against their templates with the values
+substituted, and the
+payload's file list is read from the payload tree, so what is pinned is
+what the installer DECIDES. In process, the steps between: `apply_preset`
+on four presets, `_fold_wide_docs`, `choose_document`, `render_config` on
+a value of every shape it branches on - parsed back, each value must read
+as itself - `render_command`, `closing_advice`, and `copy_payload` on a
+skill missing its payload.
+
+The installer runs from OUTSIDE the repository. Every installer test
+before ran it from inside, so a git call that dropped `repo` and fell back
+to the working directory read the right history anyway: three such
+mutants in install.py, killed only from outside.
+
+**Three defects, found reading the residue**, each with a test watched
+failing first and a commit of its own:
+1. "1 tags", "1 branches", "in 1 subjects", "1 lines" in the evidence the
+   installer prints and writes. `detect.counted` takes the plural rather
+   than deriving it, since `branch` takes `es`.
+2. `git branch -a` lists a detached HEAD as a line of its own, and the
+   branch sample counted it: a repository with one branch was reported as
+   having two. It asks `for-each-ref` for refs/heads/ and refs/remotes/
+   now. A pull request's CI checkout is a detached HEAD.
+3. The validator makes its output survivable (`_survivable_output`); the
+   installer never did. Piped, as an agent runs it, Windows encodes its
+   output as cp1252, and a Japanese branch name raised UnicodeEncodeError
+   at the configuration table, before `.extant.toml` was written. The
+   test forces cp1252 with no error handler, so the tool copes rather
+   than the environment.
+
+**The closing measurement.** `m29_redcheck.sh` applies each of D7's
+patches to a clean clone of main with the worktree's files copied over
+it - nothing was committed for it - and runs only the new tests; a D7
+survivor already passed the whole suite, so a failure means a new test
+kills it. CLEAN passed in every run, and a pre-flight with the old
+`test_detect.py` killed none of detect's 393. A patch whose lines a repair
+moved is retried with no context required, which is safe only because
+each line it removes occurs once (`m29_stale.py`); one whose line a repair
+REWROTE names a mutant that no longer exists. Tallied by `m29_tally.py`:
+
+| | install.py | detect.py | all |
+|:--|--:|--:|--:|
+| D7 survivors | 503 | 393 | 896 |
+| killed on Linux | 427 | 333 | 760 |
+| killed on Windows only | 16 | 4 | 20 |
+| equivalent | 51 | 33 | 84 |
+| contrived | 8 | 3 | 11 |
+| no longer exist | 1 | 20 | 21 |
+
+No real row is left. The plan's fixtures alone killed 252 of detect's 393;
+reading what survived, three times over, took the total to 780. Each of
+the 20 Windows-only rows was applied on Windows and watched killed - a
+dropped `encoding="utf-8"` or `newline=""` on a write, or a path separator.
+The 21 that no longer exist mutate the `git branch -a` line (10) and the
+six rewritten strings (11). Every residue row carries its class and reason
+in `residue_detect.tsv` and `residue_install.tsv`. A full run took about
+half an hour on 10 WSL workers, most of it rebuilding each worker's tree.
+
+**Seen and not taken**, because each is a simplification rather than a
+gap: `detect_release_tag` counts tags per prefix and reads only the keys;
+`inspect_document` returns `merge_targets`, which nothing reads;
+`render_config`'s `regexy` set decides nothing the generic string branch
+would not; its `plain` set names `pointer_prefix`, which no observation is
+called.
+
+**Anchors.** 22 in `mutate.py`'s Phase 68 block, one per surface on its
+most specific line, the three repairs reverted, two that only Windows can
+kill: 474 in all. The Windows campaign, on a copy, killed all 22 in 42
+minutes - none hung, none overturned by the serial check.
+
+**Gated, Phase 68**, on the final tree before any commit. 1,753 tests: on
+Windows 1,745 pass and 8 skip, on Linux 1,751 and 2, serially and in CI's
+shuffled order. mypy clean on 148 files, about ten seconds cold; 474
+anchors match. The installer changed, so smoke and scenarios ran on an
+extract of the tree: 0 new and 0 missing, 213 of 213. `--verify` exits 0
+here and on a main-only clone; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since origin/main` reads 222 introduced lines with 0
+findings. The payload did not change, so no identity gate.

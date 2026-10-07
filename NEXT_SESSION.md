@@ -6,6 +6,50 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 68 - The installer's outputs compared whole, and three defects they found (unreleased, 2026-10-07)
+
+**Status.** Built and gated; D7's measurement acted on for install.py and
+detect.py.
+- 1,753 tests across 85 files, of which 1,745 pass and 8 skip on this
+  machine. On Linux 1,751 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 148 files.
+- 474 mutation anchors match, 22 of them new; the Windows campaign
+  killed all 22, none hung and none overturned.
+- The payload did not change - install.py and detect.py do not ship - so
+  no identity gate. The installer did, so smoke and scenarios ran on an
+  extract of the tree: smoke 0 new and 0 missing, scenarios 213 of 213.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **Two test files compare whole outputs.** `tests/test_detect_outputs.py`
+  calls each detect.py observer on histories built to reach its branches
+  and compares the complete answer; `tests/test_install_outputs.py` runs
+  the installer from outside the repository it installs into and compares
+  what it prints and the three files it writes, whole, wording included,
+  with its pure steps compared in process. 56 tests in all, with five in
+  `tests/test_detect.py` and one in `tests/test_unicode_documents.py`.
+- **The installer counts one in the singular**: "1 tag", "1 branch", "in
+  1 subject", "1 line", where it printed "1 tags" and "1 lines".
+- **A detached HEAD is not a branch.** `git branch -a` lists it as a line
+  of its own, and the sample counted it, so a repository with one branch
+  was reported as having two. It reads `for-each-ref` now.
+- **The installer survives a name its output cannot encode.** Piped on
+  Windows, as an agent runs it, a Japanese branch name raised
+  UnicodeEncodeError before `.extant.toml` was written; it now does what
+  the validator does, and the console shows `?`.
+- **22 mutation anchors**, one per surface, the three repairs reverted.
+
+**What D7's survivors came to.** Of the 896 mutants of install.py and
+detect.py that survived the whole suite, the new tests kill 760 on Linux
+and 20 more, which only Windows can see, there; 84 are equivalent, 11
+contrived, and 21 no longer exist, because the repairs rewrote the lines
+they mutate. No real one is left.
+
+The numbers are in "The installer under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 67 - The tests type-checked, and a test of a pattern the tool refuses (unreleased, 2026-10-06)
 
 **Status.** Built and gated; the second half of the type-checking tranche.

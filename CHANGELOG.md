@@ -2,12 +2,28 @@
 
 ## Unreleased
 
-Above 0.30.0, unreleased: Phase 67, which type-checks the tests and the
-release gate with the package. Nothing a user runs changed. One test
-asserted on a pattern the configuration loader refuses; it now asserts
-the same property on one the loader accepts. The release gate reads
-anything but a list of runs from the API as no run found, which fails
-it. Its record is Phase 67 in NEXT_SESSION.md.
+Above 0.30.0, unreleased: Phases 67 and 68.
+
+Phase 67 type-checks the tests and the release gate with the package.
+Nothing a user runs changed. One test asserted on a pattern the
+configuration loader refuses; it now asserts the same property on one the
+loader accepts. The release gate reads anything but a list of runs from
+the API as no run found, which fails it.
+
+Phase 68 compares the installer's outputs whole - what it prints and the
+three files it writes - and repairs three things those tests found in the
+installer:
+- its evidence counts one tag, branch, subject or line in the singular,
+  where it printed "1 tags" and "1 lines";
+- a detached HEAD - a pull request's CI checkout, a rebase in progress -
+  is no longer counted as a branch, so a repository with one branch is no
+  longer reported as having two;
+- a name its output cannot encode no longer kills it. With output piped
+  on Windows, as an agent runs it, a Japanese branch name raised
+  UnicodeEncodeError before `.extant.toml` was written; the console now
+  shows `?` and the files keep the name.
+
+Their records are Phases 67 and 68 in NEXT_SESSION.md.
 
 ## 0.30.0 (2026-10-06)
 
