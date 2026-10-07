@@ -236,3 +236,43 @@ def test_no_branches_leaves_the_shipped_branch_token(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     obs = detect_branch_pattern(repo)
     assert obs.value is None and obs.confidence == "default", obs
+
+
+# --- counted in the singular -------------------------------------------------
+#
+# Evidence is read by a person deciding whether to trust a value, and "1 tags"
+# reads as a template with a hole in it. `_tagged` makes one commit on one
+# branch, so every count below is 1.
+
+import install
+from detect import detect_branch_pattern, detect_commit_convention
+
+
+def test_one_tag_one_branch_and_one_subject_are_counted_in_the_singular(
+        tmp_path: Path) -> None:
+    """One tag, version-shaped with a prefix the default does not cover."""
+    repo = _tagged(tmp_path, "release-1.0")
+    assert detect_release_tag(repo).evidence == "1 tag; also matches release-N.N"
+    assert detect_branch_pattern(repo).evidence == (
+        "1 branch, no repeated prefix; matching any slashed name")
+    assert detect_commit_convention(repo)[0].evidence == (
+        "no grouping key found in 1 subject; switched off rather than "
+        "inheriting another project's pattern")
+
+
+def test_a_lone_tag_that_is_not_version_shaped_is_counted_in_the_singular(
+        tmp_path: Path) -> None:
+    assert detect_release_tag(_tagged(tmp_path, "build-7")).evidence == (
+        "1 tag, none version-shaped")
+
+
+def test_a_lone_v_tag_is_counted_in_the_singular(tmp_path: Path) -> None:
+    assert detect_release_tag(_tagged(tmp_path, "v1.0.0")).evidence == (
+        "1 tag, all v-prefixed or bare")
+
+
+def test_a_one_line_document_is_measured_in_the_singular(tmp_path: Path) -> None:
+    repo = _tagged(tmp_path)
+    doc = write(repo / "STATUS.md", "# Status\n")
+    obs, _info = install.observe(repo, doc)
+    assert obs[0] == Observation("primary_doc", "STATUS.md", "derived", "1 line")

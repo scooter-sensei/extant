@@ -834,7 +834,8 @@ def observe(repo: Path, doc: Path) -> tuple[list[Observation], detect.DocumentIn
     rel = str(doc.relative_to(repo)).replace("\\", "/")
 
     obs: list[Observation] = [
-        Observation("primary_doc", rel, DERIVED, f"{info['lines']} lines"),
+        Observation("primary_doc", rel, DERIVED,
+                    detect.counted(info["lines"], "line", "lines")),
         detect.detect_trunk(repo),
         detect.detect_branch_pattern(repo),
         detect.detect_release_tag(repo),

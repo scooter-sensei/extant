@@ -89,6 +89,14 @@ def _tracked_paths(repo: Path) -> list[str]:
     return [name for name in _git(repo, "ls-files").split("\n") if name]
 
 
+def counted(n: int, one: str, many: str) -> str:
+    """`1 tag`, `2 tags`, `1 branch`, `3 branches`. Evidence is read by a
+    person deciding whether to trust a value, and "1 tags" reads as a
+    template with a hole in it. The plural is given, because `branch` takes
+    `es`. Public: install.py counts a document's lines with it."""
+    return f"{n} {one if n == 1 else many}"
+
+
 # --- trunk -------------------------------------------------------------------
 
 _TRUNK_CANDIDATES = ("main", "master", "develop", "trunk", "default")
@@ -113,6 +121,7 @@ def detect_release_tag(repo: Path) -> Observation:
     back, and one tagging `release-1.2.3` gets that shape and nothing wider.
     """
     tags = [t.strip() for t in _git(repo, "tag", "--list").splitlines() if t.strip()]
+    n_tags = counted(len(tags), "tag", "tags")
     prefixes: dict[str, int] = {}
     for tag in tags:
         match = _TAG_SHAPE.match(tag)
@@ -121,21 +130,21 @@ def detect_release_tag(repo: Path) -> Observation:
 
     default = r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+`?(v?\d+\.\d+(?:[\w.-]*[\w])?)`?"
     if not prefixes:
-        why = "no version-shaped tags here" if not tags else f"{len(tags)} tags, none version-shaped"
+        why = "no version-shaped tags here" if not tags else f"{n_tags}, none version-shaped"
         return Observation("release_tag", default, DEFAULT, why)
 
     # "" and "v" are what the default already covers; anything else is news.
     extra = sorted(p for p in prefixes if p not in ("", "v"))
     if not extra:
         return Observation("release_tag", default, DERIVED,
-                           f"{len(tags)} tags, all v-prefixed or bare")
+                           f"{n_tags}, all v-prefixed or bare")
 
     alternatives = "|".join(re.escape(p) for p in [*extra, "v", ""])
     pattern = (r"(?:released|shipped|tagged)\s+(?:in|as|at)\s+"
                rf"`?((?:{alternatives})\d+\.\d+(?:[\w.-]*[\w])?)`?")
     shown = ", ".join(f"{p}N.N" for p in extra)
     return Observation("release_tag", pattern, DERIVED,
-                       f"{len(tags)} tags; also matches {shown}")
+                       f"{n_tags}; also matches {shown}")
 
 
 def detect_trunk(repo: Path) -> Observation:
@@ -215,8 +224,11 @@ def detect_branch_pattern(repo: Path) -> Observation:
     if not parts:
         return Observation(
             "branch_token", r"`([\w.-]+/[^`]+)`", GUESSED,
-            f"{len(names)} branches, no repeated prefix; matching any slashed name",
+            f"{counted(len(names), 'branch', 'branches')}, no repeated prefix; "
+            "matching any slashed name",
         )
+    # Plural as written: a derived pattern needs a prefix or key seen `floor`
+    # times, and `floor` is at least 2, so this line never counts one branch.
     return Observation(
         "branch_token", "`(" + "|".join(parts) + ")`", DERIVED,
         f"{len(names)} branches sampled; " + "; ".join(evidence),
@@ -280,7 +292,7 @@ def detect_commit_convention(repo: Path) -> list[Observation]:
         top = ", ".join(f"{k}: x{v}" for k, v in conventional.most_common(4))
         out.append(Observation(
             "phase_task", "", UNKNOWN,
-            f"no grouping key found in {n} subjects"
+            f"no grouping key found in {counted(n, 'subject', 'subjects')}"
             + (f" (conventional-commit types present: {top})" if top else "")
             + f"; {_PHASE_OFF}",
         ))
