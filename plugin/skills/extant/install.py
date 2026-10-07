@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
+import sys
 from pathlib import Path
 from typing import TypedDict
 
@@ -1061,7 +1062,26 @@ def render_config(obs: list[Observation]) -> str:
     return "\n".join(lines)
 
 
+def _survivable_output() -> None:
+    """`_survivable_output` in extant/cli.py, for the installer, which keeps
+    the payload off its import path. The installer prints what it measured -
+    branch names, paths, headers - and piped, as an agent runs it, Windows
+    encodes that output as cp1252: a Japanese branch name raised
+    UnicodeEncodeError at the configuration table, before `.extant.toml` was
+    written. A `?` is the honest rendering, as there; the files written stay
+    UTF-8."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _survivable_output()
     parser = argparse.ArgumentParser(prog="install", description=__doc__)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--doc", help="path to the status document, if ambiguous")

@@ -14,6 +14,7 @@ whole subject is other people's documentation.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -127,6 +128,42 @@ def test_a_finding_quoting_non_ascii_does_not_crash_the_printer(tmp_path: Path) 
     assert "UnicodeEncodeError" not in result.stderr, result.stderr
     assert "Traceback" not in result.stderr, result.stderr
     assert result.returncode == 1, result.stdout + result.stderr
+
+
+def test_the_installer_survives_a_name_its_output_cannot_encode(tmp_path: Path) -> None:
+    """The installer prints what it measured, branch names among them, and
+    unlike the validator (`_survivable_output` in extant/cli.py) it never
+    made its output survivable. Piped, as an agent runs it, Windows encodes
+    that output as cp1252, and a Japanese branch name killed the run at the
+    configuration table - before `.extant.toml` was written. Forced to cp1252
+    here with NO error handler, so it is the tool that must cope, not the
+    environment. The files keep the names - the branch in the config, the
+    repository's own name in the command and the skill, each written as
+    UTF-8 whatever the platform's locale; the console shows what it can."""
+    repo = tmp_path / JAPANESE
+    repo.mkdir()
+    for cmd in (["init", "-b", "main"], ["config", "user.email", "t@t"],
+                ["config", "user.name", "T"], ["commit", "--allow-empty", "-m", "init"],
+                ["branch", f"{JAPANESE}/a"], ["branch", f"{JAPANESE}/b"]):
+        subprocess.run(["git", *cmd], cwd=repo, capture_output=True, check=True)
+    with open(repo / "STATUS.md", "w", encoding="utf-8", newline="") as fh:
+        fh.write("# Status\n")
+
+    result = subprocess.run(
+        [sys.executable, str(INSTALLER), "--repo", str(repo), "--claude-command"],
+        cwd=repo, capture_output=True, text=True, encoding="cp1252", errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+
+    assert "Traceback" not in result.stderr, result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "slash prefixes: ??????/ x2" in result.stdout, result.stdout
+    assert "rendered for '??????'" in result.stdout, result.stdout
+    for written, name in ((".extant.toml", f"slash prefixes: {JAPANESE}/ x2"),
+                          (".claude/commands/extant.md", JAPANESE),
+                          (".agents/skills/extant/SKILL.md", JAPANESE)):
+        with open(repo / written, encoding="utf-8") as fh:
+            assert name in fh.read(), written
 
 
 def test_sarif_stays_valid_json_with_non_ascii_findings(tmp_path: Path) -> None:
