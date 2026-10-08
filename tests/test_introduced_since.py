@@ -387,6 +387,30 @@ def test_a_document_whose_name_git_quotes_is_still_gated(
     assert "[dead-sha]" in out, out
 
 
+@pytest.mark.skipif(os.name == "nt",
+                    reason="a backslash separates directories in a Windows filename")
+def test_a_document_whose_name_holds_a_backslash_is_gated_and_counted(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
+    """git separates a path with `/` on every platform, so a backslash in one
+    is part of the NAME - legal on POSIX, and quoted by git. The gate turned
+    it into `/` in three places, so the document's introduced lines were
+    looked up under a name the diff never gave: its new claim was set aside
+    as sitting on an untouched line, its lines went uncounted, and it was
+    counted among the documents the range left alone."""
+    repo, commit = git_repo
+    commit("odd\\name.md", "# Odd\n", "docs")
+    commit("odd\\name.md", f"# Odd\n\nMerged at `{DEAD}`.\n", "docs: claim")
+
+    code = _gate(repo, "HEAD~1")
+    out = capsys.readouterr().out
+
+    assert code == 1, out
+    assert "odd\\name.md: line 3: [dead-sha]" in out, out
+    assert ": 2 introduced line(s), 1 finding(s) on them" in out, out
+    assert "  0 tracked document(s) the range did not change were not read" in out, out
+    assert "sit on lines the range did not touch" not in out, out
+
+
 def test_a_document_git_reads_as_binary_is_counted_not_examined(
         git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """A NUL byte makes git call the file binary and print no hunks. The sweep

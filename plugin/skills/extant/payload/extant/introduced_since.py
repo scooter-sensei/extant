@@ -312,7 +312,13 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     changed = sorted(path for path, wrote in lines.items() if wrote)
     binary_documents = sorted(binary)
     touched = set(changed) | set(binary_documents) | set(before)
-    left_alone = [p for p in tracked if p.replace("\\", "/") not in touched]
+    # Both sides are git's own spellings, which separate with `/` on every
+    # platform. A backslash in one is part of a POSIX NAME, so turning it
+    # into `/` - as this did here and twice below until 2026-10-08 - looked
+    # such a document up under a name the diff never gave: its written lines
+    # went uncounted, its claims were set aside, and it was counted as left
+    # alone.
+    left_alone = [p for p in tracked if p not in touched]
     # Over the CHANGED documents, not every tracked one, so the counts describe
     # this range - and so the conflict check fires only when a configured
     # document an exclusion removes is in the range. The sentence it prints is
@@ -366,7 +372,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
                 for kind, count in doc_examined.items():
                     examined[kind] += count
                 ran.update(doc_examined)
-                wrote = lines.get(relative.replace("\\", "/"), set())
+                wrote = lines.get(relative, set())
                 for finding in findings:
                     if relative in unmapped:
                         surveyed += 1
@@ -415,7 +421,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
                                     run_kind="introduced-since")[0]:
             print(line)
 
-    introduced = sum(len(lines.get(p.replace("\\", "/"), ())) for p in kept)
+    introduced = sum(len(lines.get(p, ())) for p in kept)
     # The denominator, in three parts: what was read, what was not, and what
     # each rule saw in what was read. "0 findings" and "0 documents changed"
     # print identically without the first two.
