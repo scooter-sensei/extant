@@ -2974,3 +2974,73 @@ findings.
 nothing `--sweep` runs imports introduced_since.py, so its answer is 0 of
 152 by construction. The harness chain does run this mode - the fuzzer's
 `INTRODUCED` oracle among it - and ran on an extract.
+
+## sweep.py under mutmut: 140 survivors, its report compared whole
+
+Phase 71 (2026-10-08) is D7's fourth surface. D7 found 140 of sweep.py's
+667 mutants alive after the whole suite: 88 in the report `run_sweep`
+prints, 24 in what it prints for a repository with no markdown, 15 in the
+arguments `_survey_notes` hands on, 10 in the per-stratum breakdown; mypy
+rejects 30. The tests asserted single lines of the report, and in SARIF
+mode, where it moves to stderr, nothing about the stream at all.
+
+**The tests.** `tests/test_sweep_outputs.py`, twelve tests. One
+repository reaches every branch of the report: a configured primary
+document and extra, each with a claim; two translations sharing a dead
+link, which the text groups and counts as one entry; a vendored document
+for the breakdown; an excluded document beside a pattern that cannot
+exclude and two that match nothing; two documents that are not UTF-8; a
+pattern switched off; and two files the consistency rule finds
+disagreeing, so a repository finding is reported. Compared whole in text -
+with GitHub's SARIF limit at 0, so the text names no cut - and in SARIF,
+where stderr is compared whole and stdout result by result, each gating as
+its section does; again from a pool and from one that cannot start.
+Beside it: documents the survey lost, the reading going on past them; a
+rule that raised, named once; an unconfigured repository, told nothing can
+fail; one holding only reStructuredText, whose markdown rules read
+nothing; exclusions that remove everything; a repository with no markdown,
+in text and in SARIF; and a breakdown with no ordinary finding.
+
+**The closing measurement.** `m30_redcheck.sh` with the new file run;
+CLEAN passed both times.
+
+| | sweep.py |
+|:--|--:|
+| D7 survivors | 140 |
+| killed | 102 |
+| caught by `mypy --strict` | 17 |
+| equivalent | 21 |
+
+No real row is left, and none was a defect, so sweep.py did not change.
+The first round killed 99; the three left that could be killed needed a
+rule to read nothing because no document of its kind was swept, which the
+reStructuredText repository supplies. The equivalent rows are the stream of
+a line only text mode prints, where it is stdout either way (4); an empty
+survey's text branch, which renders nothing in either spelling, and its
+`repo`, which no result needs (4); `_survey_notes`' defaults, which its one
+caller always overrides (3); what the repository rules are handed or where
+their findings are filed, since they read no text and both name ordinary
+subject files (5); `swept.get`'s default, never reached because a
+repository finding's stratum is ordinary (3); an unborn HEAD's `None` beside
+`[]` (1); and the pool's size, which no output shows (1). Each carries its
+reason in `residue_sweep.tsv`.
+
+**Measured beside it, for the record Phase 70 made.** sweep.py replaces
+`\` with `/` in `apply_exclusions` too, but on both sides of the comparison
+it makes - the tracked paths and the configured names - so a document named
+with a backslash is matched consistently there, and the conflict check is
+right. That is not the gate's defect. Seen and not changed: the summary
+says "swept N markdown file(s)" when the documents it swept are
+reStructuredText.
+
+**Anchors.** 14 in `mutate.py`'s Phase 71 block, one per surface: 520 in
+all. The Windows campaign, on a copy, killed all 14 in 37 minutes - none
+hung, none overturned by the serial check.
+
+**Gated, Phase 71**, on the final tree before any commit. 1,793 tests: on
+Windows 1,782 pass and 11 skip, on Linux 1,791 and 2, serially and in CI's
+shuffled order. mypy clean on 151 files; 520 anchors match. `--verify`
+exits 0 here and on a main-only clone; `--selftest` fires 7 rules with 0
+silent; `--introduced-since origin/main` reads 648 introduced lines
+with 0 findings. The payload did not change, so neither the chain nor the
+identity gate ran.

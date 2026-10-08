@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.30.0, unreleased: Phases 67 to 70.
+Above 0.30.0, unreleased: Phases 67 to 71.
 
 Phase 67 type-checks the tests and the release gate with the package.
 Nothing a user runs changed. One test asserted on a pattern the
@@ -37,7 +37,11 @@ SARIF, and repairs two things those tests found in the gate:
   dogs.md" was reported as "dogs.md" - and is no longer counted among the
   documents the range left alone.
 
-Their records are Phases 67 to 70 in NEXT_SESSION.md.
+Phase 71 compares the `--sweep` report whole, in text and in SARIF.
+Nothing a user runs changed: none of what those tests measured was a
+defect.
+
+Their records are Phases 67 to 71 in NEXT_SESSION.md.
 
 ## 0.30.0 (2026-10-06)
 

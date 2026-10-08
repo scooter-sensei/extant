@@ -101,6 +101,7 @@ Where each section went, by its title:
 - The installer under mutmut: 896 survivors, outputs compared whole, and three defects
 - report.py under mutmut: 187 survivors, its outputs compared whole
 - introduced_since.py under mutmut: 142 survivors, and two defects in the gate
+- sweep.py under mutmut: 140 survivors, its report compared whole
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 

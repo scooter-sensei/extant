@@ -32,7 +32,7 @@ lands beside the shipped source and the test that reads every shipped file
 whole fails on it. It is a type checker, not a linter - there is still no
 ruff, flake8 or black, and what enforces style is the suite - and it gates in
 the self-check CI job rather than in the suite, because it does not run on
-the 3.9 leg. About ten seconds from a cold cache, over 150 files. The 3.9
+the 3.9 leg. About ten seconds from a cold cache, over 151 files. The 3.9
 floor itself it cannot see: typeshed
 dropped 3.9 with its EOL and removed the `>= (3, 10)` guards, so no checker
 can any longer tell a 3.10-only call from one the floor allows. The 3.9 test

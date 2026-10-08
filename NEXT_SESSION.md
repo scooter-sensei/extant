@@ -6,6 +6,35 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 71 - The survey's report compared whole (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for sweep.py, the
+fourth of its surfaces.
+- 1,793 tests across 88 files, of which 1,782 pass and 11 skip on this
+  machine. On Linux 1,791 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 151 files.
+- 520 mutation anchors match, 14 of them new; the Windows campaign
+  killed all 14, none hung and none overturned.
+- The payload did not change - no line of sweep.py moved - so no chain
+  and no identity gate.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **One test file compares the `--sweep` report whole**,
+  `tests/test_sweep_outputs.py`: in text, and in SARIF, where the report
+  moves to stderr and stdout holds the document alone; an empty survey in
+  both.
+- **14 mutation anchors**, one per surface.
+
+**What D7's survivors came to.** Of sweep.py's 140 mutants that survived
+the whole suite, the new tests kill 102 and mypy rejects 17; 21 are
+equivalent. No real one is left, and none was a defect.
+
+The numbers are in "sweep.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 70 - The diff gate's report compared whole, and two defects it found (unreleased, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for
