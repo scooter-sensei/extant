@@ -154,6 +154,28 @@ def _side(header: bytes, prefix: bytes, mark: str) -> str | None:
     return path[len(mark):] if path.startswith(mark) else path
 
 
+def _binary_new_side(line: bytes) -> str | None:
+    """The new side of `Binary files <old> and <new> differ`, when no `rename
+    to` header has named it, or None for a deletion.
+
+    Without a rename the two sides are ONE path behind `a/` and `b/`, quoted
+    alike if at all, so the line splits at its middle - exact for any name.
+    Splitting at the last " and ", as this did until 2026-10-08, cut a name
+    holding one: "cats and dogs.md" was reported as "dogs.md", and the
+    document it named was counted as one the range left alone."""
+    body = line[len(b"Binary files "):-len(b" differ")]
+    if body.startswith(b"/dev/null and "):
+        return _new_side(body[len(b"/dev/null and "):], b"")
+    if body.endswith(b" and /dev/null"):
+        return None
+    half = (len(body) - len(b" and ")) // 2
+    if body[half:half + len(b" and ")] == b" and ":
+        return _new_side(body[half + len(b" and "):], b"")
+    # Two different paths and no `rename to` before them: not a shape git
+    # writes, so the last " and " is as good a guess as any.
+    return _new_side(body.rsplit(b" and ", 1)[-1], b"")
+
+
 def merge_base(repo: Path, ref: str) -> str | None:
     """Where the histories of `ref` and HEAD fork, or None when git cannot
     say: a ref that does not resolve, an unborn HEAD, unrelated histories,
@@ -216,10 +238,12 @@ def introduced_lines(
     binary: list[str] = []
     before: list[str] = []
     current: str | None = None
+    # What a `rename to` header named, for the binary line after it.
+    renamed: str | None = None
     in_hunk = False
     for raw in done.stdout.split(b"\n"):
         if raw.startswith(b"diff --git "):
-            current, in_hunk = None, False
+            current, renamed, in_hunk = None, None, False
             continue
         match = _HUNK.match(raw)
         if match:
@@ -244,8 +268,11 @@ def introduced_lines(
             was = _old_side(raw, b"--- ")
             if was is not None:
                 before.append(was)
+        elif raw.startswith(b"rename to "):
+            # The bare path, C-quoted if git quotes it - no `b/` prefix.
+            renamed = unquote_path(raw[len(b"rename to "):].decode("utf-8", "replace"))
         elif raw.startswith(b"Binary files ") and raw.endswith(b" differ"):
-            named = _new_side(raw[:-len(b" differ")].rsplit(b" and ", 1)[-1], b"")
+            named = renamed if renamed is not None else _binary_new_side(raw)
             if named is not None:
                 binary.append(named)
     return lines, binary, before

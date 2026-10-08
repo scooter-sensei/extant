@@ -434,6 +434,37 @@ def test_a_document_git_reads_as_binary_is_counted_not_examined(
     assert "docs/odd.md" in out, out
 
 
+def test_a_binary_document_is_named_whole_whatever_its_name_holds(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
+    """git names a binary change on one line, `Binary files <old> and <new>
+    differ`, and the new side was taken after the LAST " and " - so a
+    document named "cats and dogs.md" was reported as "dogs.md" and, its
+    real name never touched, counted among the documents the range left
+    alone. Modified, added and renamed are each named whole: a modified one
+    splits at the line's middle, since both sides are one path; an added one
+    follows `/dev/null and `; a renamed one is named by git's `rename to`."""
+    repo, _commit = git_repo
+    blob = b"# Pets\n\x00\n" + b"x" * 400 + b"\n"
+    (repo / "cats and dogs.md").write_bytes(blob)
+    (repo / "old and new.md").write_bytes(blob + b"kept\n")
+    _run(repo, "add", "-A")
+    _run(repo, "commit", "-qm", "docs: binaries")
+    (repo / "cats and dogs.md").write_bytes(blob + b"more\n")
+    _run(repo, "mv", "old and new.md", "renamed and moved.md")
+    (repo / "renamed and moved.md").write_bytes(blob + b"kept, and edited\n")
+    (repo / "fresh and new.md").write_bytes(blob)
+    _run(repo, "add", "-A")
+    _run(repo, "commit", "-qm", "docs: change them")
+
+    code = _gate(repo, "HEAD~1")
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    assert ("  3 changed document(s) git reads as binary and were not examined: "
+            "cats and dogs.md, fresh and new.md, renamed and moved.md\n") in out, out
+    assert "  0 tracked document(s) the range did not change were not read" in out, out
+
+
 def test_a_bare_carriage_return_document_is_surveyed_not_gated(
         git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """extant counts a bare `\\r` as a line break and git does not, so the two
