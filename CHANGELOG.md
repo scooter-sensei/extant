@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.30.0, unreleased: Phases 67, 68 and 69.
+Above 0.30.0, unreleased: Phases 67 to 70.
 
 Phase 67 type-checks the tests and the release gate with the package.
 Nothing a user runs changed. One test asserted on a pattern the
@@ -27,7 +27,17 @@ Phase 69 compares what the validator renders whole - the SARIF document,
 the GitHub annotations, the baseline file and the grouped text. Nothing a
 user runs changed: none of what those tests measured was a defect.
 
-Their records are Phases 67 to 69 in NEXT_SESSION.md.
+Phase 70 compares the `--introduced-since` report whole, in text and in
+SARIF, and repairs two things those tests found in the gate:
+- a document whose name holds a backslash, which POSIX allows, is gated
+  again. Its written lines were looked up under a name with the backslash
+  turned into `/`, so a dead claim written into it was set aside as sitting
+  on an untouched line and the run could exit 0;
+- a binary document with " and " in its name is named whole - "cats and
+  dogs.md" was reported as "dogs.md" - and is no longer counted among the
+  documents the range left alone.
+
+Their records are Phases 67 to 70 in NEXT_SESSION.md.
 
 ## 0.30.0 (2026-10-06)
 

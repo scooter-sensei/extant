@@ -2872,3 +2872,105 @@ harness the chain runs changed.
 D7 is not done. introduced_since.py (142), sweep.py (140), collect.py
 (139), cli.py and gate.py (115 each), deleted_since.py (114) and the rest
 remain, a surface each.
+
+## introduced_since.py under mutmut: 142 survivors, and two defects in the gate
+
+Phase 70 (2026-10-08) is D7's third surface. D7 found 142 of
+introduced_since.py's 574 mutants alive after the whole suite, 93 of them
+in the report `run_introduced_since` prints; mypy rejects 22. The tests
+asserted single lines of that report, and nothing about which stream each
+went to: in SARIF mode the report goes to stderr and the document alone to
+stdout, so a line printed to stdout corrupts the upload while every `in
+out` assertion passes.
+
+**Two defects, found reading the survivors**, each with a test watched
+failing first:
+1. A document whose name holds a backslash - legal on POSIX, and quoted by
+   git - was not gated. The mode turned `\` into `/` in three places, on
+   paths git writes with `/` on every platform, so it looked the
+   document's written lines up under a name the diff never gave: its claim
+   was set aside as sitting on an untouched line, its lines went
+   uncounted, and it was counted among the documents the range left alone.
+   With only that document in the range, the gate exited 0 on a dead claim
+   written that day. The three replaces are gone. The same spelling sits
+   in deleted_since.py, sweep.py and exclusions.py, on paths of both kinds;
+   each is measured with its own D7 surface.
+2. A binary document with " and " in its name was misnamed. git reports a
+   binary change as one line, `Binary files <old> and <new> differ`, and
+   the new side was taken after the LAST " and ", so "cats and dogs.md" was
+   reported as "dogs.md" and counted as left alone. Without a rename the two
+   sides are one path behind `a/` and `b/`, so the line now splits at its
+   middle - exact for any name; an added document follows `/dev/null and `,
+   a deleted one ends ` and /dev/null`, and a renamed one is named by git's
+   `rename to` header.
+
+**The tests.** `tests/test_introduced_since_outputs.py`, thirteen tests.
+One range reaches every branch of the report at once, with two of every
+count and every list in it: claims on written and untouched lines, a
+document line reading like a diff header between two hunks, a binary
+document named with spaces and " and " and a deleted one, an excluded
+document beside a pattern that cannot exclude anything, two documents with
+a bare carriage return and two that are not UTF-8, one left alone, a
+pattern switched off and two repository rules. It is compared whole in
+text - with GitHub's SARIF limit at 0, so the text names no cut - and in
+SARIF, where the report on stderr is compared whole and the document on
+stdout field by field; again from a pool, and from a pool that cannot
+start. Beside it: a range changing the primary document, with and without
+a dated entry; one changing no markdown; a claim written into a vendored
+document; a rule that raised, named once; documents the survey lost, the
+reading going on past them; the refusal when git cannot diff; and on Linux
+only, a name that is not UTF-8 and a link out of the checkout. A report
+line another module words - `session.zero_notes`' NOTE lines, the
+unusable-pattern line, the fallback NOTE - is built by that module's
+function from the arguments this report must hand it, written out. The
+two repairs added two tests to `tests/test_introduced_since.py`.
+
+**The closing measurement.** `m30_redcheck.sh` as for report.py, with
+both test files run; CLEAN passed in every run. The repairs rewrote four
+lines and moved others, so 24 patches no longer applied; `m30_stale.py` (`m29_stale.py`
+with the worktree as a parameter) found 9 whose context had only moved,
+retried with no context required, and 15 naming a mutant that no longer
+exists.
+
+| | introduced_since.py |
+|:--|--:|
+| D7 survivors | 142 |
+| killed | 83 |
+| caught by `mypy --strict` | 9 |
+| equivalent | 35 |
+| no longer exist | 15 |
+
+No real row is left. Four of the kills come from the two Linux-only tests,
+which CI's Linux legs run. The equivalent rows are `unquote_path`'s
+branches for input git never writes - an empty quoted path, a trailing
+backslash, an escape outside C's, bytes that are not UTF-8 after `_side`
+has replaced them - and its codec spellings (16); the failed diff's
+`CalledProcessError` arguments, of which the caller reads only the class
+(6); starting values git's own output order overwrites (3); `/dev/null`
+and prefix handling no diff line reaches (3); a codec spelling in `_side`
+(1); a second header test no header line can pass (1); and in text mode,
+the text branch's spelling, the stream its lines go to and a default
+`Located` already holds (5). Each carries its reason in
+`residue_introduced.tsv`. The first round killed 56; reading the rest
+found the counts and lists the fixture held only one of, the pool's
+fallback, the primary document, a range with no markdown and the stream of
+the worker line, and a second and third round took the total to 83.
+
+**Anchors.** 16 in `mutate.py`'s Phase 70 block, one per surface, the two
+repairs reverted, two that only Linux can kill: 506 in all. On a copy, the
+14 portable ones were killed on Windows in 32 minutes and the two Linux-only
+ones in WSL; none hung, none overturned by the serial check.
+
+**Gated, Phase 70**, on the final tree before any commit. 1,781 tests: on
+Windows 1,770 pass and 11 skip, on Linux 1,779 and 2, serially and in CI's
+shuffled order. mypy clean on 150 files; 506 anchors match. The chain on an
+extract: smoke 0 new and 0 missing, scenarios 213 of 213, fuzz 0 violations
+at CI's seed, `--self-check` 23 of 23. `--verify` exits 0 here and on a
+main-only clone; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since origin/main` reads 544 introduced lines with 0
+findings.
+
+**Not run: the corpus identity gate.** It compares `--sweep` outputs, and
+nothing `--sweep` runs imports introduced_since.py, so its answer is 0 of
+152 by construction. The harness chain does run this mode - the fuzzer's
+`INTRODUCED` oracle among it - and ran on an extract.

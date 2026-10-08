@@ -6,6 +6,46 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 70 - The diff gate's report compared whole, and two defects it found (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for
+introduced_since.py, the third of its surfaces.
+- 1,781 tests across 87 files, of which 1,770 pass and 11 skip on this
+  machine. On Linux 1,779 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 150 files.
+- 506 mutation anchors match, 16 of them new; the 14 portable ones were
+  killed on Windows and the 2 only Linux can kill in WSL, none hung and
+  none overturned.
+- The payload changed - two repairs to `--introduced-since` - so the
+  harness chain ran on an extract: smoke 0 new and 0 missing, scenarios
+  213 of 213, fuzz 0 violations, `--self-check` 23 of 23.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **A document whose name holds a backslash is gated again.** The mode
+  turned `\` into `/` on paths git writes with `/`, so on POSIX such a
+  document's written lines were looked up under a name the diff never
+  gave: its claim was set aside, its lines went uncounted, and the run
+  could exit 0 on a dead claim written that day.
+- **A binary document is named whole.** git's `Binary files <old> and
+  <new> differ` was split at its last " and ", so "cats and dogs.md" was
+  reported as "dogs.md" and counted as left alone; it splits at the line's
+  middle now, and a renamed one is named by git's `rename to`.
+- **One test file compares the gate's report whole**,
+  `tests/test_introduced_since_outputs.py`: in text, and in SARIF, where
+  the report moves to stderr and stdout holds the document alone.
+- **16 mutation anchors**, one per surface, the two repairs reverted.
+
+**What D7's survivors came to.** Of introduced_since.py's 142 mutants
+that survived the whole suite, the new tests kill 83 and mypy rejects 9;
+35 are equivalent, and 15 no longer exist because the repairs rewrote the
+lines they mutate. No real one is left.
+
+The numbers are in "introduced_since.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 69 - What the validator renders, compared whole (unreleased, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for report.py, the
