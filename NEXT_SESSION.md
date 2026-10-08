@@ -6,7 +6,7 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
-## Phase 73 - The command line's own modes compared whole, and a gap audit of D7's surfaces (unreleased, 2026-10-08)
+## Phase 73 - The command line's own modes compared whole, and a gap audit of D7's surfaces (shipped, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for cli.py, the
 sixth of its surfaces, and Phases 68 to 73 gap-audited.
@@ -20,7 +20,7 @@ sixth of its surfaces, and Phases 68 to 73 gap-audited.
 - The payload did not change - no line of cli.py moved - so no chain
   and no identity gate.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.30.0.
+- This work shipped in 0.30.1, with Phases 67 to 72, from pull request 33.
 
 **What changed.**
 - **One test file compares what cli.py's own modes print whole**,
@@ -54,7 +54,7 @@ row, every tally, every per-commit figure and campaign.
 The numbers are in "cli.py under mutmut" and "The gap audit of Phases 68
 to 73" in `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 72 - The handoff bundle compared whole, and a detached HEAD in it (unreleased, 2026-10-08)
+## Phase 72 - The handoff bundle compared whole, and a detached HEAD in it (shipped, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for collect.py, the
 fifth of its surfaces.
@@ -68,7 +68,8 @@ fifth of its surfaces.
   ran on an extract: smoke 0 new and 0 missing, scenarios 213 of 213,
   fuzz 0 violations, `--self-check` 23 of 23.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.30.0.
+- This work shipped in 0.30.1, with Phases 67 to 71 and 73, from pull
+  request 33.
 
 **What changed.**
 - **A detached HEAD is not listed among unmerged branches.** `git branch`
@@ -91,7 +92,7 @@ No real one is left.
 The numbers are in "collect.py under mutmut" in
 `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 71 - The survey's report compared whole (unreleased, 2026-10-08)
+## Phase 71 - The survey's report compared whole (shipped, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for sweep.py, the
 fourth of its surfaces.
@@ -104,7 +105,8 @@ fourth of its surfaces.
 - The payload did not change - no line of sweep.py moved - so no chain
   and no identity gate.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.30.0.
+- This work shipped in 0.30.1, with Phases 67 to 70, 72 and 73, from pull
+  request 33.
 
 **What changed.**
 - **One test file compares the `--sweep` report whole**,
@@ -120,7 +122,7 @@ equivalent. No real one is left, and none was a defect.
 The numbers are in "sweep.py under mutmut" in
 `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 70 - The diff gate's report compared whole, and two defects it found (unreleased, 2026-10-08)
+## Phase 70 - The diff gate's report compared whole, and two defects it found (shipped, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for
 introduced_since.py, the third of its surfaces.
@@ -135,7 +137,8 @@ introduced_since.py, the third of its surfaces.
   harness chain ran on an extract: smoke 0 new and 0 missing, scenarios
   213 of 213, fuzz 0 violations, `--self-check` 23 of 23.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.30.0.
+- This work shipped in 0.30.1, with Phases 67 to 69 and 71 to 73, from pull
+  request 33.
 
 **What changed.**
 - **A document whose name holds a backslash is gated.** The mode turned
@@ -161,7 +164,7 @@ lines they mutate. No real one is left.
 The numbers are in "introduced_since.py under mutmut" in
 `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 69 - What the validator renders, compared whole (unreleased, 2026-10-08)
+## Phase 69 - What the validator renders, compared whole (shipped, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for report.py, the
 second of its surfaces.
@@ -174,7 +177,8 @@ second of its surfaces.
 - The payload did not change - no line of report.py moved - so no
   identity gate, and no harness the chain runs changed.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.30.0.
+- This work shipped in 0.30.1, with Phases 67, 68 and 70 to 73, from pull
+  request 33.
 
 **What changed.**
 - **One test file compares what report.py renders, whole.**
@@ -193,7 +197,7 @@ was a defect.
 The numbers are in "report.py under mutmut" in
 `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 68 - The installer's outputs compared whole, and three defects they found (unreleased, 2026-10-07)
+## Phase 68 - The installer's outputs compared whole, and three defects they found (shipped, 2026-10-07)
 
 **Status.** Built and gated; D7's measurement acted on for install.py and
 detect.py.
@@ -207,7 +211,8 @@ detect.py.
   no identity gate. The installer did, so smoke and scenarios ran on an
   extract of the tree: smoke 0 new and 0 missing, scenarios 213 of 213.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.30.0.
+- This work shipped in 0.30.1, with Phases 67 and 69 to 73, from pull
+  request 33.
 
 **What changed.**
 - **Two test files compare whole outputs.** `tests/test_detect_outputs.py`
@@ -244,7 +249,7 @@ they mutate. No real one is left.
 The numbers are in "The installer under mutmut" in
 `plugin/skills/extant/references/design/quality.md`.
 
-## Phase 67 - The tests type-checked, and a test of a pattern the tool refuses (unreleased, 2026-10-06)
+## Phase 67 - The tests type-checked, and a test of a pattern the tool refuses (shipped, 2026-10-06)
 
 **Status.** Built and gated; the second half of the type-checking tranche.
 - 1,697 tests across 83 files, of which 1,689 pass and 8 skip on this
@@ -257,7 +262,7 @@ The numbers are in "The installer under mutmut" in
 - The payload did not change and no harness did, so neither the identity
   gate nor the chain was run.
 - No rule added or removed, thirteen as before; no mode added.
-- The tool remained released as 0.30.0.
+- This work shipped in 0.30.1, with Phases 68 to 73, from pull request 32.
 
 **What changed.**
 - **`tests` and `.github/scripts` join `[tool.mypy]`**, so every Python
