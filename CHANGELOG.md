@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.30.1 (2026-10-08)
 
-Above 0.30.0, unreleased: Phases 67 to 73.
+Phases 67 to 73, the work that followed 0.30.0. No rule added or removed,
+thirteen as before; no mode added. Six repairs a user can see: three in
+the installer, two in `--introduced-since`, one in `--collect`.
 
 Phase 67 type-checks the tests and the release gate with the package.
 Nothing a user runs changed. One test asserted on a pattern the
