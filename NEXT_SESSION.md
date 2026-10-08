@@ -6,6 +6,54 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 73 - The command line's own modes compared whole, and a gap audit of D7's surfaces (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for cli.py, the
+sixth of its surfaces, and Phases 68 to 73 gap-audited.
+- 1,820 tests across 90 files, of which 1,807 pass and 13 skip on this
+  machine. On Linux 1,818 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 153 files.
+- 554 mutation anchors match, 20 of them new; the Windows campaigns
+  killed all 19 portable ones and WSL the one only Linux can kill, none
+  hung and none overturned.
+- The payload did not change - no line of cli.py moved - so no chain
+  and no identity gate.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **One test file compares what cli.py's own modes print whole**,
+  `tests/test_cli_outputs.py`: `--search`, `--selftest` and its
+  refusals, the bundle `--collect` writes, `--archive`'s refusal, and the
+  console script's reading of `--search=TEXT` and `--repo=PATH`.
+- **16 mutation anchors**, one per surface.
+- **The gap audit's tests**, for lines Phases 68, 70 and 72 wrote: a tag
+  and a remote-tracking ref in the bundle's fixture, an empty document's
+  evidence, a deleted binary document in the binary-name test, and a
+  binary renamed to a name git quotes (POSIX only); 4 anchors.
+
+**What D7's survivors came to.** Of cli.py's 115 mutants that survived
+the whole suite, the new tests kill 74 on Linux and 8 more, which only
+Windows can see, there; mypy rejects 6, and 27 are equivalent. No real
+one is left, and none was a defect.
+
+**The gap audit of Phases 68 to 73.** Two records were wrong and are
+repaired: Phase 70's said a document named with a backslash "is gated
+again", which it never had been, and Phase 69's put report.py's other 43
+survivors in "ten helpers", where they sit in thirteen functions. The
+lines the repairs of Phases 68, 70 and 72 wrote had never been mutated;
+23 mutants written over them by hand left six alive through the whole
+suite, and four were gaps in the repairs' own tests - a tag listed as an
+unmerged branch, an empty document counted in the singular, a deleted
+binary document named by its line's middle, a binary renamed to a name
+git quotes left quoted. Each has a test now and an anchor: 554 in all.
+Everything else measured held - every "no longer exists" row, every mypy
+row, every tally, every per-commit figure and campaign.
+
+The numbers are in "cli.py under mutmut" and "The gap audit of Phases 68
+to 73" in `plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 72 - The handoff bundle compared whole, and a detached HEAD in it (unreleased, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for collect.py, the
@@ -90,11 +138,12 @@ introduced_since.py, the third of its surfaces.
 - The tool remained released as 0.30.0.
 
 **What changed.**
-- **A document whose name holds a backslash is gated again.** The mode
-  turned `\` into `/` on paths git writes with `/`, so on POSIX such a
+- **A document whose name holds a backslash is gated.** The mode turned
+  `\` into `/` on paths git writes with `/`, so on POSIX such a
   document's written lines were looked up under a name the diff never
   gave: its claim was set aside, its lines went uncounted, and the run
-  could exit 0 on a dead claim written that day.
+  could exit 0 on a dead claim written that day. It had done so since the
+  mode was written.
 - **A binary document is named whole.** git's `Binary files <old> and
   <new> differ` was split at its last " and ", so "cats and dogs.md" was
   reported as "dogs.md" and counted as left alone; it splits at the line's

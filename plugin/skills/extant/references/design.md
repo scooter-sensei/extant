@@ -103,6 +103,8 @@ Where each section went, by its title:
 - introduced_since.py under mutmut: 142 survivors, and two defects in the gate
 - sweep.py under mutmut: 140 survivors, its report compared whole
 - collect.py under mutmut: 139 survivors, and a detached HEAD in the bundle
+- cli.py under mutmut: 115 survivors, its modes compared whole
+- The gap audit of Phases 68 to 73: two records wrong, and the lines the repairs wrote
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.30.0, unreleased: Phases 67 to 72.
+Above 0.30.0, unreleased: Phases 67 to 73.
 
 Phase 67 type-checks the tests and the release gate with the package.
 Nothing a user runs changed. One test asserted on a pattern the
@@ -29,10 +29,10 @@ user runs changed: none of what those tests measured was a defect.
 
 Phase 70 compares the `--introduced-since` report whole, in text and in
 SARIF, and repairs two things those tests found in the gate:
-- a document whose name holds a backslash, which POSIX allows, is gated
-  again. Its written lines were looked up under a name with the backslash
-  turned into `/`, so a dead claim written into it was set aside as sitting
-  on an untouched line and the run could exit 0;
+- a document whose name holds a backslash, which POSIX allows, is gated.
+  Since the mode was written its lines had been looked up under a name
+  with the backslash turned into `/`, so a dead claim written into it was
+  set aside as sitting on an untouched line and the run could exit 0;
 - a binary document with " and " in its name is named whole - "cats and
   dogs.md" was reported as "dogs.md" - and is no longer counted among the
   documents the range left alone.
@@ -46,7 +46,14 @@ thing those tests found: on a detached HEAD - a pull request's CI
 checkout, a rebase in progress - the bundle's `unmerged_branches` no
 longer lists the words of git's `(HEAD detached at ...)` line as branches.
 
-Their records are Phases 67 to 72 in NEXT_SESSION.md.
+Phase 73 compares what the command line's own modes print whole -
+`--search`, `--selftest`, the bundle `--collect` writes and `--archive`'s
+refusals - and the console script's reading of its arguments. Nothing a
+user runs changed: none of what those tests measured was a defect. Its
+gap audit of Phases 68 to 73 corrected two records and added tests for
+four things the earlier repairs wrote that no test had read.
+
+Their records are Phases 67 to 73 in NEXT_SESSION.md.
 
 ## 0.30.0 (2026-10-06)
 
