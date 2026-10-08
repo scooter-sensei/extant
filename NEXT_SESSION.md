@@ -10,8 +10,8 @@ so the tool is exercised on a real document rather than only on fixtures.
 
 **Status.** Built and gated; D7's measurement acted on for install.py and
 detect.py.
-- 1,753 tests across 85 files, of which 1,745 pass and 8 skip on this
-  machine. On Linux 1,751 pass and 2 skip, serially and in CI's
+- 1,754 tests across 85 files, of which 1,746 pass and 8 skip on this
+  machine. On Linux 1,752 pass and 2 skip, serially and in CI's
   shuffled order.
 - `python -m mypy`: no issues in 148 files.
 - 474 mutation anchors match, 22 of them new; the Windows campaign
@@ -40,6 +40,13 @@ detect.py.
   UnicodeEncodeError before `.extant.toml` was written; it now does what
   the validator does, and the console shows `?`.
 - **22 mutation anchors**, one per surface, the three repairs reverted.
+- **Beside it, the Linux 3.9 CI leg runs on Ubuntu 24.04 by name.** The
+  `ubuntu-latest` label moves to Ubuntu 26.04 from 2026-10-19, and
+  setup-python has no 3.9 for it, so the leg would have failed in setup
+  before a test ran. A new test in `tests/test_docs_match_code.py` fails
+  while the workflow names a Python the matrix list does not, so the pin
+  cannot outlive the floor. Its record closes "CI honesty" in
+  `plugin/skills/extant/references/design/quality.md`.
 
 **What D7's survivors came to.** Of the 896 mutants of install.py and
 detect.py that survived the whole suite, the new tests kill 760 on Linux

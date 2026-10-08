@@ -232,6 +232,35 @@ def test_the_classifiers_name_exactly_the_pythons_ci_tests() -> None:
         f"unclaimed legs {ordered(tested - classified)}")
 
 
+def test_every_python_the_workflow_names_is_in_the_matrix_list() -> None:
+    """The test above reads the list alone, and a leg can live outside it.
+
+    The Linux 3.9 leg is an `exclude` and an `include` naming "3.9" as
+    scalars, because `ubuntu-latest` moves to an image setup-python has no
+    3.9 for. When the floor rises, "3.9" leaves the list, the classifiers
+    and the README together and every check above passes - while the
+    `include` goes on adding a 3.9 leg nobody claims. The same holds for a
+    job that sets up a version the range has left. So every `"3.X"` named
+    after `python-version:` in the file must be one the list tests; the
+    free-threaded `"3.14t"` is a different build, which the pattern does
+    not read.
+    """
+    workflow = (PACKAGE_ROOT / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8")
+    lists = re.findall(r"^\s*python-version:\s*\[([^\]]*)\]", workflow, re.M)
+    assert len(lists) == 1, f"expected one python-version matrix list, found {lists}"
+    tested = set(re.findall(r'"(3\.\d+)"', lists[0]))
+    named = re.findall(r'^\s*(?:- )?python-version:\s*"(3\.\d+)"\s*$', workflow, re.M)
+    assert named, "read no scalar python-version, so this test checks nothing"
+    def ordered(versions: set[str]) -> list[str]:
+        return sorted(versions, key=lambda v: int(v.split(".")[1]))
+
+    stray = set(named) - tested
+    assert not stray, (
+        f"tests.yml names {ordered(stray)} outside the matrix list {ordered(tested)}: "
+        "a leg or a job runs a Python the classifiers do not claim")
+
+
 def test_every_setting_is_documented_where_users_look() -> None:
     """A config key nobody wrote down is a feature nobody can find.
 

@@ -703,6 +703,46 @@ two runs of one test on one leg, under `-n auto`. So the next tranche's
 per-test timeout starts from 17.01, the larger of the two, and takes that
 spread as the reason one run's durations cannot size it alone.
 
+**The Linux 3.9 leg, pinned to Ubuntu 24.04 (2026-10-08).** Pull request
+#33's run carried a notice on every Linux job: `ubuntu-latest` becomes
+Ubuntu 26.04, rolled out from 2026-10-19 and complete by 2026-11-19
+(actions/runner-images issue 14748). Neither image carries CPython 3.9 -
+the 24.04 image's tool cache holds 3.10 to 3.14, and the 26.04 image's the
+same - so the leg downloads it from setup-python's manifest on every run,
+the 24.04 build of 3.9.25 in that run. On 2026-10-08 the manifest held no
+3.9 for 26.04: its 3.9 builds stop at 24.04, where 3.10 to 3.14 each have
+a 26.04 build too. So from the 19th the leg would have failed in setup,
+before a test ran, on every run that landed on 26.04 - red on some runs and
+green on others while the rollout lasted, which reads as a flaky runner
+rather than as the floor going untested - and on every run after it. The
+leg now names its image: an `exclude` of `ubuntu-latest` with 3.9 and an
+`include` of `ubuntu-24.04` with 3.9, so the job's title,
+`tests (ubuntu-24.04, 3.9)`, says which image ran. Keeping the old title
+and routing it to the new image would have left a title naming an image
+the leg no longer ran on. 24.04 is the image the leg ran on before, so
+nothing it checks moved. The two step conditions that name `ubuntu-latest`
+pick out its 3.13 leg, and the others name Windows, so none changes
+meaning. Every other Linux leg and job moves with the label: each version
+they set up has a 26.04 build, 3.14t's as recorded above.
+
+The pin brings a trap of its own. When the floor rises, "3.9" leaves the
+matrix list, the classifiers and the README together, every test above
+passes, and the `include` goes on adding a 3.9 leg nobody claims.
+`test_every_python_the_workflow_names_is_in_the_matrix_list` in
+`tests/test_docs_match_code.py` fails while any `python-version:` in the
+workflow names a version the list does not, and was watched red with the
+`include` naming 3.8. Refused: pinning every Linux leg, which would stop
+the legs that can move from running on the image an adopter's
+`ubuntu-latest` gets; and installing 3.9 some other way on 26.04, for the
+reason "CI, made cheaper" below refused uv's builds for the Windows leg -
+a different build from the one the leg exists to run. Still open: the pin
+lasts as long as GitHub keeps the 24.04 image, whose retirement it will
+announce the way it announced this move. And the `dogfood` job moves with
+the label onto the runner's own Python, as the README's snippet tells
+adopters to: 3.14.4 with pip 25.1.1 on 26.04, where 24.04 has 3.12.3 with
+pip 24.0. The action's `pip install` into that Python has been seen to
+work on 24.04 only, so the first run on 26.04 is its first measurement.
+
 ## The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer
 
 Phase 57, tranche 19 of the internals review, 2026-09-28. The plan's eleven

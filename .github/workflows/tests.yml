@@ -45,6 +45,26 @@ jobs:
         # earlier leg used; WSL's 3.14.4 ran the suite under it before this
         # leg existed.
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        # 3.9 ON LINUX RUNS ON UBUNTU 24.04, BY NAME. `ubuntu-latest` moves to
+        # 26.04 over 2026-10-19 to 11-19 (actions/runner-images#14748), and on
+        # 2026-10-08 setup-python's manifest had no 3.9 for 26.04: its 3.9
+        # builds stop at 24.04, where 3.10 and later have 26.04 as well.
+        # Neither image carries 3.9 itself - this leg downloads
+        # python-3.9.25-linux-24.04-x64 every run - so on 26.04 setup fails
+        # before a test runs, and while the rollout lasts only on the runs
+        # that land there. 24.04 is the image this leg ran on before the pin.
+        # Named in the title, `tests (ubuntu-24.04, 3.9)`, rather than routed
+        # under the old one, so the title says which image ran. The steps'
+        # conditions that name `ubuntu-latest` pick out its 3.13 leg, so
+        # none changes meaning here. When the floor rises this pair goes with
+        # "3.9" from the list: tests/test_docs_match_code.py fails while
+        # either names a version the list does not.
+        exclude:
+          - os: ubuntu-latest
+            python-version: "3.9"
+        include:
+          - os: ubuntu-24.04
+            python-version: "3.9"
 
     steps:
       - uses: actions/checkout@v7
