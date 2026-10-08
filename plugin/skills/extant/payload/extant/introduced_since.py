@@ -154,6 +154,28 @@ def _side(header: bytes, prefix: bytes, mark: str) -> str | None:
     return path[len(mark):] if path.startswith(mark) else path
 
 
+def _binary_new_side(line: bytes) -> str | None:
+    """The new side of `Binary files <old> and <new> differ`, when no `rename
+    to` header has named it, or None for a deletion.
+
+    Without a rename the two sides are ONE path behind `a/` and `b/`, quoted
+    alike if at all, so the line splits at its middle - exact for any name.
+    Splitting at the last " and ", as this did until 2026-10-08, cut a name
+    holding one: "cats and dogs.md" was reported as "dogs.md", and the
+    document it named was counted as one the range left alone."""
+    body = line[len(b"Binary files "):-len(b" differ")]
+    if body.startswith(b"/dev/null and "):
+        return _new_side(body[len(b"/dev/null and "):], b"")
+    if body.endswith(b" and /dev/null"):
+        return None
+    half = (len(body) - len(b" and ")) // 2
+    if body[half:half + len(b" and ")] == b" and ":
+        return _new_side(body[half + len(b" and "):], b"")
+    # Two different paths and no `rename to` before them: not a shape git
+    # writes, so the last " and " is as good a guess as any.
+    return _new_side(body.rsplit(b" and ", 1)[-1], b"")
+
+
 def merge_base(repo: Path, ref: str) -> str | None:
     """Where the histories of `ref` and HEAD fork, or None when git cannot
     say: a ref that does not resolve, an unborn HEAD, unrelated histories,
@@ -216,10 +238,12 @@ def introduced_lines(
     binary: list[str] = []
     before: list[str] = []
     current: str | None = None
+    # What a `rename to` header named, for the binary line after it.
+    renamed: str | None = None
     in_hunk = False
     for raw in done.stdout.split(b"\n"):
         if raw.startswith(b"diff --git "):
-            current, in_hunk = None, False
+            current, renamed, in_hunk = None, None, False
             continue
         match = _HUNK.match(raw)
         if match:
@@ -244,8 +268,11 @@ def introduced_lines(
             was = _old_side(raw, b"--- ")
             if was is not None:
                 before.append(was)
+        elif raw.startswith(b"rename to "):
+            # The bare path, C-quoted if git quotes it - no `b/` prefix.
+            renamed = unquote_path(raw[len(b"rename to "):].decode("utf-8", "replace"))
         elif raw.startswith(b"Binary files ") and raw.endswith(b" differ"):
-            named = _new_side(raw[:-len(b" differ")].rsplit(b" and ", 1)[-1], b"")
+            named = renamed if renamed is not None else _binary_new_side(raw)
             if named is not None:
                 binary.append(named)
     return lines, binary, before
@@ -312,7 +339,13 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
     changed = sorted(path for path, wrote in lines.items() if wrote)
     binary_documents = sorted(binary)
     touched = set(changed) | set(binary_documents) | set(before)
-    left_alone = [p for p in tracked if p.replace("\\", "/") not in touched]
+    # Both sides are git's own spellings, which separate with `/` on every
+    # platform. A backslash in one is part of a POSIX NAME, so turning it
+    # into `/` - as this did here and twice below until 2026-10-08 - looked
+    # such a document up under a name the diff never gave: its written lines
+    # went uncounted, its claims were set aside, and it was counted as left
+    # alone.
+    left_alone = [p for p in tracked if p not in touched]
     # Over the CHANGED documents, not every tracked one, so the counts describe
     # this range - and so the conflict check fires only when a configured
     # document an exclusion removes is in the range. The sentence it prints is
@@ -366,7 +399,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
                 for kind, count in doc_examined.items():
                     examined[kind] += count
                 ran.update(doc_examined)
-                wrote = lines.get(relative.replace("\\", "/"), set())
+                wrote = lines.get(relative, set())
                 for finding in findings:
                     if relative in unmapped:
                         surveyed += 1
@@ -415,7 +448,7 @@ def run_introduced_since(repo: Path, ref: str, fmt: str) -> int:
                                     run_kind="introduced-since")[0]:
             print(line)
 
-    introduced = sum(len(lines.get(p.replace("\\", "/"), ())) for p in kept)
+    introduced = sum(len(lines.get(p, ())) for p in kept)
     # The denominator, in three parts: what was read, what was not, and what
     # each rule saw in what was read. "0 findings" and "0 documents changed"
     # print identically without the first two.

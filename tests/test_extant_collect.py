@@ -1804,3 +1804,27 @@ def test_a_suite_whose_output_is_not_utf8_is_still_measured(tmp_path: Path) -> N
 
     assert result["source"] == "measured"
     assert result["passed"] == 7
+
+
+def test_a_detached_head_is_not_listed_among_unmerged_branches(
+        git_repo: GitRepo, tmp_path: Path) -> None:
+    """`git branch` lists a detached HEAD as a line of its own, `(HEAD
+    detached at ...)`, and the bundle split every line into words, so a
+    detached HEAD not merged into the trunk arrived as four "branches":
+    `(HEAD`, `at`, `detached` and the ref. A pull request's CI checkout and
+    a rebase in progress are both a detached HEAD. It lists refs/heads/ now,
+    which holds branches and nothing else."""
+    from extant import collect, session
+
+    repo, commit = git_repo
+    commit("a.txt", "one\n", "one")
+    subprocess.run(["git", "checkout", "-q", "-b", "feature/open"], cwd=repo, check=True)
+    commit("b.txt", "two\n", "two")
+    subprocess.run(["git", "checkout", "-q", "--detach"], cwd=repo, check=True)
+    supplied = tmp_path / "suite.json"
+    supplied.write_text('{"passed": 1}', encoding="utf-8")
+    session.reload_config(repo)
+
+    bundle = collect.collect(repo, str(supplied), session.config(), session.CONFIG)
+
+    assert bundle["git"] == {"branch": "HEAD", "unmerged_branches": ["feature/open"]}

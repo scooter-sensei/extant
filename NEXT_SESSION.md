@@ -6,6 +6,244 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 73 - The command line's own modes compared whole, and a gap audit of D7's surfaces (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for cli.py, the
+sixth of its surfaces, and Phases 68 to 73 gap-audited.
+- 1,820 tests across 90 files, of which 1,807 pass and 13 skip on this
+  machine. On Linux 1,818 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 153 files.
+- 554 mutation anchors match, 20 of them new; the Windows campaigns
+  killed all 19 portable ones and WSL the one only Linux can kill, none
+  hung and none overturned.
+- The payload did not change - no line of cli.py moved - so no chain
+  and no identity gate.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **One test file compares what cli.py's own modes print whole**,
+  `tests/test_cli_outputs.py`: `--search`, `--selftest` and its
+  refusals, the bundle `--collect` writes, `--archive`'s refusal, and the
+  console script's reading of `--search=TEXT` and `--repo=PATH`.
+- **16 mutation anchors**, one per surface.
+- **The gap audit's tests**, for lines Phases 68, 70 and 72 wrote: a tag
+  and a remote-tracking ref in the bundle's fixture, an empty document's
+  evidence, a deleted binary document in the binary-name test, and a
+  binary renamed to a name git quotes (POSIX only); 4 anchors.
+
+**What D7's survivors came to.** Of cli.py's 115 mutants that survived
+the whole suite, the new tests kill 74 on Linux and 8 more, which only
+Windows can see, there; mypy rejects 6, and 27 are equivalent. No real
+one is left, and none was a defect.
+
+**The gap audit of Phases 68 to 73.** Two records were wrong and are
+repaired: Phase 70's said a document named with a backslash "is gated
+again", which it never had been, and Phase 69's put report.py's other 43
+survivors in "ten helpers", where they sit in thirteen functions. The
+lines the repairs of Phases 68, 70 and 72 wrote had never been mutated;
+23 mutants written over them by hand left six alive through the whole
+suite, and four were gaps in the repairs' own tests - a tag listed as an
+unmerged branch, an empty document counted in the singular, a deleted
+binary document named by its line's middle, a binary renamed to a name
+git quotes left quoted. Each has a test now and an anchor: 554 in all.
+Everything else measured held - every "no longer exists" row, every mypy
+row, every tally, every per-commit figure and campaign.
+
+The numbers are in "cli.py under mutmut" and "The gap audit of Phases 68
+to 73" in `plugin/skills/extant/references/design/quality.md`.
+
+## Phase 72 - The handoff bundle compared whole, and a detached HEAD in it (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for collect.py, the
+fifth of its surfaces.
+- 1,802 tests across 89 files, of which 1,790 pass and 12 skip on this
+  machine. On Linux 1,800 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 152 files.
+- 534 mutation anchors match, 14 of them new; the Windows campaign
+  killed all 14, none hung and none overturned.
+- The payload changed - one repair to `--collect` - so the harness chain
+  ran on an extract: smoke 0 new and 0 missing, scenarios 213 of 213,
+  fuzz 0 violations, `--self-check` 23 of 23.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **A detached HEAD is not listed among unmerged branches.** `git branch`
+  writes it as `(HEAD detached at ...)`, and the bundle split every line
+  into words, so a detached HEAD off the trunk arrived as four "branches".
+  It lists refs/heads/ through `for-each-ref` now, as detect.py has since
+  Phase 68.
+- **One test file compares the bundle whole**,
+  `tests/test_collect_outputs.py`: three repositories - work after a
+  boundary, an unborn branch, no boundary at all - and the suite runner's
+  errors.
+- **14 mutation anchors**, one per surface, the repair reverted.
+
+**What D7's survivors came to.** Of collect.py's 139 mutants that survived
+the whole suite, the new tests kill 94 on Linux and 8 more, which only
+Windows can see, there; mypy rejects 2, 12 are equivalent, 4 contrived,
+and 19 no longer exist because the repair rewrote the lines they mutate.
+No real one is left.
+
+The numbers are in "collect.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
+## Phase 71 - The survey's report compared whole (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for sweep.py, the
+fourth of its surfaces.
+- 1,793 tests across 88 files, of which 1,782 pass and 11 skip on this
+  machine. On Linux 1,791 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 151 files.
+- 520 mutation anchors match, 14 of them new; the Windows campaign
+  killed all 14, none hung and none overturned.
+- The payload did not change - no line of sweep.py moved - so no chain
+  and no identity gate.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **One test file compares the `--sweep` report whole**,
+  `tests/test_sweep_outputs.py`: in text, and in SARIF, where the report
+  moves to stderr and stdout holds the document alone; an empty survey in
+  both.
+- **14 mutation anchors**, one per surface.
+
+**What D7's survivors came to.** Of sweep.py's 140 mutants that survived
+the whole suite, the new tests kill 102 and mypy rejects 17; 21 are
+equivalent. No real one is left, and none was a defect.
+
+The numbers are in "sweep.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
+## Phase 70 - The diff gate's report compared whole, and two defects it found (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for
+introduced_since.py, the third of its surfaces.
+- 1,781 tests across 87 files, of which 1,770 pass and 11 skip on this
+  machine. On Linux 1,779 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 150 files.
+- 506 mutation anchors match, 16 of them new; the 14 portable ones were
+  killed on Windows and the 2 only Linux can kill in WSL, none hung and
+  none overturned.
+- The payload changed - two repairs to `--introduced-since` - so the
+  harness chain ran on an extract: smoke 0 new and 0 missing, scenarios
+  213 of 213, fuzz 0 violations, `--self-check` 23 of 23.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **A document whose name holds a backslash is gated.** The mode turned
+  `\` into `/` on paths git writes with `/`, so on POSIX such a
+  document's written lines were looked up under a name the diff never
+  gave: its claim was set aside, its lines went uncounted, and the run
+  could exit 0 on a dead claim written that day. It had done so since the
+  mode was written.
+- **A binary document is named whole.** git's `Binary files <old> and
+  <new> differ` was split at its last " and ", so "cats and dogs.md" was
+  reported as "dogs.md" and counted as left alone; it splits at the line's
+  middle now, and a renamed one is named by git's `rename to`.
+- **One test file compares the gate's report whole**,
+  `tests/test_introduced_since_outputs.py`: in text, and in SARIF, where
+  the report moves to stderr and stdout holds the document alone.
+- **16 mutation anchors**, one per surface, the two repairs reverted.
+
+**What D7's survivors came to.** Of introduced_since.py's 142 mutants
+that survived the whole suite, the new tests kill 83 and mypy rejects 9;
+35 are equivalent, and 15 no longer exist because the repairs rewrote the
+lines they mutate. No real one is left.
+
+The numbers are in "introduced_since.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
+## Phase 69 - What the validator renders, compared whole (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for report.py, the
+second of its surfaces.
+- 1,766 tests across 86 files, of which 1,758 pass and 8 skip on this
+  machine. On Linux 1,764 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 149 files.
+- 490 mutation anchors match, 16 of them new; the Windows campaign
+  killed all 16, none hung and none overturned.
+- The payload did not change - no line of report.py moved - so no
+  identity gate, and no harness the chain runs changed.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **One test file compares what report.py renders, whole.**
+  `tests/test_report_outputs.py`, twelve tests: a SARIF run parsed and as
+  text, on a cited document whose lines each reach a branch of the snippet
+  and its columns; the cut past GitHub's result limit in each of the three
+  ways it is reached; the annotations and their escape; the baseline file
+  byte for byte, and read back; the grouped text and a sweep's sections.
+- **16 mutation anchors**, one per surface, two that only Windows can kill.
+
+**What D7's survivors came to.** Of report.py's 187 mutants that survived
+the whole suite, the new tests kill 160 on Linux and 5 more, which only
+Windows can see, there; 22 are equivalent. No real one is left, and none
+was a defect.
+
+The numbers are in "report.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
+## Phase 68 - The installer's outputs compared whole, and three defects they found (unreleased, 2026-10-07)
+
+**Status.** Built and gated; D7's measurement acted on for install.py and
+detect.py.
+- 1,754 tests across 85 files, of which 1,746 pass and 8 skip on this
+  machine. On Linux 1,752 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 148 files.
+- 474 mutation anchors match, 22 of them new; the Windows campaign
+  killed all 22, none hung and none overturned.
+- The payload did not change - install.py and detect.py do not ship - so
+  no identity gate. The installer did, so smoke and scenarios ran on an
+  extract of the tree: smoke 0 new and 0 missing, scenarios 213 of 213.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **Two test files compare whole outputs.** `tests/test_detect_outputs.py`
+  calls each detect.py observer on histories built to reach its branches
+  and compares the complete answer; `tests/test_install_outputs.py` runs
+  the installer from outside the repository it installs into and compares
+  what it prints and the three files it writes, whole, wording included,
+  with its pure steps compared in process. 56 tests in all, with five in
+  `tests/test_detect.py` and one in `tests/test_unicode_documents.py`.
+- **The installer counts one in the singular**: "1 tag", "1 branch", "in
+  1 subject", "1 line", where it printed "1 tags" and "1 lines".
+- **A detached HEAD is not a branch.** `git branch -a` lists it as a line
+  of its own, and the sample counted it, so a repository with one branch
+  was reported as having two. It reads `for-each-ref` now.
+- **The installer survives a name its output cannot encode.** Piped on
+  Windows, as an agent runs it, a Japanese branch name raised
+  UnicodeEncodeError before `.extant.toml` was written; it now does what
+  the validator does, and the console shows `?`.
+- **22 mutation anchors**, one per surface, the three repairs reverted.
+- **Beside it, the Linux 3.9 CI leg runs on Ubuntu 24.04 by name.** The
+  `ubuntu-latest` label moves to Ubuntu 26.04 from 2026-10-19, and
+  setup-python has no 3.9 for it, so the leg would have failed in setup
+  before a test ran. A new test in `tests/test_docs_match_code.py` fails
+  while the workflow names a Python the matrix list does not, so the pin
+  cannot outlive the floor. Its record closes "CI honesty" in
+  `plugin/skills/extant/references/design/quality.md`.
+
+**What D7's survivors came to.** Of the 896 mutants of install.py and
+detect.py that survived the whole suite, the new tests kill 760 on Linux
+and 20 more, which only Windows can see, there; 84 are equivalent, 11
+contrived, and 21 no longer exist, because the repairs rewrote the lines
+they mutate. No real one is left.
+
+The numbers are in "The installer under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 67 - The tests type-checked, and a test of a pattern the tool refuses (unreleased, 2026-10-06)
 
 **Status.** Built and gated; the second half of the type-checking tranche.

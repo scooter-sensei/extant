@@ -703,6 +703,46 @@ two runs of one test on one leg, under `-n auto`. So the next tranche's
 per-test timeout starts from 17.01, the larger of the two, and takes that
 spread as the reason one run's durations cannot size it alone.
 
+**The Linux 3.9 leg, pinned to Ubuntu 24.04 (2026-10-08).** Pull request
+#33's run carried a notice on every Linux job: `ubuntu-latest` becomes
+Ubuntu 26.04, rolled out from 2026-10-19 and complete by 2026-11-19
+(actions/runner-images issue 14748). Neither image carries CPython 3.9 -
+the 24.04 image's tool cache holds 3.10 to 3.14, and the 26.04 image's the
+same - so the leg downloads it from setup-python's manifest on every run,
+the 24.04 build of 3.9.25 in that run. On 2026-10-08 the manifest held no
+3.9 for 26.04: its 3.9 builds stop at 24.04, where 3.10 to 3.14 each have
+a 26.04 build too. So from the 19th the leg would have failed in setup,
+before a test ran, on every run that landed on 26.04 - red on some runs and
+green on others while the rollout lasted, which reads as a flaky runner
+rather than as the floor going untested - and on every run after it. The
+leg now names its image: an `exclude` of `ubuntu-latest` with 3.9 and an
+`include` of `ubuntu-24.04` with 3.9, so the job's title,
+`tests (ubuntu-24.04, 3.9)`, says which image ran. Keeping the old title
+and routing it to the new image would have left a title naming an image
+the leg no longer ran on. 24.04 is the image the leg ran on before, so
+nothing it checks moved. The two step conditions that name `ubuntu-latest`
+pick out its 3.13 leg, and the others name Windows, so none changes
+meaning. Every other Linux leg and job moves with the label: each version
+they set up has a 26.04 build, 3.14t's as recorded above.
+
+The pin brings a trap of its own. When the floor rises, "3.9" leaves the
+matrix list, the classifiers and the README together, every test above
+passes, and the `include` goes on adding a 3.9 leg nobody claims.
+`test_every_python_the_workflow_names_is_in_the_matrix_list` in
+`tests/test_docs_match_code.py` fails while any `python-version:` in the
+workflow names a version the list does not, and was watched red with the
+`include` naming 3.8. Refused: pinning every Linux leg, which would stop
+the legs that can move from running on the image an adopter's
+`ubuntu-latest` gets; and installing 3.9 some other way on 26.04, for the
+reason "CI, made cheaper" below refused uv's builds for the Windows leg -
+a different build from the one the leg exists to run. Still open: the pin
+lasts as long as GitHub keeps the 24.04 image, whose retirement it will
+announce the way it announced this move. And the `dogfood` job moves with
+the label onto the runner's own Python, as the README's snippet tells
+adopters to: 3.14.4 with pip 25.1.1 on 26.04, where 24.04 has 3.12.3 with
+pip 24.0. The action's `pip install` into that Python has been seen to
+work on 24.04 only, so the first run on 26.04 is its first measurement.
+
 ## The owed bundle: what a zero means, where a patch ends, and what a partial copy cannot answer
 
 Phase 57, tranche 19 of the internals review, 2026-09-28. The plan's eleven
@@ -2594,3 +2634,642 @@ branch merged; `--selftest` fires 7 rules with 0 silent;
 `--introduced-since origin/main` reads 180 introduced lines with
 0 findings. Neither the payload nor a harness changed, so neither the
 identity gate nor the chain was run.
+
+## The installer under mutmut: 896 survivors, outputs compared whole, and three defects
+
+D7 measured the rest of the package under mutmut; Phase 68 acted on the
+part of it the installer owns, install.py and detect.py, which do not ship.
+The apparatus is `m28_*` (D7) and `m29_*` (Phase 68) in the measurement
+apparatus, rows under `D:/repo/out-mutmut/d7/` and `D:/repo/out-mutmut/p68/`.
+
+**D7, the measurement (2026-10-06/07).** The cross-check above saw 12 per
+cent of the package's mutants. D7 ran the other 41 files, 12,127 mutants,
+by tranche 24's method - stage 1 finds, under mutmut 3.8.0 in WSL; stage 2
+decides, the whole suite on each non-kill applied to a clean clone - with
+three changes, each forced by a measurement:
+1. The launcher strips `plugin.skills.extant.` as well as the payload's
+   prefix, because the suite imports the installer as `install` and
+   `detect`.
+2. A compiled-code cache keyed by the source bytes. Under mutmut each
+   payload module carries every mutant, so the payload a test installs is
+   50 MB, and its first import took 93 seconds against 0.4.
+3. 22 tests that read the payload's SOURCE are deselected in stage 1 only.
+   On the instrumented tree they fail or take up to 400 seconds, and none
+   calls a payload function, so mutmut could never select one; stage 2 runs
+   them on every row.
+
+Stage 1, 61 minutes on 6 workers: 8,783 killed, 2,330 survived, 981
+reached by no test in process, 31 timeouts, 2 segfaults - 3,344 leads.
+Stage 2, 20.2 hours on 10 workers, both controls holding: 2,158 survive
+the whole suite, 1,156 killed, 30 hung. So 17.8 per cent of those
+mutants outlive everything pytest runs, against 15 in tranche 24; `mypy
+--strict` rejects 370 of them. 50 drawn at random and read one by one,
+with mypy and CI's other jobs measured on each, project about 1,770
+caught by nothing in CI, about 734 of them real and not wording (95 per
+cent interval 450-1,017). One pilot row read as real is equivalent:
+`merge_claim` taken out of `render_config`'s `regexy` set falls to a branch
+that quotes by the same rule, so the file is byte-identical. The plan's
+gap audit found it by running a test against it.
+
+The survivors sit where a whole OUTPUT is produced and only pieces of it
+were asserted - a key of the config here, a phrase of the output there.
+install.py kept 503 of its 1,272 mutants and detect.py 393 of its 747.
+
+**The decisions as taken**, weighed on what each buys the project, three
+of them departing from the recommendation:
+- D7a: a row `mypy --strict` rejects counts as CAUGHT, because mypy is a
+  required step of the self-check job; no test is written for one alone.
+- D7b: for the installer, wording is pinned. Its prose states what each
+  setting will DO, and `closing_advice` records a sentence that was false
+  in 39 of 39 installs. Each fixed paragraph is written once in the test
+  file, so a rewording is one edit. argparse's own text is the exception:
+  each help sentence is compared, never the page, because argparse titles
+  and wraps it differently across 3.9-3.14.
+- D7c: whole-output tests, surface by surface, install.py and detect.py
+  first, measured again at the close.
+- D7d: a Windows-only row is a limit of the Linux verdict, decided on
+  Windows wherever a test reaches it.
+- D7e: the singular, below - six strings rather than seven, because the
+  seventh can never count one.
+
+**The tests.** `tests/test_detect_outputs.py` calls every observer in
+process and compares its whole answer: the Observation lists on seven
+histories, each built to reach named branches (ticket keys and slash
+prefixes past the floor, a detached HEAD, a non-ASCII branch prefix and a
+latin-1 subject, five tags under four prefixes, no history at all); every
+grouping floor and the branch floor ON a boundary, where `n // 20` and
+`n / 20` disagree; the 500-subject sample bound; `find_wide_documents`'
+notes on four trees and its three refusals; `find_documents` and
+`inspect_document`. The histories are built by one `git fast-import`, not
+a `git commit` each - the floors need up to 501 commits.
+
+`tests/test_install_outputs.py` runs install.py as a subprocess - twelve
+tests, nine repositories - and compares stdout and the three files it
+writes, whole: a status document with everything derived, a second run
+and `--force`, a dry run, an undetected entry prefix, the readme preset,
+`--wide-docs` nominating a README.rst, a document under `docs/` with
+`--claude-command`, the four ways it stops, and `--help`. The command and
+the skill are compared against their templates with the values
+substituted, and the
+payload's file list is read from the payload tree, so what is pinned is
+what the installer DECIDES. In process, the steps between: `apply_preset`
+on four presets, `_fold_wide_docs`, `choose_document`, `render_config` on
+a value of every shape it branches on - parsed back, each value must read
+as itself - `render_command`, `closing_advice`, and `copy_payload` on a
+skill missing its payload.
+
+The installer runs from OUTSIDE the repository. Every installer test
+before ran it from inside, so a git call that dropped `repo` and fell back
+to the working directory read the right history anyway: three such
+mutants in install.py, killed only from outside.
+
+**Three defects, found reading the residue**, each with a test watched
+failing first and a commit of its own:
+1. "1 tags", "1 branches", "in 1 subjects", "1 lines" in the evidence the
+   installer prints and writes. `detect.counted` takes the plural rather
+   than deriving it, since `branch` takes `es`.
+2. `git branch -a` lists a detached HEAD as a line of its own, and the
+   branch sample counted it: a repository with one branch was reported as
+   having two. It asks `for-each-ref` for refs/heads/ and refs/remotes/
+   now. A pull request's CI checkout is a detached HEAD.
+3. The validator makes its output survivable (`_survivable_output`); the
+   installer never did. Piped, as an agent runs it, Windows encodes its
+   output as cp1252, and a Japanese branch name raised UnicodeEncodeError
+   at the configuration table, before `.extant.toml` was written. The
+   test forces cp1252 with no error handler, so the tool copes rather
+   than the environment.
+
+**The closing measurement.** `m29_redcheck.sh` applies each of D7's
+patches to a clean clone of main with the worktree's files copied over
+it - nothing was committed for it - and runs only the new tests; a D7
+survivor already passed the whole suite, so a failure means a new test
+kills it. CLEAN passed in every run, and a pre-flight with the old
+`test_detect.py` killed none of detect's 393. A patch whose lines a repair
+moved is retried with no context required, which is safe only because
+each line it removes occurs once (`m29_stale.py`); one whose line a repair
+REWROTE names a mutant that no longer exists. Tallied by `m29_tally.py`:
+
+| | install.py | detect.py | all |
+|:--|--:|--:|--:|
+| D7 survivors | 503 | 393 | 896 |
+| killed on Linux | 427 | 333 | 760 |
+| killed on Windows only | 16 | 4 | 20 |
+| equivalent | 51 | 33 | 84 |
+| contrived | 8 | 3 | 11 |
+| no longer exist | 1 | 20 | 21 |
+
+No real row is left. The plan's fixtures alone killed 252 of detect's 393;
+reading what survived, three times over, took the total to 780. Each of
+the 20 Windows-only rows was applied on Windows and watched killed - a
+dropped `encoding="utf-8"` or `newline=""` on a write, or a path separator.
+The 21 that no longer exist mutate the `git branch -a` line (10) and the
+six rewritten strings (11). Every residue row carries its class and reason
+in `residue_detect.tsv` and `residue_install.tsv`. A full run took about
+half an hour on 10 WSL workers, most of it rebuilding each worker's tree.
+
+**Seen and not taken**, because each is a simplification rather than a
+gap: `detect_release_tag` counts tags per prefix and reads only the keys;
+`inspect_document` returns `merge_targets`, which nothing reads;
+`render_config`'s `regexy` set decides nothing the generic string branch
+would not; its `plain` set names `pointer_prefix`, which no observation is
+called.
+
+**Anchors.** 22 in `mutate.py`'s Phase 68 block, one per surface on its
+most specific line, the three repairs reverted, two that only Windows can
+kill: 474 in all. The Windows campaign, on a copy, killed all 22 in 42
+minutes - none hung, none overturned by the serial check.
+
+**Gated, Phase 68**, on the final tree before any commit. 1,753 tests: on
+Windows 1,745 pass and 8 skip, on Linux 1,751 and 2, serially and in CI's
+shuffled order. mypy clean on 148 files, about ten seconds cold; 474
+anchors match. The installer changed, so smoke and scenarios ran on an
+extract of the tree: 0 new and 0 missing, 213 of 213. `--verify` exits 0
+here and on a main-only clone; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since origin/main` reads 222 introduced lines with 0
+findings. The payload did not change, so no identity gate.
+
+## report.py under mutmut: 187 survivors, its outputs compared whole
+
+Phase 69 (2026-10-08) is D7's next surface after the installer, by Phase
+68's method and the decisions above. report.py renders what every run
+reports - text, GitHub annotations, SARIF - and writes the baseline. D7
+found 187 of its 843 mutants alive after the whole suite: 118 in
+`format_sarif`, 26 in `write_baseline`, the other 43 in thirteen more
+functions; mypy rejects 6. The tests had asserted pieces of each output - a
+level, a URI, that some notification mentioned the cut - so a renamed key,
+a changed fixed value or a column moved at a boundary went unseen.
+
+**The tests.** `tests/test_report_outputs.py`, twelve tests, compares:
+- one SARIF run, whole, parsed and as text indented by two. Descriptors from
+  the registry and the fallback for a kind it does not hold; a result per
+  finding; a cited document whose lines each reach one branch of the snippet
+  and its region - the subject twice on its line, at column 1, ending on the
+  last column a region may name, starting one past it on a line over the
+  cap, absent - beside a line of exactly the cap, trailing spaces, a closing
+  capital and a character outside ASCII; then the denominator, a NOTE, a
+  rule switched off and one that raised;
+- the cut, in each of the three ways `format_sarif` is called past the
+  limit - as every mode calls it, with the NOTE among its notes; with the
+  denominator and no NOTE; with neither - and the overflow NOTE at GitHub's
+  25,000 itself;
+- UTF-16 lengths either side of the plane boundary;
+- the workflow-command escape, and two annotations, whole;
+- the baseline file byte for byte - one entry per (path, kind, detail) with
+  its count, sorted, ASCII, LF, indented by two - and read back; a baseline
+  edited by hand in UTF-8; and the two errors a baseline that cannot be read
+  raises;
+- `render_findings` handing each format every argument;
+- grouped text, and a sweep's sections with their entry count.
+
+**The closing measurement.** `m30_redcheck.sh`, `m29_redcheck.sh` with the
+worktree and output directory as parameters, applies each of D7's 187
+patches to a clean clone of main with the new test file over it and runs
+only that file; CLEAN passed in every run.
+
+| | report.py |
+|:--|--:|
+| D7 survivors | 187 |
+| killed on Linux | 160 |
+| killed on Windows only | 5 |
+| equivalent | 22 |
+
+No real row is left, and none of the 187 was a defect, so report.py itself
+did not change. The first round killed 142. Reading the 45 left found the
+two calls past the limit that only a direct call makes - the denominator
+without the NOTE, and neither - which a test already made and never compared
+whole; comparing them killed 21 more. The five Windows-only rows - the
+cited line and a hand-edited baseline decoded with the locale, the baseline
+written with CRLF - were each applied on Windows and watched killed. The
+equivalent rows are a codec spelled in capitals (4), encodings of a file
+`ensure_ascii` keeps ASCII (2), `ensure_ascii` dropped where its default is
+the same (1), newline modes that split lines alike and are stripped alike
+(2), the first field of a split whatever the count (2), a title escape no
+rule's kind can reach (3), a default no caller uses (1), a fallback rank no
+stratum reaches (2), the limit compared with `<` where the list at exactly
+the limit comes back the same (1), a condition `split` always satisfies
+(1), and the flag beside `render_findings`' lines, which every caller
+discards (3). Each carries its reason in `residue_report.tsv`.
+
+**Seen and not taken**, each a simplification rather than a gap:
+`render_findings` returns its lines with a `True` no caller reads, since
+every mode decides the stream itself; `_baseline_entry`'s `count` default
+is never used; `_sarif_kept`'s fallback rank cannot be reached, because the
+strata are a partition.
+
+**Anchors.** 16 in `mutate.py`'s Phase 69 block, one per surface on its
+most specific line, two that only Windows can kill: 490 in all.
+The Windows campaign, on a copy, killed all 16 in 40 minutes - none
+hung, none overturned by the serial check.
+
+**Gated, Phase 69**, on the final tree before any commit. 1,766 tests: on
+Windows 1,758 pass and 8 skip, on Linux 1,764 and 2, serially and in CI's
+shuffled order. mypy clean on 149 files; 490 anchors match. `--verify`
+exits 0 here and on a main-only clone; `--selftest` fires 7 rules with 0
+silent; `--introduced-since origin/main` reads 391 introduced lines
+with 0 findings. The payload did not change, so no identity gate, and no
+harness the chain runs changed.
+
+D7 is not done. introduced_since.py (142), sweep.py (140), collect.py
+(139), cli.py and gate.py (115 each), deleted_since.py (114) and the rest
+remain, a surface each.
+
+## introduced_since.py under mutmut: 142 survivors, and two defects in the gate
+
+Phase 70 (2026-10-08) is D7's third surface. D7 found 142 of
+introduced_since.py's 574 mutants alive after the whole suite, 93 of them
+in the report `run_introduced_since` prints; mypy rejects 22. The tests
+asserted single lines of that report, and nothing about which stream each
+went to: in SARIF mode the report goes to stderr and the document alone to
+stdout, so a line printed to stdout corrupts the upload while every `in
+out` assertion passes.
+
+**Two defects, found reading the survivors**, each with a test watched
+failing first:
+1. A document whose name holds a backslash - legal on POSIX, and quoted by
+   git - was not gated. The mode turned `\` into `/` in three places, on
+   paths git writes with `/` on every platform, so it looked the
+   document's written lines up under a name the diff never gave: its claim
+   was set aside as sitting on an untouched line, its lines went
+   uncounted, and it was counted among the documents the range left alone.
+   With only that document in the range, the gate exited 0 on a dead claim
+   written that day. The three replaces are gone. The same spelling sits
+   in deleted_since.py, sweep.py and exclusions.py, on paths of both kinds;
+   each is measured with its own D7 surface.
+2. A binary document with " and " in its name was misnamed. git reports a
+   binary change as one line, `Binary files <old> and <new> differ`, and
+   the new side was taken after the LAST " and ", so "cats and dogs.md" was
+   reported as "dogs.md" and counted as left alone. Without a rename the two
+   sides are one path behind `a/` and `b/`, so the line now splits at its
+   middle - exact for any name; an added document follows `/dev/null and `,
+   a deleted one ends ` and /dev/null`, and a renamed one is named by git's
+   `rename to` header.
+
+**The tests.** `tests/test_introduced_since_outputs.py`, thirteen tests.
+One range reaches every branch of the report at once, with two of every
+count and every list in it: claims on written and untouched lines, a
+document line reading like a diff header between two hunks, a binary
+document named with spaces and " and " and a deleted one, an excluded
+document beside a pattern that cannot exclude anything, two documents with
+a bare carriage return and two that are not UTF-8, one left alone, a
+pattern switched off and two repository rules. It is compared whole in
+text - with GitHub's SARIF limit at 0, so the text names no cut - and in
+SARIF, where the report on stderr is compared whole and the document on
+stdout field by field; again from a pool, and from a pool that cannot
+start. Beside it: a range changing the primary document, with and without
+a dated entry; one changing no markdown; a claim written into a vendored
+document; a rule that raised, named once; documents the survey lost, the
+reading going on past them; the refusal when git cannot diff; and on Linux
+only, a name that is not UTF-8 and a link out of the checkout. A report
+line another module words - `session.zero_notes`' NOTE lines, the
+unusable-pattern line, the fallback NOTE - is built by that module's
+function from the arguments this report must hand it, written out. The
+two repairs added two tests to `tests/test_introduced_since.py`.
+
+**The closing measurement.** `m30_redcheck.sh` as for report.py, with
+both test files run; CLEAN passed in every run. The repairs rewrote four
+lines and moved others, so 24 patches no longer applied; `m30_stale.py` (`m29_stale.py`
+with the worktree as a parameter) found 9 whose context had only moved,
+retried with no context required, and 15 naming a mutant that no longer
+exists.
+
+| | introduced_since.py |
+|:--|--:|
+| D7 survivors | 142 |
+| killed | 83 |
+| caught by `mypy --strict` | 9 |
+| equivalent | 35 |
+| no longer exist | 15 |
+
+No real row is left. Four of the kills come from the two Linux-only tests,
+which CI's Linux legs run. The equivalent rows are `unquote_path`'s
+branches for input git never writes - an empty quoted path, a trailing
+backslash, an escape outside C's, bytes that are not UTF-8 after `_side`
+has replaced them - and its codec spellings (16); the failed diff's
+`CalledProcessError` arguments, of which the caller reads only the class
+(6); starting values git's own output order overwrites (3); `/dev/null`
+and prefix handling no diff line reaches (3); a codec spelling in `_side`
+(1); a second header test no header line can pass (1); and in text mode,
+the text branch's spelling, the stream its lines go to and a default
+`Located` already holds (5). Each carries its reason in
+`residue_introduced.tsv`. The first round killed 56; reading the rest
+found the counts and lists the fixture held only one of, the pool's
+fallback, the primary document, a range with no markdown and the stream of
+the worker line, and a second and third round took the total to 83.
+
+**Anchors.** 16 in `mutate.py`'s Phase 70 block, one per surface, the two
+repairs reverted, two that only Linux can kill: 506 in all. On a copy, the
+14 portable ones were killed on Windows in 32 minutes and the two Linux-only
+ones in WSL; none hung, none overturned by the serial check.
+
+**Gated, Phase 70**, on the final tree before any commit. 1,781 tests: on
+Windows 1,770 pass and 11 skip, on Linux 1,779 and 2, serially and in CI's
+shuffled order. mypy clean on 150 files; 506 anchors match. The chain on an
+extract: smoke 0 new and 0 missing, scenarios 213 of 213, fuzz 0 violations
+at CI's seed, `--self-check` 23 of 23. `--verify` exits 0 here and on a
+main-only clone; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since origin/main` reads 544 introduced lines with 0
+findings.
+
+**Not run: the corpus identity gate.** It compares `--sweep` outputs, and
+nothing `--sweep` runs imports introduced_since.py, so its answer is 0 of
+152 by construction. The harness chain does run this mode - the fuzzer's
+`INTRODUCED` oracle among it - and ran on an extract.
+
+## sweep.py under mutmut: 140 survivors, its report compared whole
+
+Phase 71 (2026-10-08) is D7's fourth surface. D7 found 140 of sweep.py's
+667 mutants alive after the whole suite: 88 in the report `run_sweep`
+prints, 24 in what it prints for a repository with no markdown, 15 in the
+arguments `_survey_notes` hands on, 10 in the per-stratum breakdown; mypy
+rejects 30. The tests asserted single lines of the report, and in SARIF
+mode, where it moves to stderr, nothing about the stream at all.
+
+**The tests.** `tests/test_sweep_outputs.py`, twelve tests. One
+repository reaches every branch of the report: a configured primary
+document and extra, each with a claim; two translations sharing a dead
+link, which the text groups and counts as one entry; a vendored document
+for the breakdown; an excluded document beside a pattern that cannot
+exclude and two that match nothing; two documents that are not UTF-8; a
+pattern switched off; and two files the consistency rule finds
+disagreeing, so a repository finding is reported. Compared whole in text -
+with GitHub's SARIF limit at 0, so the text names no cut - and in SARIF,
+where stderr is compared whole and stdout result by result, each gating as
+its section does; again from a pool and from one that cannot start.
+Beside it: documents the survey lost, the reading going on past them; a
+rule that raised, named once; an unconfigured repository, told nothing can
+fail; one holding only reStructuredText, whose markdown rules read
+nothing; exclusions that remove everything; a repository with no markdown,
+in text and in SARIF; and a breakdown with no ordinary finding.
+
+**The closing measurement.** `m30_redcheck.sh` with the new file run;
+CLEAN passed both times.
+
+| | sweep.py |
+|:--|--:|
+| D7 survivors | 140 |
+| killed | 102 |
+| caught by `mypy --strict` | 17 |
+| equivalent | 21 |
+
+No real row is left, and none was a defect, so sweep.py did not change.
+The first round killed 99; the three left that could be killed needed a
+rule to read nothing because no document of its kind was swept, which the
+reStructuredText repository supplies. The equivalent rows are the stream of
+a line only text mode prints, where it is stdout either way (4); an empty
+survey's text branch, which renders nothing in either spelling, and its
+`repo`, which no result needs (4); `_survey_notes`' defaults, which its one
+caller always overrides (3); what the repository rules are handed or where
+their findings are filed, since they read no text and both name ordinary
+subject files (5); `swept.get`'s default, never reached because a
+repository finding's stratum is ordinary (3); an unborn HEAD's `None` beside
+`[]` (1); and the pool's size, which no output shows (1). Each carries its
+reason in `residue_sweep.tsv`.
+
+**Measured beside it, for the record Phase 70 made.** sweep.py replaces
+`\` with `/` in `apply_exclusions` too, but on both sides of the comparison
+it makes - the tracked paths and the configured names - so a document named
+with a backslash is matched consistently there, and the conflict check is
+right. That is not the gate's defect. Seen and not changed: the summary
+says "swept N markdown file(s)" when the documents it swept are
+reStructuredText.
+
+**Anchors.** 14 in `mutate.py`'s Phase 71 block, one per surface: 520 in
+all. The Windows campaign, on a copy, killed all 14 in 37 minutes - none
+hung, none overturned by the serial check.
+
+**Gated, Phase 71**, on the final tree before any commit. 1,793 tests: on
+Windows 1,782 pass and 11 skip, on Linux 1,791 and 2, serially and in CI's
+shuffled order. mypy clean on 151 files; 520 anchors match. `--verify`
+exits 0 here and on a main-only clone; `--selftest` fires 7 rules with 0
+silent; `--introduced-since origin/main` reads 648 introduced lines
+with 0 findings. The payload did not change, so neither the chain nor the
+identity gate ran.
+
+## collect.py under mutmut: 139 survivors, and a detached HEAD in the bundle
+
+Phase 72 (2026-10-08) is D7's fifth surface: the `--collect` handoff
+bundle. D7 found 139 of collect.py's 480 mutants alive after the whole
+suite - 49 in `collect`, 37 in `run_suite`, 19 in `read_plan`, 13 in
+`scan_todos` - with mypy rejecting 24. The tests asserted single fields of
+the bundle, so a renamed key, a branch resolved the wrong way, a TODO scan
+that stopped early or a measured suite run in the wrong directory went
+unseen.
+
+**A defect, found reading the survivors**, with a test watched failing
+first: on a detached HEAD the bundle's `unmerged_branches` listed four
+words that are not branches. `git branch` writes a detached HEAD as a line
+of its own, `(HEAD detached at ...)`, and the bundle split every line of it
+on whitespace - so a detached HEAD not merged into the trunk arrived as
+`(HEAD`, `at`, `detached` and the ref beside the real branches. A pull
+request's CI checkout and a rebase in progress are both a detached HEAD.
+It asks `for-each-ref` for refs/heads/ now, `--merged` for the merged
+half, which holds branches and nothing else - Phase 68's repair to
+detect.py, where the same line was counted as a branch.
+
+**The tests.** `tests/test_collect_outputs.py`, eight tests. Three bundles
+compared whole: one with a boundary and work after it - commits whose
+phase only the task pattern can name, a suite MEASURED by a command that
+reads a file in the repository, TODOs past an excluded file that sorts
+first, an excluded directory, markdown and a file that is not UTF-8, the
+newest plan with a box not in ASCII, a merged and an unmerged branch; one
+on an unborn branch, with the plan switched off and a supplied result not
+in ASCII; one whose status document was never committed, so every commit
+is work and every tracked file is read. Beside them: the two errors the
+suite runner raises, a summary missing a count, each phase pattern with the
+other off, and - on POSIX only - a code file that cannot be opened at all.
+
+**The closing measurement.** `m30_redcheck.sh` with both collect test
+files run; CLEAN passed in every run. The repair rewrote the two lines
+listing branches, so 31 patches no longer applied; `m30_stale.py` found 12
+whose context had only moved, retried with no context required, and 19
+naming a mutant that no longer exists.
+
+| | collect.py |
+|:--|--:|
+| D7 survivors | 139 |
+| killed on Linux | 94 |
+| killed on Windows only | 8 |
+| caught by `mypy --strict` | 2 |
+| equivalent | 12 |
+| contrived | 4 |
+| no longer exist | 19 |
+
+No real row is left. The Windows-only rows - a plan, a supplied result or a
+code file decoded with the locale, and the plan's path keeping Windows'
+separators - were each applied on Windows and watched killed. The
+equivalent rows are codec spellings (4), newline modes `splitlines` reads
+alike (4), "unknown" respelled where `symbolic-ref` is never empty (2), and
+a blank line or a NUL `git log` never writes (2); the contrived ones need
+`rev-parse` and `symbolic-ref` to fail together (3) or the status document
+gone from the working tree (1). Each carries its reason in
+`residue_collect.tsv`.
+
+**Anchors.** 14 in `mutate.py`'s Phase 72 block, one per surface, the
+repair reverted, two that only Windows can kill: 534 in all. The Windows
+campaign, on a copy, killed all 14 in 38 minutes - none hung, none
+overturned by the serial check.
+
+**Gated, Phase 72**, on the final tree before any commit. 1,802 tests: on
+Windows 1,790 pass and 12 skip, on Linux 1,800 and 2, serially and in CI's
+shuffled order. mypy clean on 152 files; 534 anchors match. The chain on an
+extract: smoke 0 new and 0 missing, scenarios 213 of 213, fuzz 0
+violations at CI's seed, `--self-check` 23 of 23. `--verify` exits 0 here
+and on a main-only clone; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since origin/main` reads 768 introduced lines with 0
+findings.
+
+**Not run: the corpus identity gate.** It compares `--sweep` outputs, and
+nothing `--sweep` runs imports collect.py. The harness chain runs
+`--collect` - the fuzzer among it - and ran on an extract.
+
+## cli.py under mutmut: 115 survivors, its modes compared whole
+
+Phase 73 (2026-10-08) is D7's sixth surface: the modes cli.py runs itself
+- `--search`, `--selftest`, the writing of the `--collect` bundle and
+`--archive`'s refusals - and the console script's reading of its
+arguments. D7 found 115 of cli.py's 934 mutants alive after the whole
+suite: 46 in `run_selftest`, 26 in `--search`, the entry reader beneath it
+and the error it raises, 18 in `cli`, 17 in `run_collect`, 8 in
+`run_archive`; mypy rejects 7. The tests asserted that a mode ran and a
+phrase appeared, so a line moved to the wrong stream, a count computed
+wrongly or a bundle written with other bytes went unseen.
+
+**The tests.** `tests/test_cli_outputs.py`, sixteen tests. Most compare
+what a mode prints whole - stdout and stderr - with its exit code; where
+argparse prints its usage first, the line after it is compared, and the
+default bundle's path by the line that ends the output. `--search` over a
+status document and its archive - an entry that does not match ahead of
+two that do, a header not in ASCII with a character whose UTF-8 cp1252 cannot
+decode, so a locale read on Windows fails outright - in excerpts and with
+`--full`; the archive alone; no entries, and the NOTE that says why; a
+blank query; a document that is not UTF-8. `--selftest` handed fixed
+results, so cli.py's half is compared - the counts, what they imply, each
+closing note, the exit code - together with the document it installs for
+the probes, read back from inside: CRLF endings kept, its directory, name
+and language. Its three refusals: no document, one outside the
+repository, one not UTF-8. The bundle `--collect` writes, byte for byte,
+and where it writes it by default; `--archive` with no document. The
+console script given `--search=TEXT` with `=` in TEXT and `--repo=PATH`
+with `=` in PATH, and `--repo` with nothing after it.
+
+**The closing measurement.** `m30_redcheck.sh` with the new file run;
+CLEAN passed every time.
+
+| | cli.py |
+|:--|--:|
+| D7 survivors | 115 |
+| killed on Linux | 74 |
+| killed on Windows only | 8 |
+| caught by `mypy --strict` | 6 |
+| equivalent | 27 |
+
+No real row is left, and none was a defect, so cli.py did not change. The
+first two rounds killed 72 and called two rows contrived: `rsplit("=", 1)`
+in place of `split` finds `--repo` only while its PATH holds no `=`. A
+path may hold one on either platform, so the console-script test put its
+repository under a directory named with one, and both were killed. The
+Windows-only rows - the bundle written with CRLF, and the documents
+`--search` and `--selftest` read decoded with the locale - were each
+applied on Windows and watched killed. The equivalent rows are a split on
+`=` whose first field is the same however far it splits (6); the `repo`
+`cli()` computes and never reads (6); codec spellings (4) and newline
+modes the entry count and the entry reader read alike (4); the bundle's
+encoding, which `json.dump` keeps ASCII (2); the untitled-entry branch,
+never reached because a phase segment begins with its header (3); the
+Config a context carries, which does not depend on the repository it is
+asked about (1); and the exception's message, which `--search` never
+prints (1). Each carries its reason in `residue_cli.tsv`. Seen and not
+changed: that `repo` in `cli()`.
+
+**Anchors.** 16 in `mutate.py`'s Phase 73 block, one per surface, two that
+only Windows can kill: 550 in all. The Windows campaign, on a copy, killed
+all 16 in 37 minutes - none hung, none overturned by the serial check.
+
+**Gated, Phase 73**, on the final tree before any commit, with the gap
+audit's repairs below. 1,820 tests: on Windows 1,807 pass and 13 skip, on
+Linux 1,818 and 2, serially and in CI's shuffled order. mypy clean on 153
+files; 554 anchors match. `--verify` exits 0 here and on a main-only
+clone; `--selftest` fires 7 rules with 0 silent; `--introduced-since
+origin/main` reads 978 introduced lines with 0 findings. The
+payload did not change, so neither the chain nor the identity gate ran.
+
+## The gap audit of Phases 68 to 73: two records wrong, and the lines the repairs wrote
+
+Phase 73 closed with a gap audit of everything since Phase 67's: the
+eighteen commits of D7's first five surfaces and the CI pin, their
+records, commit messages and pull request body, the ledgers and logs behind
+every number, and Phase 73 itself. Measured unless said otherwise; the
+audit's own record and scripts are kept with the measurement apparatus.
+
+**Wrong, and repaired.**
+- Phase 70's records said a POSIX document named with a backslash "is
+  gated again". It never had been: the mode was born with the three
+  replaces. NEXT_SESSION.md and CHANGELOG.md now say it is gated, and
+  since when it was not. The commit message and the pull request body had
+  it right.
+- report.py's section said the survivors outside `format_sarif` and
+  `write_baseline` sat "in ten helpers": 43 of them, in thirteen
+  functions, three of them public.
+- Phase 73 first called two of cli.py's rows contrived - `rsplit` on a
+  `--repo` PATH holding `=` - and they were reachable on either platform:
+  killed, above. Its test file's docstring summed its survivors to 112.
+- **The lines the repairs wrote had never been mutated.** D7 ran mutmut
+  on the code before Phases 68, 70 and 72 repaired it; what the repairs
+  wrote stood under one anchor each. The audit wrote 23 mutants over
+  exactly those lines in mutmut's operators. The suite killed 17; six
+  survived it whole, and four were real gaps in the repairs' own tests:
+  a tag or a remote-tracking ref listed among the bundle's unmerged
+  branches (`refs/` for `refs/heads/`) - no fixture held a tag; `counted`
+  calling zero singular, where an empty document's evidence reads "0
+  lines"; a deleted binary document whose name puts " and " at the line's
+  middle, read as the new side; and a binary document renamed to a name
+  git quotes, left quoted (POSIX only, as Windows cannot name the file).
+  Each now has a test, and four anchors stand for them: 554 in all. Of the
+  other two, one reads the old side in a fallback for a line git never
+  writes, and one widens the merged set by names that are never a local
+  branch's. The deleted document's test met a trap worth keeping: its
+  first fixture shared bytes with an added document, `--find-renames`
+  paired them as a rename, no deletion line was printed, and the mutant
+  survived a test written to kill it.
+
+**Verified, where before it was asserted.**
+- Every "no longer exists" row, re-derived by counting each line its
+  patch removes in today's source: Phase 68's 21, 70's 15 and 72's 19
+  name a line that is gone, and every retried "shifted" row a line that
+  occurs once. None was ambiguous - a line occurring twice, which the
+  stale split would have called gone while the mutant lived.
+- Every row classed "mypy" (34) carries a measured rejection in D7's
+  verdicts. Every phase's tally reconciles from its own rows to the
+  survivor count. Every per-commit figure in the pull request body
+  matches its gate log or the CI run of a docs-only successor, and the
+  run on its eighteenth commit matched its prediction on every leg.
+- Every campaign log since Phase 68: each anchor killed, none hung, none
+  overturned; the harness chains for Phases 68, 70 and 72 as recorded.
+- 1,697 tests before Phase 68 and 121 added since make 1,818, each new
+  file's count as its record states. The seven whole-output files parse
+  under 3.9's grammar and evaluate no `X | Y` at run time.
+- No expected value hides a survivor behind the code under test: the two
+  functions of a tested module that build expected lines, `fallback_note`
+  and `fingerprint`, had 0 and 1 (equivalent) survivors in D7.
+- Every contrived row was re-read; one ledger reason was imprecise (two
+  READMEs differing only in the suffix's case), its class right. The
+  equivalent rows whose reason rests on an assumption were checked against
+  the code: the repository rules' subject files are constants at the root.
+- Phase 68's twenty Windows-only rows had been decided with mutants
+  rebuilt by hand. Applied from D7's own patches to a clone of the
+  branch, each was killed on Windows by the test its reason names.
+
+**Siblings of the repairs, read.** `--deleted-since` turns `\` into `/` on
+both sides of its comparison, and its candidates come from the
+configuration, which normalises every `\` to `/` before anything reads
+it: no configured document can hold one, so it is consistent, as sweep.py's
+was. detect.py's trunk still reads `git branch --format`, where a detached
+HEAD's line can only fail a membership test against the trunk names.
+gate.py's replace guards a refusal, and refs.py's shapes a rename hint.
+
+**Stated, not changed.** `text.current_document` turns a POSIX name
+holding a backslash into a path under a directory, and sites.py and the
+manifest rule read it: such a document would be judged under a site or a
+manifest that is not its own. It never decides whether a claim is read;
+it is for sites.py's own surface. The sweep's summary still says
+"markdown file(s)" of reStructuredText.

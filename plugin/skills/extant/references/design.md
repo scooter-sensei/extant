@@ -98,6 +98,13 @@ Where each section went, by its title:
 - mutmut as a cross-check: what the hand-chosen anchors missed
 - The harnesses typed: 170 errors, and a harness broken for seven weeks
 - The tests typed: 1,640 errors, and a test of a pattern the tool refuses
+- The installer under mutmut: 896 survivors, outputs compared whole, and three defects
+- report.py under mutmut: 187 survivors, its outputs compared whole
+- introduced_since.py under mutmut: 142 survivors, and two defects in the gate
+- sweep.py under mutmut: 140 survivors, its report compared whole
+- collect.py under mutmut: 139 survivors, and a detached HEAD in the bundle
+- cli.py under mutmut: 115 survivors, its modes compared whole
+- The gap audit of Phases 68 to 73: two records wrong, and the lines the repairs wrote
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 

@@ -372,9 +372,14 @@ def collect(repo: Path, suite_json: str | None, config: Config,
                               "HEAD").strip() or "unknown"
         except subprocess.CalledProcessError:
             branch = "unknown"
-    merged = set(_GIT.soft(repo, "branch", "--merged",
-                           config.trunk).replace("*", "").split())
-    all_branches = set(_GIT.soft(repo, "branch", "--format=%(refname:short)").split())
+    # `for-each-ref` over refs/heads/, not `git branch`: the porcelain also
+    # lists a detached HEAD - a CI checkout, a rebase in progress - as a line
+    # of its own, `(HEAD detached at ...)`, and until 2026-10-08 the words of
+    # that line were listed here as unmerged branches.
+    merged = set(_GIT.soft(repo, "for-each-ref", "--format=%(refname:short)",
+                           f"--merged={config.trunk}", "refs/heads/").split())
+    all_branches = set(_GIT.soft(repo, "for-each-ref", "--format=%(refname:short)",
+                                 "refs/heads/").split())
     commits = commits_since(repo, boundary, config)
     unread: list[dict[str, str]] = []
     return {

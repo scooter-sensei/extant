@@ -387,6 +387,30 @@ def test_a_document_whose_name_git_quotes_is_still_gated(
     assert "[dead-sha]" in out, out
 
 
+@pytest.mark.skipif(os.name == "nt",
+                    reason="a backslash separates directories in a Windows filename")
+def test_a_document_whose_name_holds_a_backslash_is_gated_and_counted(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
+    """git separates a path with `/` on every platform, so a backslash in one
+    is part of the NAME - legal on POSIX, and quoted by git. The gate turned
+    it into `/` in three places, so the document's introduced lines were
+    looked up under a name the diff never gave: its new claim was set aside
+    as sitting on an untouched line, its lines went uncounted, and it was
+    counted among the documents the range left alone."""
+    repo, commit = git_repo
+    commit("odd\\name.md", "# Odd\n", "docs")
+    commit("odd\\name.md", f"# Odd\n\nMerged at `{DEAD}`.\n", "docs: claim")
+
+    code = _gate(repo, "HEAD~1")
+    out = capsys.readouterr().out
+
+    assert code == 1, out
+    assert "odd\\name.md: line 3: [dead-sha]" in out, out
+    assert ": 2 introduced line(s), 1 finding(s) on them" in out, out
+    assert "  0 tracked document(s) the range did not change were not read" in out, out
+    assert "sit on lines the range did not touch" not in out, out
+
+
 def test_a_document_git_reads_as_binary_is_counted_not_examined(
         git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
     """A NUL byte makes git call the file binary and print no hunks. The sweep
@@ -408,6 +432,70 @@ def test_a_document_git_reads_as_binary_is_counted_not_examined(
     assert code == 0, out
     assert "1 changed document(s) git reads as binary" in out, out
     assert "docs/odd.md" in out, out
+
+
+def test_a_binary_document_is_named_whole_whatever_its_name_holds(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
+    """git names a binary change on one line, `Binary files <old> and <new>
+    differ`, and the new side was taken after the LAST " and " - so a
+    document named "cats and dogs.md" was reported as "dogs.md" and, its
+    real name never touched, counted among the documents the range left
+    alone. Modified, added and renamed are each named whole: a modified one
+    splits at the line's middle, since both sides are one path; an added one
+    follows `/dev/null and `; a renamed one is named by git's `rename to`.
+    A deleted one introduced nothing and is not named - even when its name
+    puts " and " at the line's middle, where a split there would read the
+    rest as a new side."""
+    repo, _commit = git_repo
+    blob = b"# Pets\n\x00\n" + b"x" * 400 + b"\n"
+    (repo / "cats and dogs.md").write_bytes(blob)
+    (repo / "old and new.md").write_bytes(blob + b"kept\n")
+    # `a/retired document` is as long as `x.md and /dev/null`; and its bytes
+    # are like no other's, or `--find-renames` pairs it with the added one.
+    (repo / "retired document and x.md").write_bytes(b"\x00" + b"z" * 900)
+    _run(repo, "add", "-A")
+    _run(repo, "commit", "-qm", "docs: binaries")
+    (repo / "cats and dogs.md").write_bytes(blob + b"more\n")
+    _run(repo, "rm", "-q", "retired document and x.md")
+    _run(repo, "mv", "old and new.md", "renamed and moved.md")
+    (repo / "renamed and moved.md").write_bytes(blob + b"kept, and edited\n")
+    (repo / "fresh and new.md").write_bytes(blob)
+    _run(repo, "add", "-A")
+    _run(repo, "commit", "-qm", "docs: change them")
+
+    code = _gate(repo, "HEAD~1")
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    assert ("  3 changed document(s) git reads as binary and were not examined: "
+            "cats and dogs.md, fresh and new.md, renamed and moved.md\n") in out, out
+    assert "  0 tracked document(s) the range did not change were not read" in out, out
+
+
+@pytest.mark.skipif(os.name == "nt",
+                    reason="a backslash separates directories in a Windows filename")
+def test_a_binary_document_renamed_to_a_name_git_quotes_is_named_as_it_is(
+        git_repo: GitRepo, capsys: pytest.CaptureFixture[str]) -> None:
+    """`rename to` quotes a name holding a backslash as the `+++` line does,
+    so the name read there is unquoted before a binary document is named by
+    it. Edited as well as moved: a rename alone prints no `Binary files`
+    line at all."""
+    repo, _commit = git_repo
+    blob = b"# Pets\n\x00\n" + b"x" * 400 + b"\n"
+    (repo / "plain.md").write_bytes(blob)
+    _run(repo, "add", "-A")
+    _run(repo, "commit", "-qm", "docs: a binary")
+    _run(repo, "mv", "plain.md", "odd\\name.md")
+    (repo / "odd\\name.md").write_bytes(blob + b"edited\n")
+    _run(repo, "add", "-A")
+    _run(repo, "commit", "-qm", "docs: renamed")
+
+    code = _gate(repo, "HEAD~1")
+    out = capsys.readouterr().out
+
+    assert code == 0, out
+    assert ("  1 changed document(s) git reads as binary and were not examined: "
+            "odd\\name.md\n") in out, out
 
 
 def test_a_bare_carriage_return_document_is_surveyed_not_gated(
