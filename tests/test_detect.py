@@ -278,6 +278,14 @@ def test_a_one_line_document_is_measured_in_the_singular(tmp_path: Path) -> None
     assert obs[0] == Observation("primary_doc", "STATUS.md", "derived", "1 line")
 
 
+def test_an_empty_document_is_measured_in_the_plural(tmp_path: Path) -> None:
+    """The singular is for one alone: an empty document has "0 lines"."""
+    repo = _tagged(tmp_path)
+    doc = write(repo / "STATUS.md", "")
+    obs, _info = install.observe(repo, doc)
+    assert obs[0] == Observation("primary_doc", "STATUS.md", "derived", "0 lines")
+
+
 def test_a_detached_head_is_not_counted_as_a_branch(tmp_path: Path) -> None:
     """`git branch` lists a detached HEAD as `(HEAD detached at 1a2b3c4)`, and
     the sample counted that line: a repository with one branch was reported

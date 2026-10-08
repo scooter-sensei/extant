@@ -69,7 +69,8 @@ def test_a_bundle_with_a_boundary_is_compared_whole(tmp_path: Path) -> None:
     changed: past an excluded file that sorts first, not in an excluded
     directory or in markdown, and a file that is not UTF-8 named apart. The
     newest plan's boxes, one of them not ASCII. A branch merged into the
-    trunk is not listed; one that is not, is."""
+    trunk is not listed; one that is not, is; a tag and a remote-tracking
+    branch are not branches of this repository, and are not listed."""
     python = Path(sys.executable).as_posix()
     repo = _init(tmp_path)
     boundary = _commit(repo, {
@@ -96,6 +97,8 @@ def test_a_bundle_with_a_boundary_is_compared_whole(tmp_path: Path) -> None:
     second = _commit(repo, {"vendor/v.py": b"# TODO: excluded directory\n",
                             "b.py": b"# caf\xe9\n",
                             "notes.md": b"TODO: not code\n"}, "Phase 9.5b fix")
+    _git(repo, "tag", "v9.5")
+    _git(repo, "update-ref", "refs/remotes/origin/elsewhere", first)
     _git(repo, "checkout", "-q", "-b", "feature/open")
     _commit(repo, {"c.py": b"y = 2\n"}, "feat: open work")
     _git(repo, "checkout", "-q", "main")

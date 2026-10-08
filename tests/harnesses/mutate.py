@@ -3383,6 +3383,25 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("a bare --repo is refused without naming what it needs", cli,
          '            build_parser().error("--repo requires a PATH")',
          '            build_parser().error("--repo")'),
+
+        # --- Phase 73's gap audit: the lines the repairs wrote -----------------
+        # D7 ran mutmut on the code before Phases 68, 70 and 72 repaired it, so
+        # the repaired lines had one anchor each. The audit mutated them by hand;
+        # these stand for the four survivors its new tests kill. One only Linux
+        # can kill: Windows cannot name the file.
+        ("a tag is listed among unmerged branches",
+         collect.parent / "extant/collect.py",
+         '    all_branches = set(_GIT.soft(repo, "for-each-ref", "--format=%(refname:short)",\n                                 "refs/heads/").split())',
+         '    all_branches = set(_GIT.soft(repo, "for-each-ref", "--format=%(refname:short)",\n                                 "refs/").split())'),
+        ("an empty document is counted in the singular", detect,
+         '    return f"{n} {one if n == 1 else many}"',
+         '    return f"{n} {one if n <= 1 else many}"'),
+        ("a deleted binary document is named by the line's middle", introduced_since,
+         '    if body.endswith(b" and /dev/null"):',
+         '    if body.endswith(b"/dev/null and "):'),
+        ("a binary renamed to a name git quotes keeps the quotes (Linux only)", introduced_since,
+         '            renamed = unquote_path(raw[len(b"rename to "):].decode("utf-8", "replace"))',
+         '            renamed = raw[len(b"rename to "):].decode("utf-8", "replace")'),
     ]
 
 
