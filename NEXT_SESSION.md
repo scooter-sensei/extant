@@ -6,6 +6,38 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 69 - What the validator renders, compared whole (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for report.py, the
+second of its surfaces.
+- 1,766 tests across 86 files, of which 1,758 pass and 8 skip on this
+  machine. On Linux 1,764 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 149 files.
+- 490 mutation anchors match, 16 of them new; the Windows campaign
+  killed all 16, none hung and none overturned.
+- The payload did not change - no line of report.py moved - so no
+  identity gate, and no harness the chain runs changed.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **One test file compares what report.py renders, whole.**
+  `tests/test_report_outputs.py`, twelve tests: a SARIF run parsed and as
+  text, on a cited document whose lines each reach a branch of the snippet
+  and its columns; the cut past GitHub's result limit in each of the three
+  ways it is reached; the annotations and their escape; the baseline file
+  byte for byte, and read back; the grouped text and a sweep's sections.
+- **16 mutation anchors**, one per surface, two that only Windows can kill.
+
+**What D7's survivors came to.** Of report.py's 187 mutants that survived
+the whole suite, the new tests kill 160 on Linux and 5 more, which only
+Windows can see, there; 22 are equivalent. No real one is left, and none
+was a defect.
+
+The numbers are in "report.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 68 - The installer's outputs compared whole, and three defects they found (unreleased, 2026-10-07)
 
 **Status.** Built and gated; D7's measurement acted on for install.py and

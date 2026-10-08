@@ -2787,3 +2787,88 @@ extract of the tree: 0 new and 0 missing, 213 of 213. `--verify` exits 0
 here and on a main-only clone; `--selftest` fires 7 rules with 0 silent;
 `--introduced-since origin/main` reads 222 introduced lines with 0
 findings. The payload did not change, so no identity gate.
+
+## report.py under mutmut: 187 survivors, its outputs compared whole
+
+Phase 69 (2026-10-08) is D7's next surface after the installer, by Phase
+68's method and the decisions above. report.py renders what every run
+reports - text, GitHub annotations, SARIF - and writes the baseline. D7
+found 187 of its 843 mutants alive after the whole suite: 118 in
+`format_sarif`, 26 in `write_baseline`, the rest in ten helpers; mypy
+rejects 6. The tests had asserted pieces of each output - a level, a URI,
+that some notification mentioned the cut - so a renamed key, a changed fixed
+value or a column moved at a boundary went unseen.
+
+**The tests.** `tests/test_report_outputs.py`, twelve tests, compares:
+- one SARIF run, whole, parsed and as text indented by two. Descriptors from
+  the registry and the fallback for a kind it does not hold; a result per
+  finding; a cited document whose lines each reach one branch of the snippet
+  and its region - the subject twice on its line, at column 1, ending on the
+  last column a region may name, starting one past it on a line over the
+  cap, absent - beside a line of exactly the cap, trailing spaces, a closing
+  capital and a character outside ASCII; then the denominator, a NOTE, a
+  rule switched off and one that raised;
+- the cut, in each of the three ways `format_sarif` is called past the
+  limit - as every mode calls it, with the NOTE among its notes; with the
+  denominator and no NOTE; with neither - and the overflow NOTE at GitHub's
+  25,000 itself;
+- UTF-16 lengths either side of the plane boundary;
+- the workflow-command escape, and two annotations, whole;
+- the baseline file byte for byte - one entry per (path, kind, detail) with
+  its count, sorted, ASCII, LF, indented by two - and read back; a baseline
+  edited by hand in UTF-8; and the two errors a baseline that cannot be read
+  raises;
+- `render_findings` handing each format every argument;
+- grouped text, and a sweep's sections with their entry count.
+
+**The closing measurement.** `m30_redcheck.sh`, `m29_redcheck.sh` with the
+worktree and output directory as parameters, applies each of D7's 187
+patches to a clean clone of main with the new test file over it and runs
+only that file; CLEAN passed in every run.
+
+| | report.py |
+|:--|--:|
+| D7 survivors | 187 |
+| killed on Linux | 160 |
+| killed on Windows only | 5 |
+| equivalent | 22 |
+
+No real row is left, and none of the 187 was a defect, so report.py itself
+did not change. The first round killed 142. Reading the 45 left found the
+two calls past the limit that only a direct call makes - the denominator
+without the NOTE, and neither - which a test already made and never compared
+whole; comparing them killed 21 more. The five Windows-only rows - the
+cited line and a hand-edited baseline decoded with the locale, the baseline
+written with CRLF - were each applied on Windows and watched killed. The
+equivalent rows are a codec spelled in capitals (4), encodings of a file
+`ensure_ascii` keeps ASCII (2), `ensure_ascii` dropped where its default is
+the same (1), newline modes that split lines alike and are stripped alike
+(2), the first field of a split whatever the count (2), a title escape no
+rule's kind can reach (3), a default no caller uses (1), a fallback rank no
+stratum reaches (2), the limit compared with `<` where the list at exactly
+the limit comes back the same (1), a condition `split` always satisfies
+(1), and the flag beside `render_findings`' lines, which every caller
+discards (3). Each carries its reason in `residue_report.tsv`.
+
+**Seen and not taken**, each a simplification rather than a gap:
+`render_findings` returns its lines with a `True` no caller reads, since
+every mode decides the stream itself; `_baseline_entry`'s `count` default
+is never used; `_sarif_kept`'s fallback rank cannot be reached, because the
+strata are a partition.
+
+**Anchors.** 16 in `mutate.py`'s Phase 69 block, one per surface on its
+most specific line, two that only Windows can kill: 490 in all.
+The Windows campaign, on a copy, killed all 16 in 40 minutes - none
+hung, none overturned by the serial check.
+
+**Gated, Phase 69**, on the final tree before any commit. 1,766 tests: on
+Windows 1,758 pass and 8 skip, on Linux 1,764 and 2, serially and in CI's
+shuffled order. mypy clean on 149 files; 490 anchors match. `--verify`
+exits 0 here and on a main-only clone; `--selftest` fires 7 rules with 0
+silent; `--introduced-since origin/main` reads 391 introduced lines
+with 0 findings. The payload did not change, so no identity gate, and no
+harness the chain runs changed.
+
+D7 is not done. introduced_since.py (142), sweep.py (140), collect.py
+(139), cli.py and gate.py (115 each), deleted_since.py (114) and the rest
+remain, a surface each.

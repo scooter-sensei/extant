@@ -99,6 +99,7 @@ Where each section went, by its title:
 - The harnesses typed: 170 errors, and a harness broken for seven weeks
 - The tests typed: 1,640 errors, and a test of a pattern the tool refuses
 - The installer under mutmut: 896 survivors, outputs compared whole, and three defects
+- report.py under mutmut: 187 survivors, its outputs compared whole
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 

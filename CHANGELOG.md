@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.30.0, unreleased: Phases 67 and 68.
+Above 0.30.0, unreleased: Phases 67, 68 and 69.
 
 Phase 67 type-checks the tests and the release gate with the package.
 Nothing a user runs changed. One test asserted on a pattern the
@@ -23,7 +23,11 @@ installer:
   UnicodeEncodeError before `.extant.toml` was written; the console now
   shows `?` and the files keep the name.
 
-Their records are Phases 67 and 68 in NEXT_SESSION.md.
+Phase 69 compares what the validator renders whole - the SARIF document,
+the GitHub annotations, the baseline file and the grouped text. Nothing a
+user runs changed: none of what those tests measured was a defect.
+
+Their records are Phases 67 to 69 in NEXT_SESSION.md.
 
 ## 0.30.0 (2026-10-06)
 
