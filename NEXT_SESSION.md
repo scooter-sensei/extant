@@ -6,6 +6,43 @@ reference and is never archived.
 This file is not decoration. It is the corpus the test suite validates against,
 so the tool is exercised on a real document rather than only on fixtures.
 
+## Phase 72 - The handoff bundle compared whole, and a detached HEAD in it (unreleased, 2026-10-08)
+
+**Status.** Built and gated; D7's measurement acted on for collect.py, the
+fifth of its surfaces.
+- 1,802 tests across 89 files, of which 1,790 pass and 12 skip on this
+  machine. On Linux 1,800 pass and 2 skip, serially and in CI's
+  shuffled order.
+- `python -m mypy`: no issues in 152 files.
+- 534 mutation anchors match, 14 of them new; the Windows campaign
+  killed all 14, none hung and none overturned.
+- The payload changed - one repair to `--collect` - so the harness chain
+  ran on an extract: smoke 0 new and 0 missing, scenarios 213 of 213,
+  fuzz 0 violations, `--self-check` 23 of 23.
+- No rule added or removed, thirteen as before; no mode added.
+- The tool remained released as 0.30.0.
+
+**What changed.**
+- **A detached HEAD is not listed among unmerged branches.** `git branch`
+  writes it as `(HEAD detached at ...)`, and the bundle split every line
+  into words, so a detached HEAD off the trunk arrived as four "branches".
+  It lists refs/heads/ through `for-each-ref` now, as detect.py has since
+  Phase 68.
+- **One test file compares the bundle whole**,
+  `tests/test_collect_outputs.py`: three repositories - work after a
+  boundary, an unborn branch, no boundary at all - and the suite runner's
+  errors.
+- **14 mutation anchors**, one per surface, the repair reverted.
+
+**What D7's survivors came to.** Of collect.py's 139 mutants that survived
+the whole suite, the new tests kill 94 on Linux and 8 more, which only
+Windows can see, there; mypy rejects 2, 12 are equivalent, 4 contrived,
+and 19 no longer exist because the repair rewrote the lines they mutate.
+No real one is left.
+
+The numbers are in "collect.py under mutmut" in
+`plugin/skills/extant/references/design/quality.md`.
+
 ## Phase 71 - The survey's report compared whole (unreleased, 2026-10-08)
 
 **Status.** Built and gated; D7's measurement acted on for sweep.py, the

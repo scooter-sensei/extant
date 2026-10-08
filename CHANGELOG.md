@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Above 0.30.0, unreleased: Phases 67 to 71.
+Above 0.30.0, unreleased: Phases 67 to 72.
 
 Phase 67 type-checks the tests and the release gate with the package.
 Nothing a user runs changed. One test asserted on a pattern the
@@ -41,7 +41,12 @@ Phase 71 compares the `--sweep` report whole, in text and in SARIF.
 Nothing a user runs changed: none of what those tests measured was a
 defect.
 
-Their records are Phases 67 to 71 in NEXT_SESSION.md.
+Phase 72 compares the `--collect` handoff bundle whole and repairs one
+thing those tests found: on a detached HEAD - a pull request's CI
+checkout, a rebase in progress - the bundle's `unmerged_branches` no
+longer lists the words of git's `(HEAD detached at ...)` line as branches.
+
+Their records are Phases 67 to 72 in NEXT_SESSION.md.
 
 ## 0.30.0 (2026-10-06)
 

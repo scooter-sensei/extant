@@ -3044,3 +3044,80 @@ exits 0 here and on a main-only clone; `--selftest` fires 7 rules with 0
 silent; `--introduced-since origin/main` reads 648 introduced lines
 with 0 findings. The payload did not change, so neither the chain nor the
 identity gate ran.
+
+## collect.py under mutmut: 139 survivors, and a detached HEAD in the bundle
+
+Phase 72 (2026-10-08) is D7's fifth surface: the `--collect` handoff
+bundle. D7 found 139 of collect.py's 480 mutants alive after the whole
+suite - 49 in `collect`, 37 in `run_suite`, 19 in `read_plan`, 13 in
+`scan_todos` - with mypy rejecting 24. The tests asserted single fields of
+the bundle, so a renamed key, a branch resolved the wrong way, a TODO scan
+that stopped early or a measured suite run in the wrong directory went
+unseen.
+
+**A defect, found reading the survivors**, with a test watched failing
+first: on a detached HEAD the bundle's `unmerged_branches` listed four
+words that are not branches. `git branch` writes a detached HEAD as a line
+of its own, `(HEAD detached at ...)`, and the bundle split every line of it
+on whitespace - so a detached HEAD not merged into the trunk arrived as
+`(HEAD`, `at`, `detached` and the ref beside the real branches. A pull
+request's CI checkout and a rebase in progress are both a detached HEAD.
+It asks `for-each-ref` for refs/heads/ now, `--merged` for the merged
+half, which holds branches and nothing else - Phase 68's repair to
+detect.py, where the same line was counted as a branch.
+
+**The tests.** `tests/test_collect_outputs.py`, eight tests. Three bundles
+compared whole: one with a boundary and work after it - commits whose
+phase only the task pattern can name, a suite MEASURED by a command that
+reads a file in the repository, TODOs past an excluded file that sorts
+first, an excluded directory, markdown and a file that is not UTF-8, the
+newest plan with a box not in ASCII, a merged and an unmerged branch; one
+on an unborn branch, with the plan switched off and a supplied result not
+in ASCII; one whose status document was never committed, so every commit
+is work and every tracked file is read. Beside them: the two errors the
+suite runner raises, a summary missing a count, each phase pattern with the
+other off, and - on POSIX only - a code file that cannot be opened at all.
+
+**The closing measurement.** `m30_redcheck.sh` with both collect test
+files run; CLEAN passed in every run. The repair rewrote the two lines
+listing branches, so 31 patches no longer applied; `m30_stale.py` found 12
+whose context had only moved, retried with no context required, and 19
+naming a mutant that no longer exists.
+
+| | collect.py |
+|:--|--:|
+| D7 survivors | 139 |
+| killed on Linux | 94 |
+| killed on Windows only | 8 |
+| caught by `mypy --strict` | 2 |
+| equivalent | 12 |
+| contrived | 4 |
+| no longer exist | 19 |
+
+No real row is left. The Windows-only rows - a plan, a supplied result or a
+code file decoded with the locale, and the plan's path keeping Windows'
+separators - were each applied on Windows and watched killed. The
+equivalent rows are codec spellings (4), newline modes `splitlines` reads
+alike (4), "unknown" respelled where `symbolic-ref` is never empty (2), and
+a blank line or a NUL `git log` never writes (2); the contrived ones need
+`rev-parse` and `symbolic-ref` to fail together (3) or the status document
+gone from the working tree (1). Each carries its reason in
+`residue_collect.tsv`.
+
+**Anchors.** 14 in `mutate.py`'s Phase 72 block, one per surface, the
+repair reverted, two that only Windows can kill: 534 in all. The Windows
+campaign, on a copy, killed all 14 in 38 minutes - none hung, none
+overturned by the serial check.
+
+**Gated, Phase 72**, on the final tree before any commit. 1,802 tests: on
+Windows 1,790 pass and 12 skip, on Linux 1,800 and 2, serially and in CI's
+shuffled order. mypy clean on 152 files; 534 anchors match. The chain on an
+extract: smoke 0 new and 0 missing, scenarios 213 of 213, fuzz 0
+violations at CI's seed, `--self-check` 23 of 23. `--verify` exits 0 here
+and on a main-only clone; `--selftest` fires 7 rules with 0 silent;
+`--introduced-since origin/main` reads 768 introduced lines with 0
+findings.
+
+**Not run: the corpus identity gate.** It compares `--sweep` outputs, and
+nothing `--sweep` runs imports collect.py. The harness chain runs
+`--collect` - the fuzzer among it - and ran on an extract.

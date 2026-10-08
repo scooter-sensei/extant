@@ -102,6 +102,7 @@ Where each section went, by its title:
 - report.py under mutmut: 187 survivors, its outputs compared whole
 - introduced_since.py under mutmut: 142 survivors, and two defects in the gate
 - sweep.py under mutmut: 140 survivors, its report compared whole
+- collect.py under mutmut: 139 survivors, and a detached HEAD in the bundle
 
 ## Architecture: fat script, thin subagent, validator gates the commit
 
