@@ -3163,6 +3163,62 @@ def build_mutations(collect: Path, detect: Path) -> list[tuple[str, Path, str, s
         ("the overflow NOTE lists the strata in classification order", report,
          '    order = ", ".join(reversed(strata.ORDER))',
          '    order = ", ".join(strata.ORDER)'),
+
+        # --- Phase 70: what mutmut left alive in introduced_since.py ------------
+        # D7 found 142 of its 574 mutants alive after the whole suite, 93 of
+        # them in the report run_introduced_since prints. Phase 70's tests
+        # compare that report WHOLE, in text and in SARIF, where it moves to
+        # stderr; these stand for them, one per surface, with the two repairs
+        # reverted. Two only Linux can kill: Windows names no file with a
+        # backslash or with bytes that are not UTF-8.
+        ("the gate's report goes to stdout beside its SARIF", introduced_since,
+         '    out = sys.stderr if fmt == "sarif" else sys.stdout',
+         '    out = sys.stdout'),
+        ("a binary document's name is cut at its last ' and ' again", introduced_since,
+         '            named = renamed if renamed is not None else _binary_new_side(raw)',
+         '            named = _new_side(raw[:-len(b" differ")].rsplit(b" and ", 1)[-1], b"")'),
+        ("a renamed binary document is named by the line's middle", introduced_since,
+         '            named = renamed if renamed is not None else _binary_new_side(raw)',
+         '            named = _binary_new_side(raw)'),
+        ("a backslash in a document's name is read as a separator again (Linux only)", introduced_since,
+         '                wrote = lines.get(relative, set())',
+         '                wrote = lines.get(relative.replace("\\\\", "/"), set())'),
+        ("a name that is not UTF-8 stops the gate (Linux only)", introduced_since,
+         '    raw = header[len(prefix):].decode("utf-8", "replace")',
+         '    raw = header[len(prefix):].decode("utf-8")'),
+        ("a lost document ends the gate's reading", introduced_since,
+         '                    unreturned.append(relative)\n                    continue',
+         '                    unreturned.append(relative)\n                    break'),
+        ("a serial survey's rule errors are recorded twice", introduced_since,
+         '                if workers and errors:',
+         '                if errors:'),
+        ("the bare carriage return count stops at one", introduced_since,
+         '                        surveyed += 1',
+         '                        surveyed = 1'),
+        ("the untouched-line count stops at one", introduced_since,
+         '                        aside += 1',
+         '                        aside = 1'),
+        ("every changed document but the primary is surveyed as the primary", introduced_since,
+         '    tasks = [(relative, relative == primary) for relative in kept]',
+         '    tasks = [(relative, relative != primary) for relative in kept]'),
+        ("a changed primary document is said to be outside the range", introduced_since,
+         '        claims="they make no such claims", primary_read=primary in kept,',
+         '        claims="they make no such claims", primary_read=False,'),
+        ("the SARIF overflow NOTE is printed in the text report", introduced_since,
+         '    overflow = sarif_overflow_note(len(gating)) if fmt == "sarif" else []',
+         '    overflow = sarif_overflow_note(len(gating))'),
+        ("the gate's worker count goes to stdout beside its SARIF", introduced_since,
+         '        print(f"  surveyed across {workers} worker process(es)", file=out)',
+         '        print(f"  surveyed across {workers} worker process(es)")'),
+        ("the gate's SARIF leaves out the pool fallback", introduced_since,
+         '                                    + fallback_note(fallback) + overflow,',
+         '                                    + overflow,'),
+        ("a claim the range wrote into a vendored document is called ordinary", introduced_since,
+         '                                              gating=True,\n                                              stratum=strata.classify(relative)))',
+         '                                              gating=True))'),
+        ("the failed-diff refusal names the base by eight characters", introduced_since,
+         '        print(f"--introduced-since {ref}: git diff against {base[:7]} failed "',
+         '        print(f"--introduced-since {ref}: git diff against {base[:8]} failed "'),
     ]
 
 
